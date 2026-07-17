@@ -44,6 +44,17 @@ pub const STAKE_EXEMPT_ACCOUNTS: &[&str] = &["shindevlin", "__testnet_fund__", "
 /// See docs/CLOCK_BOOTSTRAP_GRACE.md.
 pub const CLOCK_BOOTSTRAP_GRACE_END_EPOCH: u64 = 100_000;
 
+/// Confirmation depth before an epoch's reward/recycle/decay mutation is applied.
+///
+/// BUG 6: the winning EpochFinalize entry drives the balance mutation, but a
+/// heavier-quorum competitor can still overwrite fork choice for a few epochs after
+/// the first entry lands. Applying the mutation on first-seen would credit off a
+/// possibly-losing entry. So we only apply an epoch's rewards once it is this many
+/// epochs behind the current tip — long enough that the fork-choice rewrite window
+/// has closed. Reuses the same finality tolerance as HIVE_REPLICA_MIN_CONFIRMATIONS
+/// (20); at 30 s/epoch that is ~10 minutes, far wider than any real rewrite window.
+pub const REWARD_FINALITY_DEPTH: u64 = 20;
+
 // ── Liveness / dead-man's-switch ─────────────────────────────────────────────
 
 /// Epochs of silence before the liveness countdown begins.

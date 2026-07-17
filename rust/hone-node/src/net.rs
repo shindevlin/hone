@@ -48,6 +48,9 @@ pub enum NetworkEvent {
     Entry { entry: serde_json::Value },
     /// An EPOCH_SEAL received over gossip.
     EpochSeal { seal: serde_json::Value },
+    /// A clock liveness beacon (`hone/clock-hello`) — signed proof a peer is a
+    /// registered clock. Updates only the in-memory registered set; never state.
+    ClockHello { hello: serde_json::Value },
     /// A reward consensus proposal received from a peer clock node.
     ConsensusProposal { epoch: u64, rewards_hash: String, node_id: String },
     /// A new peer connection was established.
@@ -103,6 +106,12 @@ const TOPIC_ENTRIES:    &str = "hone/entries";
 const TOPIC_SEALS:      &str = "hone/seals";
 const TOPIC_SYNC:       &str = "hone/sync";
 const TOPIC_CONSENSUS:  &str = "hone/consensus";
+// Clock liveness beacon — a signed "I am a registered clock" announcement that
+// updates only the IN-MEMORY registered set on receivers. It is NOT a ledger entry
+// and never touches chain state, so re-announcing every epoch (for late-joining
+// peers) cannot fork state_root. On-chain registration stays a write-once
+// ClockNodeRegister. See DRYRUN_2CLOCK / BUG 6.
+const TOPIC_CLOCK_HELLO: &str = "hone/clock-hello";
 
 // ---------------------------------------------------------------------------
 // Network struct
@@ -272,25 +281,33 @@ impl Network {
         let t_seals     = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_SEALS));
         let t_sync      = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_SYNC));
         let t_consensus = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_CONSENSUS));
+        let t_clock_hello = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_CLOCK_HELLO));
 
         swarm.behaviour_mut().gossipsub.subscribe(&t_blocks)?;
         swarm.behaviour_mut().gossipsub.subscribe(&t_entries)?;
         swarm.behaviour_mut().gossipsub.subscribe(&t_seals)?;
         swarm.behaviour_mut().gossipsub.subscribe(&t_sync)?;
         swarm.behaviour_mut().gossipsub.subscribe(&t_consensus)?;
+        swarm.behaviour_mut().gossipsub.subscribe(&t_clock_hello)?;
 
         // ------------------------------------------------------------------
         // 4. Listeners
         // ------------------------------------------------------------------
+        // Isolated mode binds LOOPBACK only, so other nodes on the host/LAN cannot
+        // dial in — an isolated N-clock test must not be reachable by (or reach) any
+        // node outside its explicit HONE_BOOTSTRAP_PEERS set. Production binds all
+        // interfaces so peers can connect from anywhere.
+        let bind_ip = if self.config.isolated { "127.0.0.1" } else { "0.0.0.0" };
+
         let listen_tcp: Multiaddr =
-            format!("/ip4/0.0.0.0/tcp/{}", self.config.p2p_port).parse()?;
+            format!("/ip4/{}/tcp/{}", bind_ip, self.config.p2p_port).parse()?;
         swarm.listen_on(listen_tcp)?;
 
         // WebSocket transport — allows nodes behind NAT to connect via the
         // cloudflared tunnel at wss://p2p.honemesh.net (port 443 → local 4943).
         let ws_port = std::env::var("HONE_WS_PORT")
             .ok().and_then(|s| s.parse().ok()).unwrap_or(4943u16);
-        let listen_ws: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}/ws", ws_port).parse()?;
+        let listen_ws: Multiaddr = format!("/ip4/{}/tcp/{}/ws", bind_ip, ws_port).parse()?;
         swarm.listen_on(listen_ws)?;
 
         // QUIC transport — UDP, encrypted natively, mobile-friendly, punches NAT better than TCP.
@@ -298,7 +315,7 @@ impl Network {
         // Override with HONE_QUIC_PORT if the UDP port needs to differ from p2p_port.
         let quic_port: u16 = std::env::var("HONE_QUIC_PORT")
             .ok().and_then(|s| s.parse().ok()).unwrap_or(self.config.p2p_port);
-        let listen_quic: Multiaddr = format!("/ip4/0.0.0.0/udp/{}/quic-v1", quic_port).parse()?;
+        let listen_quic: Multiaddr = format!("/ip4/{}/udp/{}/quic-v1", bind_ip, quic_port).parse()?;
         if let Err(e) = swarm.listen_on(listen_quic) {
             warn!("QUIC listener failed (UDP/{} unavailable): {}", quic_port, e);
         }
@@ -320,13 +337,20 @@ impl Network {
         //           after discovery so they're all handled in one unified pass).
 
         // Layer 3: Hive + TON registry (10s timeout — best effort).
-        let chain_id = self.config.chain_id.clone();
-        let discovered = tokio::time::timeout(
-            Duration::from_secs(10),
-            discovery::fetch_all_peers(&chain_id),
-        )
-        .await
-        .unwrap_or_default();
+        // Isolated mode makes NO outbound discovery calls, so the node cannot pull
+        // in live-network peers and stays confined to HONE_BOOTSTRAP_PEERS.
+        let discovered: Vec<String> = if self.config.isolated {
+            info!("[isolated] skipping public peer discovery (Hive/honemesh.net)");
+            Vec::new()
+        } else {
+            let chain_id = self.config.chain_id.clone();
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                discovery::fetch_all_peers(&chain_id),
+            )
+            .await
+            .unwrap_or_default()
+        };
 
         // Dial config bootstrap peers + discovery peers together.
         let all_bootstrap: Vec<String> = self.config.bootstrap_peers.iter()
@@ -346,7 +370,8 @@ impl Network {
 
         // Announce own WS multiaddr to honemesh.net peer registry.
         // HONE_ANNOUNCE_ADDR overrides; otherwise builds from peer_id + p2p.honemesh.net.
-        {
+        // Skipped in isolated mode — no outbound registry calls.
+        if !self.config.isolated {
             let peer_id = swarm.local_peer_id().to_string();
             let chain_id = self.config.chain_id.clone();
             let node_id  = self.config.node_id.clone();
@@ -394,7 +419,7 @@ impl Network {
                 }
                 Some(cmd) = self.cmd_rx.recv() => {
                     self.handle_cmd(cmd, &mut swarm,
-                        &t_blocks, &t_entries, &t_seals, &t_sync, &t_consensus);
+                        &t_blocks, &t_entries, &t_seals, &t_sync, &t_consensus, &t_clock_hello);
                 }
                 _ = rebootstrap.tick() => {
                     let connected = swarm.connected_peers().count();
@@ -491,10 +516,17 @@ impl Network {
             SwarmEvent::Behaviour(HoneBehaviourEvent::Mdns(
                 mdns::Event::Discovered(peers)
             )) => {
-                for (peer_id, addr) in peers {
-                    info!("mDNS: discovered {} at {}", peer_id, addr);
-                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
-                    let _ = swarm.dial(addr);
+                // Isolated mode ignores mDNS-discovered peers so the node cannot pick
+                // up other hone nodes on the LAN (e.g. a dev node on the same host) —
+                // it dials only the explicitly-listed HONE_BOOTSTRAP_PEERS.
+                if self.config.isolated {
+                    debug!("[isolated] ignoring {} mDNS-discovered peer(s)", peers.len());
+                } else {
+                    for (peer_id, addr) in peers {
+                        info!("mDNS: discovered {} at {}", peer_id, addr);
+                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                        let _ = swarm.dial(addr);
+                    }
                 }
             }
             SwarmEvent::Behaviour(HoneBehaviourEvent::Mdns(
@@ -545,6 +577,7 @@ impl Network {
             else if h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_SEALS)).hash()      { TOPIC_SEALS      }
             else if h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_SYNC)).hash()       { TOPIC_SYNC       }
             else if h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_CONSENSUS)).hash()  { TOPIC_CONSENSUS  }
+            else if h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_CLOCK_HELLO)).hash() { TOPIC_CLOCK_HELLO }
             else {
                 debug!("Message on unknown topic hash {:?}", h);
                 return;
@@ -607,6 +640,11 @@ impl Network {
             TOPIC_SEALS => {
                 info!("Received epoch seal from {}", source);
                 self.emit(NetworkEvent::EpochSeal { seal: json });
+            }
+
+            TOPIC_CLOCK_HELLO => {
+                debug!("Received clock-hello from {}", source);
+                self.emit(NetworkEvent::ClockHello { hello: json });
             }
 
             TOPIC_CONSENSUS => {
@@ -676,6 +714,7 @@ impl Network {
         t_seals:     &gossipsub::IdentTopic,
         t_sync:      &gossipsub::IdentTopic,
         t_consensus: &gossipsub::IdentTopic,
+        t_clock_hello: &gossipsub::IdentTopic,
     ) {
         match cmd {
             NetCmd::Broadcast { topic, data } => {
@@ -685,6 +724,7 @@ impl Network {
                     TOPIC_SEALS      => t_seals.clone(),
                     TOPIC_SYNC       => t_sync.clone(),
                     TOPIC_CONSENSUS  => t_consensus.clone(),
+                    TOPIC_CLOCK_HELLO => t_clock_hello.clone(),
                     other => {
                         warn!("NetCmd::Broadcast: unknown topic '{}'", other);
                         return;

@@ -7920,6 +7920,10 @@ async fn post_v1_chat_completions(
     }
 
     let default_model = s.current_model.read().await.clone();
+    // Honor the client's requested max_tokens (default 512, hard cap 1024) so
+    // callers can keep responses short and fast — the old code hardcoded 1024,
+    // which forced every request to run the full budget on CPU.
+    let req_max_tokens: usize = req.max_tokens.unwrap_or(512).clamp(1, 1024) as usize;
     let model = req.model.filter(|m| !m.is_empty()).unwrap_or(default_model);
     let model_clone = model.clone();
 
@@ -7950,7 +7954,7 @@ async fn post_v1_chat_completions(
             let eng_req = crate::inference_engine::ChatRequest {
                 model: model_clone.clone(),
                 messages: eng_messages,
-                max_tokens: 1024,
+                max_tokens: req_max_tokens,
             };
             let content = match crate::inference_engine::chat(eng_req).await {
                 Ok(r) => r.content,
@@ -7996,7 +8000,7 @@ async fn post_v1_chat_completions(
                 role: m.role.clone(),
                 content: m.content.clone(),
             }).collect(),
-            max_tokens: 1024,
+            max_tokens: req_max_tokens,
         };
         match crate::inference_engine::chat(eng_req).await {
             Ok(resp) => {

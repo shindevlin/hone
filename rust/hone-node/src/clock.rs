@@ -192,6 +192,13 @@ impl ClockConsensus {
 
             // Denominator is the registered set size when known; else observed proposals.
             let denominator = if reg.is_empty() { state.proposals.len() } else { reg.len() };
+            // Rewards require REAL quorum (Shin ruling a2d7f6c9: ">=2 for reward is fine").
+            // The earlier bootstrap solo-reward bypass (let a lone clock finalize its own
+            // rewards during grace) is REMOVED, not grace-scoped — a grace counter is the
+            // exact pattern that produced the permanently-open bypass Grouchly found, and
+            // "no bypass" has nothing to misconfigure. A solo node still SEALS (chain
+            // advances) but earns nothing until quorum >=2 reforms — at genesis OR under a
+            // post-launch partition. Delayed-but-recoverable rewards beat divergent-paid.
             let quorum_needed = ((denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize)
                 .max(quorum());
 
@@ -293,6 +300,36 @@ impl ClockConsensus {
     /// Set the current epoch (called by net/sync modules when chain advances).
     pub fn set_current_epoch(&self, epoch: u64) {
         self.inner.lock().unwrap().current_epoch = epoch;
+    }
+
+    /// Ensure an `epoch_states` entry exists for `epoch` so it will be resolved by
+    /// `tick()` even if NO seal is ever received for it (a genuinely empty epoch).
+    ///
+    /// Negative attestation (BUG 6): empty epochs previously got no epoch_states entry
+    /// (entries were created only on receive_seal), so they were never resolved, never
+    /// finalized, and only the per-node local finalizer timer credited their recycle —
+    /// diverging state between nodes. Seeding an entry here makes `tick()` resolve the
+    /// epoch as `sealed:false` on every node instead of ignoring it.
+    ///
+    /// ⚠️ KNOWN-INCOMPLETE (Grouchly verify pass, 938bdc8c): resolving `sealed:false`
+    /// alone is NOT yet full negative attestation — nothing currently consumes the
+    /// `sealed:false` branch into a reward proposal for a *globally* empty epoch (the
+    /// SealedEpoch{sealed:false} path falls through to a no-op in main.rs), so a truly
+    /// empty epoch still does not reach a quorum-agreed FinalizedEpoch on its own. It
+    /// only becomes reachable via the peer-ingest proposal path — which is itself the
+    /// locally-empty-but-remotely-sealed double-credit race. The correct fix (replay-
+    /// derive the mutation off the fork-choice-winning EpochFinalize in apply_entry) is
+    /// tracked separately; this comment stays honest until that lands. Idempotent: a
+    /// later seal for the epoch simply appends to the existing entry.
+    pub fn ensure_epoch_tracked(&self, epoch: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.epoch_states.entry(epoch).or_insert_with(|| EpochState {
+            seals: Vec::new(),
+            resolved: false,
+            winner: None,
+            deadline: Instant::now() + Duration::from_millis(SEAL_COLLECT_MS),
+            peer_fallback_deadline: None,
+        });
     }
 
     /// Update the registered clock node set. Called at each epoch seal from main.rs.
@@ -579,26 +616,39 @@ impl Default for ClockConsensus {
 
 /// Compute a deterministic SHA-256 hash of all epoch input state (sorted by key).
 /// Used by clock nodes to propose and verify reward fairness.
+/// The reward-consensus VOTE key for an epoch.
+///
+/// BUG 6 (vote nondeterminism, Grouchly 1f963ba9 → spec dbaa3cdf / e076cd29): this used to
+/// hash seven WORK-ENTRY prefixes (mine/storage_beat/sensor_commit/tracker_sighting/
+/// infer_verify/service_beat/mempool_beat) via a live local store scan. Every one of those
+/// is applied-locally-then-gossiped, so two honest nodes computed DIFFERENT hashes for the
+/// same epoch depending on which peers' entries had propagated at scan time. The tally
+/// buckets by hash (`hash_counts`), so different hashes = vote-SPLITTING = neither reaches
+/// quorum = the epoch never finalizes. Reward consensus "fired once" only when the input
+/// happened to be empty on both sides (sha256 of nothing) by coincidence.
+///
+/// Crucially the vote hash is VESTIGIAL: `emit_epoch_rewards` derives the actual payout
+/// from `sealed_by`, NOT from this hash — so the nodes were failing to agree on a value
+/// that doesn't drive the payout. The replay-derivation fix (e86a03730) made APPLICATION
+/// deterministic via `sealed_by`; this makes the VOTE deterministic over the SAME data.
+///
+/// We now hash the `epoch_validators:{epoch}` snapshot — the registered clock set, written
+/// (main.rs) BEFORE this is called, identical on every node (it comes from
+/// `registered_clock_nodes`, sorted + deduped, not from gossip-timed entries), and it is
+/// the LITERAL key that becomes the winning EpochFinalize's `sealed_by` (main.rs read).
+/// So the vote input and the application input are the same bytes: nodes agree per-epoch,
+/// and agreement is over exactly the data that determines rewards.
 pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
     let mut hasher = Sha256::new();
-    let prefixes = [
-        format!("mine:{}:", epoch),
-        format!("storage_beat:{}:", epoch),
-        format!("sensor_commit:{}:", epoch),
-        format!("tracker_sighting:{}:", epoch),
-        format!("infer_verify:{}:", epoch),
-        format!("service_beat:{}:", epoch),
-        format!("mempool_beat:{}:", epoch),
-    ];
-    for prefix in &prefixes {
-        let mut entries = store.state_scan_prefix(prefix);
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        for (k, v) in entries {
-            hasher.update(k.as_bytes());
-            hasher.update(b"=");
-            hasher.update(&v);
-            hasher.update(b"\n");
-        }
+    hasher.update(b"epoch:");
+    hasher.update(epoch.to_le_bytes());
+    hasher.update(b"|validators:");
+    // Hash the raw stored snapshot bytes directly — deterministic across nodes because
+    // the Vec<String> was sorted+deduped before serialization. Absent snapshot (shouldn't
+    // happen: written earlier in the same seal handler) hashes as empty, still identical
+    // on every node for the same epoch, so agreement holds even in that degenerate case.
+    if let Some(bytes) = store.state_get(&format!("epoch_validators:{}", epoch)) {
+        hasher.update(&bytes);
     }
     format!("{:x}", hasher.finalize())
 }
@@ -616,10 +666,18 @@ pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
 /// `clock_reg:` entries are still respected for backward-compat and pubkey
 /// caching, but the authoritative eligibility signal is the live pool stake.
 /// Slashed nodes (pool zeroed via ClockDoubleSignEvidence) are excluded.
-pub fn registered_clock_nodes(store: &Store) -> Vec<String> {
+pub fn registered_clock_nodes(store: &Store, current_epoch: u64) -> Vec<String> {
     let min_stake: u64 = store.state_get("chain_param:clock_min_stake")
         .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
         .unwrap_or(5 * 10_000_000_000);
+
+    // Bootstrap grace: during the first CLOCK_BOOTSTRAP_GRACE_END_EPOCH epochs a
+    // founder clock registers at stake 0 (the POW-genesis deadlock-breaker) and has
+    // no role_stake yet. The quorum denominator MUST include these grace clocks, or
+    // two founder clocks each stay a solo 1/1 quorum and the chain never advances
+    // past genesis with real 2-of-2 consensus. Outside grace the stake rules apply.
+    // See docs/CLOCK_BOOTSTRAP_GRACE.md + DRYRUN_2CLOCK — consensus-critical.
+    let in_grace = current_epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH;
 
     // Aggregate total stake per node across ALL stakers (self + backers).
     // Key format: role_stake:clock:{node}:{staker}
@@ -670,8 +728,11 @@ pub fn registered_clock_nodes(store: &Store) -> Vec<String> {
             Ok(v) => v,
             Err(_) => continue,
         };
-        // Legacy: non-zero stake = the stake was balance-deducted at registration time.
-        if j["stake"].as_u64().unwrap_or(0) > 0 {
+        // Non-zero stake = the stake was balance-deducted at registration time.
+        // During bootstrap grace we ALSO include stake-0 registrations, since grace
+        // clocks legitimately register at 0 (they build stake from ClockReward). This
+        // is what makes 2 grace-registered founder clocks count as a 2-of-2 quorum.
+        if j["stake"].as_u64().unwrap_or(0) > 0 || in_grace {
             nodes.push(node_id);
         }
     }
@@ -791,4 +852,59 @@ fn verify_seal_signature(seal: &EpochSeal, pubkey_hex: &str, sig_hex: &str) -> b
         seal.epoch_number, &seal.seal_hash, &seal.node_id, seal.timestamp,
         pubkey_hex, sig_hex,
     )
+}
+
+#[cfg(test)]
+mod registered_clock_nodes_tests {
+    use super::*;
+
+    fn store() -> (crate::store::Store, tempfile::TempDir) {
+        let dir = tempfile::Builder::new().prefix("hone_clock_reg_").tempdir().unwrap();
+        let s = crate::store::Store::open(dir.path()).unwrap();
+        (s, dir)
+    }
+
+    fn register(s: &crate::store::Store, node: &str, stake: u64) {
+        let rec = serde_json::json!({
+            "node_id": node, "stake": stake, "registered_epoch": 0, "pubkey": "aa"
+        });
+        s.state_set(&format!("clock_reg:{}", node), &serde_json::to_vec(&rec).unwrap()).unwrap();
+    }
+
+    // Bug 5 guard: during bootstrap grace, two stake-0 founder clocks must BOTH count
+    // toward quorum. Before the fix each stake-0 clock was excluded, so two clocks each
+    // computed a solo 1/1 quorum and the chain never advanced past genesis.
+    #[test]
+    fn grace_includes_stake_zero_clocks() {
+        let (s, _d) = store();
+        register(&s, "clocka", 0);
+        register(&s, "clockb", 0);
+        let in_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH; // last grace epoch
+        let nodes = registered_clock_nodes(&s, in_grace);
+        assert!(nodes.contains(&"clocka".to_string()), "clocka must count in grace");
+        assert!(nodes.contains(&"clockb".to_string()), "clockb must count in grace");
+        assert_eq!(nodes.len(), 2, "both grace clocks form a 2-of-2 quorum");
+    }
+
+    // After grace, a stake-0 registration with no role_stake is NOT quorum-eligible —
+    // the normal minimum-stake rule applies. (Prevents free post-grace quorum seats.)
+    #[test]
+    fn post_grace_excludes_stake_zero_clocks() {
+        let (s, _d) = store();
+        register(&s, "clocka", 0);
+        let after_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 1;
+        let nodes = registered_clock_nodes(&s, after_grace);
+        assert!(!nodes.contains(&"clocka".to_string()),
+            "a stake-0 clock must NOT count once grace has ended");
+    }
+
+    // A non-zero legacy clock_reg stake counts regardless of grace (unchanged behavior).
+    #[test]
+    fn nonzero_stake_counts_regardless_of_grace() {
+        let (s, _d) = store();
+        register(&s, "clocka", 50_000_000_000);
+        let after_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 1;
+        let nodes = registered_clock_nodes(&s, after_grace);
+        assert!(nodes.contains(&"clocka".to_string()));
+    }
 }

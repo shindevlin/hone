@@ -104,6 +104,14 @@ GrantExternalSigner {
   account:            String,        // the HONE account granting the capability
   external_chain:     String,        // "ton" (extensible to others later)
   external_pubkey:     Bytes,        // the TON wallet's Ed25519 pubkey
+  external_address:   String,        // "{workchain}:{account_id_hex}" — from the SAME
+                                       // TON Connect connect handshake (TonAddressItemReply
+                                       // carries pubkey + address together). Deriving a TON
+                                       // address from a bare pubkey requires replicating the
+                                       // wallet contract's StateInit hash (TL-B cell hashing,
+                                       // version-dependent v3/v4/v5) — HONE never does that
+                                       // math; it only stores what the wallet already
+                                       // computed and reported at connect time.
   label:              Option<String>, // holder-chosen name, e.g. "Tonkeeper — daily driver"
                                        // shown in every notification (§ Attribution)
   caps: {
@@ -360,23 +368,37 @@ the result of that existing, compliant pattern as a valid HONE authorization.
 
 ## Build phasing
 
-1. **TON `signData` verifier.** The one genuinely new crypto surface, format
-   confirmed against TON Connect's SDK/docs (§ TON signature verification
-   above): rebuild the `0xffff ++ "ton-connect/sign-data/" ++ ...` preimage,
-   `sha256` once, `Ed25519.verify` against the on-file granted pubkey. Extend
-   `chain.rs`'s existing `recover_chain_address`-style verifier module rather
-   than a bespoke path — `sol_sign` is already Ed25519 there, this is a
-   sibling case (`"ton_sign_data"`), not a new verification architecture.
-   Build and test in isolation (known preimage + known signature + expected
-   pubkey, from a real TON Connect `signData()` call) before wiring entries.
-2. **`GrantExternalSigner` / `RevokeExternalSigner`** entries — active-key
-   gated, straightforward given existing entry-signing infrastructure. Ship
-   with `Hunits` caps only — no oracle dependency yet.
-3. **`ExternalSignerTransfer`** entry, `Hunits`-cap path — per-tx, daily
-   running total, allowlist, expiry, nonce replay guard, all in hunits.
-4. **On-chain attribution** (§ Attribution) — the entry-type distinction and
-   `label` field ship in step 3, not bolted on later; every transfer is
-   labeled from the first one that lands.
+1. ✅ **DONE** — **TON `signData` verifier** (`chain.rs`'s `ton_sign_data` module,
+   sibling to `sol_sign`/`btc_legacy` in `recover_chain_address`'s dispatch —
+   `"ton_sign_data"` sig_type). Rebuilds the confirmed preimage, `sha256` once,
+   `Ed25519.verify_strict`. 4/4 tests pass in isolation (round-trip,
+   wrong-pubkey rejection, tampered-domain rejection, cell-payload rejection).
+   **Not yet proven against a real wallet's actual `signData()` output** — see
+   the fixture caveat below.
+2. ✅ **DONE** — **`GrantExternalSigner` / `RevokeExternalSigner`** entries
+   (`hone-types/entry.rs` + `tx.rs` active-key gate + `chain.rs` apply, storing
+   `{address, label, caps, revoked}` under `external_signer:{account}:{chain}:{pubkey}`).
+   Ships with `Hunits` **and** `Usd` cap *shapes* in the type (`SignerCap` enum),
+   but `Usd` cap *resolution* is a hard error today (`resolve_cap_hunits` fails
+   closed rather than silently treating a `Usd` cap as uncapped) — see step 6.
+3. ✅ **DONE** — **`ExternalSignerTransfer`** entry, `Hunits`-cap path: scans
+   the account's non-revoked grants, verifies the TON signature against each
+   grant's stored `(address, pubkey)` (never derives a TON address from a bare
+   pubkey — see `GrantExternalSigner.external_address`'s doc comment for why),
+   checks domain allowlist + timestamp freshness + payload-binding + per-tx cap
+   + rolling daily cap + recipient allowlist + expiry + nonce replay, in that
+   order, then debits/credits.
+4. ✅ **DONE** — **On-chain attribution** (§ Attribution) — `ExternalSignerTransfer`
+   is its own entry type carrying the grant's `label` in the state record;
+   ships from the first transfer, not bolted on later.
+**⚠️ Before any of steps 1-4 can be trusted with real funds:** capture a fixture
+from an ACTUAL TON wallet's `signData()` call (Tonkeeper or similar) and confirm
+the node's rebuilt preimage produces a byte-for-byte match. Everything shipped
+so far proves internal Rust-side consistency (sign with a test key, verify with
+the same module) — it does NOT yet prove the preimage format this code
+constructs matches what a real wallet actually produces. This is the single
+highest-priority remaining risk before any grant is trusted with funds.
+
 5. **Push notification path** — wire the applied-`ExternalSignerTransfer` →
    notification → one-tap-revoke flow across native app / Mini App / Telegram
    bot. Depends on step 3's entry existing but is otherwise independent of the

@@ -17,9 +17,15 @@ state machine, block production, contract execution, and HTTP API.
     HONE_GENESIS_TIMESTAMP   — Unix ms timestamp for genesis block (MUST match on all nodes)
     HONE_LOG_LEVEL           — tracing filter (default: hone_node=info)
     HONE_BOOTSTRAP_PEERS     — comma-separated multiaddrs for DHT bootstrap
+    HONE_ISOLATED            — "true" = no public discovery (no honemesh.net fetch/announce,
+                                no DNS-seed fallback, ignore mDNS); dial only HONE_BOOTSTRAP_PEERS.
+                                For self-contained N-clock consensus tests. NOT for production.
+    HONE_SIM                 — "false" to disable the testnet synthetic-traffic sim daemon
     HONE_CHAIN_ID            — "hone" (mainnet) or "hone-testnet" (testnet)
-    HONE_POSTING_KEY         — hex-encoded 32-byte ed25519 seed; node_id is derived from
-                                the public key and all clock seals are signed with it
+    HONE_POSTING_KEY         — wallet secret: 12-word BIP-39 mnemonic OR 64-char hex (treated
+                                as 32-byte BIP-39 entropy, NOT a raw ed25519 seed). The wallet
+                                derives the posting role key at SLIP-10 m/44'/6942'/2'/0'; that
+                                same key signs all clock seals, so signer == on-chain identity
     HONE_STORAGE             — "true" to emit StorageHeartbeat each epoch (earns StorageReward)
     HONE_ETH_RPC             — Ethereum JSON-RPC endpoint for ENS resolution (default: cloudflare-eth.com)
     HONE_SERVICE             — "true" to emit ServiceHeartbeat each epoch (earns ServiceReward)
@@ -105,7 +111,7 @@ mod lorawan;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::Result;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use hone_types::{
     LedgerEntry, block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
     RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID, TESTNET_FUND_ACCOUNT, TREASURY_ACCOUNT,
@@ -174,14 +180,12 @@ async fn main() -> Result<()> {
         lf // keep alive until process exits
     };
 
-    // Load posting key. node_id stays as the account name for reward routing;
-    // the derived pubkey goes into the seal's `pubkey` field for verification.
-    let signing_key: Arc<Option<ed25519_dalek::SigningKey>> = Arc::new(
-        cfg.posting_key.as_deref().and_then(load_signing_key)
-    );
-    let signing_pubkey_hex: Arc<Option<String>> = Arc::new(
-        signing_key.as_ref().as_ref().map(|sk| hex::encode(sk.verifying_key().to_bytes()))
-    );
+    // Signing key is derived from the wallet's posting role key below, AFTER
+    // wallet::init() — so the seal-signing identity is byte-identical to the
+    // posting key registered on-chain. (Historically this parsed HONE_POSTING_KEY
+    // as a raw ed25519 seed here, which produced a DIFFERENT key than the wallet's
+    // SLIP-10 m/44'/6942'/2'/0' posting key — seals signed by an identity that
+    // never matched genesis. See reports/DRYRUN_2CLOCK_2026-07-10.md, BUG 1.)
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -198,6 +202,30 @@ async fn main() -> Result<()> {
     wallet::ensure_ton_address(&cfg.data_dir, &mut wallet_keys).await;
     // Keep ~/.hone/{account}.wallet.key in sync so TUI/CLI can find keys without knowing data_dir.
     wallet::backup_to_home(&cfg.account, &wallet_keys);
+
+    // Seal-signing key = the wallet's posting role key (SLIP-10 m/44'/6942'/2'/0').
+    // This is the SAME key registered on-chain as the account's posting key, so
+    // seals and clock self-registration are signed by the on-chain identity —
+    // not a raw-seed reinterpretation of HONE_POSTING_KEY (BUG 1).
+    let signing_key: Arc<Option<ed25519_dalek::SigningKey>> = Arc::new(
+        load_signing_key(&wallet_keys.hone_private_key)
+    );
+    let signing_pubkey_hex: Arc<Option<String>> = Arc::new(
+        signing_key.as_ref().as_ref().map(|sk| hex::encode(sk.verifying_key().to_bytes()))
+    );
+
+    // A clock with no usable signing key can seal in-memory but can never
+    // self-register or produce verifiable seals matching its genesis identity.
+    // Fail loud instead of silently booting a useless clock (BUG 1).
+    if cfg.is_clock && signing_key.is_none() {
+        error!(
+            "[clock] no usable posting/signing key for account '{}' — refusing to start. \
+             The wallet's posting key (hone_private_key) did not parse as a 32-byte ed25519 seed. \
+             Check HONE_POSTING_KEY (12-word mnemonic or 64-char hex) and the wallet.key it produced.",
+            cfg.account
+        );
+        std::process::exit(1);
+    }
 
     // Open state database
     let db_path = cfg.data_dir.join("state");
@@ -280,7 +308,9 @@ async fn main() -> Result<()> {
     });
 
     // ── Self-announce to Hive + honemesh.net (best-effort, fire-and-forget) ───────
-    {
+    // Skipped in isolated mode — an isolated node must make no outbound discovery
+    // calls, so it neither registers itself nor pulls in live-network peers.
+    if !cfg.isolated {
         let chain_id = cfg.chain_id.clone();
         let node_id = cfg.node_id.clone();
         tokio::spawn(async move {
@@ -290,18 +320,219 @@ async fn main() -> Result<()> {
                 discovery::announce_to_hone_net(&chain_id, &node_id),
             );
         });
+    } else {
+        info!("[isolated] HONE_ISOLATED=true — skipping public discovery announce");
     }
 
     // ── Clock consensus ───────────────────────────────────────────────────────
     let clock = Arc::new(clock::ClockConsensus::new());
     // Populate registered_clocks immediately from store so quorum is correct from epoch 1.
-    clock.set_registered_clocks(clock::registered_clock_nodes(&chain.store));
+    clock.set_registered_clocks(clock::registered_clock_nodes(&chain.store, chain.current_epoch()));
     {
         let clock_ref = clock.clone();
+        let chain_ref = chain.clone();
         tokio::spawn(async move {
+            // Track the last epoch we've seeded so empty epochs are only tracked once.
+            let mut last_tracked: u64 = 0;
+            // Highest epoch we've replay-derived rewards for (BUG 6 reward driver).
+            //
+            // RESTORED from persisted state, never 0 on a restart with history (BUG 6
+            // residual, Grouchly 7c1f9e83): this counter is in-memory, but the epochs it
+            // tracks are durable — `epoch_finalized_done:{e}` is written to RocksDB as
+            // each epoch's rewards apply. Resetting to 0 on restart while
+            // `Chain::current_epoch` restores from RocksDB (chain.rs::new) desynced the
+            // two: `start` is clamped by `.max(safe_tip.saturating_sub(64))`, so a node
+            // restarting at any real height jumps straight to the window floor and
+            // silently skips every unresolved epoch below it — dropping its
+            // reward/recycle/decay permanently → state_root fork, no gossip lag needed.
+            // Deriving the highest CONTIGUOUS done epoch makes restart a no-op: we resume
+            // exactly where we left off, and an unresolved gap stays the resume point
+            // instead of ageing out of the window.
+            let mut last_rewarded: u64 = highest_contiguous_rewarded(&chain_ref);
+            // One-time cold-start alignment guard: a fresh node (last_rewarded==0) with a
+            // past genesis aligns its reward start to the tracking window on the first tick,
+            // so it doesn't block forever on ancient never-finalized epochs. A restart with
+            // real history has last_rewarded!=0 and skips this entirely. See the driver loop.
+            let mut reward_floor_aligned = false;
+            // One-time cold-start SKIP-FORWARD guard (BUG 6, Grouchly 1a86e25b). See the
+            // driver loop: a fresh node's aligned floor (cur-64) can land BELOW the first
+            // epoch consensus ever finalized for it (its participation start), leaving a
+            // range of permanently-unfinalizable epochs the contiguous walk blocks on
+            // forever. Once, at cold start, we skip the floor forward to the lowest epoch
+            // that actually has finalized meta. Only fires while last_rewarded is still at
+            // the cold-start floor (nothing real applied yet). NOT a late-join/restart-safe
+            // move on a live network — a longer-running peer may already have credited
+            // balances for the skipped range → divergence. Deferred go-live gap: needs
+            // state-sync/backfill before a late joiner can trust this skip. Safe for the
+            // symmetric cold-start dry-run only.
+            let mut cold_start_skip_done = false;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(1_000)).await;
+                // Negative attestation (BUG 6): ensure EVERY elapsed epoch has an
+                // epoch_states entry, even ones no clock sealed. Otherwise empty epochs
+                // are never resolved/finalized and only the per-node local finalizer
+                // credits their recycle — which forks state between nodes. Seeding here
+                // makes every node resolve empty epochs as sealed:false and reach the
+                // same quorum-agreed FinalizedEpoch, so recycle/decay run deterministically.
+                let cur = chain_ref.current_epoch();
+                // Keep the clock's internal current_epoch in sync with the chain.
+                // Without this, ClockConsensus::current_epoch stays pinned at 0 (its
+                // init value) — set_current_epoch had ZERO callers — so every
+                // `in_grace` check inside the clock (e.g. the bootstrap solo-finalize
+                // bypass) was unconditionally true FOREVER, leaving a quorum bypass
+                // permanently open. Wiring it here makes grace windows actually expire.
+                // (Found by Grouchly's verify pass on fix/finalizer-determinism.)
+                clock_ref.set_current_epoch(cur);
+                if cur > last_tracked {
+                    // Cap the catch-up so a huge genesis-to-now gap can't stall the loop;
+                    // only the recent window matters for finalization.
+                    let start = last_tracked.saturating_add(1).max(cur.saturating_sub(64));
+                    for e in start..=cur {
+                        clock_ref.ensure_epoch_tracked(e);
+                    }
+                    last_tracked = cur;
+                }
                 clock_ref.tick();
+
+                // ── BUG 6 reward driver: replay-derive rewards from FINAL entries ──
+                // Apply each finalized epoch's reward/recycle/decay exactly once, only
+                // after it is REWARD_FINALITY_DEPTH behind the tip — so the fork-choice
+                // rewrite window (a heavier-quorum EpochFinalize replacing an earlier one)
+                // has closed and we never mutate off a losing entry. The mutation is a
+                // pure function of the applied entry's `sealed_by` (persisted in
+                // epoch_meta) + replicated balance state, run in ascending epoch order on
+                // every node → byte-identical → convergent state_root. Guarded by
+                // epoch_finalized_done:{epoch} so it runs at most once per node.
+                // Depth defaults to REWARD_FINALITY_DEPTH; HONE_REWARD_DEPTH overrides it
+                // (isolated dry-runs use a small value so rewards actually fire within the
+                // short run — production keeps the full depth). Must be identical on every
+                // node or it becomes a nondeterminism vector; the harness sets it the same.
+                let depth = std::env::var("HONE_REWARD_DEPTH").ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(hone_types::REWARD_FINALITY_DEPTH);
+                // COLD-START FLOOR (BUG 6): a fresh node has last_rewarded=0 but its genesis
+                // is far in the past, and negative attestation only tracks/finalizes the
+                // recent window (cur-64..cur, main.rs:372). Epochs 1..(cur-64) are NEVER
+                // finalized on this node, so a contiguous walk from last_rewarded+1=1 would
+                // break at epoch 1 forever and never reach the finalized recent epochs —
+                // rewards never apply at all (the bug this exposed: driver stuck at e=1).
+                // So on the FIRST catch-up only, align last_rewarded to the tracking-window
+                // floor. This is NOT the skip-past-a-gap the residual fix (Grouchly 7c1f9e83)
+                // forbids: there is no gap to preserve on a node that has rewarded nothing
+                // yet — we're choosing the START of the reward history, matching the only
+                // window this node ever attests. Once past cold start, the strict-contiguous
+                // rule below governs and never skips a real gap.
+                if !reward_floor_aligned && last_rewarded == 0 {
+                    // Only align (and mark done) once `cur` has actually advanced past the
+                    // window — on the FIRST tick `chain.current_epoch()` can still be a low/
+                    // stale value before it syncs to wall-clock, and marking aligned then
+                    // with last_rewarded still 0 latches the guard permanently → driver stuck
+                    // at epoch 1 forever. Retry every tick until cur > 65, THEN align once.
+                    let window_floor = cur.saturating_sub(64);
+                    if window_floor > 1 {
+                        last_rewarded = window_floor.saturating_sub(1);
+                        reward_floor_aligned = true;
+                    }
+                }
+                let safe_tip = cur.saturating_sub(depth);
+                // COLD-START SKIP-FORWARD (BUG 6, Grouchly 1a86e25b): after alignment, if
+                // the contiguous walk would immediately break because the aligned floor sits
+                // below the first epoch this node ever finalized, skip the floor forward —
+                // ONCE — to just below the lowest epoch that has real finalized meta in the
+                // [floor+1, safe_tip] window. Only while last_rewarded is still exactly the
+                // aligned floor (nothing real applied yet), so it can never skip a gap that
+                // opened after we started paying. See the guard decl for the late-join caveat.
+                if reward_floor_aligned && !cold_start_skip_done && safe_tip > last_rewarded {
+                    let scan_start = last_rewarded.saturating_add(1);
+                    // Only act if the FIRST epoch in the walk isn't finalized (else the
+                    // normal contiguous walk already works and no skip is needed).
+                    let first_ready = chain_ref.store
+                        .get_epoch_meta(scan_start).ok().flatten()
+                        .map(|m| m["finalized"].as_bool().unwrap_or(false))
+                        .unwrap_or(false);
+                    if !first_ready {
+                        // Find the lowest finalized epoch in the window.
+                        let mut lowest_final: Option<u64> = None;
+                        for e in scan_start..=safe_tip {
+                            if chain_ref.store.get_epoch_meta(e).ok().flatten()
+                                .map(|m| m["finalized"].as_bool().unwrap_or(false)).unwrap_or(false)
+                            {
+                                lowest_final = Some(e);
+                                break;
+                            }
+                        }
+                        if let Some(first_final) = lowest_final {
+                            if first_final > scan_start {
+                                info!("[reward] cold-start skip: no finalized epoch in {}..{}, \
+                                    advancing reward floor to {} (first finalized). \
+                                    Deferred go-live gap: not late-join-safe without state-sync.",
+                                    scan_start, first_final, first_final);
+                                last_rewarded = first_final.saturating_sub(1);
+                            }
+                            cold_start_skip_done = true; // resolved — real finalized work exists
+                        }
+                        // If NO finalized epoch exists in the window yet, leave the flag
+                        // false and retry next tick — consensus may not have produced one yet.
+                    } else {
+                        cold_start_skip_done = true; // walk already works, no skip needed
+                    }
+                }
+                if safe_tip > last_rewarded {
+                    // Bound the catch-up so a large backlog can't stall the tick — but
+                    // bound it by the END, never the START (BUG 6 residual, Grouchly
+                    // 7c1f9e83). The old floor `.max(safe_tip.saturating_sub(64))` skipped
+                    // epochs outright: once an unresolved gap G aged more than 64 epochs
+                    // behind safe_tip, `start` silently jumped past G and G's
+                    // reward/recycle/decay was dropped forever → state_root fork, the same
+                    // bug one window further out. Capping the tail instead keeps the walk
+                    // strictly contiguous from last_rewarded+1: a large backlog is drained
+                    // over several ticks rather than skipped, and an unresolved gap stalls
+                    // the walk (safe, blocking) instead of ageing out of it (silent fork).
+                    let start = last_rewarded.saturating_add(1);
+                    let stop  = safe_tip.min(start.saturating_add(64));
+                    // CONTIGUOUS advance only (BUG 6, Grouchly 80333c2b): if an epoch in
+                    // this range isn't finalized locally yet (gossip lag can let `cur` —
+                    // which advances on any peer's EpochSeal — race ahead of this node's
+                    // own applied EpochFinalize backlog), we MUST stop and retry it next
+                    // tick, NOT skip past it. Advancing last_rewarded over a gap would
+                    // permanently drop that epoch's reward on this node while a node that
+                    // finalized it sooner applies it → state_root fork, the exact bug this
+                    // driver exists to prevent. So we break at the first not-ready epoch
+                    // and only commit last_rewarded up to the last CONTIGUOUS processed one.
+                    for e in start..=stop {
+                        let done_key = format!("epoch_finalized_done:{}", e);
+                        if chain_ref.store.state_get(&done_key).is_some() {
+                            // Already applied — contiguous, keep going.
+                            last_rewarded = e;
+                            continue;
+                        }
+                        // Must be finalized locally before we can apply it. If not yet,
+                        // STOP — do not advance past this gap; retry from here next tick.
+                        let meta = match chain_ref.store.get_epoch_meta(e) {
+                            Ok(Some(m)) if m["finalized"].as_bool().unwrap_or(false) => m,
+                            _ => break, // not finalized yet — leave last_rewarded before e
+                        };
+                        let sealers: Vec<String> = meta["sealed_by"].as_array()
+                            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                            .unwrap_or_default();
+                        if !sealers.is_empty() {
+                            // Sealed by quorum → replay-derive and apply its rewards.
+                            emit_epoch_rewards(e, &sealers, &chain_ref);
+                        } else {
+                            // Earned nothing (empty sealer set) → its block reward recycles.
+                            let reward = hone_types::block_reward_at(e);
+                            if reward > 0 {
+                                let _ = chain_ref.store.credit(
+                                    hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN, reward);
+                                info!("[finalize] epoch {} earned nothing (finalized) — {} hunits → recycle fund", e, reward);
+                            }
+                        }
+                        // Entropy decay bleeds dormant balances — same finalized, ordered path.
+                        finalize::apply_entropy_decay(&chain_ref, e);
+                        let _ = chain_ref.store.state_set(&done_key, b"1");
+                        last_rewarded = e; // contiguous through e
+                    }
+                }
             }
         });
     }
@@ -448,7 +679,8 @@ async fn main() -> Result<()> {
                         }
 
                         // Refresh the registered clock node set so quorum uses the live list.
-                        let reg_clocks = clock::registered_clock_nodes(&chain_ref.store);
+                        let reg_clocks = clock::registered_clock_nodes(&chain_ref.store, sealed_epoch);
+                        let reg_count = reg_clocks.len();
                         // Persist the validator snapshot for this epoch — used by fork choice
                         // and external auditors to verify quorum claims against the registered set.
                         let _ = chain_ref.store.state_set(
@@ -468,11 +700,24 @@ async fn main() -> Result<()> {
                             entropy.as_bytes(),
                         );
 
-                        // Comprehensive epoch reward distribution across all work types.
-                        // Pass the signing_clocks list directly — the seal:{epoch}: store
-                        // scan was dead (those keys were never written anywhere).
-                        let signing_clocks = sealed.signing_clocks.clone();
-                        emit_epoch_rewards(sealed_epoch, &signing_clocks, &chain_ref, &cmd_tx_for_seal).await;
+                        // REWARD FINALIZATION (BUG 6): rewards are NO LONGER emitted here at
+                        // seal time off this node's LOCAL view of who sealed. Paying per-node
+                        // at seal forks balances whenever two nodes cross the quorum threshold
+                        // in different epochs (each pays a different set) — the fork we chased
+                        // in DRYRUN_2CLOCK. Instead, emission is deferred to the finalized-epoch
+                        // handler below, which fires only once this epoch's rewards_hash reaches
+                        // quorum agreement across nodes, and pays from the DETERMINISTIC
+                        // epoch_validators:{epoch} snapshot (identical on every node) — so all
+                        // nodes emit byte-identical ClockReward and balances stay convergent.
+                        // (reg_count kept for the diagnostic below.)
+                        let quorum = clock::quorum();
+                        if reg_count < quorum {
+                            info!(
+                                "[clock] epoch {}: {} registered clock(s) < quorum {} — sealing only, \
+                                 rewards defer to finalization once quorum agrees",
+                                sealed_epoch, reg_count, quorum
+                            );
+                        }
 
                         // Persist the sealed block — written after rewards so all entries are indexed.
                         chain_ref.write_sealed_block(sealed_epoch, seal_hash.as_str(), ts);
@@ -493,7 +738,7 @@ async fn main() -> Result<()> {
                             let _ = cmd_tx_for_seal.send(NetCmd::Broadcast {
                                 topic: "hone/consensus",
                                 data,
-                            }).await;
+                            }).await; // tokio mpsc send is a no-op if not awaited (BUG 6)
                         }
                     }
                     Ok(_) => {}
@@ -516,13 +761,28 @@ async fn main() -> Result<()> {
             loop {
                 match finalized_rx.recv().await {
                     Ok(fin) => {
+                        // BUG 6 (replay-derivation, Grouchly spec 2e36ca9a): this handler
+                        // NO LONGER mutates balances. It only constructs + broadcasts the
+                        // winning EpochFinalize entry with its `sealed_by` set POPULATED
+                        // (was hardcoded vec![]). The actual reward/recycle/decay mutation
+                        // is replay-derived later, off the applied entry's sealed_by, once
+                        // the epoch is REWARD_FINALITY_DEPTH behind the tip — see the reward
+                        // driver in the clock tick loop. That makes every node perform the
+                        // identical mutation as a consequence of applying the identical
+                        // winning entry, instead of each node recomputing off local state
+                        // at its own quorum-cross moment (the double-credit race).
+                        let sealers: Vec<String> = chain_ref.store
+                            .state_get(&format!("epoch_validators:{}", fin.epoch))
+                            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+                            .unwrap_or_default();
+
                         let state_root = chain_ref.store.balance_merkle_root();
                         let entry = LedgerEntry::EpochFinalize {
                             epoch: fin.epoch,
                             node_id: node_id_c.clone(),
                             rewards_hash: fin.rewards_hash,
                             quorum: fin.quorum as u64,
-                            sealed_by: vec![],
+                            sealed_by: sealers,
                             state_root,
                             timestamp: now_ms(),
                         };
@@ -534,7 +794,9 @@ async fn main() -> Result<()> {
                             let _ = cmd_tx_fin.send(NetCmd::Broadcast {
                                 topic: "hone/entries",
                                 data,
-                            }).await;
+                            }).await; // tokio mpsc send is a no-op if not awaited (BUG 6):
+                            // this broadcasts the winning EpochFinalize — dropping it meant
+                            // peers never saw finalization, so rewards never applied network-wide.
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -547,20 +809,34 @@ async fn main() -> Result<()> {
     }
 
     // Auto-register as a clock node on startup if not already registered.
+    // Holds this clock's own signed ClockNodeRegister envelope so the seal loop can
+    // re-announce it to peers that connect AFTER the one-shot boot broadcast (which
+    // hits an empty gossip mesh and is dropped, never retried). Populated on a
+    // successful auto-register below. See DRYRUN_2CLOCK — registration propagation.
+    let self_register_envelope: Arc<Option<Vec<u8>>>;
     if cfg.is_clock {
         let reg_key = format!("clock_reg:{}", cfg.node_id);
         let already_registered = chain.store.state_get(&reg_key).is_some();
+        let mut captured_envelope: Option<Vec<u8>> = None;
         if !already_registered {
             let min_stake: u64 = chain.store.state_get("chain_param:clock_min_stake")
                 .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
                 .unwrap_or(5 * 10_000_000_000);
             let balance = chain.store.get_balance(&cfg.node_id, hone_types::NATIVE_TOKEN);
-            if balance >= min_stake {
-                let epoch = chain.current_epoch();
+            let epoch = chain.current_epoch();
+            // During the bootstrap grace window the apply-layer (chain.rs) accepts a
+            // stake-0 clock registration with no minimum and no debit — the POW-genesis
+            // deadlock-breaker. The startup guard must honor grace too, or a fresh
+            // zero-balance founder clock bails here before ever submitting, and never
+            // registers ("0 registered clocks"). See DRYRUN_2CLOCK_2026-07-10.md, BUG 2.
+            let in_grace = epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH;
+            if in_grace || balance >= min_stake {
+                // In grace, offer whatever balance we have (may be 0); otherwise full min_stake.
+                let stake = if in_grace { balance.min(min_stake) } else { min_stake };
                 let pubkey = signing_pubkey_hex.as_deref().map(|s| s.to_owned());
                 let entry = hone_types::LedgerEntry::ClockNodeRegister {
                     node_id: cfg.node_id.clone(),
-                    stake: min_stake,
+                    stake,
                     epoch,
                     pubkey,
                     signature: None,
@@ -576,7 +852,11 @@ async fn main() -> Result<()> {
                 match crate::tx::validate_and_apply(&chain, &entry, sig_ref) {
                     Ok(hash) => {
                         info!("[clock] auto-registered '{}' as clock node (hash {})", cfg.node_id, hash);
-                        broadcast_entry_desktop(&entry, &net_handle.cmd_tx).await;
+                        // Broadcast WITH signature so peers can validate + apply it
+                        // (a sig-less ClockNodeRegister is rejected on the receive side).
+                        broadcast_signed_entry(&entry, sig_ref, &net_handle.cmd_tx).await;
+                        // Capture for periodic re-announce to late-joining peers.
+                        captured_envelope = signed_entry_envelope(&entry, sig_ref);
                     },
                     Err(e)   => warn!(
                         "[clock] auto-register failed for '{}': {} — \
@@ -587,10 +867,36 @@ async fn main() -> Result<()> {
                     ),
                 }
             } else {
-                warn!("[clock] '{}' has {} hunits, needs {} to register as clock node",
-                    cfg.node_id, balance, min_stake);
+                warn!("[clock] '{}' has {} hunits, needs {} to register as clock node \
+                    (bootstrap grace ended at epoch {}, now epoch {})",
+                    cfg.node_id, balance, min_stake,
+                    hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH, epoch);
+            }
+        } else {
+            // Already registered on-chain (e.g. relaunch on an existing data dir).
+            // Re-sign a ClockNodeRegister from the stored record so we can still
+            // re-announce ourselves to peers that have never seen our registration.
+            if let Some(sk) = signing_key.as_ref().as_ref() {
+                if let Some(rec) = chain.store.state_get(&reg_key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                {
+                    let entry = hone_types::LedgerEntry::ClockNodeRegister {
+                        node_id: cfg.node_id.clone(),
+                        stake:   rec["stake"].as_u64().unwrap_or(0),
+                        epoch:   rec["registered_epoch"].as_u64().unwrap_or(0),
+                        pubkey:  rec["pubkey"].as_str().map(|s| s.to_owned()),
+                        signature: None,
+                    };
+                    let sig_hex = crate::tx::canonical_signing_message(&entry, &chain.chain_id)
+                        .ok()
+                        .map(|msg| { use ed25519_dalek::Signer; hex::encode(sk.sign(msg.as_bytes()).to_bytes()) });
+                    captured_envelope = signed_entry_envelope(&entry, sig_hex.as_deref());
+                }
             }
         }
+        self_register_envelope = Arc::new(captured_envelope);
+    } else {
+        self_register_envelope = Arc::new(None);
     }
 
     // Emit seals when this node is running as a clock peer
@@ -600,11 +906,13 @@ async fn main() -> Result<()> {
         let node_id_c = cfg.node_id.clone();
         let signing_key_c = Arc::clone(&signing_key);
         let signing_pubkey_c = Arc::clone(&signing_pubkey_hex);
+        let self_reg_c = Arc::clone(&self_register_envelope);
         // Epoch is relative to genesis, not Unix epoch.
         // genesis_ts is guaranteed set (init_genesis would have errored otherwise).
         let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
         tokio::spawn(async move {
             let mut last_sent: u64 = 0;
+            let mut announced: u64 = 0; // epochs in which we re-announced our registration
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 let now = now_ms();
@@ -612,6 +920,29 @@ async fn main() -> Result<()> {
                 let epoch = elapsed / hone_types::EPOCH_MS;
                 if epoch > last_sent {
                     last_sent = epoch;
+
+                    // Re-announce ourselves as a clock so peers that connected AFTER our
+                    // one-shot boot broadcast still learn we exist (gossipsub does not
+                    // replay to late joiners). This goes on the hone/clock-hello liveness
+                    // topic, NOT hone/entries: a hello is applied WRITE-ONCE and never
+                    // enters the pending pool, so repeating it every epoch cannot fork
+                    // state_root — unlike the old re-broadcast that re-applied the
+                    // registration with a grown stake. See DRYRUN_2CLOCK / BUG 6.
+                    if let Some(hello_data) = self_reg_c.as_ref().as_ref() {
+                        if announced < 20 || epoch % 20 == 0 {
+                            announced += 1;
+                            // `.await` REQUIRED: cmd_tx is a tokio mpsc::Sender, whose
+                            // send() is a future that does NOTHING if dropped. `let _ =
+                            // cmd_tx.send(..)` without .await silently no-ops — the clock
+                            // never actually broadcast its hello, so peers never learned
+                            // it was a clock and quorum never formed. (BUG 6 quorum block.)
+                            let _ = cmd_tx.send(NetCmd::Broadcast {
+                                topic: "hone/clock-hello",
+                                data: hello_data.clone(),
+                            }).await;
+                        }
+                    }
+
                     let seal_hash = {
                         use sha2::Digest;
                         let mut h = sha2::Sha256::new();
@@ -636,6 +967,10 @@ async fn main() -> Result<()> {
                     // Self-ingest so we count toward quorum on single-node networks.
                     clock_ref.receive_seal(seal.clone());
                     if let Ok(data) = serde_json::to_vec(&seal) {
+                        // `.await` REQUIRED — see clock-hello note above. Without it this
+                        // seal broadcast was a silent no-op, so a peer clock never received
+                        // this node's seal, never counted it toward quorum, and both nodes
+                        // stayed "single clock, isolated" forever. (BUG 6 quorum block.)
                         let _ = cmd_tx.send(NetCmd::Broadcast {
                             topic: "hone/seals",
                             data,
@@ -849,7 +1184,7 @@ async fn main() -> Result<()> {
                                 let _ = cmd_tx.send(NetCmd::Broadcast {
                                     topic: "hone/entries",
                                     data,
-                                }).await;
+                                }).await; // tokio mpsc: no-op if not awaited (BUG 6)
                             }
                         }
                     }
@@ -945,6 +1280,24 @@ async fn main() -> Result<()> {
                                     if let Err(err) = chain_ref.apply_entry(&e) {
                                         tracing::debug!("gossip Mine apply failed: {}", err);
                                     }
+                                } else if let hone_types::LedgerEntry::ClockNodeRegister { node_id, .. } = &e {
+                                    // Clock registration is WRITE-ONCE. A clock re-announces
+                                    // itself every epoch (via hone/clock-hello and, for older
+                                    // peers, re-broadcast on hone/entries), but the on-chain
+                                    // record must be applied exactly once — re-applying it
+                                    // later re-records the (by-then grown) stake on some nodes
+                                    // but not others, forking state_root. If already in the
+                                    // store, drop; otherwise apply write-once now (NOT via the
+                                    // pending pool, whose per-epoch ordering also diverged).
+                                    // See DRYRUN_2CLOCK / BUG 6.
+                                    let reg_key = format!("clock_reg:{}", node_id);
+                                    if chain_ref.store.state_get(&reg_key).is_some() {
+                                        tracing::trace!("clock-register already applied for '{}', ignoring re-announce", node_id);
+                                    } else if let Err(err) = tx::validate_and_apply(&chain_ref, &e, sig.as_deref()) {
+                                        tracing::debug!("gossip ClockNodeRegister apply failed: {}", err);
+                                    } else {
+                                        info!("[clock] applied peer registration for '{}' (write-once)", node_id);
+                                    }
                                 } else {
                                     // User entries go into the pending pool and are applied
                                     // at epoch seal in deterministic hash order across all nodes.
@@ -970,6 +1323,32 @@ async fn main() -> Result<()> {
                             tracing::debug!("dropping stale seal epoch {} (real epoch {})", seal_epoch, real_epoch);
                         } else {
                             clock_ref.receive_seal(seal);
+                        }
+                    }
+                    Ok(NetworkEvent::ClockHello { hello }) => {
+                        // A clock liveness beacon: {"entry": <ClockNodeRegister>, "sig": ...}.
+                        // Purely a propagation/liveness signal — it carries the sender's
+                        // ORIGINAL signed registration so a late-joining peer can write it
+                        // into its own store exactly once. It never re-applies (write-once
+                        // guard below) and never enters the pending pool, so repeating it
+                        // every epoch cannot fork state_root. See DRYRUN_2CLOCK / BUG 6.
+                        let (inner, sig) = if let Some(e) = hello.get("entry") {
+                            let s = hello.get("sig").and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty()).map(str::to_owned);
+                            (e.clone(), s)
+                        } else {
+                            (hello.clone(), None)
+                        };
+                        if let Ok(e @ hone_types::LedgerEntry::ClockNodeRegister { .. }) = tx::entry_from_json(&inner) {
+                            if let hone_types::LedgerEntry::ClockNodeRegister { node_id, .. } = &e {
+                                let reg_key = format!("clock_reg:{}", node_id);
+                                if chain_ref.store.state_get(&reg_key).is_none() {
+                                    match tx::validate_and_apply(&chain_ref, &e, sig.as_deref()) {
+                                        Ok(_)  => info!("[clock] registered peer clock '{}' from hello (write-once)", node_id),
+                                        Err(err) => tracing::debug!("clock-hello apply failed for '{}': {}", node_id, err),
+                                    }
+                                }
+                            }
                         }
                     }
                     Ok(NetworkEvent::ConsensusProposal { epoch, rewards_hash, node_id }) => {
@@ -998,11 +1377,21 @@ async fn main() -> Result<()> {
     system_contracts::ensure_system_contracts(&chain, &contracts);
 
     // ── Testnet sim daemon ────────────────────────────────────────────────────
-    if cfg.chain_id == TESTNET_CHAIN_ID {
+    // Runs on testnet by default (synthetic traffic for demos). MUST be disable-able:
+    // it seeds balances and posts transfers independently on each node, which forks
+    // state between two clocks and makes a real 2-clock consensus dry-run impossible
+    // (see reports/DRYRUN_2CLOCK_2026-07-10.md fork observation). Set HONE_SIM=false
+    // on any testnet node used to validate the actual clock/consensus path.
+    let sim_enabled = std::env::var("HONE_SIM")
+        .map(|v| !(v == "false" || v == "0"))
+        .unwrap_or(true);
+    if cfg.chain_id == TESTNET_CHAIN_ID && sim_enabled {
         let chain_ref = chain.clone();
         tokio::spawn(async move {
             sim::run(chain_ref).await;
         });
+    } else if cfg.chain_id == TESTNET_CHAIN_ID {
+        info!("[sim] disabled via HONE_SIM=false — no synthetic testnet traffic");
     }
 
     // ── Inference verifier ────────────────────────────────────────────────────
@@ -1332,7 +1721,7 @@ async fn run_inference_verifier(
             if let Ok(data) = serde_json::to_vec(&envelope) {
                 let _ = cmd_tx.send(NetCmd::Broadcast {
                     topic: "hone/entries", data,
-                }).await;
+                }).await; // tokio mpsc: no-op if not awaited (BUG 6)
             }
             let _ = chain.store.state_set(&verdict_key, verdict.as_bytes());
             info!("verifier: job {} → {}", job_id, verdict);
@@ -1340,6 +1729,41 @@ async fn run_inference_verifier(
             break; // one verdict per cycle
         }
     }
+}
+
+// ── reward driver restart recovery ────────────────────────────────────────────
+
+/// Highest epoch E such that `epoch_finalized_done:{1..=E}` are ALL present — i.e. the
+/// last epoch this node has contiguously applied rewards for.
+///
+/// BUG 6 residual (Grouchly `7c1f9e83`): the reward driver's `last_rewarded` lives in
+/// memory and reset to 0 every restart, while `Chain::current_epoch` restores from
+/// RocksDB. The driver's `start` floor (`safe_tip.saturating_sub(64)`) then skipped
+/// everything below the window on the first tick after a restart — an ordinary deploy or
+/// crash, no adversarial network needed. `epoch_finalized_done` is already persisted per
+/// epoch, so the durable truth is right there; we just have to read it back.
+///
+/// CONTIGUOUS is the whole point, mirroring the driver's own advance rule: we stop at the
+/// first missing epoch and return the one before it, so an unresolved gap is where we
+/// resume, never something we start above. Returns 0 on a fresh node (no keys), which
+/// correctly means "nothing rewarded yet."
+fn highest_contiguous_rewarded(chain: &Chain) -> u64 {
+    let done: std::collections::HashSet<u64> = chain.store
+        .state_scan_prefix("epoch_finalized_done:")
+        .into_iter()
+        .filter_map(|(k, _)| k.rsplit(':').next().and_then(|s| s.parse::<u64>().ok()))
+        .collect();
+    if done.is_empty() {
+        return 0;
+    }
+    // Walk up from 1 while each epoch is present. Bounded by the highest key, so a
+    // sparse/corrupt set can't spin.
+    let max = done.iter().copied().max().unwrap_or(0);
+    let mut e = 0u64;
+    while e < max && done.contains(&(e + 1)) {
+        e += 1;
+    }
+    e
 }
 
 // ── txglobal backfill ─────────────────────────────────────────────────────────
@@ -1375,11 +1799,22 @@ fn backfill_txglobal(chain: &Chain) {
 ///
 /// Layer A scalar and Layer C fee boost are computed here but the full EMA
 /// state persistence comes in a follow-up; for now they fall back to 1.0.
-async fn emit_epoch_rewards(
+/// Compute and APPLY this epoch's rewards (clock, testnet, work-pool) + recycle + decay
+/// as a PURE SYNC function of `clock_sealers` (the winning EpochFinalize's `sealed_by`)
+/// plus already-replicated store state. No network, no async.
+///
+/// BUG 6: this is called from apply_entry's winning-EpochFinalize branch (via a callback
+/// registered identically on every node), so every node runs it in the same serialized
+/// order off the same inputs → byte-identical balance mutation → convergent state_root.
+/// The per-reward gossip broadcast that used to live here is REMOVED: once every node
+/// replay-derives rewards from the winning entry, gossiping the ClockReward entries is
+/// redundant AND dangerous — ClockReward's apply arm has no per-epoch idempotency guard,
+/// so a received-then-recomputed reward would double-credit. The EpochFinalize entry is
+/// the only thing that gossips; rewards are a pure function of it.
+fn emit_epoch_rewards(
     epoch: u64,
     clock_sealers: &[String],
     chain: &Arc<Chain>,
-    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
 ) {
     // Sweep expired pending token transfers → refund sender.
     sweep_expired_pending_transfers(epoch, chain);
@@ -1502,7 +1937,8 @@ async fn emit_epoch_rewards(
             warn!("clock: clock reward failed for {} epoch {}: {}", node_id, epoch, e);
             continue;
         }
-        broadcast_entry_desktop(&entry, cmd_tx).await;
+        // No broadcast: rewards are replay-derived from the winning EpochFinalize on
+        // every node; gossiping ClockReward would double-credit (no idempotency guard).
     }
 
     // ── Layer E: testnet operator rewards (from testnet fund) ────────────────
@@ -1530,7 +1966,7 @@ async fn emit_epoch_rewards(
                 warn!("clock: testnet reward failed for {} epoch {}: {}", mainnet_account, epoch, e);
                 continue;
             }
-            broadcast_entry_desktop(&entry, cmd_tx).await;
+            // No broadcast — replay-derived on every node (see clock-reward note above).
         }
         info!("clock: epoch {} testnet: {} ops × {} hunits", epoch, testnet_ops.len(), actual);
     }
@@ -1928,12 +2364,12 @@ async fn emit_epoch_rewards(
         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, scarcity_recycle);
     }
 
-    distribute_rewards_desktop(epoch, &mines, inference_pool, chain, cmd_tx, |miner, amount, ep| {
+    distribute_rewards_desktop(epoch, &mines, inference_pool, chain, |miner, amount, ep| {
         LedgerEntry::MineReward { miner, amount, epoch: ep }
-    }).await;
-    distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, cmd_tx, |node_id, amount, ep| {
+    });
+    distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, |node_id, amount, ep| {
         LedgerEntry::StorageReward { node_id, amount, epoch: ep }
-    }).await;
+    });
     // Sensor rewards: split 60/40 when gateway is registered, plain SensorReward otherwise.
     {
         let total_score: u64 = sensor_nodes.iter().map(|(_, s)| s).sum();
@@ -1957,23 +2393,21 @@ async fn emit_epoch_rewards(
                 LedgerEntry::SensorReward { node_id: node_id.clone(), amount, epoch }
             };
             let _ = chain.apply_entry(&entry);
-            if let Ok(data) = serde_json::to_vec(&serde_json::json!({"entry": entry})) {
-                let _ = cmd_tx.send(crate::net::NetCmd::Broadcast { topic: "hone/entries", data }).await;
-            }
+            // No broadcast — replay-derived on every node (BUG 6).
         }
     }
-    distribute_rewards_desktop(epoch, &verifiers, verify_pool, chain, cmd_tx, |node_id, amount, ep| {
+    distribute_rewards_desktop(epoch, &verifiers, verify_pool, chain, |node_id, amount, ep| {
         LedgerEntry::VerifierReward { node_id, amount, epoch: ep }
-    }).await;
-    distribute_rewards_desktop(epoch, &service_nodes, service_pool, chain, cmd_tx, |node_id, amount, ep| {
+    });
+    distribute_rewards_desktop(epoch, &service_nodes, service_pool, chain, |node_id, amount, ep| {
         LedgerEntry::ServiceReward { node_id, amount, epoch: ep }
-    }).await;
-    distribute_rewards_desktop(epoch, &mempool_ops, mempool_pool, chain, cmd_tx, |operator, amount, ep| {
+    });
+    distribute_rewards_desktop(epoch, &mempool_ops, mempool_pool, chain, |operator, amount, ep| {
         LedgerEntry::MempoolReward { operator, amount, epoch: ep }
-    }).await;
-    distribute_rewards_desktop(epoch, &tracker_nodes, tracker_pool, chain, cmd_tx, |observer_id, amount, ep| {
+    });
+    distribute_rewards_desktop(epoch, &tracker_nodes, tracker_pool, chain, |observer_id, amount, ep| {
         LedgerEntry::TrackerCoverageReward { observer_id, amount, epoch: ep }
-    }).await;
+    });
 
     // LinkGit serve rewards: split linkgit_pool proportionally across repos by serve count.
     if linkgit_pool > 0 && !linkgit_repos.is_empty() {
@@ -1987,21 +2421,21 @@ async fn emit_epoch_rewards(
                 serve_count: *serve_count,
                 epoch,
             };
-            match chain.apply_entry(&entry) {
-                Ok(()) => broadcast_entry_desktop(&entry, cmd_tx).await,
-                Err(e) => warn!("linkgit serve reward failed for {}: {}", repo_id, e),
+            if let Err(e) = chain.apply_entry(&entry) {
+                warn!("linkgit serve reward failed for {}: {}", repo_id, e);
             }
+            // No broadcast — replay-derived on every node (BUG 6).
         }
     }
 
     // LinkGit build rewards: split build_pool proportionally by push count across builders.
-    distribute_rewards_desktop(epoch, &linkgit_builders, build_pool, chain, cmd_tx, |builder, amount, ep| {
+    distribute_rewards_desktop(epoch, &linkgit_builders, build_pool, chain, |builder, amount, ep| {
         let push_count = linkgit_builders.iter()
             .find(|(b, _)| b == &builder)
             .map(|(_, c)| *c)
             .unwrap_or(0);
         LedgerEntry::LinkGitBuildReward { builder, amount, push_count, epoch: ep }
-    }).await;
+    });
 
     // ── T3-4: Update EMA critical-mass targets for next epoch ────────────────
     // alpha = EMA_ALPHA_NUM / EMA_ALPHA_DENOM ≈ 2/20161 ≈ 7-day smoothing window.
@@ -2041,7 +2475,7 @@ async fn emit_epoch_rewards(
         &serde_json::to_vec(&serde_json::json!({ "ema": layer_a_slow_new })).unwrap_or_default());
 
     // ── Subscription fee release ───────────────────────────────────────────────
-    sweep_tracker_subscription_fees(epoch, chain, cmd_tx).await;
+    sweep_tracker_subscription_fees(epoch, chain);
 
     let distributed  = inference_pool + storage_pool + sensor_pool
                      + verify_pool + service_pool + mempool_pool + tracker_pool
@@ -2111,7 +2545,12 @@ async fn emit_epoch_rewards(
                     &format!("infer_input:{}", job_id),
                     prompt.as_bytes(),
                 );
-                broadcast_entry_desktop(&entry, cmd_tx).await;
+                // No broadcast here — emit_epoch_rewards is now sync + replay-derived on
+                // every node (BUG 6). NOTE for verify: benchmark InferenceJobPosts were
+                // gossiped to workers; every node now apply_entry's them identically so
+                // state is consistent, but if remote workers relied on this gossip to pick
+                // up benchmark jobs, that worker-discovery path needs a separate non-
+                // consensus hook. Flagged to Grouchly in the handoff.
             }
         }
     }
@@ -2155,6 +2594,35 @@ async fn broadcast_entry_desktop(
     }
 }
 
+/// Broadcast an entry WITH its signature attached in the gossip envelope.
+///
+/// The plain `broadcast_entry_desktop` above sends `{"entry": ...}` with no `sig`.
+/// That is fine for entries a peer will re-validate against on-chain keys, but
+/// `ClockNodeRegister` from a key-less/self-auth account (or verified against the
+/// account's posting key) REQUIRES the signature to be present in the envelope's
+/// `"sig"` field — the receive path (main.rs NetworkEvent::Entry) pulls `sig` from
+/// there and `validate_and_apply` rejects a ClockNodeRegister with no signature
+/// ("signature required for ClockNodeRegister", tx.rs). Without this, a clock's
+/// registration never applies on any *other* node, so peers never see it as
+/// registered — the "registered_count stuck at 1" fork. See DRYRUN_2CLOCK.
+fn signed_entry_envelope(entry: &LedgerEntry, sig_hex: Option<&str>) -> Option<Vec<u8>> {
+    let mut envelope = serde_json::json!({"entry": entry});
+    if let Some(s) = sig_hex.filter(|s| !s.is_empty()) {
+        envelope["sig"] = serde_json::Value::String(s.to_owned());
+    }
+    serde_json::to_vec(&envelope).ok()
+}
+
+async fn broadcast_signed_entry(
+    entry: &LedgerEntry,
+    sig_hex: Option<&str>,
+    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
+) {
+    if let Some(data) = signed_entry_envelope(entry, sig_hex) {
+        let _ = cmd_tx.send(NetCmd::Broadcast { topic: "hone/entries", data }).await;
+    }
+}
+
 fn sweep_expired_pending_transfers(epoch: u64, chain: &Arc<Chain>) {
     let prefix = "pending_transfer:";
     let entries = chain.store.state_scan_prefix(prefix);
@@ -2173,10 +2641,10 @@ fn sweep_expired_pending_transfers(epoch: u64, chain: &Arc<Chain>) {
 
 /// Release per-epoch subscription fees from escrow → observers (50%) + treasury (15%) + recycle (35%).
 /// Called once per epoch seal after all other reward distributions.
-async fn sweep_tracker_subscription_fees(
+// Sync (BUG 6): no broadcast — replay-derived on every node from the winning EpochFinalize.
+fn sweep_tracker_subscription_fees(
     epoch: u64,
     chain: &Arc<Chain>,
-    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
 ) {
     let escrows = chain.store.state_scan_prefix("tracker_sub_escrow:");
     for (escrow_key, raw) in escrows {
@@ -2225,7 +2693,7 @@ async fn sweep_tracker_subscription_fees(
                     warn!("tracker sub fee: observer credit failed for {} epoch {}: {}", obs, epoch, e);
                     continue;
                 }
-                broadcast_entry_desktop(&entry, cmd_tx).await;
+                // No broadcast — replay-derived on every node (BUG 6).
             }
         } else {
             // No observers pushed data — treat observer cut as recycle too.
@@ -2245,12 +2713,14 @@ async fn sweep_tracker_subscription_fees(
     }
 }
 
-async fn distribute_rewards_desktop<F>(
+// Sync (BUG 6): applies each pool reward entry to local state, no broadcast — rewards
+// are replay-derived from the winning EpochFinalize on every node, so gossiping the
+// reward entries is redundant and would double-credit (no per-epoch idempotency guard).
+fn distribute_rewards_desktop<F>(
     epoch: u64,
     nodes: &[(String, u64)],
     pool: u64,
     chain: &Arc<Chain>,
-    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
     make_entry: F,
 ) where
     F: Fn(String, u64, u64) -> LedgerEntry,
@@ -2266,10 +2736,6 @@ async fn distribute_rewards_desktop<F>(
         if let Err(e) = chain.apply_entry(&entry) {
             warn!("clock: reward apply failed for {} epoch {}: {}", account, epoch, e);
             continue;
-        }
-        let envelope = serde_json::json!({"entry": entry});
-        if let Ok(data) = serde_json::to_vec(&envelope) {
-            let _ = cmd_tx.send(NetCmd::Broadcast { topic: "hone/entries", data }).await;
         }
     }
 }
@@ -2335,10 +2801,81 @@ async fn run_mempool_node(
             let _ = cmd_tx.send(NetCmd::Broadcast {
                 topic: "hone/entries",
                 data,
-            }).await;
+            }).await; // tokio mpsc: no-op if not awaited (BUG 6)
         }
 
         info!("mempool: heartbeat epoch {} relayed={} latency={}ms",
             epoch, entries_relayed, propagation_latency_ms);
+    }
+}
+
+// ── tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod reward_driver_tests {
+    use super::*;
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("hone_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "hone-test".to_string());
+        (chain, dir)
+    }
+
+    fn mark_done(chain: &Chain, epochs: &[u64]) {
+        for e in epochs {
+            chain.store.state_set(&format!("epoch_finalized_done:{}", e), b"1").unwrap();
+        }
+    }
+
+    #[test]
+    fn fresh_node_resumes_at_zero() {
+        let (chain, _d) = make_chain("fresh");
+        assert_eq!(highest_contiguous_rewarded(&chain), 0);
+    }
+
+    #[test]
+    fn resumes_at_highest_contiguous_epoch() {
+        let (chain, _d) = make_chain("contig");
+        mark_done(&chain, &[1, 2, 3, 4, 5]);
+        assert_eq!(highest_contiguous_rewarded(&chain), 5);
+    }
+
+    /// The BUG 6 residual case (Grouchly 7c1f9e83): epoch 4 is an unresolved gap. We must
+    /// resume at 3 and retry 4 — NOT jump to 9 and drop 4's reward forever (state_root
+    /// fork). Restart must not be able to outrun a gap.
+    #[test]
+    fn stops_below_an_unresolved_gap() {
+        let (chain, _d) = make_chain("gap");
+        mark_done(&chain, &[1, 2, 3, 5, 6, 7, 8, 9]); // 4 missing
+        assert_eq!(highest_contiguous_rewarded(&chain), 3);
+    }
+
+    /// A gap at the very first epoch means nothing is contiguously done.
+    #[test]
+    fn gap_at_one_resumes_at_zero() {
+        let (chain, _d) = make_chain("gap1");
+        mark_done(&chain, &[2, 3, 4]); // 1 missing
+        assert_eq!(highest_contiguous_rewarded(&chain), 0);
+    }
+
+    /// Restart recovery must survive a real reopen of the DB, not just an in-memory read —
+    /// this is the whole point of deriving from persisted state.
+    #[test]
+    fn survives_store_reopen() {
+        let dir = tempfile::Builder::new().prefix("hone_test_reopen_").tempdir().unwrap();
+        {
+            let store = crate::store::Store::open(dir.path()).unwrap();
+            let chain = Chain::new(store, "n1".into(), "hone-test".into());
+            mark_done(&chain, &[1, 2, 3]);
+            assert_eq!(highest_contiguous_rewarded(&chain), 3);
+        }
+        // Reopen — simulates the process restart that caused the residual.
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, "n1".into(), "hone-test".into());
+        assert_eq!(highest_contiguous_rewarded(&chain), 3, "restart must resume, not reset to 0");
     }
 }

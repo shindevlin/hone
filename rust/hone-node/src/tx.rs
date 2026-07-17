@@ -1462,6 +1462,47 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── Delegated external signer: grant / revoke are active-key gated ────
+        // Root of trust never moves — only the account's `active` key can create
+        // or destroy a grant. See docs/EXTERNAL_SIGNER_DELEGATION.md.
+        LedgerEntry::GrantExternalSigner { account, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account {
+                bail!("signed_by must equal account for GrantExternalSigner");
+            }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, account, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
+        LedgerEntry::RevokeExternalSigner { account, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account {
+                bail!("signed_by must equal account for RevokeExternalSigner");
+            }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, account, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
+        // ── Delegated external signer: transfer is authorized by the TON
+        // signature itself, NOT a HONE-key signature — mirrors VerifyChainLink,
+        // where the external signature IS the proof. All caps/domain/replay
+        // checking happens inside apply_entry (chain.rs), against the grant
+        // already on file. No sig_hex / HONE key involved at this layer.
+        LedgerEntry::ExternalSignerTransfer { account, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, account)?;
+            // No HONE-side nonce bump on the account's ordinary Transfer nonce —
+            // ExternalSignerTransfer uses its own grant-scoped nonce, checked and
+            // recorded inside apply_entry alongside the caps.
+            chain.apply_entry(entry)?;
+        }
+
         // ── Chain Entropy Protocol — liveness ping ────────────────────────────
         LedgerEntry::LivenessProof { account, signed_by, nonce, key_role, signature, .. } => {
             let _guard = chain.write_lock.lock();

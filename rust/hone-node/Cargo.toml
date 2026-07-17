@@ -65,13 +65,12 @@ rustls = { version = "0.23", features = ["ring"], default-features = false }
 # Use rustls so cross-compilation (ARM64/Pi) works without system OpenSSL.
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 # Force vendored OpenSSL. hone-node's own reqwest uses rustls above, but `hf-hub`
-# (Hugging Face client, pulled in by the `inference-embedded` default feature) drags
-# in an independent old reqwest 0.11 -> native-tls -> openssl-sys. Vendoring keeps
-# that build from depending on a system OpenSSL, which matters for cross-compiling to
-# aarch64 (Grouchly's Nebra) and Android NDK targets that don't reliably have one.
-# Do not remove without first patching hf-hub off native-tls — see the openssl
-# dependency investigation (2026-07-07) for the full trace.
-openssl = { version = "0.10", features = ["vendored"] }
+# NOTE: the explicit `openssl = { vendored }` dep was removed 2026-07-07.
+# It existed only because hf-hub defaulted to native-tls -> openssl-sys;
+# hf-hub now uses rustls-tls (see its dependency above), so nothing in this
+# crate needs openssl and the from-source OpenSSL build (which fails on
+# Windows without a full Perl) is gone. Re-add only if a dep reintroduces
+# native-tls.
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Utilities
@@ -93,7 +92,10 @@ candle-core = { version = "0.10", default-features = false, optional = true }
 candle-transformers = { version = "0.10", default-features = false, optional = true }
 candle-nn = { version = "0.10", default-features = false, optional = true }
 tokenizers = { version = "0.20", default-features = false, features = ["onig"], optional = true }
-hf-hub = { version = "0.3", default-features = false, features = ["tokio", "online"], optional = true }
+# hf-hub removed 2026-07-07: inference_engine.rs loads GGUF models from the
+# local model store (HONE_MODEL / HONE_MODEL_DIR) with no auto-download, so
+# hf-hub was unused (0 refs). Dropping it also drops its native-tls ->
+# openssl-sys chain, which failed to build from source on Windows.
 
 [features]
 # `matrix` enables the optional Matrix alt-transport (pulls matrix-sdk, which
@@ -114,7 +116,7 @@ hf-hub = { version = "0.3", default-features = false, features = ["tokio", "onli
 # `--features cuda` from within this crate).
 default = ["inference-embedded"]
 matrix = ["dep:matrix-sdk"]
-inference-embedded = ["dep:candle-core", "dep:candle-transformers", "dep:candle-nn", "dep:tokenizers", "dep:hf-hub"]
+inference-embedded = ["dep:candle-core", "dep:candle-transformers", "dep:candle-nn", "dep:tokenizers"]
 cuda = ["candle-core/cuda", "candle-transformers/cuda", "candle-nn/cuda"]
 
 [dev-dependencies]

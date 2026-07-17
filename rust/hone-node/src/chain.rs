@@ -407,6 +407,51 @@ mod ton_sign_data {
     }
 }
 
+// ── External signer delegation helpers ──────────────────────────────────────
+// See docs/EXTERNAL_SIGNER_DELEGATION.md.
+
+/// HONE surfaces allowed to request TON Connect signatures on behalf of an
+/// account. A signature's `ton_domain` must match one of these or verification
+/// is rejected — this is the replay-across-dApps guard: without it, a
+/// signature legitimately obtained for signing into some OTHER TON dApp could
+/// be replayed as a HONE authorization. Single source of truth; extend as more
+/// HONE-controlled surfaces (Mini App, native app deep link) come online.
+const HONE_TON_CONNECT_DOMAINS: &[&str] = &["hone.network", "app.hone.network"];
+
+/// Reject an ExternalSignerTransfer whose ton_timestamp is older than this,
+/// even with an otherwise-valid signature. Replay-after-long-delay guard —
+/// a signature captured once should not be usable indefinitely.
+const TON_SIGNATURE_MAX_AGE_S: u64 = 300; // 5 minutes
+
+/// State key for a single external signer grant.
+fn external_signer_key(account: &str, external_chain: &str, external_pubkey: &str) -> String {
+    format!("external_signer:{}:{}:{}", account, external_chain, external_pubkey)
+}
+
+/// Resolve a `SignerCap` JSON value to a concrete hunit limit at check time.
+/// `Hunits` caps are a direct read. `Usd` caps convert via the price oracle —
+/// FAIL CLOSED: if the oracle has no fresh-enough sample, this returns an
+/// error (never silently treats the transfer as uncapped). See
+/// docs/EXTERNAL_SIGNER_DELEGATION.md "TON signature verification" for why
+/// fail-closed is the rule for any oracle-dependent security check.
+///
+/// NOTE: Usd cap resolution is NOT implemented yet (build phasing step 6 in
+/// the spec — ships after the Hunits path is proven). Calling this with a
+/// `Usd` cap today returns an error rather than silently treating it as
+/// unlimited or falling back to a guessed price.
+fn resolve_cap_hunits(cap: &serde_json::Value) -> Result<u64> {
+    match cap.get("kind").and_then(|v| v.as_str()) {
+        Some("hunits") => cap.get("amount")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow::anyhow!("malformed Hunits cap: missing 'amount'")),
+        Some("usd") => anyhow::bail!(
+            "Usd-denominated caps are not yet implemented (see EXTERNAL_SIGNER_DELEGATION.md \
+             build phasing step 6) — fail closed rather than treat as uncapped"
+        ),
+        other => anyhow::bail!("malformed cap: unknown kind {:?}", other),
+    }
+}
+
 /// Compare two semver strings — returns true if `a >= b`.
 /// Parses "MAJOR.MINOR.PATCH" numerically; falls back to string comparison.
 fn semver_gte(a: &str, b: &str) -> bool {
@@ -1070,7 +1115,7 @@ impl Chain {
             // Heaviest-quorum rule: if two EpochFinalizes arrive for the same epoch,
             // the one with more registered signers wins. Equal quorum: smaller
             // rewards_hash wins (deterministic lexicographic tiebreaker).
-            LedgerEntry::EpochFinalize { epoch, rewards_hash, quorum, state_root, timestamp, .. } => {
+            LedgerEntry::EpochFinalize { epoch, rewards_hash, quorum, state_root, timestamp, sealed_by, .. } => {
                 let existing = self.store.get_epoch_meta(*epoch)?;
                 if let Some(prev) = existing {
                     let prev_hash   = prev["rewards_hash"].as_str().unwrap_or("");
@@ -1118,6 +1163,10 @@ impl Chain {
                     "state_root": state_root,
                     "finalized_at": timestamp,
                     "finalized": true,
+                    // BUG 6: persist the winning entry's sealer set so the reward driver
+                    // can replay-derive rewards for this epoch off the SAME data every
+                    // node received in the winning EpochFinalize — not a local side channel.
+                    "sealed_by": sealed_by,
                 });
                 self.store.set_epoch_meta(*epoch, &meta)?;
             }
@@ -1183,6 +1232,178 @@ impl Chain {
                 });
                 self.store.set_account(account, &state)?;
                 info!(account, chain, "hard-mode chain link verified and stored");
+            }
+
+            // ── Delegated external signer: grant, transfer, revoke ─────────────
+            // See docs/EXTERNAL_SIGNER_DELEGATION.md. Root of trust is always the
+            // account's `active` key (enforced in tx.rs); this block only handles
+            // storage + the TON-signature/caps verification for the transfer case.
+            LedgerEntry::GrantExternalSigner { account, external_chain, external_pubkey, external_address, label, caps, .. } => {
+                anyhow::ensure!(external_chain == "ton", "unsupported external_chain '{}' — only 'ton' implemented", external_chain);
+                anyhow::ensure!(
+                    hex::decode(external_pubkey).map(|b| b.len() == 32).unwrap_or(false),
+                    "external_pubkey must be 32 bytes hex (Ed25519)"
+                );
+                anyhow::ensure!(!external_address.is_empty(), "external_address must not be empty");
+                let key = external_signer_key(account, external_chain, external_pubkey);
+                let record = serde_json::json!({
+                    "address": external_address,
+                    "label": label,
+                    "caps": caps,
+                    "revoked": false,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&record)?)?;
+                info!(account, external_chain, external_pubkey, external_address, "external signer granted");
+            }
+
+            LedgerEntry::RevokeExternalSigner { account, external_chain, external_pubkey, .. } => {
+                let key = external_signer_key(account, external_chain, external_pubkey);
+                let mut record = self.store.state_get(&key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "no grant found for account='{}' chain='{}' pubkey='{}'", account, external_chain, external_pubkey
+                    ))?;
+                // Revocation is immediate and total — no grace period, no way for
+                // the external key to undo this. Keep the record (for audit /
+                // attribution history) but mark it dead.
+                record["revoked"] = serde_json::json!(true);
+                self.store.state_set(&key, &serde_json::to_vec(&record)?)?;
+                info!(account, external_chain, external_pubkey, "external signer revoked");
+            }
+
+            LedgerEntry::ExternalSignerTransfer {
+                account, external_chain, to, amount, memo, nonce,
+                ton_domain, ton_timestamp, ton_payload_kind, ton_payload, ton_signature,
+                epoch,
+            } => {
+                anyhow::ensure!(external_chain == "ton", "unsupported external_chain '{}'", external_chain);
+                anyhow::ensure!(*amount > 0, "transfer amount must be positive");
+
+                // Recipient can be a name or hh1… address; resolve/validate exists.
+                self.ensure_account(to, *epoch)?;
+
+                // Find the grant this transfer claims to be authorized by. The entry
+                // itself does not name which grant/pubkey signed it, so scan this
+                // account's grants and accept the first whose stored (address, pubkey)
+                // makes the TON signature verify. In practice an account holds very
+                // few grants, so this is cheap; it also means there is no way to
+                // "claim" a grant without actually producing a valid signature against
+                // it — the scan is a lookup convenience, not a trust boundary.
+                let grants = self.store.state_scan_prefix(&format!("external_signer:{}:{}:", account, external_chain));
+                anyhow::ensure!(!grants.is_empty(), "no external signer granted for account='{}' chain='{}'", account, external_chain);
+
+                // Reconstruct the message string the ton_sign_data verifier expects:
+                // "{workchain}:{account_id_hex}|{domain}|{timestamp}|{kind}|{payload_hex}"
+                // using the address STORED AT GRANT TIME (from the wallet's own TON
+                // Connect connect handshake — see GrantExternalSigner's
+                // external_address doc comment). HONE never derives a TON address from
+                // a bare pubkey — that would require replicating the wallet contract's
+                // StateInit hash, which is wallet-version-dependent and error-prone to
+                // reimplement; it only ever replays back what the wallet itself already
+                // reported. Try each of this account's non-revoked grants in turn.
+                let mut verified: Option<(String, serde_json::Value)> = None;
+                for (key, raw) in &grants {
+                    let record: serde_json::Value = match serde_json::from_slice(raw) { Ok(v) => v, Err(_) => continue };
+                    if record.get("revoked").and_then(|v| v.as_bool()).unwrap_or(true) {
+                        continue; // revoked or malformed — never usable
+                    }
+                    // pubkey is the last ':'-delimited segment of the state key.
+                    let pubkey_hex = match key.rsplit(':').next() { Some(p) => p, None => continue };
+                    let pubkey_bytes = match hex::decode(pubkey_hex) { Ok(b) if b.len() == 32 => b, _ => continue };
+                    let pubkey_array: [u8; 32] = pubkey_bytes.try_into().unwrap();
+                    let address = match record.get("address").and_then(|v| v.as_str()) { Some(a) => a, None => continue };
+                    // address is "{workchain}:{account_id_hex}" — matches what
+                    // ton_sign_data::ParsedMessage expects for the first pipe segment.
+
+                    let message = format!(
+                        "{}|{}|{}|{}|{}",
+                        address, ton_domain, ton_timestamp, ton_payload_kind, ton_payload
+                    );
+                    if ton_sign_data::verify_with_pubkey(&message, ton_signature, &pubkey_array).is_ok() {
+                        verified = Some((key.clone(), record));
+                        break;
+                    }
+                }
+                let (grant_key, grant) = verified
+                    .ok_or_else(|| anyhow::anyhow!("no granted signer verifies this ExternalSignerTransfer"))?;
+
+                // Domain check — reject if the claimed domain isn't HONE's own Mini
+                // App origin. (Kept as a named constant so the allowlist has one
+                // source of truth as more surfaces are added.)
+                anyhow::ensure!(
+                    HONE_TON_CONNECT_DOMAINS.contains(&ton_domain.as_str()),
+                    "ton_domain '{}' is not a recognized HONE surface", ton_domain
+                );
+
+                // Timestamp freshness — reject stale signatures (replay-after-delay guard).
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                anyhow::ensure!(
+                    now.saturating_sub(*ton_timestamp) <= TON_SIGNATURE_MAX_AGE_S,
+                    "ton_timestamp too old — signature has expired"
+                );
+
+                // Payload-binding: decode ton_payload and require it encodes exactly
+                // this transfer. Canonical encoding: "account|to|amount|memo|nonce".
+                let expected_payload_plain = format!(
+                    "{}|{}|{}|{}|{}",
+                    account, to, amount, memo.as_deref().unwrap_or(""), nonce
+                );
+                let expected_payload_hex = hex::encode(expected_payload_plain.as_bytes());
+                anyhow::ensure!(
+                    *ton_payload == expected_payload_hex,
+                    "ton_payload does not encode this transfer — signed a different transaction"
+                );
+
+                // Per-grant nonce replay guard.
+                let used_key = format!("external_signer_nonce:{}:{}", grant_key, nonce);
+                anyhow::ensure!(self.store.state_get(&used_key).is_none(), "nonce already used for this grant");
+
+                // Caps.
+                let caps = grant.get("caps").cloned().unwrap_or(serde_json::json!({}));
+                if let Some(cap) = caps.get("per_tx_max").filter(|v| !v.is_null()) {
+                    let limit = resolve_cap_hunits(cap)?;
+                    anyhow::ensure!(*amount <= limit, "amount exceeds per-tx cap for this grant");
+                }
+                if let Some(cap) = caps.get("daily_max").filter(|v| !v.is_null()) {
+                    let limit = resolve_cap_hunits(cap)?;
+                    // Rolling daily bucket, in whole-epoch units (EPOCH_DURATION_S is a
+                    // float era parameter; a fixed 86400/30=2880-epoch bucket is a
+                    // documented v0.1 simplification — it drifts from a true 24h window
+                    // if EPOCH_DURATION_S ever changes era, same caveat as any
+                    // epoch-bucketed daily counter elsewhere in this codebase).
+                    const EPOCHS_PER_DAY_BUCKET: u64 = 2880;
+                    let spent_key = format!("external_signer_spent:{}:{}", grant_key, epoch / EPOCHS_PER_DAY_BUCKET);
+                    let spent_so_far: u64 = self.store.state_get(&spent_key)
+                        .and_then(|b| String::from_utf8(b).ok())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
+                    anyhow::ensure!(spent_so_far + amount <= limit, "amount exceeds remaining daily cap for this grant");
+                    self.store.state_set(&spent_key, (spent_so_far + amount).to_string().as_bytes())?;
+                }
+                if let Some(allowlist) = caps.get("allowlist").and_then(|v| v.as_array()) {
+                    let allowed = allowlist.iter().any(|v| v.as_str() == Some(to.as_str()));
+                    anyhow::ensure!(allowed, "recipient '{}' is not on this grant's allowlist", to);
+                }
+                if let Some(expires_at) = caps.get("expires_at").and_then(|v| v.as_u64()) {
+                    anyhow::ensure!(now <= expires_at, "grant has expired");
+                }
+
+                // All checks passed — mark nonce used, apply the transfer.
+                self.store.state_set(&used_key, b"1")?;
+                self.store.debit(account, NATIVE_TOKEN, *amount)?;
+                self.store.credit(to, NATIVE_TOKEN, *amount)?;
+
+                // Attribution: durable, on-chain, distinguishable from a native
+                // Transfer by entry type alone (see docs — this is the record a
+                // holder's notification/explorer reads to say WHICH key signed).
+                info!(
+                    account, to, amount, external_chain,
+                    label = grant.get("label").and_then(|v| v.as_str()).unwrap_or(""),
+                    "external signer transfer applied"
+                );
             }
 
             // Set or clear the 2FA policy for a key slot.
