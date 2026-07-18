@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * modelHealer.js — self-healing model resolution for BTCPC miners.
+ * modelHealer.js — self-healing model resolution for HONE miners.
  *
  * Non-technical home users cannot run commands. Every model fail path
  * auto-repairs: pull → iterate locals → pull fallbacks → stay alive.
@@ -160,7 +160,7 @@ async function firstVerifiedLocal() {
 /**
  * Main export — resolves a working model name using the self-heal fallback chain.
  *
- * @param {string|null} preferredModel - Model requested by BTCPC_MODEL env var.
+ * @param {string|null} preferredModel - Model requested by HONE_MODEL env var.
  *   Pass null to auto-pick the largest verified local model.
  * @param {boolean} [forceRefresh=false] - If true, ignore cache and re-resolve.
  * @returns {Promise<string|null>} Verified model name or null if all fallbacks fail.
@@ -175,7 +175,7 @@ async function resolveWorkingModel(preferredModel, forceRefresh = false) {
 
   // Special case: no preferred model → auto-pick largest local
   if (!preferredModel) {
-    console.log('[model-healer] BTCPC_MODEL unset — auto-picking largest verified local model');
+    console.log('[model-healer] HONE_MODEL unset — auto-picking largest verified local model');
     resolved = await pickLargestLocal();
     if (!resolved) {
       console.warn('[model-healer] No local models verified — attempting to pull qwen3:4b as default');

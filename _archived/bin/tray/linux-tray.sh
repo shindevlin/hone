@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# BTCPC Linux System Tray
+# HONE Linux System Tray
 # Uses yad (GTK dialog) for AppIndicator tray icon
 # Works on GNOME, KDE, XFCE, Budgie, Cinnamon
 #
@@ -11,15 +11,15 @@
 
 EXPLORER_URL="http://localhost:4242"
 SETTINGS_URL="$EXPLORER_URL/settings"
-PIPE="/tmp/btcpc-tray-pipe"
+PIPE="/tmp/hone-tray-pipe"
 
 # Check yad
 if ! command -v yad &>/dev/null; then
-  echo "[BTCPC Tray] yad not found. Install: sudo apt install yad"
-  echo "[BTCPC Tray] Falling back to notify-send only"
+  echo "[HONE Tray] yad not found. Install: sudo apt install yad"
+  echo "[HONE Tray] Falling back to notify-send only"
 
   # Notification-only fallback
-  notify-send --app-name=BTCPC "BTCPC Miner" "Mining active. Install yad for system tray icon." 2>/dev/null
+  notify-send --app-name=HONE "HONE Miner" "Mining active. Install yad for system tray icon." 2>/dev/null
   while true; do
     sleep 60
     STATUS=$(curl -s "$EXPLORER_URL/api/stats" 2>/dev/null)
@@ -28,7 +28,7 @@ if ! command -v yad &>/dev/null; then
       # Only notify on updates
       UPDATE_CHECK=$(curl -s -H "x-bot-key: ${BOT_API_KEY}" "http://localhost:3000/api/bot/update-status" 2>/dev/null)
       if echo "$UPDATE_CHECK" | grep -q '"pending":true'; then
-        notify-send --urgency=normal --app-name=BTCPC "BTCPC Update" "New version available. Update to keep earning." 2>/dev/null
+        notify-send --urgency=normal --app-name=HONE "HONE Update" "New version available. Update to keep earning." 2>/dev/null
       fi
     fi
   done
@@ -52,7 +52,7 @@ exec 3<>"$PIPE"
 
 yad --notification \
   --listen \
-  --text="BTCPC Miner" \
+  --text="HONE Miner" \
   --command="xdg-open $SETTINGS_URL" \
   --icon-size=22 \
   <&3 &
@@ -68,7 +68,7 @@ while kill -0 $YAD_PID 2>/dev/null; do
     MINED=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"{d.get('total_mined',0):.0f}\")" 2>/dev/null)
     BLOCKS=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('blocks_on_disk',0))" 2>/dev/null)
 
-    TOOLTIP="BTCPC Mining — Epoch $EPOCH | $MINED BTCPC mined | $BLOCKS blocks"
+    TOOLTIP="HONE Mining — Epoch $EPOCH | $MINED HONE mined | $BLOCKS blocks"
     echo "tooltip:$TOOLTIP" >&3
 
     # Build menu
@@ -81,15 +81,15 @@ while kill -0 $YAD_PID 2>/dev/null; do
     MENU="$MENU|Quit!kill $$"
     echo "menu:$MENU" >&3
   else
-    echo "tooltip:BTCPC Miner — offline" >&3
+    echo "tooltip:HONE Miner — offline" >&3
   fi
 
   # Check for updates
   UPDATE_CHECK=$(curl -s -H "x-bot-key: ${BOT_API_KEY}" "http://localhost:3000/api/bot/update-status" 2>/dev/null)
   if echo "$UPDATE_CHECK" | grep -q '"pending":true'; then
     VERSION=$(echo "$UPDATE_CHECK" | python3 -c "import sys,json; u=json.load(sys.stdin).get('update',{}); print(u.get('version','?'))" 2>/dev/null)
-    notify-send --urgency=normal --app-name=BTCPC \
-      "BTCPC Update v$VERSION" \
+    notify-send --urgency=normal --app-name=HONE \
+      "HONE Update v$VERSION" \
       "New version available. Update to keep earning." 2>/dev/null
   fi
 

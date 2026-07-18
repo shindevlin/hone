@@ -1,6 +1,6 @@
 # Install: User Node
 
-Lightweight node for wallet operations, submitting inference requests, and trading BTCPC. No GPU required.
+Lightweight node for wallet operations, submitting inference requests, and trading HONE. No GPU required.
 
 ## Requirements
 
@@ -10,8 +10,8 @@ Lightweight node for wallet operations, submitting inference requests, and tradi
 ## Step 1: Clone and Install
 
 ```bash
-git clone https://github.com/shindevlin/btcpc.git
-cd btcpc
+git clone https://github.com/shindevlin/hone.git
+cd hone
 npm install
 ```
 
@@ -23,7 +23,7 @@ cp .env.example .env
 
 Edit `.env`:
 ```
-MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin
+MONGODB_URI=mongodb://root:example@localhost:27017/hone?authSource=admin
 P2P_PORT=6942
 HONE_SEED_PEERS=ws://100.90.146.17:6942
 JWT_SECRET=<generate with: openssl rand -hex 32>
@@ -31,7 +31,7 @@ JWT_SECRET=<generate with: openssl rand -hex 32>
 
 If connecting to an existing network (no local MongoDB):
 ```
-MONGODB_URI=mongodb://root:example@<network-node-ip>:27017/btcpc?authSource=admin
+MONGODB_URI=mongodb://root:example@<network-node-ip>:27017/hone?authSource=admin
 ```
 
 ## Step 3: Start API Server
@@ -43,7 +43,7 @@ npm start
 This starts the API on port 3000. You can now:
 - Create accounts
 - Check balances
-- Transfer BTCPC
+- Transfer HONE
 - Submit inference requests
 - Stake tokens
 
@@ -59,9 +59,9 @@ curl -X POST http://localhost:3000/api/user/register \
 
 Using the client SDK:
 ```javascript
-const { BTCPCClient } = require('./src/inference/client');
+const { HONEClient } = require('./src/inference/client');
 
-const client = new BTCPCClient({
+const client = new HONEClient({
   nodeUrl: 'http://localhost:3000',
   apiKey: 'your-jwt-token',
 });
@@ -77,7 +77,7 @@ Your prompt is tokenized locally, encrypted, and sent to the network. No node se
 
 ## Telegram Bot
 
-Message [@btcpcbot](https://t.me/btcpcbot):
+Message [@honebot](https://t.me/honebot):
 ```
 /link alice
 /balance

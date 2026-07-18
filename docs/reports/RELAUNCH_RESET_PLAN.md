@@ -1,4 +1,4 @@
-# BTCPC Relaunch and Genesis Reset Plan
+# HONE Relaunch and Genesis Reset Plan
 
 Date: 2026-04-28
 
@@ -11,7 +11,7 @@ It records the intended next phase:
 - start every account at zero in the new chain
 - rewrite the whitepaper, README, and public website to match the relaunch
 
-The goal is to make BTCPC “born again” from a clean epoch zero with validated issuance and reward logic.
+The goal is to make HONE “born again” from a clean epoch zero with validated issuance and reward logic.
 
 ## Why a reset is being proposed
 
@@ -33,9 +33,9 @@ If the team wants a fresh, auditable launch with confirmed issuance behavior, a 
 
 ## What should happen to unearned tokens
 
-Any value that is not legitimately earned under the new rules should flow to `btcpc_recycle`, not be burned.
+Any value that is not legitimately earned under the new rules should flow to `hone_recycle`, not be burned.
 
-This should remain a BTCPC principle:
+This should remain a HONE principle:
 
 - no burn
 - recycle instead
@@ -96,7 +96,7 @@ Rewrite the whitepaper to describe the new genesis era:
 
 Rewrite the README introduction so it matches the relaunch:
 
-- what BTCPC is at launch
+- what HONE is at launch
 - how to install and join the new chain
 - how rewards work in the new epoch-zero system
 - how recycle behaves

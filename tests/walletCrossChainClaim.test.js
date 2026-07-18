@@ -7,7 +7,7 @@ const http = require("http");
 const express = require("express");
 
 function makeTempDir() {
-  const dir = path.join(os.tmpdir(), "btcpc-wallet-claim-" + process.pid + "-" + Math.random().toString(36).slice(2));
+  const dir = path.join(os.tmpdir(), "hone-wallet-claim-" + process.pid + "-" + Math.random().toString(36).slice(2));
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -50,10 +50,10 @@ describe("wallet cross-chain claim cutoff enforcement", () => {
 
   beforeEach(async () => {
     tempDir = makeTempDir();
-    prevDataDir = process.env.BTCPC_DATA_DIR;
-    prevBaseContract = process.env.WBTCPC_BASE_CONTRACT;
-    process.env.BTCPC_DATA_DIR = tempDir;
-    process.env.WBTCPC_BASE_CONTRACT = "0x" + "1".repeat(40);
+    prevDataDir = process.env.HONE_DATA_DIR;
+    prevBaseContract = process.env.WHONE_BASE_CONTRACT;
+    process.env.HONE_DATA_DIR = tempDir;
+    process.env.WHONE_BASE_CONTRACT = "0x" + "1".repeat(40);
 
     const consumer = require("../src/services/crossChainFinalityConsumer");
     const chainDir = path.join(consumer.getCrossChainDir(), "base");
@@ -81,10 +81,10 @@ describe("wallet cross-chain claim cutoff enforcement", () => {
 
   afterEach(async () => {
     if (server) await new Promise((resolve) => server.close(resolve));
-    if (prevDataDir === undefined) delete process.env.BTCPC_DATA_DIR;
-    else process.env.BTCPC_DATA_DIR = prevDataDir;
-    if (prevBaseContract === undefined) delete process.env.WBTCPC_BASE_CONTRACT;
-    else process.env.WBTCPC_BASE_CONTRACT = prevBaseContract;
+    if (prevDataDir === undefined) delete process.env.HONE_DATA_DIR;
+    else process.env.HONE_DATA_DIR = prevDataDir;
+    if (prevBaseContract === undefined) delete process.env.WHONE_BASE_CONTRACT;
+    else process.env.WHONE_BASE_CONTRACT = prevBaseContract;
     removeTempDir(tempDir);
   });
 

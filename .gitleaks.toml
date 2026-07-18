@@ -1,5 +1,5 @@
 # Gitleaks configuration — allowlists for known false positives
-title = "btcpc gitleaks config"
+title = "hone gitleaks config"
 
 [allowlist]
 description = "Project-wide allowlists"

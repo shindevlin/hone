@@ -1,0 +1,369 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * HONE Purchase Watcher
+ * Shin Devlin
+ *
+ * Polls Ethereum, Solana, and TON for incoming stablecoin payments.
+ * On confirmed payment, fulfills HONE to the buyer's account.
+ */
+
+require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
+
+const fs = require("fs");
+const path = require("path");
+const axios = require("axios");
+
+const ORDERS_FILE = path.resolve(__dirname, "../data/purchase-orders.jsonl");
+const HISTORY_FILE = path.resolve(__dirname, "../data/purchase-history.jsonl");
+const POLL_INTERVAL_MS = 60_000;
+
+// ── Stablecoin contract addresses ────────────────────────────────────────────
+
+const ETH_CONTRACTS = {
+  USDC: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  USDT: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+  DAI:  "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+};
+
+const ETH_DECIMALS = { USDC: 6, USDT: 6, DAI: 18 };
+const SOL_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function log(msg) {
+  console.log(`[purchase-watcher] ${new Date().toISOString()} ${msg}`);
+}
+
+function ensureDataDir() {
+  const dir = path.resolve(__dirname, "../data");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function readJsonl(file) {
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, "utf8")
+    .split("\n").filter(Boolean)
+    .map(l => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+}
+
+function appendJsonl(file, record) {
+  ensureDataDir();
+  fs.appendFileSync(file, JSON.stringify(record) + "\n");
+}
+
+function isAlreadyProcessed(txHash) {
+  const history = readJsonl(HISTORY_FILE);
+  return history.some(h => h.tx_hash === txHash);
+}
+
+function getPendingOrders() {
+  const now = Date.now();
+  return readJsonl(ORDERS_FILE).filter(o =>
+    o.status === "pending" && (!o.expires_at || o.expires_at > now)
+  );
+}
+
+/**
+ * Find a pending order matching an incoming payment.
+ * ETH: match by amount within ±$0.01 and created within 30 min of payment.
+ * SOL/TON: match by purchase_id in memo/comment.
+ */
+function matchOrder(chain, token, usdAmount, memoOrComment, paymentTimestamp) {
+  const orders = getPendingOrders();
+  const THIRTY_MIN = 30 * 60 * 1000;
+
+  if (chain === "ethereum") {
+    return orders.find(o =>
+      o.chain === "ethereum" &&
+      o.token === token &&
+      Math.abs(o.usd_amount - usdAmount) <= 0.01 &&
+      paymentTimestamp - o.created_at < THIRTY_MIN &&
+      paymentTimestamp >= o.created_at
+    ) || null;
+  }
+
+  if (chain === "solana" || chain === "ton") {
+    if (!memoOrComment) return null;
+    return orders.find(o =>
+      o.chain === chain &&
+      memoOrComment.includes(o.purchase_id)
+    ) || null;
+  }
+
+  return null;
+}
+
+/** POST to local API fulfill endpoint */
+async function fulfillOrder(purchaseId, txHash, confirmedUsd, chain) {
+  const port = process.env.PORT || 4242;
+  try {
+    const resp = await axios.post(`http://127.0.0.1:${port}/api/purchase/fulfill`, {
+      purchase_id: purchaseId,
+      tx_hash: txHash,
+      confirmed_usd: confirmedUsd,
+      chain,
+    });
+    log(`Fulfilled order ${purchaseId}: ${resp.data.hone_amount} HONE → ${resp.data.hone_account}`);
+    return true;
+  } catch (err) {
+    const errMsg = err.response ? JSON.stringify(err.response.data) : err.message;
+    log(`ERROR fulfilling order ${purchaseId}: ${errMsg}`);
+    return false;
+  }
+}
+
+// ── Ethereum watcher ─────────────────────────────────────────────────────────
+
+async function watchEthereum() {
+  const ethAddress = process.env.HONE_PURCHASE_ETH_ADDRESS;
+  if (!ethAddress) { log("ETH: no payment address configured — skipping"); return; }
+
+  const rpcUrl = process.env.HONE_ETH_RPC_URL || "https://eth.llamarpc.com";
+  let ethers;
+  try {
+    ethers = require("ethers");
+  } catch {
+    log("ETH: ethers not available — skipping");
+    return;
+  }
+
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+  try {
+    const currentBlock = await provider.getBlockNumber();
+    const fromBlock = currentBlock - 100; // look back ~20 min
+    const MIN_CONFIRMATIONS = 3;
+
+    for (const [symbol, contractAddress] of Object.entries(ETH_CONTRACTS)) {
+      try {
+        // Get Transfer events to our payment address
+        const logs = await provider.getLogs({
+          address: contractAddress,
+          topics: [
+            ERC20_TRANSFER_TOPIC,
+            null,
+            // pad address to 32 bytes topic
+            "0x" + "0".repeat(24) + ethAddress.toLowerCase().replace("0x", ""),
+          ],
+          fromBlock,
+          toBlock: currentBlock,
+        });
+
+        const decimals = ETH_DECIMALS[symbol];
+
+        for (const logEntry of logs) {
+          const txHash = logEntry.transactionHash;
+          if (isAlreadyProcessed(txHash)) continue;
+
+          // Check confirmations
+          const confirmations = currentBlock - logEntry.blockNumber;
+          if (confirmations < MIN_CONFIRMATIONS) continue;
+
+          // Parse amount from data field
+          const rawAmount = BigInt(logEntry.data);
+          const usdAmount = Number(rawAmount) / Math.pow(10, decimals);
+
+          // Get block timestamp for time-window matching
+          let blockTimestamp = Date.now();
+          try {
+            const block = await provider.getBlock(logEntry.blockNumber);
+            if (block) blockTimestamp = block.timestamp * 1000;
+          } catch { /* use now as fallback */ }
+
+          const order = matchOrder("ethereum", symbol, usdAmount, null, blockTimestamp);
+          if (!order) {
+            log(`ETH: received ${usdAmount} ${symbol} (tx ${txHash}) — no matching order`);
+            continue;
+          }
+
+          await fulfillOrder(order.purchase_id, txHash, usdAmount, "ethereum");
+        }
+      } catch (err) {
+        log(`ETH: error watching ${symbol}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    log(`ETH: RPC error: ${err.message}`);
+  }
+}
+
+// ── Solana watcher ───────────────────────────────────────────────────────────
+
+async function watchSolana() {
+  const solAddress = process.env.HONE_PURCHASE_SOL_ADDRESS;
+  if (!solAddress) { log("SOL: no payment address configured — skipping"); return; }
+
+  const rpcUrl = process.env.HONE_SOL_RPC_URL || "https://api.mainnet-beta.solana.com";
+  let web3;
+  try {
+    web3 = require("@solana/web3.js");
+  } catch {
+    log("SOL: @solana/web3.js not available — skipping");
+    return;
+  }
+
+  try {
+    const connection = new web3.Connection(rpcUrl, "confirmed");
+    const pubkey = new web3.PublicKey(solAddress);
+
+    // Get recent signatures for this address
+    const signatures = await connection.getSignaturesForAddress(pubkey, { limit: 50 });
+
+    for (const sigInfo of signatures) {
+      const txHash = sigInfo.signature;
+      if (isAlreadyProcessed(txHash)) continue;
+      if (sigInfo.err) continue; // skip failed txs
+
+      try {
+        const tx = await connection.getParsedTransaction(txHash, { maxSupportedTransactionVersion: 0 });
+        if (!tx) continue;
+
+        // Extract memo if present
+        let memo = null;
+        const memoProgram = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+        if (tx.transaction && tx.transaction.message && tx.transaction.message.instructions) {
+          for (const ix of tx.transaction.message.instructions) {
+            if (ix.programId && ix.programId.toString() === memoProgram && ix.parsed) {
+              memo = String(ix.parsed);
+            }
+          }
+        }
+
+        // Check for SPL token transfer to our address
+        if (!tx.meta || !tx.meta.postTokenBalances) continue;
+
+        let usdAmount = 0;
+        for (const tokenBalance of tx.meta.postTokenBalances || []) {
+          if (tokenBalance.mint === SOL_USDC_MINT) {
+            const preBalance = (tx.meta.preTokenBalances || []).find(
+              b => b.accountIndex === tokenBalance.accountIndex
+            );
+            const pre = preBalance ? Number(preBalance.uiTokenAmount.amount) : 0;
+            const post = Number(tokenBalance.uiTokenAmount.amount);
+            const delta = (post - pre) / 1e6;
+            if (delta > 0) usdAmount += delta;
+          }
+        }
+
+        if (usdAmount <= 0) continue;
+
+        const paymentTs = sigInfo.blockTime ? sigInfo.blockTime * 1000 : Date.now();
+        const order = matchOrder("solana", "USDC", usdAmount, memo, paymentTs);
+        if (!order) {
+          log(`SOL: received ${usdAmount} USDC (tx ${txHash}, memo: ${memo}) — no matching order`);
+          continue;
+        }
+
+        await fulfillOrder(order.purchase_id, txHash, usdAmount, "solana");
+      } catch (err) {
+        log(`SOL: error parsing tx ${txHash}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    log(`SOL: RPC error: ${err.message}`);
+  }
+}
+
+// ── TON watcher ──────────────────────────────────────────────────────────────
+
+async function watchTON() {
+  const tonAddress = process.env.HONE_PURCHASE_TON_ADDRESS;
+  if (!tonAddress) { log("TON: no payment address configured — skipping"); return; }
+
+  const rpcUrl = process.env.HONE_TON_RPC_URL || "https://toncenter.com/api/v2";
+  const MIN_CONFIRMATIONS = 5;
+
+  try {
+    const resp = await axios.get(`${rpcUrl}/getTransactions`, {
+      params: { address: tonAddress, limit: 50 },
+      timeout: 15000,
+    });
+
+    const result = resp.data && resp.data.result;
+    if (!Array.isArray(result)) return;
+
+    // Get current block to check confirmations
+    let currentLt = null;
+    try {
+      const mcInfo = await axios.get(`${rpcUrl}/getMasterchainInfo`, { timeout: 10000 });
+      if (mcInfo.data && mcInfo.data.result) {
+        currentLt = Number(mcInfo.data.result.last.seqno);
+      }
+    } catch { /* skip confirmation check if unavailable */ }
+
+    for (const tonTx of result) {
+      const txHash = tonTx.transaction_id && tonTx.transaction_id.hash;
+      if (!txHash) continue;
+      if (isAlreadyProcessed(txHash)) continue;
+
+      // Confirmation check: check lt difference if we have chain info
+      if (currentLt !== null && tonTx.transaction_id) {
+        const txLt = Number(tonTx.transaction_id.lt || 0);
+        // TON uses logical time; skip very recent ones
+        if (currentLt - txLt < MIN_CONFIRMATIONS) continue;
+      }
+
+      // In-message: value in nanotons; look for jetton transfers too
+      const inMsg = tonTx.in_msg;
+      if (!inMsg) continue;
+
+      // Extract comment from message
+      let comment = null;
+      try {
+        if (inMsg.message) comment = inMsg.message;
+      } catch { /* no comment */ }
+
+      // TON native USDC via jetton — value in inMsg.value is nanotons for TON,
+      // for jetton transfers we check the body
+      // For simplicity: treat the message value as USD amount for USDC jettons
+      // Real integration: parse jetton notify messages
+      const valueNanotons = Number(inMsg.value || 0);
+      const tonAmount = valueNanotons / 1e9;
+
+      // We treat TON value as USD approximation for matching
+      // In production, integrate jetton balance parsing
+      if (tonAmount <= 0) continue;
+
+      const paymentTs = tonTx.utime ? tonTx.utime * 1000 : Date.now();
+      const order = matchOrder("ton", "USDC", tonAmount, comment, paymentTs);
+      if (!order) {
+        log(`TON: received ${tonAmount} (tx ${txHash}, comment: ${comment}) — no matching order`);
+        continue;
+      }
+
+      await fulfillOrder(order.purchase_id, txHash, tonAmount, "ton");
+    }
+  } catch (err) {
+    log(`TON: API error: ${err.message}`);
+  }
+}
+
+// ── Main poll loop ────────────────────────────────────────────────────────────
+
+async function pollOnce() {
+  log("Polling chains...");
+  await Promise.allSettled([
+    watchEthereum(),
+    watchSolana(),
+    watchTON(),
+  ]);
+  log("Poll complete.");
+}
+
+async function main() {
+  log("HONE Purchase Watcher starting...");
+  ensureDataDir();
+
+  await pollOnce();
+  setInterval(pollOnce, POLL_INTERVAL_MS);
+}
+
+main().catch(err => {
+  console.error("[purchase-watcher] Fatal error:", err);
+  process.exit(1);
+});

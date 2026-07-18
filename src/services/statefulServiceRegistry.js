@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Stateful Service Registry — v2.14-alpha
+ * HONE Stateful Service Registry — v2.14-alpha
  * Shin Devlin
  *
  * Sibling to serviceRegistry. Adds stateful deployment metadata on top

@@ -44,7 +44,7 @@ router.post('/', authenticateToken, async (req, res) => {
 router.post('/resolve', authenticateToken, async (req, res) => {
   try {
     // Authority gate — only the genesis authority can resolve appeals for now
-    const AUTHORITY_ACCOUNT = process.env.BTCPC_AUTHORITY || 'shindevlin';
+    const AUTHORITY_ACCOUNT = process.env.HONE_AUTHORITY || 'shindevlin';
     if (req.user.username !== AUTHORITY_ACCOUNT) {
       return res.status(403).json({ error: 'Only the authority can resolve appeals' });
     }

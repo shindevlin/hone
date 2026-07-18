@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/btcpc_bg"
+    android:background="@color/hone_bg"
     android:orientation="vertical"
     android:padding="16dp">
 
@@ -11,7 +11,7 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="12dp"
         android:text="Flipper Zero Relay"
-        android:textColor="@color/btcpc_text"
+        android:textColor="@color/hone_text"
         android:textSize="22sp"
         android:textStyle="bold" />
 
@@ -20,7 +20,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="12dp"
-        style="@style/BtcpcCard">
+        style="@style/HoneCard">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -33,7 +33,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
                 android:text="How to pair"
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="12sp"
                 android:letterSpacing="0.08" />
 
@@ -41,7 +41,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="On your Flipper Zero:"
-                android:textColor="@color/btcpc_text"
+                android:textColor="@color/hone_text"
                 android:textSize="13sp"
                 android:textStyle="bold" />
 
@@ -49,8 +49,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="1. Install BTCPC Relay from the App Hub (or sideload from flipper/ in this repo)\n2. Open BLE UART Bridge: Apps &gt; GPIO &gt; UART BLE Bridge\n3. Leave it running in the background"
-                android:textColor="@color/btcpc_muted"
+                android:text="1. Install HONE Relay from the App Hub (or sideload from flipper/ in this repo)\n2. Open BLE UART Bridge: Apps &gt; GPIO &gt; UART BLE Bridge\n3. Leave it running in the background"
+                android:textColor="@color/hone_muted"
                 android:textSize="13sp"
                 android:lineSpacingExtra="3dp" />
 
@@ -59,7 +59,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:text="On this phone:"
-                android:textColor="@color/btcpc_text"
+                android:textColor="@color/hone_text"
                 android:textSize="13sp"
                 android:textStyle="bold" />
 
@@ -68,7 +68,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="4. Plug Flipper into phone via USB - the app reads the BLE address and pairs automatically\n   OR tap &quot;Pair via BLE&quot; below to scan wirelessly\n5. Done - future connections are BLE only"
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="13sp"
                 android:lineSpacingExtra="3dp" />
 
@@ -77,7 +77,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="If auto-pair fails, tap &quot;Pair via BLE&quot; to scan manually."
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace" />
 
@@ -90,7 +90,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="12dp"
-        style="@style/BtcpcCard">
+        style="@style/HoneCard">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -103,7 +103,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="No Flipper paired"
-                android:textColor="@color/btcpc_text"
+                android:textColor="@color/hone_text"
                 android:textSize="15sp"
                 android:textStyle="bold" />
 
@@ -113,7 +113,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:text=""
-                android:textColor="@color/btcpc_green"
+                android:textColor="@color/hone_green"
                 android:textSize="13sp" />
 
             <TextView
@@ -122,7 +122,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="Plug in your Flipper via USB - the app reads its BLE address and pairs automatically. Or tap below to scan manually."
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="13sp" />
 
             <com.google.android.material.button.MaterialButton
@@ -132,7 +132,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:text="Pair via BLE"
-                android:textColor="@color/btcpc_orange" />
+                android:textColor="@color/hone_orange" />
 
         </LinearLayout>
     </androidx.cardview.widget.CardView>
@@ -142,7 +142,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="12dp"
-        style="@style/BtcpcCard">
+        style="@style/HoneCard">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -155,7 +155,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="10dp"
                 android:text="Connection"
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="13sp"
                 android:letterSpacing="0.08" />
 
@@ -184,7 +184,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="USB"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="12sp" />
 
                     <TextView
@@ -192,7 +192,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Disconnected"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="11sp" />
 
                 </LinearLayout>
@@ -217,7 +217,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="BLE"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="12sp" />
 
                     <TextView
@@ -225,7 +225,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Disconnected"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="11sp" />
 
                 </LinearLayout>
@@ -250,7 +250,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="WiFi"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="12sp" />
 
                     <TextView
@@ -258,7 +258,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Listening :6942"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="11sp" />
 
                 </LinearLayout>
@@ -272,7 +272,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="12dp"
-        style="@style/BtcpcCard">
+        style="@style/HoneCard">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -285,7 +285,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="6dp"
                 android:text="Last Reading"
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="13sp"
                 android:letterSpacing="0.08" />
 
@@ -294,7 +294,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="No readings yet"
-                android:textColor="@color/btcpc_text"
+                android:textColor="@color/hone_text"
                 android:textSize="14sp"
                 android:fontFamily="monospace" />
 
@@ -307,7 +307,7 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="8dp"
         android:text="Reading Log"
-        android:textColor="@color/btcpc_muted"
+        android:textColor="@color/hone_muted"
         android:textSize="13sp"
         android:letterSpacing="0.08" />
 
@@ -316,7 +316,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="@color/btcpc_surface"
+        android:background="@color/hone_surface"
         android:padding="12dp">
 
         <TextView
@@ -324,7 +324,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text=""
-            android:textColor="@color/btcpc_text"
+            android:textColor="@color/hone_text"
             android:textSize="12sp"
             android:fontFamily="monospace"
             android:lineSpacingExtra="4dp" />

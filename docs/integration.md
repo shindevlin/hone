@@ -1,14 +1,14 @@
-# Integration Guide — Use BTCPC Inference in Your Project
+# Integration Guide — Use HONE Inference in Your Project
 
-BTCPC is an OpenAI-compatible inference API backed by a decentralized GPU mining network. Any project that calls an LLM can use BTCPC instead of OpenAI, Anthropic, or local Ollama.
+HONE is an OpenAI-compatible inference API backed by a decentralized GPU mining network. Any project that calls an LLM can use HONE instead of OpenAI, Anthropic, or local Ollama.
 
-## Why BTCPC
+## Why HONE
 
 - Every inference call is verified on-chain with a cryptographic work proof
 - Dynamic pricing — cheaper when the network is idle, no monthly subscription
 - Model choice — request any model miners are running (or signal demand for new ones)
 - Privacy — prompts are hashed, never stored in plaintext on-chain
-- Your project earns a verified wallet on the BTCPC blockchain
+- Your project earns a verified wallet on the HONE blockchain
 
 ## Step 1: Register Your Repository
 
@@ -28,10 +28,10 @@ curl -X POST https://api.honemesh.network/api/projects/register \
 You'll get back:
 ```json
 {
-  "apiKey": "btcpc_abc123...",
-  "walletAddress": "btcpc_proj_def456...",
+  "apiKey": "hone_abc123...",
+  "walletAddress": "hone_proj_def456...",
   "next_steps": [
-    "Add a .btcpc file to your repo root containing: btcpc_proj_def456...",
+    "Add a .hone file to your repo root containing: hone_proj_def456...",
     "Push it to your default branch",
     "Call POST /api/projects/verify"
   ]
@@ -40,24 +40,24 @@ You'll get back:
 
 ## Step 2: Verify Ownership
 
-Create a `.btcpc` file in your repo root:
+Create a `.hone` file in your repo root:
 ```bash
-echo "btcpc_proj_def456..." > .btcpc
-git add .btcpc && git commit -m "Add BTCPC project wallet" && git push
+echo "hone_proj_def456..." > .hone
+git add .hone && git commit -m "Add HONE project wallet" && git push
 ```
 
 Then verify:
 ```bash
 curl -X POST https://api.honemesh.network/api/projects/verify \
-  -H "Authorization: Bearer btcpc_your_key"
+  -H "Authorization: Bearer hone_your_key"
 ```
 
 ## Step 3: Fund Your Wallet
 
-Get BTCPC tokens into your project wallet:
+Get HONE tokens into your project wallet:
 
 ```bash
-# Claim faucet (1 BTCPC, one-time)
+# Claim faucet (1 HONE, one-time)
 curl -X POST https://api.honemesh.network/api/faucet/claim \
   -H "Authorization: Bearer YOUR_JWT"
 
@@ -65,23 +65,23 @@ curl -X POST https://api.honemesh.network/api/faucet/claim \
 curl -X POST https://api.honemesh.network/api/projects/fund \
   -H "Authorization: Bearer YOUR_JWT" \
   -H "Content-Type: application/json" \
-  -d '{"walletAddress": "btcpc_proj_def456...", "amount": 10}'
+  -d '{"walletAddress": "hone_proj_def456...", "amount": 10}'
 ```
 
 Or ask for tokens: **shindevlin@proton.me**
 
 ## Step 4: Use Inference
 
-### With @btcpc/sdk (Node.js)
+### With @hone/sdk (Node.js)
 
 ```bash
-npm install @btcpc/sdk
+npm install @hone/sdk
 ```
 
 ```javascript
-const BTCPC = require('@btcpc/sdk');
+const HONE = require('@hone/sdk');
 
-const ai = new BTCPC({
+const ai = new HONE({
   apiKey: process.env.HONE_API_KEY,
   baseUrl: 'https://api.honemesh.network'  // or http://localhost:3000 for local
 });
@@ -94,7 +94,7 @@ const res = await ai.chat({
   model: 'qwen3.5:27b',
   messages: [
     { role: 'system', content: 'You are a helpful assistant.' },
-    { role: 'user', content: 'Explain BTCPC mining.' }
+    { role: 'user', content: 'Explain HONE mining.' }
   ],
   temperature: 0.7,
   maxTokens: 1024
@@ -102,7 +102,7 @@ const res = await ai.chat({
 
 // Check pricing before heavy workloads
 const rates = await ai.pricing('qwen3.5:27b');
-console.log(`1 BTCPC = ${rates.tokens_per_btcpc} tokens at current load`);
+console.log(`1 HONE = ${rates.tokens_per_hone} tokens at current load`);
 
 // See what models are available
 const { available, wanted } = await ai.networkModels();
@@ -115,7 +115,7 @@ const { available, wanted } = await ai.networkModels();
 const OpenAI = require('openai');
 const client = new OpenAI({
   baseURL: 'https://api.honemesh.network/v1',
-  apiKey: 'btcpc_your_key'
+  apiKey: 'hone_your_key'
 });
 
 const res = await client.chat.completions.create({
@@ -129,7 +129,7 @@ const res = await client.chat.completions.create({
 from openai import OpenAI
 client = OpenAI(
     base_url="https://api.honemesh.network/v1",
-    api_key="btcpc_your_key"
+    api_key="hone_your_key"
 )
 
 res = client.chat.completions.create(
@@ -144,7 +144,7 @@ Set environment variables — no code changes needed:
 
 ```bash
 export OPENAI_BASE_URL=https://api.honemesh.network/v1
-export OPENAI_API_KEY=btcpc_your_key
+export OPENAI_API_KEY=hone_your_key
 ```
 
 This works with: LangChain, AutoGPT, OpenClaw, Continue, Cursor, Aider, and any tool that reads `OPENAI_BASE_URL`.
@@ -153,7 +153,7 @@ This works with: LangChain, AutoGPT, OpenClaw, Continue, Cursor, Aider, and any 
 
 ```bash
 curl -X POST https://api.honemesh.network/v1/chat/completions \
-  -H "Authorization: Bearer btcpc_your_key" \
+  -H "Authorization: Bearer hone_your_key" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3.5:27b",
@@ -201,7 +201,7 @@ curl "https://api.honemesh.network/v1/pricing?model=qwen3.5:27b"
 ```json
 {
   "model": "qwen3.5:27b",
-  "tokens_per_btcpc": 500,
+  "tokens_per_hone": 500,
   "cost_per_token": 0.002,
   "load_multiplier": 0.5,
   "model_weight": 4.0,
@@ -213,9 +213,9 @@ curl "https://api.honemesh.network/v1/pricing?model=qwen3.5:27b"
 Every inference response includes billing:
 ```json
 {
-  "btcpc": {
+  "hone": {
     "cost": 0.512,
-    "tokens_per_btcpc": 500,
+    "tokens_per_hone": 500,
     "model_weight": 4.0,
     "remaining_balance": 9.488
   }
@@ -226,7 +226,7 @@ Every inference response includes billing:
 
 ```bash
 curl https://api.honemesh.network/api/projects/me \
-  -H "Authorization: Bearer btcpc_your_key"
+  -H "Authorization: Bearer hone_your_key"
 ```
 
 ```json
@@ -242,8 +242,8 @@ curl https://api.honemesh.network/api/projects/me \
 ## Example: Continuous Content Generation
 
 ```javascript
-const BTCPC = require('@btcpc/sdk');
-const ai = new BTCPC({ apiKey: process.env.HONE_API_KEY });
+const HONE = require('@hone/sdk');
+const ai = new HONE({ apiKey: process.env.HONE_API_KEY });
 
 async function generateLoop() {
   while (true) {
@@ -262,7 +262,7 @@ async function generateLoop() {
       temperature: 0.85
     });
 
-    console.log(`Generated: ${res.usage.completion_tokens} tokens, cost: ${res.btcpc.cost} BTCPC`);
+    console.log(`Generated: ${res.usage.completion_tokens} tokens, cost: ${res.hone.cost} HONE`);
     // Save res.choices[0].message.content to your DB
 
     await new Promise(r => setTimeout(r, 10000));
@@ -277,16 +277,16 @@ async function generateLoop() {
 | POST | `/api/projects/register` | JWT | Register a GitHub repo |
 | POST | `/api/projects/verify` | API key | Verify repo ownership |
 | GET | `/api/projects/me` | API key | Project info + balance |
-| POST | `/api/projects/fund` | JWT | Send BTCPC to a project |
+| POST | `/api/projects/fund` | JWT | Send HONE to a project |
 | POST | `/v1/chat/completions` | API key | OpenAI-compatible inference |
 | GET | `/v1/models` | API key | Local node models |
 | GET | `/v1/network/models` | API key | All models across network |
 | GET | `/v1/pricing?model=` | API key | Dynamic pricing |
-| POST | `/api/faucet/claim` | JWT | Claim 1 free BTCPC |
+| POST | `/api/faucet/claim` | JWT | Claim 1 free HONE |
 
 ## Support
 
-- Telegram: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)
-- Bot: [@btcpcbot](https://t.me/btcpcbot)
+- Telegram: [t.me/honenetwork](https://t.me/honenetwork)
+- Bot: [@honebot](https://t.me/honebot)
 - Email: shindevlin@proton.me
-- Issues: [github.com/shindevlin/btcpc/issues](https://github.com/shindevlin/btcpc/issues)
+- Issues: [github.com/shindevlin/hone/issues](https://github.com/shindevlin/hone/issues)

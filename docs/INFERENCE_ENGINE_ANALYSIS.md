@@ -1,5 +1,5 @@
 ---
-title: BTCPC Inference Engine — Ollama replacement analysis (llama.cpp vs vLLM, + Rust fork)
+title: HONE Inference Engine — Ollama replacement analysis (llama.cpp vs vLLM, + Rust fork)
 description: What to run inference on, grounded in how the node actually consumes it, and whether a Rust-native fork is worth it
 author: Shin Devlin
 status: analysis / recommendation
@@ -7,7 +7,7 @@ status: analysis / recommendation
 
 # Inference Engine Analysis
 
-**Question (Shin):** Analyze what's best for BTCPC's usage — llama.cpp vs vLLM —
+**Question (Shin):** Analyze what's best for HONE's usage — llama.cpp vs vLLM —
 and whether we can fork one to be Rust-native.
 
 **TL;DR recommendation:** Two tiers. **llama.cpp for the many ordinary-device
@@ -20,7 +20,7 @@ node already talks to inference over a thin HTTP boundary we control.
 
 ---
 
-## 1. What BTCPC actually needs (grounded in the code)
+## 1. What HONE actually needs (grounded in the code)
 
 The node's inference integration is **already abstracted behind a thin HTTP
 boundary** — this is the key fact that shapes everything:
@@ -35,7 +35,7 @@ dependency. Any replacement that serves an OpenAI-compatible or Ollama-shaped
 HTTP API drops in by changing one env var. **This makes the choice about
 operational fit, not a rewrite.**
 
-BTCPC's inference has **two distinct usage profiles**:
+HONE's inference has **two distinct usage profiles**:
 
 | Profile | Who | Hardware | Load | Priority |
 |---|---|---|---|---|
@@ -46,7 +46,7 @@ Ollama serves **neither well**: it's a heavy external daemon (a wrapper around
 llama.cpp) that adds a moving part and no batching. The gap we just hit at launch
 — a node whose Ollama wasn't running returned 503 — is exactly this friction.
 
-## 2. The engines against BTCPC's needs
+## 2. The engines against HONE's needs
 
 ### llama.cpp — the breadth tier (Profile A)
 - **Runs on everything**: CPU, Apple Silicon, ARM (the Nebra!), consumer GPUs,
@@ -104,14 +104,14 @@ don't fork.** Reasoning:
 - Keep the **`OLLAMA_URL`/`INFERENCE_URL` HTTP path** as the pluggable escape
   hatch so a node *can* point at an external vLLM/llama.cpp server when it wants
   the throughput tier.
-- The phone keeps **`tract-onnx`** (already in `android/rust/btcpc-miner`) — it's
+- The phone keeps **`tract-onnx`** (already in `android/rust/hone-miner`) — it's
   the right minimal engine for a phone; no change needed there.
 
 ## 4. Recommended architecture
 
 ```
                        ┌─────────────────────────────────────────┐
-  node inference call  │  BTCPC node                              │
+  node inference call  │  HONE node                              │
   (agent_worker/api)   │   ├─ EMBEDDED llama.cpp (llama-cpp-2)  ◄─┼─ Profile A: default,
                        │   │    in-process GGUF, no daemon        │   ordinary devices
                        │   └─ HTTP INFERENCE_URL (pluggable)    ◄─┼─ Profile B: point at

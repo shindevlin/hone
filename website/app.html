@@ -445,7 +445,7 @@
     <a href="/app" style="color:#22c55e;text-decoration:none;">Start</a>
     <a href="/install">Install</a>
     <a href="/meshtastic" style="color:#c8ccd4;text-decoration:none;">Meshtastic</a>
-    <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+    <a href="https://t.me/honebot" target="_blank">Telegram</a>
   </div>
 
   <!-- Desktop sidebar — only visible when data-desktop is set -->
@@ -2281,7 +2281,7 @@
           Works on Linux, Mac, Windows WSL, Raspberry Pi. Or <a href="/install" style="color:var(--orange);">see all install options</a>.
         </div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-          <a href="https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC-android-release.apk" style="display:inline-block;padding:8px 16px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;text-decoration:none;">Download Android APK</a>
+          <a href="https://github.com/shindevlin/hone/releases/latest/download/HONE-android-release.apk" style="display:inline-block;padding:8px 16px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;text-decoration:none;">Download Android APK</a>
           <div style="font-size:10px;color:var(--muted);margin-top:4px;">Native app with full sensor access. Sideload on any Android device.</div>
         </div>
       </div>
@@ -5206,7 +5206,7 @@ if (account) {
   // ── Android in-app update check (Capacitor only) ──────────────────────────
   if (IS_NATIVE) {
     (function checkAndroidUpdate() {
-      fetch('https://api.github.com/repos/shindevlin/btcpc/releases/latest', { cache: 'no-store' })
+      fetch('https://api.github.com/repos/shindevlin/hone/releases/latest', { cache: 'no-store' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           var tag = (data.tag_name || '').replace(/^v/, '');

@@ -1,6 +1,6 @@
 {
-  "appId": "network.btcpc.app",
-  "appName": "BTCPC",
+  "appId": "network.hone.app",
+  "appName": "HONE",
   "webDir": "website",
   "server": {
     "androidScheme": "https"

@@ -1,8 +1,8 @@
-# BTCPC Go-Live Test Plan
+# HONE Go-Live Test Plan
 
 Date: 2026-04-08
 
-Purpose: prove BTCPC is ready to serve inference reliably from other PCs, not just on the primary development machine.
+Purpose: prove HONE is ready to serve inference reliably from other PCs, not just on the primary development machine.
 
 ## Goal
 
@@ -28,7 +28,7 @@ The current machine running:
 
 A second machine with:
 - no dev-only shell state
-- no preexisting BTCPC processes
+- no preexisting HONE processes
 - network access to the primary node
 
 This machine is used to prove real client behavior.
@@ -94,7 +94,7 @@ Run from another PC using real HTTP requests.
 ### Test set
 
 1. short literal response
-   - prompt: `Reply with exactly: BTCPC inference ok`
+   - prompt: `Reply with exactly: HONE inference ok`
 2. short factual response
    - prompt: `What is 2 + 2?`
 3. short structured response
@@ -108,7 +108,7 @@ Run from another PC using real HTTP requests.
 
 - request completes successfully
 - response text is non-empty
-- usage and BTCPC proof metadata are present
+- usage and HONE proof metadata are present
 - latency stays within expected range
 - unavailable model returns a clean actionable error
 
@@ -126,7 +126,7 @@ The current known issue is not empty output anymore. It is instruction fidelity 
 - missing bearer token
 - invalid bearer token
 - relay key behavior
-- verified `btcpc_` project key
+- verified `hone_` project key
 - unverified project key
 - zero-balance project
 

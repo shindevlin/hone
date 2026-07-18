@@ -1,0 +1,418 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * hone-flipper-bridge — PC companion for the HONE Flipper Zero wallet
+ *
+ * Communicates with the Flipper over USB CDC serial (/dev/ttyACM*).
+ * Sends newline-delimited JSON commands, receives JSON responses.
+ *
+ * Commands:
+ *   ping              — test connection
+ *   list              — show wallets stored on Flipper
+ *   import            — import a wallet (prompts for name, mnemonic, PIN)
+ *   sign <wallet> <tx_hash> — sign a transaction hash
+ *   quit / exit       — close bridge
+ *
+ * Zero npm dependencies — uses Node.js built-ins + raw tty device file.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
+const { execSync } = require('child_process');
+
+// ─── Serial device detection ──────────────────────────────────
+
+function findFlipperDevice() {
+    // Look for /dev/ttyACM* devices
+    const devDir = '/dev';
+    try {
+        const entries = fs.readdirSync(devDir);
+        const acmDevices = entries
+            .filter(e => e.startsWith('ttyACM'))
+            .sort()
+            .map(e => path.join(devDir, e));
+
+        if (acmDevices.length === 0) return null;
+
+        // Try to identify Flipper by checking USB device info
+        for (const dev of acmDevices) {
+            try {
+                // Check if this is a Flipper by looking at USB device info
+                const devName = path.basename(dev);
+                const sysPath = `/sys/class/tty/${devName}/device/../manufacturer`;
+                if (fs.existsSync(sysPath)) {
+                    const mfr = fs.readFileSync(sysPath, 'utf8').trim();
+                    if (mfr.toLowerCase().includes('flipper')) return dev;
+                }
+            } catch (_) { /* ignore */ }
+        }
+
+        // Fallback: return the first ACM device
+        return acmDevices[0];
+    } catch (_) {
+        return null;
+    }
+}
+
+// ─── Serial communication ────────────────────────────────────
+
+class FlipperSerial {
+    constructor(devicePath) {
+        this.devicePath = devicePath;
+        this.fd = null;
+        this.readBuf = '';
+    }
+
+    open() {
+        // Configure the tty for raw mode at 115200 baud
+        try {
+            execSync(`stty -F ${this.devicePath} 115200 raw -echo -echoe -echok -echoctl -echoke`, {
+                stdio: 'ignore'
+            });
+        } catch (e) {
+            throw new Error(`Failed to configure ${this.devicePath}: ${e.message}`);
+        }
+
+        this.fd = fs.openSync(this.devicePath, 'r+');
+    }
+
+    close() {
+        if (this.fd !== null) {
+            try { fs.closeSync(this.fd); } catch (_) { /* ignore */ }
+            this.fd = null;
+        }
+    }
+
+    send(jsonObj) {
+        const line = JSON.stringify(jsonObj) + '\n';
+        const buf = Buffer.from(line, 'utf8');
+        fs.writeSync(this.fd, buf, 0, buf.length);
+    }
+
+    /**
+     * Read a complete JSON line from the device.
+     * Blocks up to timeoutMs. Returns parsed JSON or null on timeout.
+     */
+    readResponse(timeoutMs = 10000) {
+        const start = Date.now();
+        const chunkBuf = Buffer.alloc(256);
+
+        while (Date.now() - start < timeoutMs) {
+            // Check for complete line in buffer
+            const nlIdx = this.readBuf.indexOf('\n');
+            if (nlIdx >= 0) {
+                const line = this.readBuf.slice(0, nlIdx).trim();
+                this.readBuf = this.readBuf.slice(nlIdx + 1);
+                if (line.length === 0) continue;
+                try {
+                    return JSON.parse(line);
+                } catch (_) {
+                    // Not JSON, might be debug output — skip
+                    continue;
+                }
+            }
+
+            // Try to read more data (non-blocking via polling)
+            try {
+                const n = fs.readSync(this.fd, chunkBuf, 0, chunkBuf.length);
+                if (n > 0) {
+                    this.readBuf += chunkBuf.slice(0, n).toString('utf8');
+                }
+            } catch (e) {
+                if (e.code === 'EAGAIN' || e.code === 'EWOULDBLOCK') {
+                    // No data available, brief pause
+                    const waitMs = 50;
+                    const waitEnd = Date.now() + waitMs;
+                    while (Date.now() < waitEnd) { /* spin */ }
+                    continue;
+                }
+                throw e;
+            }
+        }
+
+        return null; // timeout
+    }
+
+    /**
+     * Send a command and wait for a JSON response.
+     */
+    async command(jsonObj, timeoutMs = 30000) {
+        this.send(jsonObj);
+        return this.readResponse(timeoutMs);
+    }
+}
+
+// ─── Hidden input (for mnemonic and PIN) ─────────────────────
+
+function readHidden(prompt) {
+    return new Promise((resolve) => {
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            terminal: true,
+        });
+
+        // Mute output
+        const origWrite = process.stdout.write.bind(process.stdout);
+        let muted = false;
+
+        process.stdout.write = function(chunk, encoding, callback) {
+            if (muted) {
+                // Only write the prompt itself, not the echoed chars
+                return origWrite('', encoding, callback);
+            }
+            return origWrite(chunk, encoding, callback);
+        };
+
+        rl.question(prompt, (answer) => {
+            muted = false;
+            process.stdout.write = origWrite;
+            origWrite('\n');
+            rl.close();
+            resolve(answer);
+        });
+
+        muted = true;
+    });
+}
+
+function readLine(prompt) {
+    return new Promise((resolve) => {
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            terminal: true,
+        });
+        rl.question(prompt, (answer) => {
+            rl.close();
+            resolve(answer.trim());
+        });
+    });
+}
+
+// ─── Commands ────────────────────────────────────────────────
+
+async function cmdPing(serial) {
+    console.log('Pinging Flipper...');
+    const resp = await serial.command({ cmd: 'ping' });
+    if (!resp) {
+        console.log('No response (timeout)');
+        return;
+    }
+    if (resp.status === 'ok') {
+        console.log(`Connected! Flipper wallet version: ${resp.version}`);
+    } else {
+        console.log('Error:', resp.error || JSON.stringify(resp));
+    }
+}
+
+async function cmdList(serial) {
+    const resp = await serial.command({ cmd: 'list' });
+    if (!resp) {
+        console.log('No response (timeout)');
+        return;
+    }
+    if (resp.status === 'ok') {
+        if (resp.wallets.length === 0) {
+            console.log('No wallets on Flipper. Use "import" to add one.');
+        } else {
+            console.log(`Wallets on Flipper (${resp.wallets.length}):`);
+            for (const w of resp.wallets) {
+                console.log(`  - ${w}`);
+            }
+        }
+    } else {
+        console.log('Error:', resp.error || JSON.stringify(resp));
+    }
+}
+
+async function cmdImport(serial) {
+    const name = await readLine('Wallet name (e.g. shindevlin): ');
+    if (!name) { console.log('Cancelled.'); return; }
+
+    const mnemonic = await readHidden('Mnemonic (12 words, hidden): ');
+    if (!mnemonic) { console.log('Cancelled.'); return; }
+
+    const pin = await readHidden('PIN (6-12 chars, hidden): ');
+    if (!pin || pin.length < 6 || pin.length > 12) {
+        console.log('PIN must be 6-12 characters.');
+        return;
+    }
+
+    const pinConfirm = await readHidden('Confirm PIN: ');
+    if (pin !== pinConfirm) {
+        console.log('PINs do not match.');
+        return;
+    }
+
+    console.log('Sending import to Flipper...');
+    const cmd = { cmd: 'import', name, mnemonic, pin };
+    const resp = await serial.command(cmd, 60000); // KDF takes time
+
+    // Zero mnemonic from memory
+    if (cmd.mnemonic) {
+        const buf = Buffer.from(cmd.mnemonic);
+        buf.fill(0);
+        cmd.mnemonic = '';
+    }
+    if (cmd.pin) {
+        cmd.pin = '';
+    }
+
+    if (!resp) {
+        console.log('No response (timeout). KDF may take a while on Flipper hardware.');
+        return;
+    }
+    if (resp.status === 'ok') {
+        console.log(`Wallet "${resp.wallet}" imported successfully!`);
+        console.log(`Public key (Phase 1 placeholder): ${resp.pubkey}`);
+    } else {
+        console.log('Error:', resp.error || JSON.stringify(resp));
+    }
+}
+
+async function cmdSign(serial, args) {
+    let wallet, txHash;
+
+    if (args.length >= 2) {
+        wallet = args[0];
+        txHash = args[1];
+    } else {
+        wallet = await readLine('Wallet name: ');
+        txHash = await readLine('Transaction hash (64 hex chars): ');
+    }
+
+    if (!wallet || !txHash) { console.log('Cancelled.'); return; }
+
+    if (txHash.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(txHash)) {
+        console.log('Transaction hash must be exactly 64 hex characters.');
+        return;
+    }
+
+    const pin = await readHidden('PIN: ');
+    if (!pin) { console.log('Cancelled.'); return; }
+
+    console.log('Sending sign request to Flipper...');
+    const cmd = { cmd: 'sign', wallet, tx_hash: txHash, pin };
+    const resp = await serial.command(cmd, 60000);
+
+    cmd.pin = '';
+
+    if (!resp) {
+        console.log('No response (timeout).');
+        return;
+    }
+    if (resp.status === 'ok') {
+        console.log(`Wallet: ${resp.wallet}`);
+        console.log(`Signature: ${resp.signature}`);
+        console.log(`Algorithm: ${resp.algo}`);
+    } else {
+        console.log('Error:', resp.error || JSON.stringify(resp));
+    }
+}
+
+// ─── Main REPL ───────────────────────────────────────────────
+
+async function main() {
+    console.log('hone-flipper-bridge v0.1.0');
+    console.log('Bitcoin Proof of Compute — Flipper Zero Hardware Wallet Bridge\n');
+
+    // Detect device
+    let devicePath = process.argv[2]; // optional: explicit device path
+    if (!devicePath) {
+        console.log('Scanning for Flipper Zero...');
+        devicePath = findFlipperDevice();
+    }
+
+    if (!devicePath) {
+        console.error('No Flipper Zero found. Make sure it is:');
+        console.error('  1. Connected via USB');
+        console.error('  2. Running the HONE Wallet app');
+        console.error('  3. You have permission to access /dev/ttyACM*');
+        console.error('     (try: sudo usermod -aG dialout $USER && logout)');
+        console.error('\nYou can also specify the device path: hone-flipper-bridge /dev/ttyACM0');
+        process.exit(1);
+    }
+
+    console.log(`Using device: ${devicePath}\n`);
+
+    const serial = new FlipperSerial(devicePath);
+    try {
+        serial.open();
+    } catch (e) {
+        console.error(`Failed to open ${devicePath}: ${e.message}`);
+        console.error('Make sure you have permission (dialout group) and the device exists.');
+        process.exit(1);
+    }
+
+    // Auto-ping on connect
+    await cmdPing(serial);
+    console.log('');
+
+    // Interactive REPL
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        prompt: 'hone-flipper> ',
+    });
+
+    rl.prompt();
+
+    rl.on('line', async (line) => {
+        const parts = line.trim().split(/\s+/);
+        const cmd = (parts[0] || '').toLowerCase();
+        const args = parts.slice(1);
+
+        try {
+            switch (cmd) {
+                case 'ping':
+                    await cmdPing(serial);
+                    break;
+                case 'list':
+                    await cmdList(serial);
+                    break;
+                case 'import':
+                    await cmdImport(serial);
+                    break;
+                case 'sign':
+                    await cmdSign(serial, args);
+                    break;
+                case 'help':
+                    console.log('Commands:');
+                    console.log('  ping                         — test Flipper connection');
+                    console.log('  list                         — list wallets on Flipper');
+                    console.log('  import                       — import wallet (interactive)');
+                    console.log('  sign [wallet] [tx_hash]      — sign a transaction hash');
+                    console.log('  quit / exit                  — close bridge');
+                    break;
+                case 'quit':
+                case 'exit':
+                    serial.close();
+                    console.log('Bye.');
+                    process.exit(0);
+                    break;
+                case '':
+                    break;
+                default:
+                    console.log(`Unknown command: ${cmd}. Type "help" for available commands.`);
+            }
+        } catch (e) {
+            console.error(`Error: ${e.message}`);
+        }
+
+        rl.prompt();
+    });
+
+    rl.on('close', () => {
+        serial.close();
+        console.log('\nBye.');
+        process.exit(0);
+    });
+}
+
+main().catch(e => {
+    console.error('Fatal:', e.message);
+    process.exit(1);
+});

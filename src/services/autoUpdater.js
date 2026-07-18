@@ -1,14 +1,14 @@
 "use strict";
 
 /**
- * BTCPC Auto-Updater
+ * HONE Auto-Updater
  *
  * Checks for updates, stages them, notifies miner via Telegram,
  * and waits for confirmation before restarting.
  *
  * Flow: check → pull → notify bot → miner confirms → restart
  *
- * Set BTCPC_AUTO_UPDATE=false to disable.
+ * Set HONE_AUTO_UPDATE=false to disable.
  */
 
 const { execSync, spawn } = require('child_process');
@@ -16,9 +16,9 @@ const path = require('path');
 const axios = require('axios');
 
 const REPO_DIR = path.resolve(__dirname, '../..');
-const CHECK_INTERVAL_MS = parseInt(process.env.BTCPC_UPDATE_INTERVAL_MS) || 900000; // 15 min
+const CHECK_INTERVAL_MS = parseInt(process.env.HONE_UPDATE_INTERVAL_MS) || 900000; // 15 min
 const IS_WINDOWS = process.platform === 'win32';
-const BOT_API_URL = process.env.BTCPC_API_URL || 'http://localhost:3000';
+const BOT_API_URL = process.env.HONE_API_URL || 'http://localhost:3000';
 const BOT_API_KEY = process.env.BOT_API_KEY;
 
 let updateTimer = null;
@@ -57,7 +57,7 @@ async function notifyMiner(message) {
       const alertKey = process.env.ALERTBOT_API_KEY;
       if (alertKey) {
         await axios.post(`${alertUrl}/alert`, {
-          project: 'btcpc-updater',
+          project: 'hone-updater',
           severity: 'info',
           message
         }, {
@@ -184,8 +184,8 @@ function approveUpdate() {
  * Start the auto-update loop.
  */
 function startAutoUpdater() {
-  if (process.env.BTCPC_AUTO_UPDATE === 'false') {
-    log('Disabled (BTCPC_AUTO_UPDATE=false)');
+  if (process.env.HONE_AUTO_UPDATE === 'false') {
+    log('Disabled (HONE_AUTO_UPDATE=false)');
     return;
   }
 

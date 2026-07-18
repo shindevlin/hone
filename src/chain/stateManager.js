@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC State Manager
+ * HONE State Manager
  * Shin Devlin
  *
  * Manages the Sparse Merkle Tree for account state commitments.
@@ -53,8 +53,8 @@ function _assertNonNegativeState(username, state, context) {
 function _updateSMT(username) {
   if (!username) return;
   // Skip system/virtual accounts
-  if (username === 'btcpc_staking_pool' || username === 'btcpc_escrow' ||
-      username === 'btcpc_genesis' || username === 'btcpc_mint' ||
+  if (username === 'hone_staking_pool' || username === 'hone_escrow' ||
+      username === 'hone_genesis' || username === 'hone_mint' ||
       username.startsWith('project:') || username.startsWith('escrow:')) {
     return;
   }
@@ -236,7 +236,7 @@ function verifyAccountState(root, username, state, proof) {
  * Returns a serializable object.
  *
  * Includes `extended_state` with tokens, NFTs, stakes, delegations, escrows,
- * projects, and non-BTCPC balances pulled from stateStore. This is what
+ * projects, and non-HONE balances pulled from stateStore. This is what
  * makes block files a complete source of truth for replay.
  */
 function generateFinalitySnapshot() {
@@ -257,11 +257,11 @@ function generateFinalitySnapshot() {
     var stateStore = require("./stateStore");
     var snap = stateStore.snapshot();
 
-    // Separate out non-BTCPC balances (BTCPC balances are already in `accounts`)
+    // Separate out non-HONE balances (HONE balances are already in `accounts`)
     var extraBalances = {};
     if (snap.balances) {
       Object.keys(snap.balances).forEach(function (key) {
-        if (!key.endsWith("|BTCPC")) extraBalances[key] = snap.balances[key];
+        if (!key.endsWith("|HONE")) extraBalances[key] = snap.balances[key];
       });
     }
 

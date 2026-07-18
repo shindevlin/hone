@@ -1,4 +1,4 @@
-# BTCPC Protocol Primitives
+# HONE Protocol Primitives
 
 Reference document for external auditors, SDK authors, and integration developers.
 All values are canonical — they match `crates/hone-types/src/` exactly.
@@ -39,7 +39,7 @@ current nonce and increment it atomically. This prevents replay attacks.
 ### Name stake
 
 When `chain_param:name_stake_enabled = true`, creating an account costs
-`chain_param:name_stake_amount` dreams (default: `NAME_REGISTRATION_STAKE = 10 BTCPC`),
+`chain_param:name_stake_amount` dreams (default: `NAME_REGISTRATION_STAKE = 10 HONE`),
 debited from the funding account.
 
 ---
@@ -48,14 +48,14 @@ debited from the funding account.
 
 | Symbol | Unit | Value |
 |--------|------|-------|
-| `BTCPC` | Base token | 1 BTCPC = 10,000,000,000 dreams |
+| `HONE` | Base token | 1 HONE = 10,000,000,000 dreams |
 | `dreams` | Indivisible unit (u64) | Minimum transfer amount |
-| `NATIVE_TOKEN` | Token identifier string | `"BTCPC"` |
+| `NATIVE_TOKEN` | Token identifier string | `"HONE"` |
 
 All balances and fees in the protocol are denominated in **dreams** (u64). No floating
 point arithmetic is used in consensus paths.
 
-**Supply cap:** 42,000,000 BTCPC (= `SUPPLY_CAP_HUNITS = 420,000,000,000,000,000,000`
+**Supply cap:** 42,000,000 HONE (= `SUPPLY_CAP_HUNITS = 420,000,000,000,000,000,000`
 dreams). After the supply cap is reached (era 5+), rewards are paid from the
 `__recycle_fund__` account.
 
@@ -72,7 +72,7 @@ Every state transition is a **`LedgerEntry`** — a tagged-union JSON object wit
   "from": "alice",
   "to": "bob",
   "amount": 1000000000,
-  "token": "BTCPC",
+  "token": "HONE",
   "epoch": 42,
   "nonce": 7,
   "signed_by": "alice"
@@ -86,7 +86,7 @@ deterministic UTF-8 string defined in `tx.rs:canonical_signing_message`. The for
 per entry type is documented in `tx.rs` (line ~1234). General pattern:
 
 ```
-BTCPC:{chain_id}:{entry_type}:{field1}:{field2}:...
+HONE:{chain_id}:{entry_type}:{field1}:{field2}:...
 ```
 
 The `chain_id` is always included to prevent cross-chain replay.
@@ -156,7 +156,7 @@ envelope or HTTP request body.
 Signature target: `ed25519_sign(private_key, canonical_signing_message.as_bytes())`
 
 For entries that embed the signature (e.g. `EpochSeal.signature`), the signature
-covers the seal message format: `BTCPC:{chain_id}:EpochSeal:{epoch}:{seal_hash}:{node_id}:{timestamp}`.
+covers the seal message format: `HONE:{chain_id}:EpochSeal:{epoch}:{seal_hash}:{node_id}:{timestamp}`.
 
 #### External-chain signatures
 
@@ -195,11 +195,11 @@ A mandatory **2% reserve split** fires before pool distribution:
 
 | Era | Epoch duration | Per-epoch reward | Daily emission |
 |-----|---------------|-----------------|----------------|
-| 0 | 30s | 2 BTCPC | 5,760 BTCPC |
-| 1 | 60s | 2 BTCPC | 2,880 BTCPC |
-| 2 | 2 min | 2 BTCPC | 1,440 BTCPC |
-| 3 | 4 min | 2 BTCPC | 720 BTCPC |
-| 4 | 8 min | 2 BTCPC | 360 BTCPC |
+| 0 | 30s | 2 HONE | 5,760 HONE |
+| 1 | 60s | 2 HONE | 2,880 HONE |
+| 2 | 2 min | 2 HONE | 1,440 HONE |
+| 3 | 4 min | 2 HONE | 720 HONE |
+| 4 | 8 min | 2 HONE | 360 HONE |
 | 5+ | 16 min | 0 (recycle only) | — |
 
 New supply exhausted after ~124 years (≈ 2150). Era 5+ rewards come from

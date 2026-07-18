@@ -3,7 +3,7 @@
 ## Scope Completed
 Implemented decentralized runtime **Phase 1** in Rust only:
 - New runtime ledger entry variants in `hone-types`.
-- Chain apply/persist handling in `btcpc-node`.
+- Chain apply/persist handling in `hone-node`.
 - Tx validation/signature path support for new runtime entries.
 
 ### Files in scope
@@ -42,9 +42,9 @@ All runtime state is persisted via `state_set` (CF_META keyspace) with keys:
 ## Verification Run
 - Passed:
   - `cargo test -p hone-types --manifest-path rust/hone-node/Cargo.toml`
-  - `cargo check -p btcpc-node --manifest-path rust/hone-node/Cargo.toml`
+  - `cargo check -p hone-node --manifest-path rust/hone-node/Cargo.toml`
 - Known repo condition (pre-existing, unrelated):
-  - full `cargo test -p btcpc-node` currently hits unrelated compile/test issues in existing test paths.
+  - full `cargo test -p hone-node` currently hits unrelated compile/test issues in existing test paths.
 
 ## Explicitly Not Completed
 - Runtime manifest schema and compatibility rules.

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Private Inference Client
+ * HONE Private Inference Client
  * Shin Devlin
  *
  * User-side SDK for submitting encrypted inference requests.
@@ -22,7 +22,7 @@
 const crypto = require("crypto");
 const axios = require("axios");
 
-class BTCPCClient {
+class HONEClient {
   constructor({ nodeUrl, apiKey }) {
     this.nodeUrl = nodeUrl.replace(/\/$/, "");
     this.apiKey = apiKey;
@@ -51,7 +51,7 @@ class BTCPCClient {
     );
     const ikm = Buffer.concat([sharedSecret, Buffer.from(sik_hash, "hex")]);
     const salt = Buffer.from(session_id, "hex");
-    const info = Buffer.from("btcpc-inference-v1");
+    const info = Buffer.from("hone-inference-v1");
     const sessionKey = hkdf(ikm, salt, info, 32);
 
     // Wipe intermediates
@@ -213,4 +213,4 @@ function hkdf(ikm, salt, info, length) {
   return okm.subarray(0, length);
 }
 
-module.exports = { BTCPCClient };
+module.exports = { HONEClient };

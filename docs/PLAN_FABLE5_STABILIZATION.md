@@ -1,4 +1,4 @@
-# BTCPC Stabilization & Launch-Readiness PRD (Fable 5, independent review)
+# HONE Stabilization & Launch-Readiness PRD (Fable 5, independent review)
 
 > **Status:** Governing plan as of 2026-07. Supersedes the *priority ordering*
 > of `docs/PLATFORM_PRD.md` — it does NOT delete that document. The
@@ -61,7 +61,7 @@
 2. **Ambition is wildly mismatched to stated maturity.** ROADMAP says testnet,
    external audit "Planned (Phase 8, not started)," bridge multisig not
    deployed. Against that, `PLATFORM_PRD.md` proposes institutional B2B
-   dashboards with **Stripe USD billing**, a **USD→BTCPC settlement bridge**
+   dashboards with **Stripe USD billing**, a **USD→HONE settlement bridge**
    moving real fiat, **micro-lending against future earnings**, an **agent
    payment economy with unlinkability**, **proof-of-location-as-a-service**, a
    **seller insurance pool**, and Freeport as "a real Amazon competitor." That
@@ -123,8 +123,8 @@ claim on a Rust item since the ICE commit is unverifiable.
 - [x] **0.1 Restore a working build/test toolchain. DONE** (option **b** +
   **a**): feature-gated `matrix-sdk` off by default (the sole ≥1.93 forcer),
   and pinned rustc 1.90 via checked-in `rust/rust-toolchain.toml` (commit
-  `abd2ec4f`). Core `btcpc-node` compiles clean and `cargo test --bin
-  btcpc-node` runs to completion (254 passed / 0 failed). The rustc ICE only
+  `abd2ec4f`). Core `hone-node` compiles clean and `cargo test --bin
+  hone-node` runs to completion (254 passed / 0 failed). The rustc ICE only
   manifests at ≥1.93; 1.90 avoids it and matrix is no longer forcing ≥1.93.
   Original analysis below kept for the record.
   Resolve the rustc ICE
@@ -135,18 +135,18 @@ claim on a Rust item since the ICE commit is unverifiable.
   ICE, in a checked-in `rust-toolchain.toml`; **(b)** feature-gate `matrix-sdk`
   — it is a transport-cascade dependency (Matrix alt-transport), used in exactly
   one file (`src/matrix_transport.rs`, wired at `main.rs:99,1117`), not
-  consensus-critical — so `btcpc-node` core builds without it and off a lower
+  consensus-critical — so `hone-node` core builds without it and off a lower
   rustc; **(c)** last resort, split the workspace so `crates/hone-types` + core
   chain crates build on a stable toolchain independent of the transport crates.
-  **Acceptance:** `cargo test -p btcpc-node` runs to completion from a clean
+  **Acceptance:** `cargo test -p hone-node` runs to completion from a clean
   checkout, producing a pass/fail count.
 - [x] **0.2 CI gate: no Rust merge without a green build. DONE** (`abd2ec4f`):
   `.github/workflows/test.yml` `rust-check` job pins 1.90 and runs `cargo test
-  --bin btcpc-node` on every PR touching `rust/`. Verified green on the PR #8
+  --bin hone-node` on every PR touching `rust/`. Verified green on the PR #8
   merge (both `unit-tests` and `rust-check` passed). The structural fix for
   "PR #7 was committed untested."
 - [x] **0.3 Reconcile the dreams constant everywhere. DONE.** Fixed the 6
-  factual occurrences of the wrong `1 BTCPC = 100,000,000 dreams` →
+  factual occurrences of the wrong `1 HONE = 100,000,000 dreams` →
   `10,000,000,000` (canonical `HUNITS_PER_HONE`): `CLAUDE.md`,
   `docs/MINER_GUIDE.md`, `docs/PLATFORM_PRD.md` (settlement seam),
   `marketing/FAQ.md`, `marketing/GLOSSARY.md`. Confirmed NO code used the wrong
@@ -173,7 +173,7 @@ claim on a Rust item since the ICE commit is unverifiable.
   - **~13 LinkGit repo-control** entries (RefUpdate, Access*, Pr*, Issue*,
     RepoCreate, PruneProof, StorageExtend): bound `signed_by` to the entry's
     actor field + verify. Closes third-party forgery of repo actions.
-  - **Inert** (orders/escrow via btcpc-market sidecar; sighting/routing
+  - **Inert** (orders/escrow via hone-market sidecar; sighting/routing
     gossip) left in pass-through, documented.
   - Full suite 251/0 on 1.90.
 - [ ] **1.2-followup-B — LinkGitServeHeartbeat reward-farming (schema change,
@@ -198,7 +198,7 @@ claim on a Rust item since the ICE commit is unverifiable.
   at validation time. **Acceptance:** a non-collaborator's signed PrMerge on
   someone else's repo is rejected.
 - [ ] **1.3 Client-side signing for the one live producer.**
-  `btcpc-android/src/sensors.rs` submits unsigned and has no BTCPC posting-key
+  `hone-android/src/sensors.rs` submits unsigned and has no HONE posting-key
   infra (only a libp2p transport identity). Add a device posting-key signing
   path reproducing 1.1's signing message. **Acceptance:** the Android client
   produces readings that verify.
@@ -248,7 +248,7 @@ dependency; it must exist before anything that gates on trust.
 
 ### Phase 5 — First product vertical, end to end, native token only (Days 90–150)
 
-Take **one** vertical all the way, in BTCPC only — no fiat, no USD bridge, no
+Take **one** vertical all the way, in HONE only — no fiat, no USD bridge, no
 lending. Recommend **Verasens sensor economics + aggregation** (most chain
 groundwork; security work already centered there).
 
@@ -261,7 +261,7 @@ groundwork; security work already centered there).
   readings. 3+ sensor types aggregate correctly; restart doesn't lose/
   double-count; unverified readings excluded from paid answers.
 - [ ] **5.3 EXPLICITLY DEFERRED to post-mainnet:** the institutional USD
-  dashboard, Stripe billing, USD→BTCPC settlement bridge. Moving fiat on top of
+  dashboard, Stripe billing, USD→HONE settlement bridge. Moving fiat on top of
   an unaudited chain is the highest-risk item in the entire existing plan and
   has no business shipping pre-audit. Revisit only after Phase 2's audit is
   clean.

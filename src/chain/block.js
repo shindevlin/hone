@@ -1,12 +1,12 @@
 "use strict";
 
 /**
- * BTCPC Block Serialization
+ * HONE Block Serialization
  * Shin Devlin
  *
  * Formal block header structure per Whitepaper 2.2.
  * Provides binary serialization, SHA-256 hashing, Merkle tree computation,
- * and block validation for the BTCPC sovereign chain.
+ * and block validation for the HONE sovereign chain.
  */
 
 var crypto = require("crypto");
@@ -24,7 +24,7 @@ var HEADER_SIZE = VERSION_SIZE + HASH_SIZE + HASH_SIZE + HASH_SIZE + HASH_SIZE +
 // 4 + 32 + 32 + 32 + 32 + 8 + 4 + 4 + 32 = 180 bytes
 
 /**
- * Block — Represents a BTCPC block with formal binary serialization.
+ * Block — Represents a HONE block with formal binary serialization.
  *
  * Header fields (per Whitepaper 2.2):
  *   version                    — uint32

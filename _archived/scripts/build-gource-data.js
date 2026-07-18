@@ -21,7 +21,7 @@ function ensureDir(dirPath) {
 
 function sanitizeText(contents) {
   return String(contents)
-    .replaceAll('/home/ubuntclaw/repos/btcpc/', '')
+    .replaceAll('/home/ubuntclaw/repos/hone/', '')
     .replaceAll('/home/ubuntclaw/', '')
     .replace(/CLAUDE_HANDOFF[^\n]*/gi, '')
     .replace(/SECURITY_AUDIT[^\n]*/gi, '')
@@ -69,7 +69,7 @@ function guessSourcePath(rel, text) {
   if (rel.startsWith('Source/')) return path.join('src', rel.slice('Source/'.length)).replace(/\\/g, '/');
   if (rel.startsWith('Tests/')) return path.join('tests', rel.slice('Tests/'.length)).replace(/\\/g, '/');
   if (rel.startsWith('Website/')) return path.join('website', rel.slice('Website/'.length)).replace(/\\/g, '/');
-  if (rel.startsWith('Android/')) return path.join('android/app/src/main/java/network/btcpc/app', rel.slice('Android/'.length)).replace(/\\/g, '/');
+  if (rel.startsWith('Android/')) return path.join('android/app/src/main/java/network/hone/app', rel.slice('Android/'.length)).replace(/\\/g, '/');
   if (rel.startsWith('Docs/code-wiki/')) return path.join('docs/code-wiki', rel.slice('Docs/code-wiki/'.length)).replace(/\\/g, '/');
   if (rel.startsWith('Docs/')) return path.join('docs', rel.slice('Docs/'.length)).replace(/\\/g, '/');
   if (rel.startsWith('Code Wiki/')) {
@@ -165,7 +165,7 @@ function main() {
   resolveTimestamps(tree, gitMap);
   const stats = buildStats(tree);
   ensureDir(path.dirname(outPath));
-  fs.writeFileSync(outPath, JSON.stringify({ title: 'BTCPC Vault Atlas', root: tree, stats }, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(outPath, JSON.stringify({ title: 'HONE Vault Atlas', root: tree, stats }, null, 2) + '\n', 'utf8');
   console.log(`Wrote ${outPath}`);
 }
 

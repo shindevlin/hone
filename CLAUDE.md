@@ -1,9 +1,9 @@
 # HONE — Sovereign Chain Node
 
-> **Naming (BTCPC → HONE rebrand, locked):** brand/network = **HONE**, token/ticker = **HONE**,
+> **Naming (HONE → HONE rebrand, locked):** brand/network = **HONE**, token/ticker = **HONE**,
 > base unit = **hunit** (1 HONE = 10^10 hunits), chain_id = **hone** (mainnet) / **hone-testnet**,
 > crates = `hone-*`, CLI binary = `hone`, env vars = `HONE_*`, domain = **honemesh.net**.
-> Treat any remaining "BTCPC/btcpc/dream" as a not-yet-migrated tail, not the current name.
+> Treat any remaining "HONE/hone/dream" as a not-yet-migrated tail, not the current name.
 
 > **THE ACTIVE IMPLEMENTATION IS RUST. DO NOT REFERENCE OR MODIFY NODE.JS CODE.**
 >
@@ -73,7 +73,7 @@ This applies to ALL entry types: stakes, transfers, registrations, sensor data, 
 ## Monorepo Structure
 
 ```
-btcpc/                   (repo dir name predates the HONE rebrand)
+hone/                   (repo dir name predates the HONE rebrand)
   rust/
     hone-node/       ← chain node (canonical)
     hone-node/crates/hone-types/
@@ -83,14 +83,14 @@ btcpc/                   (repo dir name predates the HONE rebrand)
   ludicrous/             ← Warp fork (HONE terminal)
     plugins/ludicrous/   ← Claude Code plugin
   clients/
-    btcpc-desktop/       ← Electron/Tauri desktop app (dir not yet renamed)
-    btcpc-android/       ← Capacitor Android client (dir not yet renamed)
-    btcpc-flipper/       ← Flipper Zero firmware (dir not yet renamed)
+    hone-desktop/       ← Electron/Tauri desktop app (dir not yet renamed)
+    hone-android/       ← Capacitor Android client (dir not yet renamed)
+    hone-flipper/       ← Flipper Zero firmware (dir not yet renamed)
   bots/
-    btcpcbot/            ← Telegram chain bot (@btcpcbot; rename pending)
-    btcpcwalletbot/      ← Telegram wallet bot (rename pending)
+    honebot/            ← Telegram chain bot (@honebot; rename pending)
+    honewalletbot/      ← Telegram wallet bot (rename pending)
   services/
-    btcpc-relay/         ← Cloudflare Workers relay (dir not yet renamed)
+    hone-relay/         ← Cloudflare Workers relay (dir not yet renamed)
   marketing/             ← Open-source marketing
   website/               ← honemesh.net landing page
   verasens/              ← Sensor verification protocol
@@ -102,7 +102,7 @@ btcpc/                   (repo dir name predates the HONE rebrand)
 
 See [docs/bots.md](docs/bots.md) for full bot documentation.
 - Bots are thin HTTP clients — no direct DB access, all via `/api/bot/*`
-- Live in `bots/btcpcbot/` and `bots/btcpcwalletbot/` (in this repo)
+- Live in `bots/honebot/` and `bots/honewalletbot/` (in this repo)
 - Tokens in `.env` files only — NEVER in git, NEVER in chat (.gitignore guards in place)
 
 ## DEPRECATED: Node.js (do not use)

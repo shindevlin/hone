@@ -1,13 +1,13 @@
-# BTCPC Technical Deep Dive
+# HONE Technical Deep Dive
 
 This page is for readers who want the mechanics, not just the product story.
 
-If you are looking for the shortest way to get BTCPC running, start with
+If you are looking for the shortest way to get HONE running, start with
 [`START_HERE`](START_HERE.md).
 
-## What BTCPC Pays For
+## What HONE Pays For
 
-BTCPC turns real work into the work source for the chain:
+HONE turns real work into the work source for the chain:
 
 - AI inference
 - storage
@@ -33,9 +33,9 @@ that already exists on chain.
 
 ### Account control
 
-BTCPC supports:
+HONE supports:
 
-- native BTCPC active-key sending
+- native HONE active-key sending
 - controller mode, where an opted-in external chain controls spending
 - secondary approval, which stays a separate outside-wallet factor
 
@@ -47,7 +47,7 @@ not by the UI alone.
 The browser app, setup page, and start wizard all read the same manifest-driven
 state helper. That keeps the public flow consistent and reduces duplicated logic.
 
-## How to Improve BTCPC
+## How to Improve HONE
 
 If you find a cleaner, safer, or more deterministic way to do any of the above,
 please contribute it back to the repository.

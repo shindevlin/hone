@@ -1,8 +1,8 @@
-# btcpc-clock — Lightweight Clock Node
+# hone-clock — Lightweight Clock Node
 
 ## What It Does
 
-A clock node participates in BTCPC epoch consensus without mining. No GPU, no MongoDB, no Ollama required. It:
+A clock node participates in HONE epoch consensus without mining. No GPU, no MongoDB, no Ollama required. It:
 
 - Connects to the P2P network
 - Receives and relays all messages
@@ -13,7 +13,7 @@ A clock node participates in BTCPC epoch consensus without mining. No GPU, no Mo
 ## Requirements
 
 - Node.js 18+
-- `ws` npm package (included in btcpc dependencies)
+- `ws` npm package (included in hone dependencies)
 - Network access (WebSocket)
 - ~50MB disk (for block files)
 
@@ -22,13 +22,13 @@ A clock node participates in BTCPC epoch consensus without mining. No GPU, no Mo
 ## Quick Start
 
 ```bash
-cd ~/repos/btcpc
+cd ~/repos/hone
 npm install --production
 
 HONE_CLOCK_ACCOUNT=josh \
 HONE_SEED_PEERS=ws://100.122.145.60:6942 \
 P2P_PORT=6943 \
-node bin/btcpc-clock
+node bin/hone-clock
 ```
 
 ## iPad Setup (a-Shell)
@@ -41,8 +41,8 @@ node bin/btcpc-clock
 pkg install nodejs lg2
 
 # Clone the repo
-lg2 clone https://github.com/shindevlin/btcpc.git
-cd btcpc
+lg2 clone https://github.com/shindevlin/hone.git
+cd hone
 
 # Install npm packages
 npm install --production
@@ -52,11 +52,11 @@ cat > .env.clock << 'EOF'
 HONE_CLOCK_ACCOUNT=josh
 HONE_SEED_PEERS=ws://100.122.145.60:6942
 P2P_PORT=6943
-HONE_RELAY_URL=wss://btcpc-relay.shindevlin.workers.dev/ws
+HONE_RELAY_URL=wss://hone-relay.shindevlin.workers.dev/ws
 EOF
 
 # Run the clock node
-source .env.clock && node bin/btcpc-clock
+source .env.clock && node bin/hone-clock
 ```
 
 ## Permission Tiers
@@ -64,7 +64,7 @@ source .env.clock && node bin/btcpc-clock
 | Tier | Requirements | Epoch Consensus |
 |------|-------------|-----------------|
 | **Permissioned** | Approved by genesis operator | Immediate eligibility |
-| **Permissionless** | 100+ BTCPC staked | Eligible after staking |
+| **Permissionless** | 100+ HONE staked | Eligible after staking |
 | **Genesis** | shindevlin (always eligible) | Fallback authority |
 
 ## Registering as a Clock Node
@@ -73,7 +73,7 @@ To participate in epoch consensus, register on the permanent ledger:
 
 ```bash
 # Via CLI (when available)
-node bin/btcpc-cli node register --type clock --account josh
+node bin/hone-cli node register --type clock --account josh
 
 # Or via API
 curl -X POST http://localhost:3000/api/node/register \

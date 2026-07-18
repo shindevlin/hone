@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Four-Tier Finality Anchoring
+ * HONE Four-Tier Finality Anchoring
  * Shin Devlin
  *
  * Anchors finality snapshots at increasing cadences and to increasing
@@ -10,15 +10,15 @@
  *
  * Tier 1 — Native  (every 100 epochs):  finality snapshot to local disk
  *                                        (written by blockStore, no work here)
- * Tier 2 — L2      (every 100 epochs):  L2_ANCHOR ledger entry on BTCPC chain
+ * Tier 2 — L2      (every 100 epochs):  L2_ANCHOR ledger entry on HONE chain
  * Tier 3 — Ethereum(every 1000 epochs): ABI-encoded calldata → data/anchors/eth-NNNNN.hex
  *                                        + ETH_ANCHOR ledger entry
  * Tier 4 — Bitcoin (every 10000 epochs):OP_RETURN payload → data/anchors/btc-NNNNN.hex
  *                                        + BTC_ANCHOR ledger entry
  *
  * Activation gate:
- *   BTCPC_FINALITY_TIERS  (default: "1") — how many tiers to activate
- *   BTCPC_MIN_NODES_FOR_L2 (default: 10) — minimum live peers before Tier 2+
+ *   HONE_FINALITY_TIERS  (default: "1") — how many tiers to activate
+ *   HONE_MIN_NODES_FOR_L2 (default: 10) — minimum live peers before Tier 2+
  *
  * Called from miner.js immediately after blockStore.writeFinality().
  */
@@ -31,11 +31,11 @@ var nodeRegistry = require("./nodeRegistry");
 
 // ─── Configuration ────────────────────────────────────────────────
 
-var TIER_LEVEL = (process.env.BTCPC_FINALITY_TIERS !== undefined && process.env.BTCPC_FINALITY_TIERS !== "")
-  ? parseInt(process.env.BTCPC_FINALITY_TIERS, 10) || 1
+var TIER_LEVEL = (process.env.HONE_FINALITY_TIERS !== undefined && process.env.HONE_FINALITY_TIERS !== "")
+  ? parseInt(process.env.HONE_FINALITY_TIERS, 10) || 1
   : 1;
-var MIN_NODES_FOR_L2 = (process.env.BTCPC_MIN_NODES_FOR_L2 !== undefined && process.env.BTCPC_MIN_NODES_FOR_L2 !== "")
-  ? parseInt(process.env.BTCPC_MIN_NODES_FOR_L2, 10)
+var MIN_NODES_FOR_L2 = (process.env.HONE_MIN_NODES_FOR_L2 !== undefined && process.env.HONE_MIN_NODES_FOR_L2 !== "")
+  ? parseInt(process.env.HONE_MIN_NODES_FOR_L2, 10)
   : 10;
 // Guard: NaN → use defaults
 if (isNaN(TIER_LEVEL)) TIER_LEVEL = 1;
@@ -113,7 +113,7 @@ function _writeAtomic(filePath, content) {
 
 /**
  * Write an L2_ANCHOR entry to the in-memory anchor log and to
- * stateStore so it becomes part of the BTCPC chain record.
+ * stateStore so it becomes part of the HONE chain record.
  */
 function _anchorL2(epochNumber, stateRoot) {
   var entry = {
@@ -129,7 +129,7 @@ function _anchorL2(epochNumber, stateRoot) {
 
   _pushAnchor(entry);
 
-  console.log("[BTCPC][anchor] L2 anchor @ epoch " + epochNumber
+  console.log("[HONE][anchor] L2 anchor @ epoch " + epochNumber
     + " | root: " + stateRoot.slice(0, 16) + "...");
 
   return entry;
@@ -185,7 +185,7 @@ function _anchorEthereum(epochNumber, stateRoot) {
   try { stateStore.applyEntry(entry); } catch (_) {}
   _pushAnchor(entry);
 
-  console.log("[BTCPC][anchor] ETH anchor @ epoch " + epochNumber
+  console.log("[HONE][anchor] ETH anchor @ epoch " + epochNumber
     + " → " + filePath);
 
   return entry;
@@ -195,7 +195,7 @@ function _anchorEthereum(epochNumber, stateRoot) {
 
 /**
  * Build an OP_RETURN payload (≤80 bytes):
- *   bytes  0-4  : "BTCPC" ASCII magic (5 bytes)
+ *   bytes  0-4  : "HONE" ASCII magic (5 bytes)
  *   bytes  5-8  : epoch as uint32 big-endian (4 bytes)
  *   bytes  9-40 : state root (32 bytes)
  *   bytes 41-79 : zero padding (39 bytes) → total 80 bytes
@@ -205,10 +205,10 @@ function _anchorEthereum(epochNumber, stateRoot) {
 function _buildBtcOpReturn(epochNumber, stateRoot) {
   var buf = Buffer.alloc(80, 0);
 
-  // Magic: "BTCPC"
-  buf.write("BTCPC", 0, "ascii");
+  // Magic: "HONE"
+  buf.write("HONE", 0, "ascii");
 
-  // Epoch as uint32 BE (max ~4.29 billion — sufficient for BTCPC epochs)
+  // Epoch as uint32 BE (max ~4.29 billion — sufficient for HONE epochs)
   buf.writeUInt32BE(epochNumber >>> 0, 5);
 
   // State root (32 bytes)
@@ -238,7 +238,7 @@ function _anchorBitcoin(epochNumber, stateRoot) {
   try { stateStore.applyEntry(entry); } catch (_) {}
   _pushAnchor(entry);
 
-  console.log("[BTCPC][anchor] BTC anchor @ epoch " + epochNumber
+  console.log("[HONE][anchor] BTC anchor @ epoch " + epochNumber
     + " → " + filePath);
 
   return entry;
@@ -261,14 +261,14 @@ async function anchorIfDue(epochNumber, finalitySnapshot) {
   // Tier 2+ gate: node count must meet minimum threshold
   if (TIER_LEVEL < 2) {
     result.skipped = true;
-    result.reason = "BTCPC_FINALITY_TIERS=" + TIER_LEVEL + " (native-only)";
+    result.reason = "HONE_FINALITY_TIERS=" + TIER_LEVEL + " (native-only)";
     return result;
   }
 
   var liveNodes = _getLiveNodeCount();
   if (liveNodes < MIN_NODES_FOR_L2) {
     result.skipped = true;
-    result.reason = "live nodes " + liveNodes + " < BTCPC_MIN_NODES_FOR_L2=" + MIN_NODES_FOR_L2;
+    result.reason = "live nodes " + liveNodes + " < HONE_MIN_NODES_FOR_L2=" + MIN_NODES_FOR_L2;
     return result;
   }
 

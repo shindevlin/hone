@@ -49,7 +49,7 @@ function blockView(epoch, period, blockData) {
       <td><span class="type-badge type-${escapeHtml(typeClass)}">${escapeHtml(e.type)}</span></td>
       <td>${e.from ? `<a href="/account/${encodeURIComponent(e.from)}">${escapeHtml(e.from)}</a>` : "--"}</td>
       <td>${e.to ? `<a href="/account/${encodeURIComponent(e.to)}">${escapeHtml(e.to)}</a>` : "--"}</td>
-      <td class="amount">${formatNumber(e.amount)} ${escapeHtml(e.token || "BTCPC")}</td>
+      <td class="amount">${formatNumber(e.amount)} ${escapeHtml(e.token || "HONE")}</td>
       <td>${escapeHtml(e.memo || "")}</td>
     </tr>`;
   }).join("");
@@ -61,7 +61,7 @@ function blockView(epoch, period, blockData) {
     return `
     <tr>
       <td><a href="/account/${encodeURIComponent(miner)}">${escapeHtml(miner)}</a></td>
-      <td class="amount">${formatNumber(r.amount)} BTCPC</td>
+      <td class="amount">${formatNumber(r.amount)} HONE</td>
     </tr>`;
   }).join("");
 
@@ -104,11 +104,11 @@ function blockView(epoch, period, blockData) {
         ${txMerkle ? `<dt>Tx Merkle Root</dt><dd><span class="hash" style="max-width: none;">${truncHash(txMerkle)}</span></dd>` : ""}
         ${cpMerkle ? `<dt>Compute Merkle Root</dt><dd><span class="hash" style="max-width: none;">${truncHash(cpMerkle)}</span></dd>` : ""}
         <dt>Block Reward</dt>
-        <dd class="amount">${formatNumber(epoch.block_reward)} BTCPC</dd>
+        <dd class="amount">${formatNumber(epoch.block_reward)} HONE</dd>
         <dt>Total Work</dt>
         <dd>${formatNumber(epoch.total_work)}</dd>
         <dt>Emission Period</dt>
-        <dd>${period ? `Period ${period.period} (${period.duration_months} months, ${formatNumber(period.allotment)} BTCPC allotment)` : "--"}</dd>
+        <dd>${period ? `Period ${period.period} (${period.duration_months} months, ${formatNumber(period.allotment)} HONE allotment)` : "--"}</dd>
         <dt>Difficulty</dt>
         <dd>${block ? block.difficulty : epoch.difficulty || 1}</dd>
         <dt>Timestamp</dt>
@@ -143,7 +143,7 @@ function blockView(epoch, period, blockData) {
       <div class="card">
         <div class="card-header">
           <h2>Reward Distribution</h2>
-          <span class="badge">${formatNumber(epoch.block_reward)} BTCPC</span>
+          <span class="badge">${formatNumber(epoch.block_reward)} HONE</span>
         </div>
         ${rewardRows.length ? `
         <table>

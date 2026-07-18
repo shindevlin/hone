@@ -2,12 +2,12 @@
 set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-http://localhost:3000}"
-API_KEY="${API_KEY:-${BTCPC_RELAY_API_KEY:-}}"
+API_KEY="${API_KEY:-${HONE_RELAY_API_KEY:-}}"
 MODEL="${MODEL:-qwen3:4b}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-30}"
 
 if [[ -z "${API_KEY}" ]]; then
-  echo "ERROR: API_KEY is required. Export API_KEY or BTCPC_RELAY_API_KEY first." >&2
+  echo "ERROR: API_KEY is required. Export API_KEY or HONE_RELAY_API_KEY first." >&2
   exit 1
 fi
 
@@ -36,7 +36,7 @@ print_json_excerpt() {
   node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(JSON.stringify(data, null, 2).slice(0, 600));" "${file}"
 }
 
-echo "BTCPC smoke API"
+echo "HONE smoke API"
 echo "API_BASE_URL=${API_BASE_URL}"
 echo "MODEL=${MODEL}"
 echo
@@ -66,7 +66,7 @@ if [[ "${pricing_status}" != "200" ]]; then
   cat "${pricing_file}"
   exit 1
 fi
-check_json_field "${pricing_file}" "typeof data.tokens_per_btcpc === 'number' && data.tokens_per_btcpc > 0"
+check_json_field "${pricing_file}" "typeof data.tokens_per_hone === 'number' && data.tokens_per_hone > 0"
 
 network_file="${tmpdir}/network.json"
 network_status="$(request "network" "${API_BASE_URL}/v1/network/models" "${network_file}" -H "Authorization: Bearer ${API_KEY}")"
@@ -79,7 +79,7 @@ check_json_field "${network_file}" "Array.isArray(data.available)"
 
 body_file="${tmpdir}/completion_body.json"
 cat > "${body_file}" <<JSON
-{"model":"${MODEL}","messages":[{"role":"user","content":"Reply with exactly: BTCPC inference ok"}],"max_tokens":32,"temperature":0}
+{"model":"${MODEL}","messages":[{"role":"user","content":"Reply with exactly: HONE inference ok"}],"max_tokens":32,"temperature":0}
 JSON
 
 completion_file="${tmpdir}/completion.json"

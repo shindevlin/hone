@@ -477,6 +477,6 @@ fn now_unix_secs() -> u64 {
 
 fn usage(binary: &str) -> String {
     format!(
-        "Usage:\n  {binary} run-api-tool --catalog <snapshot.json> [--category Weather] [--query Open-Meteo] [--worker local-api-worker] [--runtime hone-api-tool-demo] [--max-bytes 16384] [--timeout-secs 20] [--verified-only] [--allow-auth] [--out report.json]\n\nExample:\n  {binary} run-api-tool --catalog /mnt/hone-storage/catalogs/public-apis.snapshot.json --category Weather --query Open-Meteo --out /tmp/api-tool-report.json"
+        "Usage:\n  {binary} run-api-tool --catalog <snapshot.json> [--category Weather] [--query Open-Meteo] [--worker local-api-worker] [--runtime hone-api-tool-demo] [--max-bytes 16384] [--timeout-secs 20] [--verified-only] [--allow-auth] [--out report.json]\n\nExample:\n  {binary} run-api-tool --catalog /mnt/btcpc-storage/catalogs/public-apis.snapshot.json --category Weather --query Open-Meteo --out /tmp/api-tool-report.json"
     )
 }

@@ -48,7 +48,7 @@ Rust already has `/api/task/*` covering the core inference flow. Node.js `infere
 
 | # | File | What's missing in Rust | Complexity |
 |---|------|------------------------|------------|
-| 13 | `blobRoutes.js` | Content-addressed blob upload/download (BTCPC-FS CID system) | Medium |
+| 13 | `blobRoutes.js` | Content-addressed blob upload/download (HONE-FS CID system) | Medium |
 | 14 | `storageRoutes.js` | Encrypted file storage, shard management, grant/revoke access | Large |
 | 15 | `blobServeProofRoutes.js` | Bandwidth-proof submission and flush for storage host payouts | Small |
 | 16 | `phoneStorageRoutes.js` | Phone storage host registration, blob assignments, heartbeat | Small |
@@ -60,8 +60,8 @@ Rust already has `/api/task/*` covering the core inference flow. Node.js `infere
 | # | File | What's missing in Rust | Complexity |
 |---|------|------------------------|------------|
 | 17 | `commerceRoutes.js` | Full storefront/product/order/escrow/dispute/reputation system | Large |
-| 18 | `bridgeRoutes.js` | BTCPC ↔ wBTCPC wrap/unwrap, LP provisioning, fee distribution | Medium |
-| 19 | `purchaseRoutes.js` | Stablecoin → BTCPC purchase flow (ETH/SOL/TON multi-chain quotes + fulfillment) | Medium |
+| 18 | `bridgeRoutes.js` | HONE ↔ wHONE wrap/unwrap, LP provisioning, fee distribution | Medium |
+| 19 | `purchaseRoutes.js` | Stablecoin → HONE purchase flow (ETH/SOL/TON multi-chain quotes + fulfillment) | Medium |
 | 20 | `auctionRoutes.js` | Name auction: open, bid, settle, cancel, delegate | Medium |
 | 21 | `peerCommerceRoutes.js` | Read-only peer commerce catalog (stores, products, health) | Small |
 
@@ -96,7 +96,7 @@ Rust already has `/api/task/*` covering the core inference flow. Node.js `infere
 
 ## Phase 7 — Telegram bot API surface
 
-`botRoutes.js` is large (~50 endpoints) but lives in the separate bot repos (`~/repos/btcpcbot/`, `~/repos/btcpcwalletbot/`). Those bots call the Rust node's `/api/*` endpoints — not the Node.js stack. As Phase 1–6 routes land in Rust, the bots point at those directly. No explicit port needed; just keep bot routes wired to Rust endpoints as they go live.
+`botRoutes.js` is large (~50 endpoints) but lives in the separate bot repos (`~/repos/honebot/`, `~/repos/honewalletbot/`). Those bots call the Rust node's `/api/*` endpoints — not the Node.js stack. As Phase 1–6 routes land in Rust, the bots point at those directly. No explicit port needed; just keep bot routes wired to Rust endpoints as they go live.
 
 ---
 

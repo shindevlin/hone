@@ -20,7 +20,7 @@ function _normalizeRecipient(transfer) {
 }
 
 function _normalizeToken(transfer) {
-  return sanitizeString((transfer && transfer.token) || "BTCPC", 20) || "BTCPC";
+  return sanitizeString((transfer && transfer.token) || "HONE", 20) || "HONE";
 }
 
 function _normalizeMemo(transfer) {
@@ -29,7 +29,7 @@ function _normalizeMemo(transfer) {
 
 function _challengeText(username, normalizedTransfer, challengeId) {
   return [
-    "BTCPC ACTIVE TRANSFER",
+    "HONE ACTIVE TRANSFER",
     "challenge_id=" + challengeId,
     "account=" + username,
     "to=" + (normalizedTransfer.to || ""),

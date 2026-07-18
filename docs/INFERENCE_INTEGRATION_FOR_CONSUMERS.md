@@ -6,22 +6,22 @@ older assumptions._
 
 ---
 
-## ⚠️ Naming first — the chain was renamed (BTCPC → HONE)
+## ⚠️ Naming first — the chain was renamed (HONE → HONE)
 
-**This chain USED TO BE CALLED "BTCPC". It is NOW "HONE".** If your project has any
-existing integration, config, or documentation referencing BTCPC, that was **this same
+**This chain USED TO BE CALLED "HONE". It is NOW "HONE".** If your project has any
+existing integration, config, or documentation referencing HONE, that was **this same
 chain**. The rename (2026-07-05) is:
 
-| Was (BTCPC) | Now (HONE) |
+| Was (HONE) | Now (HONE) |
 |---|---|
-| Brand / chain / network / token name: **BTCPC** | **HONE** |
+| Brand / chain / network / token name: **HONE** | **HONE** |
 | Base unit (smallest denomination): **dream** | **hunit** (1 HONE = 10,000,000,000 hunits) |
-| chain_id: **btcpc-2** | **`hone`** (mainnet), **`hone-testnet`** (testnet) |
-| Rust crates: **btcpc-\*** | **hone-\*** (e.g. `btcpc-node` → `hone-node`) |
-| Env vars: **BTCPC_\*** | **HONE_\*** |
+| chain_id: **hone-2** | **`hone`** (mainnet), **`hone-testnet`** (testnet) |
+| Rust crates: **hone-\*** | **hone-\*** (e.g. `hone-node` → `hone-node`) |
+| Env vars: **HONE_\*** | **HONE_\*** |
 | Domain | **honemesh.net** (this is ONLY the domain — the brand is **HONE**) |
 
-Anywhere you still see `btcpc` / `BTCPC` / `dream`, treat it as a **not-yet-migrated
+Anywhere you still see `hone` / `HONE` / `dream`, treat it as a **not-yet-migrated
 tail, not the current name**. Update your references to the HONE names.
 
 HONE is a Rust "Proof of Compute" sovereign chain; the node lives in `rust/hone-node/`.

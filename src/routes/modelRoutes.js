@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Model Registry
+ * HONE Model Registry
  *
  * GET  /api/models/registry        — all models: built-in + community, with source flag
  * GET  /api/models/:id             — metadata for one model
@@ -14,7 +14,7 @@
  *      directly from the storage node, zero load on the API server)
  *   2. Local blob store fallback (API server streams the file)
  *
- * transformers.js points at https://btcpc.net/api/models/ and fetches
+ * transformers.js points at https://hone.net/api/models/ and fetches
  * tokenizer.json, onnx/model_q4.onnx, etc. — fully chain-served.
  */
 
@@ -34,11 +34,11 @@ const REGISTRY_PATH = path.resolve(__dirname, '../../data/model-registry.json');
 const DEFAULT_DURATION_EPOCHS = 10000;
 
 // Canonical HuggingFace source for each supported model.
-// btcpc-phone-v1: encoder-only sentence embedding model (MiniLM-L6-v2).
+// hone-phone-v1: encoder-only sentence embedding model (MiniLM-L6-v2).
 // No KV-cache / no past_key_values — compatible with tract-onnx on Android.
 // ~24MB ONNX, runs on CPU in <500ms on mid-range phones.
 const MODEL_CATALOG = {
-  'btcpc-phone-v1': {
+  'hone-phone-v1': {
     hf_repo: 'Xenova/all-MiniLM-L6-v2',
     files: [
       'config.json', 'tokenizer.json', 'tokenizer_config.json',
@@ -180,7 +180,7 @@ function saveRegistry(reg) {
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
-    mod.get(url, { headers: { 'User-Agent': 'btcpc-model-fetcher/1.0' } }, (res) => {
+    mod.get(url, { headers: { 'User-Agent': 'hone-model-fetcher/1.0' } }, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode)) {
         let loc = res.headers.location;
         if (loc && loc.startsWith('/')) {
@@ -202,7 +202,7 @@ function fetchUrl(url) {
 function fetchUrlToBlobStream(url) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
-    mod.get(url, { headers: { 'User-Agent': 'btcpc-model-fetcher/1.0' } }, (res) => {
+    mod.get(url, { headers: { 'User-Agent': 'hone-model-fetcher/1.0' } }, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode)) {
         let loc = res.headers.location;
         if (loc && loc.startsWith('/')) {
@@ -221,7 +221,7 @@ function fetchUrlToBlobStream(url) {
 function fetchUrlToChunks(url, chunkSize) {
   return new Promise(function(resolve, reject) {
     var mod = url.startsWith('https') ? https : http;
-    mod.get(url, { headers: { 'User-Agent': 'btcpc-model-fetcher/1.0' } }, function(res) {
+    mod.get(url, { headers: { 'User-Agent': 'hone-model-fetcher/1.0' } }, function(res) {
       if ([301, 302, 307, 308].includes(res.statusCode)) {
         var loc = res.headers.location;
         if (loc && loc.startsWith('/')) { var u = new URL(url); loc = u.origin + loc; }
@@ -263,7 +263,7 @@ function bestHostUrl(cid) {
 
 /**
  * POST /api/models/upload
- * Anyone can register a community model on the BTCPC chain and earn royalties.
+ * Anyone can register a community model on the HONE chain and earn royalties.
  * Body:
  *   model_id       — unique slug (lowercase alphanumeric + hyphens), e.g. "my-finetune-v1"
  *   name           — human-readable name
@@ -272,7 +272,7 @@ function bestHostUrl(cid) {
  *   size_mb        — approximate model size
  *   files          — { "config.json": "<cid>", "onnx/model_q4.onnx": "<cid>", ... }
  *   royalty_percent — 0–10 (default 5). % of miner reward paid to uploader each inference.
- *   stake_amount    — BTCPC to stake (minimum 1 per 100MB). Held in chain escrow.
+ *   stake_amount    — HONE to stake (minimum 1 per 100MB). Held in chain escrow.
  * Auth required. Stake is deducted from uploader's on-chain balance.
  */
 router.post('/upload', authenticateToken, express.json({ limit: '64kb' }), async function(req, res) {
@@ -303,9 +303,9 @@ router.post('/upload', authenticateToken, express.json({ limit: '64kb' }), async
   const stakeAmt = Math.max(minStake, parseFloat(stake_amount) || minStake);
 
   // Check uploader balance
-  const balance = stateStore.getBalance ? stateStore.getBalance(uploader, 'BTCPC') : 0;
+  const balance = stateStore.getBalance ? stateStore.getBalance(uploader, 'HONE') : 0;
   if (balance < stakeAmt) {
-    return res.status(402).json({ error: 'insufficient balance for stake', required: stakeAmt, balance, unit: 'BTCPC' });
+    return res.status(402).json({ error: 'insufficient balance for stake', required: stakeAmt, balance, unit: 'HONE' });
   }
 
   // Check model_id not already owned by someone else
@@ -314,10 +314,10 @@ router.post('/upload', authenticateToken, express.json({ limit: '64kb' }), async
     return res.status(409).json({ error: 'model_id already registered by another uploader', uploader: existing.uploader });
   }
 
-  // Deduct stake (transfer to btcpc_recycle — drains slowly to storage hosts in future)
+  // Deduct stake (transfer to hone_recycle — drains slowly to storage hosts in future)
   try {
     const epoch = await ledger.getCurrentEpoch();
-    await ledger.recordTransfer(uploader, 'btcpc_recycle', stakeAmt, 'BTCPC', `Model upload stake: ${model_id}`, epoch);
+    await ledger.recordTransfer(uploader, 'hone_recycle', stakeAmt, 'HONE', `Model upload stake: ${model_id}`, epoch);
     await ledger.recordModelUpload(uploader, model_id, {
       name: name || model_id,
       description: description || '',
@@ -357,7 +357,7 @@ router.post('/upload', authenticateToken, express.json({ limit: '64kb' }), async
     royalty_percent: royaltyPct,
     stake_deducted: stakeAmt,
     file_count: Object.keys(files).length,
-    message: `Model ${model_id} is now active on the BTCPC chain. You earn ${royaltyPct}% of each inference reward when miners use it.`,
+    message: `Model ${model_id} is now active on the HONE chain. You earn ${royaltyPct}% of each inference reward when miners use it.`,
   });
 });
 
@@ -585,7 +585,7 @@ router.get('/:id/*path', function(req, res) {
   const chunkManifest = (model.chunked_files || {})[filePath];
   if (chunkManifest) {
     const total = chunkManifest.total_size;
-    res.set('X-BTCPC-Chunked', String(chunkManifest.chunks.length));
+    res.set('X-HONE-Chunked', String(chunkManifest.chunks.length));
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
     res.set('Accept-Ranges', 'bytes');
     const ext = require('path').extname(filePath).toLowerCase();
@@ -625,7 +625,7 @@ router.get('/:id/*path', function(req, res) {
   const total = stat.size;
   const rangeHeader = req.headers['range'];
 
-  res.set('X-BTCPC-CID', cid);
+  res.set('X-HONE-CID', cid);
   res.set('Cache-Control', 'public, max-age=31536000, immutable');
   res.set('Accept-Ranges', 'bytes');
 

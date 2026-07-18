@@ -6,7 +6,7 @@
  * Challenge-response protocol for storage hosts. Critical design note:
  * failures do NOT slash stake. See feedback_storage_no_slash.md. Tests
  * verify that failed challenges only affect payout weight + reputation,
- * never the host's BTCPC balance or staked amount.
+ * never the host's HONE balance or staked amount.
  */
 
 const mockMempoolSubmit = jest.fn();
@@ -180,19 +180,19 @@ describe('BLOB_CHALLENGE (v2.11.2)', () => {
 
   describe('NO SLASHING (the whole point)', () => {
     test('failed challenge does not change host balance or stake', async () => {
-      // Give alice some BTCPC and stake
+      // Give alice some HONE and stake
       stateStore.applyEntry({
         type: 'FAUCET',
-        from: 'btcpc_genesis',
+        from: 'hone_genesis',
         to: 'alice',
-        token: 'BTCPC',
+        token: 'HONE',
         amount: 1000,
         epoch: 0,
         timestamp: 1,
       });
       await ledger.recordStake('alice', 100, 'storage', 1);
 
-      const balanceBefore = stateStore.getBalance('alice', 'BTCPC');
+      const balanceBefore = stateStore.getBalance('alice', 'HONE');
       const stakeBefore = stateStore.getStakePool('alice');
 
       // Issue 10 failed challenges in a row
@@ -210,7 +210,7 @@ describe('BLOB_CHALLENGE (v2.11.2)', () => {
         await ledger.recordBlobChallengeResponse('alice', 'chall-' + i, HASH_WRONG, 6 + i);
       }
 
-      const balanceAfter = stateStore.getBalance('alice', 'BTCPC');
+      const balanceAfter = stateStore.getBalance('alice', 'HONE');
       const stakeAfter = stateStore.getStakePool('alice');
 
       // Balance unchanged
@@ -224,15 +224,15 @@ describe('BLOB_CHALLENGE (v2.11.2)', () => {
     test('timeout failures also do not slash', async () => {
       stateStore.applyEntry({
         type: 'FAUCET',
-        from: 'btcpc_genesis',
+        from: 'hone_genesis',
         to: 'alice',
-        token: 'BTCPC',
+        token: 'HONE',
         amount: 1000,
         epoch: 0,
         timestamp: 1,
       });
       await ledger.recordStake('alice', 100, 'storage', 1);
-      const balanceBefore = stateStore.getBalance('alice', 'BTCPC');
+      const balanceBefore = stateStore.getBalance('alice', 'HONE');
 
       for (let i = 0; i < 5; i++) {
         await ledger.recordBlobChallenge(
@@ -248,7 +248,7 @@ describe('BLOB_CHALLENGE (v2.11.2)', () => {
         await ledger.recordBlobChallengeTimeout('v1', 'timeout-' + i, 10 + i);
       }
 
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBe(balanceBefore);
+      expect(stateStore.getBalance('alice', 'HONE')).toBe(balanceBefore);
       expect(stateStore.getBlobChallengeStats('alice').total_failed).toBe(5);
     });
   });

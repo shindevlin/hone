@@ -8,7 +8,7 @@ var RESERVED_SYSTEM_ACCOUNT_NAMES = new Set([
   'system',
   'support',
   'explorer',
-  'btcpc',
+  'hone',
   'telegram',
   'bot'
 ]);
@@ -95,7 +95,7 @@ function validHexString(val, maxLen) {
 
 function validAddress(val) {
   if (!isPlainString(val)) return false;
-  if (/^BTCPC[a-fA-F0-9]{40}$/.test(val)) return true;
+  if (/^HONE[a-fA-F0-9]{40}$/.test(val)) return true;
   return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,19}$/.test(val);
 }
 
@@ -122,7 +122,7 @@ function validModel(val) {
 
 function validChain(val) {
   if (!isPlainString(val)) return false;
-  var allowed = ['btcpc', 'evm', 'solana', 'bitcoin', 'ton', 'hive', 'eth', 'bsc', 'polygon', 'base', 'arbitrum'];
+  var allowed = ['hone', 'evm', 'solana', 'bitcoin', 'ton', 'hive', 'eth', 'bsc', 'polygon', 'base', 'arbitrum'];
   return allowed.includes(val.toLowerCase());
 }
 

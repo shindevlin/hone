@@ -1,33 +1,33 @@
-name: btcpc
+name: hone
 version: "1.0.0"
 description: Bitcoin Proof of Compute — manage nodes, wallet, and inference earnings
 author: Shin Devlin <shindevlin@proton.me>
 
 tools:
-  - name: btcpc_balance
-    description: Show BTCPC token balance for an account
-    exec: "node /home/ubuntclaw/repos/btcpc/bin/btcpc-cli balance {account}"
+  - name: hone_balance
+    description: Show HONE token balance for an account
+    exec: "node /home/ubuntclaw/repos/hone/bin/hone-cli balance {account}"
     params:
       account:
         type: string
         required: false
-        description: BTCPC account name (defaults to your configured miner)
+        description: HONE account name (defaults to your configured miner)
 
-  - name: btcpc_status
-    description: Show status of all BTCPC nodes running on this device
-    exec: "node /home/ubuntclaw/repos/btcpc/bin/btcpc-cli status"
+  - name: hone_status
+    description: Show status of all HONE nodes running on this device
+    exec: "node /home/ubuntclaw/repos/hone/bin/hone-cli status"
 
-  - name: btcpc_mine_start
-    description: Start the BTCPC inference miner to earn tokens
-    exec: "systemctl --user start btcpc-miner && systemctl --user status btcpc-miner --no-pager -l"
+  - name: hone_mine_start
+    description: Start the HONE inference miner to earn tokens
+    exec: "systemctl --user start hone-miner && systemctl --user status hone-miner --no-pager -l"
 
-  - name: btcpc_mine_stop
-    description: Stop the BTCPC inference miner
-    exec: "systemctl --user stop btcpc-miner"
+  - name: hone_mine_stop
+    description: Stop the HONE inference miner
+    exec: "systemctl --user stop hone-miner"
 
-  - name: btcpc_send
-    description: Send BTCPC tokens to another account
-    exec: "node /home/ubuntclaw/repos/btcpc/bin/btcpc-cli transfer {to} {amount}"
+  - name: hone_send
+    description: Send HONE tokens to another account
+    exec: "node /home/ubuntclaw/repos/hone/bin/hone-cli transfer {to} {amount}"
     params:
       to:
         type: string
@@ -36,34 +36,34 @@ tools:
       amount:
         type: number
         required: true
-        description: Amount of BTCPC to send
+        description: Amount of HONE to send
 
-  - name: btcpc_logs
-    description: Show recent BTCPC miner logs
-    exec: "journalctl --user -u btcpc-miner -n 30 --no-pager"
+  - name: hone_logs
+    description: Show recent HONE miner logs
+    exec: "journalctl --user -u hone-miner -n 30 --no-pager"
 
-  - name: btcpc_clock_logs
-    description: Show recent BTCPC clock node logs
-    exec: "journalctl --user -u btcpc-clock -n 30 --no-pager"
+  - name: hone_clock_logs
+    description: Show recent HONE clock node logs
+    exec: "journalctl --user -u hone-clock -n 30 --no-pager"
 
-  - name: btcpc_install
-    description: Run the BTCPC node setup wizard
-    exec: "node /home/ubuntclaw/repos/btcpc/bin/btcpc-install"
+  - name: hone_install
+    description: Run the HONE node setup wizard
+    exec: "node /home/ubuntclaw/repos/hone/bin/hone-install"
 
-  - name: btcpc_peers
+  - name: hone_peers
     description: Show connected P2P peers
-    exec: "node /home/ubuntclaw/repos/btcpc/bin/btcpc-cli peers"
+    exec: "node /home/ubuntclaw/repos/hone/bin/hone-cli peers"
 
 hints:
-  - pattern: "btcpc balance|my balance|how much btcpc"
-    tool: btcpc_balance
+  - pattern: "hone balance|my balance|how much hone"
+    tool: hone_balance
   - pattern: "start mining|start miner|begin mining"
-    tool: btcpc_mine_start
+    tool: hone_mine_start
   - pattern: "stop mining|stop miner"
-    tool: btcpc_mine_stop
-  - pattern: "send.*btcpc|transfer btcpc"
-    tool: btcpc_send
-  - pattern: "btcpc logs|miner logs|mining logs"
-    tool: btcpc_logs
-  - pattern: "btcpc status|node status|is the miner"
-    tool: btcpc_status
+    tool: hone_mine_stop
+  - pattern: "send.*hone|transfer hone"
+    tool: hone_send
+  - pattern: "hone logs|miner logs|mining logs"
+    tool: hone_logs
+  - pattern: "hone status|node status|is the miner"
+    tool: hone_status

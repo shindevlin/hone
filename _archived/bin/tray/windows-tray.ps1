@@ -1,9 +1,9 @@
-# BTCPC Windows System Tray
+# HONE Windows System Tray
 # Uses .NET NotifyIcon for native Windows tray support
 # No dependencies — PowerShell + .NET are built into Windows
 #
 # Run: powershell -ExecutionPolicy Bypass -File bin\tray\windows-tray.ps1
-# Or: .\bin\btcpc-tray
+# Or: .\bin\hone-tray
 
 $ExplorerUrl = "http://localhost:4242"
 $SettingsUrl = "$ExplorerUrl/settings"
@@ -13,7 +13,7 @@ Add-Type -AssemblyName System.Drawing
 
 # Create the tray icon
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-$notifyIcon.Text = "BTCPC Miner"
+$notifyIcon.Text = "HONE Miner"
 $notifyIcon.Visible = $true
 
 # Use a simple icon (orange circle)
@@ -37,13 +37,13 @@ $contextMenu.Items.Add("-")
 $pauseItem = $contextMenu.Items.Add("Pause Mining")
 $pauseItem.Add_Click({
     Invoke-WebRequest -Uri $SettingsUrl -Method POST -Body "action=pause" -UseBasicParsing | Out-Null
-    $notifyIcon.ShowBalloonTip(3000, "BTCPC", "Mining paused", [System.Windows.Forms.ToolTipIcon]::Info)
+    $notifyIcon.ShowBalloonTip(3000, "HONE", "Mining paused", [System.Windows.Forms.ToolTipIcon]::Info)
 })
 
 $resumeItem = $contextMenu.Items.Add("Resume Mining")
 $resumeItem.Add_Click({
     Invoke-WebRequest -Uri $SettingsUrl -Method POST -Body "action=auto" -UseBasicParsing | Out-Null
-    $notifyIcon.ShowBalloonTip(3000, "BTCPC", "Mining resumed (auto)", [System.Windows.Forms.ToolTipIcon]::Info)
+    $notifyIcon.ShowBalloonTip(3000, "HONE", "Mining resumed (auto)", [System.Windows.Forms.ToolTipIcon]::Info)
 })
 
 $contextMenu.Items.Add("-")
@@ -60,7 +60,7 @@ $notifyIcon.ContextMenuStrip = $contextMenu
 $notifyIcon.Add_DoubleClick({ Start-Process $SettingsUrl })
 
 # Show startup balloon
-$notifyIcon.ShowBalloonTip(5000, "BTCPC Miner", "Mining active. Right-click for options.", [System.Windows.Forms.ToolTipIcon]::Info)
+$notifyIcon.ShowBalloonTip(5000, "HONE Miner", "Mining active. Right-click for options.", [System.Windows.Forms.ToolTipIcon]::Info)
 
 # Timer for status updates and update checks
 $timer = New-Object System.Windows.Forms.Timer
@@ -69,18 +69,18 @@ $timer.Interval = 30000  # 30 seconds
 $timer.Add_Tick({
     try {
         $stats = Invoke-RestMethod -Uri "$ExplorerUrl/api/stats" -TimeoutSec 5
-        $notifyIcon.Text = "BTCPC - Epoch $($stats.current_epoch) | $([math]::Round($stats.total_mined)) mined"
+        $notifyIcon.Text = "HONE - Epoch $($stats.current_epoch) | $([math]::Round($stats.total_mined)) mined"
 
         # Check for updates
         $headers = @{ "x-bot-key" = $env:BOT_API_KEY }
         $update = Invoke-RestMethod -Uri "http://localhost:3000/api/bot/update-status" -Headers $headers -TimeoutSec 5
         if ($update.pending) {
-            $notifyIcon.ShowBalloonTip(10000, "BTCPC Update Available",
+            $notifyIcon.ShowBalloonTip(10000, "HONE Update Available",
                 "v$($update.update.version) ready. Update to keep earning.",
                 [System.Windows.Forms.ToolTipIcon]::Warning)
         }
     } catch {
-        $notifyIcon.Text = "BTCPC - Offline"
+        $notifyIcon.Text = "HONE - Offline"
     }
 })
 

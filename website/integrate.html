@@ -95,7 +95,7 @@
   <a href="/dashboard">Explorer</a>
   <a href="/integrate" class="active">Integrate</a>
   <a href="/app">Inference</a>
-  <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+  <a href="https://t.me/honebot" target="_blank">Telegram</a>
   <div class="nav-end"></div>
   <a href="/node" style="border:1px solid rgba(247,147,26,0.3);border-radius:6px;padding:5px 12px;font-size:12px;">My Node</a>
 </nav>
@@ -257,7 +257,7 @@ hone key register --account myproject --role posting</div>
           <div class="code">curl https://honemesh.net/api/balance/myproject</div>
           <p>If balance is 0:</p>
           <div class="code">hone faucet claim myproject
-# Or via Telegram: message @btcpcbot with /faucet</div>
+# Or via Telegram: message @honebot with /faucet</div>
           <div class="info">Faucet gives 10 HONE — covers ~100,000 average inference calls. 1 HONE = 100,000,000 hunits.</div>
         </div>
       </div>
@@ -315,7 +315,7 @@ export $(grep -v '^#' .hone/wallet.env | xargs)</div>
       </div>
       <div class="tab-panel" id="t-rust">
         <div class="code">// Cargo.toml
-btcpc-sdk = { git = "https://github.com/shindevlin/btcpc", subdirectory = "rust/btcpc-sdk" }</div>
+hone-sdk = { git = "https://github.com/shindevlin/hone", subdirectory = "rust/hone-sdk" }</div>
         <div class="code">let client = HoneClient::from_env(); // reads env vars
 
 let resp = client.chat_completions(

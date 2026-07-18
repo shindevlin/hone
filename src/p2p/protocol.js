@@ -1,10 +1,10 @@
 "use strict";
 
 /**
- * BTCPC P2P Protocol
+ * HONE P2P Protocol
  * Shin Devlin
  *
- * Defines message types and handlers for the BTCPC peer-to-peer network.
+ * Defines message types and handlers for the HONE peer-to-peer network.
  * Every message follows the format: { type, data, timestamp, nodeId }
  */
 
@@ -44,11 +44,11 @@ try {
       }
     }
     if (knownPeers.size > 0) {
-      console.log("[BTCPC P2P] Loaded " + knownPeers.size + " known peers from disk");
+      console.log("[HONE P2P] Loaded " + knownPeers.size + " known peers from disk");
     }
     if (_needsPrune) {
       saveKnownPeers();
-      console.log("[BTCPC P2P] Pruned non-connectable known peers from disk");
+      console.log("[HONE P2P] Pruned non-connectable known peers from disk");
     }
   }
 } catch (_e) {
@@ -67,7 +67,7 @@ function saveKnownPeers() {
   try {
     fs.writeFileSync(KNOWN_PEERS_PATH, JSON.stringify(Array.from(knownPeers), null, 2));
   } catch (_e) {
-    console.error("[BTCPC P2P] Failed to save known peers:", _e.message);
+    console.error("[HONE P2P] Failed to save known peers:", _e.message);
   }
 }
 
@@ -195,7 +195,7 @@ var seenMessages = new Map();
           seenMessages.set(keys[i], raw[keys[i]]);
         }
       }
-      console.log("[BTCPC P2P] Loaded " + seenMessages.size + " seen messages from disk (pruned " + (keys.length - seenMessages.size) + " stale)");
+      console.log("[HONE P2P] Loaded " + seenMessages.size + " seen messages from disk (pruned " + (keys.length - seenMessages.size) + " stale)");
     }
   } catch (_) {
     // Non-fatal — start fresh
@@ -338,7 +338,7 @@ function handleMessage(peer, msg, ctx) {
   if (msg.chain_id) {
     var ourGenesis = getGenesisHash();
     if (ourGenesis && msg.chain_id !== ourGenesis) {
-      console.log("[BTCPC P2P] Rejected cross-chain message from " +
+      console.log("[HONE P2P] Rejected cross-chain message from " +
         (msg.nodeId || "?").slice(0, 12) + " (chain_id mismatch)");
       return;
     }
@@ -348,7 +348,7 @@ function handleMessage(peer, msg, ctx) {
   if (msg.timestamp) {
     var msgAge = Date.now() - msg.timestamp;
     if (msgAge > STALE_MSG_MS) {
-      console.log("[BTCPC P2P] Rejected stale " + msg.type + " from " +
+      console.log("[HONE P2P] Rejected stale " + msg.type + " from " +
         (msg.nodeId || "?").slice(0, 12) + " (age: " + Math.round(msgAge / 1000) + "s)");
       return;
     }
@@ -413,13 +413,13 @@ function handleMessage(peer, msg, ctx) {
         // EPOCH_START doesn't require signatures — timing is verified by
         // VRF-based authority rotation, not cryptographic signing.
       }
-      console.log("[BTCPC P2P] Epoch START: " + (esData.epoch_number || "?") + " from " + esAuthority);
+      console.log("[HONE P2P] Epoch START: " + (esData.epoch_number || "?") + " from " + esAuthority);
       if (esData.epoch_number) setCurrentEpoch(esData.epoch_number);
       ctx.broadcast(msg, peer.address);
       break;
     }
     case MESSAGE_TYPES.EPOCH_END:
-      console.log("[BTCPC P2P] Epoch END: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
+      console.log("[HONE P2P] Epoch END: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
       ctx.broadcast(msg, peer.address);
       break;
     case MESSAGE_TYPES.EPOCH_FINALIZED:
@@ -486,12 +486,12 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.SCIENTIFIC_JOB:
       // Scientific jobs are handled by the engine — just relay to peers
-      console.log("[BTCPC P2P] SCIENTIFIC_JOB received from " + (msg.nodeId || "?").slice(0, 12));
+      console.log("[HONE P2P] SCIENTIFIC_JOB received from " + (msg.nodeId || "?").slice(0, 12));
       ctx.broadcast(msg, peer.address);
       break;
     case MESSAGE_TYPES.SCIENTIFIC_RESULT:
       // Relay completed scientific results to all peers
-      console.log("[BTCPC P2P] SCIENTIFIC_RESULT received from " + (msg.nodeId || "?").slice(0, 12));
+      console.log("[HONE P2P] SCIENTIFIC_RESULT received from " + (msg.nodeId || "?").slice(0, 12));
       ctx.broadcast(msg, peer.address);
       break;
     case MESSAGE_TYPES.NODE_LATENCY: {
@@ -508,7 +508,7 @@ function handleMessage(peer, msg, ctx) {
       break;
     }
     default:
-      console.log("[BTCPC P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
+      console.log("[HONE P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
   }
 }
 
@@ -520,7 +520,7 @@ function handleHandshake(peer, msg, ctx) {
 
   // Self-connection: same NODE_ID means we connected to ourselves — close immediately
   if (msg.nodeId && msg.nodeId === ctx.NODE_ID) {
-    console.log("[BTCPC P2P] Self-connection detected (nodeId match) from " + peer.address + " — closing");
+    console.log("[HONE P2P] Self-connection detected (nodeId match) from " + peer.address + " — closing");
     if (peer.ws) peer.ws.close();
     return;
   }
@@ -536,13 +536,13 @@ function handleHandshake(peer, msg, ctx) {
     saveKnownPeers();
   }
 
-  console.log("[BTCPC P2P] Handshake from " + msg.nodeId.slice(0, 12) + "... (v" + peer.version + ", height: " + peer.chainHeight + ")");
+  console.log("[HONE P2P] Handshake from " + msg.nodeId.slice(0, 12) + "... (v" + peer.version + ", height: " + peer.chainHeight + ")");
   if (peer.chainHeight > 0) recordPeerEpoch(msg.nodeId, peer.chainHeight);
 
   // Reject peers on incompatible versions — chain requires v2.0.75+
   var MIN_VERSION = "2.0.75";
   if (peer.version !== "unknown" && peer.version < MIN_VERSION) {
-    console.log("[BTCPC P2P] Rejected " + msg.nodeId.slice(0, 12) + " — version " + peer.version + " below minimum " + MIN_VERSION);
+    console.log("[HONE P2P] Rejected " + msg.nodeId.slice(0, 12) + " — version " + peer.version + " below minimum " + MIN_VERSION);
     if (peer.ws) peer.ws.close();
     return;
   }
@@ -597,14 +597,14 @@ function handleBlock(peer, msg, ctx) {
       // Verify the hash matches
       var computedHash = block.computeHash();
       if (data.hash && data.hash !== computedHash) {
-        console.log("[BTCPC P2P] Block hash mismatch from " + (peer.nodeId || "unknown").slice(0, 12));
+        console.log("[HONE P2P] Block hash mismatch from " + (peer.nodeId || "unknown").slice(0, 12));
         return;
       }
 
       // Validate against the formal blockchain
       var tip = blockchain.getLatestBlock();
       if (!block.validateBlock(tip)) {
-        console.log("[BTCPC P2P] Rejected invalid serialized block from " + (peer.nodeId || "unknown").slice(0, 12));
+        console.log("[HONE P2P] Rejected invalid serialized block from " + (peer.nodeId || "unknown").slice(0, 12));
         return;
       }
 
@@ -629,7 +629,7 @@ function handleBlock(peer, msg, ctx) {
       }
 
     } catch (err) {
-      console.log("[BTCPC P2P] Failed to deserialize block from " + (peer.nodeId || "unknown").slice(0, 12) + ": " + err.message);
+      console.log("[HONE P2P] Failed to deserialize block from " + (peer.nodeId || "unknown").slice(0, 12) + ": " + err.message);
       return;
     }
   } else {
@@ -639,11 +639,11 @@ function handleBlock(peer, msg, ctx) {
   // Legacy validation via chainSync
   const valid = validateBlock(block);
   if (!valid) {
-    console.log("[BTCPC P2P] Rejected invalid block from " + (peer.nodeId || "unknown").slice(0, 12));
+    console.log("[HONE P2P] Rejected invalid block from " + (peer.nodeId || "unknown").slice(0, 12));
     return;
   }
 
-  console.log("[BTCPC P2P] Received valid block: epoch " + (block.epoch_number || "?"));
+  console.log("[HONE P2P] Received valid block: epoch " + (block.epoch_number || "?"));
 
   // Fork check — if our hash at this height differs from the peer's, trigger self-heal
   try {
@@ -652,7 +652,7 @@ function handleBlock(peer, msg, ctx) {
       const peerHash = block.computeHash ? block.computeHash() : (block.hash || "");
       const { forked } = forkResolver.checkForFork(block.epoch_number, peerHash);
       if (forked) {
-        console.warn("[BTCPC P2P] Fork detected at epoch " + block.epoch_number + " from " + (peer.nodeId || peer.address || "?").slice(0, 12));
+        console.warn("[HONE P2P] Fork detected at epoch " + block.epoch_number + " from " + (peer.nodeId || peer.address || "?").slice(0, 12));
         // onPeerBlock handles full resolution asynchronously — does not block gossip
         const fullData = data.header_hex
           ? { block, payload: { ledger_entries: data.ledger_entries || [], compute_proofs: data.compute_proofs || [] } }
@@ -675,7 +675,7 @@ function handleTransaction(peer, msg, ctx) {
 
   const added = mempool.addTransaction(tx);
   if (added) {
-    console.log("[BTCPC P2P] Tx " + (tx.txHash || "?").slice(0, 12) + "... " + tx.from + " → " + tx.to + " " + tx.amount + " " + (tx.token || "BTCPC"));
+    console.log("[HONE P2P] Tx " + (tx.txHash || "?").slice(0, 12) + "... " + tx.from + " → " + tx.to + " " + tx.amount + " " + (tx.token || "HONE"));
     // Phase D: balances update when the TX is included in a block and
     // ledger entries are applied to stateStore. No pre-inclusion cache.
 
@@ -707,7 +707,7 @@ function handleEpochCommit(peer, msg, ctx) {
   const commitment = msg.data;
   if (!commitment) return;
 
-  console.log("[BTCPC P2P] Epoch commitment from " + (msg.nodeId || "unknown").slice(0, 12) +
+  console.log("[HONE P2P] Epoch commitment from " + (msg.nodeId || "unknown").slice(0, 12) +
     " for epoch " + (commitment.epoch_number || "?"));
 
   // Rebroadcast to other peers
@@ -719,7 +719,7 @@ function handleEpochCommit(peer, msg, ctx) {
  */
 // Max epochs a single REQUEST_BLOCKS may span. Caps the work one peer can
 // force per request; a syncing peer issues multiple windowed requests.
-const MAX_BLOCKS_PER_REQUEST = parseInt(process.env.BTCPC_MAX_BLOCKS_PER_REQUEST) || 1000;
+const MAX_BLOCKS_PER_REQUEST = parseInt(process.env.HONE_MAX_BLOCKS_PER_REQUEST) || 1000;
 
 function handleRequestBlocks(peer, msg, ctx) {
   const data = msg.data || {};
@@ -733,7 +733,7 @@ function handleRequestBlocks(peer, msg, ctx) {
   if (!Number.isFinite(to) || to < from) to = from;
   if (to - from > MAX_BLOCKS_PER_REQUEST) to = from + MAX_BLOCKS_PER_REQUEST;
 
-  console.log("[BTCPC P2P] Block request from " + (peer.nodeId || "unknown").slice(0, 12) +
+  console.log("[HONE P2P] Block request from " + (peer.nodeId || "unknown").slice(0, 12) +
     " (epochs " + from + "-" + to + ")");
 
   const blocks = getBlockRange(from, to);
@@ -808,7 +808,7 @@ function handleResponseBlocks(peer, msg, ctx) {
           const remoteBlock = Block.deserialize(Buffer.from(b.header_hex, "hex"));
           const remoteHash = remoteBlock.computeHash();
           if (remoteHash !== localGenesisHash) {
-            console.log("[BTCPC P2P] Rejected blocks from " +
+            console.log("[HONE P2P] Rejected blocks from " +
               (peer.nodeId || "unknown").slice(0, 12) + " — different genesis chain");
             return;
           }
@@ -817,7 +817,7 @@ function handleResponseBlocks(peer, msg, ctx) {
     }
   }
 
-  console.log("[BTCPC P2P] Received " + blocks.length + " blocks from " +
+  console.log("[HONE P2P] Received " + blocks.length + " blocks from " +
     (peer.nodeId || "unknown").slice(0, 12));
 
   let accepted = 0;
@@ -850,14 +850,14 @@ function handleResponseBlocks(peer, msg, ctx) {
     }
   }
 
-  console.log("[BTCPC P2P] Accepted " + accepted + "/" + blocks.length + " blocks");
+  console.log("[HONE P2P] Accepted " + accepted + "/" + blocks.length + " blocks");
 }
 
 /**
  * INFERENCE messages — gossip to all peers and notify local handlers.
  */
 function handleInferenceMessage(peer, msg, ctx) {
-  console.log("[BTCPC P2P] Inference " + msg.type + " from " + (msg.nodeId || "unknown").slice(0, 12));
+  console.log("[HONE P2P] Inference " + msg.type + " from " + (msg.nodeId || "unknown").slice(0, 12));
 
   // Record work attestation when a miner reveals/finalizes a result.
   // This is the source of truth for "who did what work in this epoch" —
@@ -874,7 +874,7 @@ function handleInferenceMessage(peer, msg, ctx) {
 
     if (miner && jobId && workValue > 0 && epoch >= 0) {
       recordMinerWork(miner, jobId, workValue, epoch);
-      console.log("[BTCPC P2P]   work_attest: " + miner + " +" + workValue + " (job " + jobId.slice(0, 8) + ", epoch " + epoch + ")");
+      console.log("[HONE P2P]   work_attest: " + miner + " +" + workValue + " (job " + jobId.slice(0, 8) + ", epoch " + epoch + ")");
     }
   }
 
@@ -990,7 +990,7 @@ function handleMinerIdle(peer, msg, ctx) {
   if (!idleMiners[data.block_number]) idleMiners[data.block_number] = new Set();
   idleMiners[data.block_number].add(data.miner);
 
-  console.log("[BTCPC P2P] Miner idle: " + data.miner + " has no work for epoch " + data.block_number + " (reason: " + (data.reason || "none") + ")");
+  console.log("[HONE P2P] Miner idle: " + data.miner + " has no work for epoch " + data.block_number + " (reason: " + (data.reason || "none") + ")");
 
   // Rebroadcast
   ctx.broadcast(msg, peer.address);
@@ -1024,15 +1024,15 @@ async function handleEpochFinalized(peer, msg, ctx) {
   if (_lastFinalizedEpoch >= 0) {
     var gap = epochNum - _lastFinalizedEpoch;
     if (gap < 0) {
-      console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " goes backwards (last=" + _lastFinalizedEpoch + ")");
+      console.log("[HONE P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " goes backwards (last=" + _lastFinalizedEpoch + ")");
       return;
     }
     if (gap > 10) {
-      console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " jumps " + gap + " ahead of last=" + _lastFinalizedEpoch + " (max gap 10)");
+      console.log("[HONE P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " jumps " + gap + " ahead of last=" + _lastFinalizedEpoch + " (max gap 10)");
       return;
     }
     if (gap > 1) {
-      console.log("[BTCPC Consensus] Epochs " + (_lastFinalizedEpoch + 1) + "–" + (epochNum - 1) + " finalization missed — catching up on epoch " + epochNum + ". This is normal after a brief disconnect.");
+      console.log("[HONE Consensus] Epochs " + (_lastFinalizedEpoch + 1) + "–" + (epochNum - 1) + " finalization missed — catching up on epoch " + epochNum + ". This is normal after a brief disconnect.");
     }
   }
 
@@ -1058,30 +1058,30 @@ async function handleEpochFinalized(peer, msg, ctx) {
       // Account not found or has no usable public key (e.g. stored with empty
       // keys from a finality snapshot that pre-dates full key propagation).
       // Accept with a warning — we can't verify but also can't prove forgery.
-      console.log("[BTCPC P2P WARN] EPOCH_FINALIZED epoch " + epochNum + " from " + data.proposer + ": no verifiable key in local stateStore, skipping sig check");
+      console.log("[HONE P2P WARN] EPOCH_FINALIZED epoch " + epochNum + " from " + data.proposer + ": no verifiable key in local stateStore, skipping sig check");
     } else {
       var sigOk = messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "posting")
         || messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "active");
       if (!sigOk) {
         // Block signature is consensus-critical: an invalid signature on a
         // finalized block must NEVER be applied, even when the test-only
-        // BTCPC_REQUIRE_SIGNATURES flag is disabled. Hard reject unconditionally.
-        console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: invalid block_signature from proposer " + data.proposer + " for epoch " + epochNum);
+        // HONE_REQUIRE_SIGNATURES flag is disabled. Hard reject unconditionally.
+        console.log("[HONE P2P] EPOCH_FINALIZED REJECTED: invalid block_signature from proposer " + data.proposer + " for epoch " + epochNum);
         return;
       }
     }
   } else if (data.proposer || data.block_signature) {
     // Partial — has one field but not both; cannot verify. Reject unconditionally.
-    console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " missing block_signature or proposer");
+    console.log("[HONE P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " missing block_signature or proposer");
     return;
   } else {
     // Unsigned finalized block (no proposer, no signature). Reject unconditionally.
-    console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " has no block_signature");
+    console.log("[HONE P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " has no block_signature");
     return;
   }
 
   _lastFinalizedEpoch = epochNum;
-  console.log("[BTCPC P2P] Block finalized: epoch " + epochNum + " | reward: " + (data.block_reward || 0).toFixed(4) + " BTCPC | " + (data.rewards || []).length + " miner(s)");
+  console.log("[HONE P2P] Block finalized: epoch " + epochNum + " | reward: " + (data.block_reward || 0).toFixed(4) + " HONE | " + (data.rewards || []).length + " miner(s)");
 
   try {
     // Phase D: Mongo is no longer the chain state. The block file (written
@@ -1094,14 +1094,14 @@ async function handleEpochFinalized(peer, msg, ctx) {
       const { applyRemoteEntries } = require("../services/ledger");
       const applied = await applyRemoteEntries(data.ledger);
       if (applied > 0) {
-        console.log("[BTCPC P2P]   Ledger: " + applied + " entries applied (permanent)");
+        console.log("[HONE P2P]   Ledger: " + applied + " entries applied (permanent)");
       }
     }
 
     // Log reward credits — the underlying MINING_REWARD ledger entries in
     // data.ledger have already updated stateStore balances above.
     for (const reward of (data.rewards || [])) {
-      console.log("[BTCPC P2P]   " + reward.miner + ": +" + reward.amount.toFixed(4) + " BTCPC");
+      console.log("[HONE P2P]   " + reward.miner + ": +" + reward.amount.toFixed(4) + " HONE");
     }
     // ── Write block to disk — source of truth ──
     if (data.header_hex) {
@@ -1115,7 +1115,7 @@ async function handleEpochFinalized(peer, msg, ctx) {
         }
         const localStateRoot = stateManager.getStateRoot();
         if (data.state_root && localStateRoot !== data.state_root) {
-          console.log("[BTCPC P2P]   State root mismatch: local=" + localStateRoot.slice(0, 16) + " remote=" + data.state_root.slice(0, 16));
+          console.log("[HONE P2P]   State root mismatch: local=" + localStateRoot.slice(0, 16) + " remote=" + data.state_root.slice(0, 16));
         }
 
         // Build payload from message data
@@ -1131,14 +1131,14 @@ async function handleEpochFinalized(peer, msg, ctx) {
         if (!blockStore.hasBlock(epochNum)) {
           blockStore.writeBlock(block, payload);
           blockchain.addBlock(block);
-          console.log("[BTCPC P2P]   Block " + epochNum + " written to disk: " + block.computeHash().slice(0, 16) + "...");
+          console.log("[HONE P2P]   Block " + epochNum + " written to disk: " + block.computeHash().slice(0, 16) + "...");
         }
       } catch (blockErr) {
-        console.error("[BTCPC P2P]   Failed to write block to disk:", blockErr.message);
+        console.error("[HONE P2P]   Failed to write block to disk:", blockErr.message);
       }
     }
   } catch (err) {
-    console.error("[BTCPC P2P] Failed to process finalized block:", err.message);
+    console.error("[HONE P2P] Failed to process finalized block:", err.message);
   }
 
   // Rebroadcast
@@ -1175,8 +1175,8 @@ async function handleAccountAnnounce(peer, msg, ctx) {
       if (!reannounceOk) {
         // Re-announcement rewrites an existing account's keys — accepting an
         // invalid proof is a key-theft vector. Hard reject unconditionally,
-        // regardless of the test-only BTCPC_REQUIRE_SIGNATURES flag.
-        console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — re-announcement proof invalid (key theft attempt?)");
+        // regardless of the test-only HONE_REQUIRE_SIGNATURES flag.
+        console.log("[HONE P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — re-announcement proof invalid (key theft attempt?)");
         return;
       }
     } else {
@@ -1186,7 +1186,7 @@ async function handleAccountAnnounce(peer, msg, ctx) {
         var firstOk = messageAuth.verifyMessage(proofPayload, data.proof, claimedOwnerPub);
         if (!firstOk) {
           // The proof doesn't match the claimed key — silently reject, this is clearly forged.
-          console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — first-announcement proof does not match claimed owner key");
+          console.log("[HONE P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — first-announcement proof does not match claimed owner key");
           return;
         }
       }
@@ -1194,19 +1194,19 @@ async function handleAccountAnnounce(peer, msg, ctx) {
   } else if (existingAccount && existingAccount.public_keys && existingAccount.public_keys.owner) {
     // No proof on a message that would rewrite an EXISTING account's keys —
     // always a key-theft attempt. Hard reject unconditionally.
-    console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — no proof field for existing account (key theft attempt?)");
+    console.log("[HONE P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — no proof field for existing account (key theft attempt?)");
     return;
   } else {
     // No proof on a first announcement. Reject unless signatures are explicitly
     // disabled for local testing (no existing keys at risk here).
     if (messageAuth.REQUIRE_SIGNATURES) {
-      console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — no proof field (strict mode)");
+      console.log("[HONE P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — no proof field (strict mode)");
       return;
     }
-    console.log("[BTCPC P2P WARN] Unsigned first-announcement ACCOUNT_ANNOUNCE for " + data.username + " accepted (BTCPC_REQUIRE_SIGNATURES disabled)");
+    console.log("[HONE P2P WARN] Unsigned first-announcement ACCOUNT_ANNOUNCE for " + data.username + " accepted (HONE_REQUIRE_SIGNATURES disabled)");
   }
 
-  console.log("[BTCPC P2P] Account announced: " + data.username + " | evm=" + (data.chain_addresses?.evm || "none"));
+  console.log("[HONE P2P] Account announced: " + data.username + " | evm=" + (data.chain_addresses?.evm || "none"));
 
   try {
     if (!existingAccount) {
@@ -1221,10 +1221,10 @@ async function handleAccountAnnounce(peer, msg, ctx) {
         },
         timestamp: Date.now(),
       });
-      console.log("[BTCPC P2P]   Applied to stateStore");
+      console.log("[HONE P2P]   Applied to stateStore");
     }
   } catch (err) {
-    console.error("[BTCPC P2P] Failed to process account announcement:", err.message);
+    console.error("[HONE P2P] Failed to process account announcement:", err.message);
   }
 
   ctx.broadcast(msg, peer.address);
@@ -1253,7 +1253,7 @@ async function handleAccountAnnounce(peer, msg, ctx) {
 async function handleMempoolEntry(peer, msg, ctx) {
   var data = msg.data || {};
   if (!data.entry || !data.entry.type) {
-    console.log("[BTCPC P2P] MEMPOOL_ENTRY dropped: missing entry or type");
+    console.log("[HONE P2P] MEMPOOL_ENTRY dropped: missing entry or type");
     return;
   }
 
@@ -1262,17 +1262,17 @@ async function handleMempoolEntry(peer, msg, ctx) {
   // Vuln 2: reject block-only entry types — these must only arrive inside
   // EPOCH_FINALIZED block payloads and can never be user-submitted.
   if (messageAuth.BLOCK_ONLY_TYPES.includes(entry.type)) {
-    console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: " + entry.type + " is a block-only type (possible money-printing attack) from " + (peer.nodeId || peer.address || "?").slice(0, 16));
+    console.log("[HONE P2P] MEMPOOL_ENTRY REJECTED: " + entry.type + " is a block-only type (possible money-printing attack) from " + (peer.nodeId || peer.address || "?").slice(0, 16));
     return;
   }
 
   // Reject entries whose type is not on the allowlist at all.
   if (!messageAuth.MEMPOOL_ALLOWED_TYPES.includes(entry.type)) {
-    console.log("[BTCPC P2P] MEMPOOL_ENTRY dropped: unknown/disallowed type " + entry.type);
+    console.log("[HONE P2P] MEMPOOL_ENTRY dropped: unknown/disallowed type " + entry.type);
     return;
   }
 
-  console.log("[BTCPC P2P] MEMPOOL_ENTRY: " + entry.type +
+  console.log("[HONE P2P] MEMPOOL_ENTRY: " + entry.type +
     " from=" + (entry.from || "-") +
     " to=" + (entry.to || "-") +
     " epoch=" + (entry.epoch || 0));
@@ -1287,18 +1287,18 @@ async function handleMempoolEntry(peer, msg, ctx) {
         from: entry.from,
         to: entry.to,
         amount: entry.amount,
-        token: entry.token || "BTCPC",
+        token: entry.token || "HONE",
         memo: entry.memo || "",
         epoch: entry.epoch || 0,
         timestamp: entry.timestamp || 0,
       };
       var sigOk = messageAuth.verifyAccountSignature(entry.from, spendData, entry.signature, "posting");
       if (!sigOk) {
-        console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: " + entry.type + " from " + entry.from + " — invalid signature");
+        console.log("[HONE P2P] MEMPOOL_ENTRY REJECTED: " + entry.type + " from " + entry.from + " — invalid signature");
         return;
       }
     } else {
-      console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: unsigned " + entry.type + " from " + entry.from + " — signature required for spend operations");
+      console.log("[HONE P2P] MEMPOOL_ENTRY REJECTED: unsigned " + entry.type + " from " + entry.from + " — signature required for spend operations");
       return;
     }
   }
@@ -1308,7 +1308,7 @@ async function handleMempoolEntry(peer, msg, ctx) {
     var ledger = require("../services/ledger");
     ledger.appendForeignEntry(entry);
   } catch (err) {
-    console.error("[BTCPC P2P] MEMPOOL_ENTRY apply failed: " + err.message);
+    console.error("[HONE P2P] MEMPOOL_ENTRY apply failed: " + err.message);
   }
 
   // Forward to all other peers (gossip flood)
@@ -1357,7 +1357,7 @@ function handleBlockProposal(peer, msg, ctx) {
   // connection sends proposals with different proposer names, it's spoofing —
   // drop the connection immediately.
   if (peer.claimed_proposer && peer.claimed_proposer !== data.proposer) {
-    console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: connection " + (peer.address || "?") +
+    console.log("[HONE P2P] BLOCK_PROPOSAL REJECTED: connection " + (peer.address || "?") +
       " claimed proposer " + peer.claimed_proposer + " then " + data.proposer + " — spoofing detected, dropping connection");
     if (peer.ws) peer.ws.close();
     return;
@@ -1384,7 +1384,7 @@ function handleBlockProposal(peer, msg, ctx) {
     var bpDeviceOwner = data.device_id && bpStoreRef.getDeviceOwner(data.device_id);
     if (!bpHasKey && !bpDeviceOwner) {
       // Can't verify — no key material available.  Accept with a warning.
-      console.log("[BTCPC P2P WARN] BLOCK_PROPOSAL epoch " + data.epoch_number + " from " + data.proposer + ": no verifiable key, skipping proposal_signature check");
+      console.log("[HONE P2P WARN] BLOCK_PROPOSAL epoch " + data.epoch_number + " from " + data.proposer + ": no verifiable key, skipping proposal_signature check");
     } else {
       var sigOk = messageAuth.verifyDeviceOrAccountSignature(
         data.proposer,
@@ -1393,14 +1393,14 @@ function handleBlockProposal(peer, msg, ctx) {
         data.proposal_signature
       );
       if (!sigOk) {
-        console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer +
+        console.log("[HONE P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer +
           (data.device_id ? ' (device ' + data.device_id.slice(0,12) + '...)' : '') +
           " for epoch " + data.epoch_number);
         return;
       }
     }
   } else {
-    console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: no proposal_signature from " + data.proposer + " for epoch " + data.epoch_number);
+    console.log("[HONE P2P] BLOCK_PROPOSAL REJECTED: no proposal_signature from " + data.proposer + " for epoch " + data.epoch_number);
     return;
   }
 
@@ -1427,7 +1427,7 @@ function handleBlockProposal(peer, msg, ctx) {
   }
 
   // Compute epoch start time for fallback window
-  var genesisTimestamp = parseInt(process.env.BTCPC_GENESIS_TIMESTAMP) || 0;
+  var genesisTimestamp = parseInt(process.env.HONE_GENESIS_TIMESTAMP) || 0;
   var epochDurationMs = PROTOCOL_EPOCH_DURATION_MS;
   var epochStart = authorityRotation.epochStartTime(data.epoch_number, genesisTimestamp, epochDurationMs);
 
@@ -1436,19 +1436,19 @@ function handleBlockProposal(peer, msg, ctx) {
   );
 
   if (!vrfResult.valid) {
-    console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED (VRF): " + vrfResult.reason +
+    console.log("[HONE P2P] BLOCK_PROPOSAL REJECTED (VRF): " + vrfResult.reason +
       " for epoch " + data.epoch_number);
     return;
   }
 
   if (vrfResult.fallback) {
-    console.log("[BTCPC P2P] BLOCK_PROPOSAL from " + data.proposer +
+    console.log("[HONE P2P] BLOCK_PROPOSAL from " + data.proposer +
       " for epoch " + data.epoch_number +
       " (FALLBACK — designated was " + vrfResult.designated + ")" +
       " (work=" + (data.total_work || 0) +
       ", hash=" + data.consensus_hash.slice(0, 12) + ")");
   } else {
-    console.log("[BTCPC P2P] BLOCK_PROPOSAL from " + data.proposer +
+    console.log("[HONE P2P] BLOCK_PROPOSAL from " + data.proposer +
       " for epoch " + data.epoch_number +
       " (designated authority ✓)" +
       " (work=" + (data.total_work || 0) +
@@ -1639,7 +1639,7 @@ function recordPeerEpoch(nodeId, claimedEpoch) {
   var totalPeers = keys.length + 1; // +1 for ourselves
   if (bestCount / totalPeers > EPOCH_CONSENSUS_THRESHOLD) {
     if (bestEpoch > _currentEpochCache + 1) {
-      console.log("[BTCPC P2P] Epoch consensus: " + bestCount + "/" + totalPeers +
+      console.log("[HONE P2P] Epoch consensus: " + bestCount + "/" + totalPeers +
         " peers at epoch ~" + bestEpoch + " (local: " + _currentEpochCache +
         ") — adopting peer majority");
       _currentEpochCache = bestEpoch;
@@ -1718,7 +1718,7 @@ function handleVerifyRequest(peer, msg, ctx) {
   var data = msg.data || {};
   if (!data.job_id || !data.miner) return;
 
-  console.log("[BTCPC P2P] Verify request from " + data.miner +
+  console.log("[HONE P2P] Verify request from " + data.miner +
     " for job " + (data.job_id || "?").slice(0, 12) + "..." +
     " (" + (data.token_count || 0) + " tokens, " + (data.model || "?") + ")");
 
@@ -1749,8 +1749,8 @@ function handleVerifyRequest(peer, msg, ctx) {
   }).sort();
 
   // This node's identity — could be a miner OR a clock-only node
-  var myAccount = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT || null;
-  var verifierOptIn = process.env.BTCPC_VERIFIER_ENABLED === "true" || process.env.BTCPC_NODE_ROLE === "verifier";
+  var myAccount = process.env.HONE_MINER || process.env.HONE_CLOCK_ACCOUNT || null;
+  var verifierOptIn = process.env.HONE_VERIFIER_ENABLED === "true" || process.env.HONE_NODE_ROLE === "verifier";
 
   if (!myAccount || myAccount === data.miner || !verifierOptIn) {
     // Miner doesn't verify own work; nodes without accounts can't verify
@@ -1792,7 +1792,7 @@ function handleVerifyRequest(peer, msg, ctx) {
   });
 
   var verdictStr = verdict.valid ? "valid" : "invalid";
-  console.log("[BTCPC P2P] Verified job " + data.job_id.slice(0, 12) + "... verdict=" +
+  console.log("[HONE P2P] Verified job " + data.job_id.slice(0, 12) + "... verdict=" +
     verdictStr.toUpperCase() + " score=" + verdict.score);
 
   // Phase T-04: commit-reveal — broadcast commitment now, reveal after window
@@ -1831,7 +1831,7 @@ function handleVerifyRequest(peer, msg, ctx) {
 // Prevents early-verdict influence: verifiers commit first, reveal after window.
 // ---------------------------------------------------------------------------
 
-var VERIFIER_REVEAL_WINDOW_MS = parseInt(process.env.BTCPC_VERIFIER_REVEAL_WINDOW_MS) || 15000;
+var VERIFIER_REVEAL_WINDOW_MS = parseInt(process.env.HONE_VERIFIER_REVEAL_WINDOW_MS) || 15000;
 
 // Per job: { commits: Map<verifier, commitment>, pending: Map<verifier, {verdict,score,checks,nonce,epoch}>, reveals: Map<verifier, verdict>, timer: timeout, resolved: bool }
 var _commitRevealByJob = new Map();
@@ -1914,8 +1914,8 @@ function _aggregateAndApply(jobId, ctx) {
     var slashing = require("../services/slashing");
     nonRevealers.forEach(function (v) {
       slashing.recordOffense(v, "VERIFIER_NO_REVEAL", { job_id: jobId })
-        .catch(function (err) { console.error("[BTCPC P2P] No-reveal slash failed:", err.message); });
-      console.log("[BTCPC P2P] VERIFIER_NO_REVEAL: " + v + " committed but never revealed for job " + jobId.slice(0, 12) + "...");
+        .catch(function (err) { console.error("[HONE P2P] No-reveal slash failed:", err.message); });
+      console.log("[HONE P2P] VERIFIER_NO_REVEAL: " + v + " committed but never revealed for job " + jobId.slice(0, 12) + "...");
     });
   }
 
@@ -1936,7 +1936,7 @@ function _aggregateAndApply(jobId, ctx) {
   var majorityVerdict = validCount > invalidCount ? "valid" : "invalid";
   var avgScore = scores.length > 0 ? scores.reduce(function (a, b) { return a + b; }, 0) / scores.length : 0;
 
-  console.log("[BTCPC P2P] Commit-reveal resolved for job " + jobId.slice(0, 12) + "..." +
+  console.log("[HONE P2P] Commit-reveal resolved for job " + jobId.slice(0, 12) + "..." +
     " valid=" + validCount + " invalid=" + invalidCount + " verdict=" + majorityVerdict.toUpperCase());
 
   // Synthesize a VERIFY_RESPONSE for backward-compat downstream processing
@@ -1976,7 +1976,7 @@ function handleVerifierCommit(peer, msg, ctx) {
   if (state.commits.has(data.verifier)) return;
   state.commits.set(data.verifier, data.commitment);
 
-  console.log("[BTCPC P2P] Verifier commit from " + data.verifier +
+  console.log("[HONE P2P] Verifier commit from " + data.verifier +
     " for job " + data.job_id.slice(0, 12) + "... (" + state.commits.size + " commits)");
 
   // Start reveal window on first commit
@@ -2003,7 +2003,7 @@ function handleVerifierReveal(peer, msg, ctx) {
   // Must have committed first
   var storedCommitment = state.commits.get(data.verifier);
   if (!storedCommitment) {
-    console.log("[BTCPC P2P] VERIFIER_REVEAL from " + data.verifier + " has no matching commit — ignored");
+    console.log("[HONE P2P] VERIFIER_REVEAL from " + data.verifier + " has no matching commit — ignored");
     return;
   }
 
@@ -2012,14 +2012,14 @@ function handleVerifierReveal(peer, msg, ctx) {
     .update(data.verdict + ":" + data.nonce + ":" + data.job_id)
     .digest("hex");
   if (expected !== storedCommitment) {
-    console.log("[BTCPC P2P] VERIFIER_EQUIVOCATION: " + data.verifier +
+    console.log("[HONE P2P] VERIFIER_EQUIVOCATION: " + data.verifier +
       " reveal hash mismatch for job " + data.job_id.slice(0, 12) + "...");
     var slashing = require("../services/slashing");
     slashing.recordOffense(data.verifier, "VERIFIER_EQUIVOCATION", {
       job_id: data.job_id,
       expected: storedCommitment.slice(0, 12),
       got: expected.slice(0, 12)
-    }).catch(function (err) { console.error("[BTCPC P2P] Equivocation slash failed:", err.message); });
+    }).catch(function (err) { console.error("[HONE P2P] Equivocation slash failed:", err.message); });
     return;
   }
 
@@ -2027,7 +2027,7 @@ function handleVerifierReveal(peer, msg, ctx) {
   if (state.reveals.has(data.verifier)) return;
   state.reveals.set(data.verifier, { verdict: data.verdict, score: data.score || 0, checks: data.checks, epoch: data.epoch || 0 });
 
-  console.log("[BTCPC P2P] Verifier reveal from " + data.verifier +
+  console.log("[HONE P2P] Verifier reveal from " + data.verifier +
     " for job " + data.job_id.slice(0, 12) + "..." +
     " verdict=" + data.verdict.toUpperCase() +
     " (" + state.reveals.size + "/" + state.commits.size + " revealed)");
@@ -2048,7 +2048,7 @@ function handleVerifyResponse(peer, msg, ctx) {
   var data = msg.data || {};
   if (!data.job_id || !data.verifier) return;
 
-  console.log("[BTCPC P2P] Verify response from " + data.verifier +
+  console.log("[HONE P2P] Verify response from " + data.verifier +
     " for job " + (data.job_id || "?").slice(0, 12) + "..." +
     " verdict=" + (data.verdict || "?") + " score=" + (data.score || 0));
 
@@ -2111,14 +2111,14 @@ function handleVerifyResponse(peer, msg, ctx) {
                 job_id: data.job_id,
                 verdicts: proof.verifications.map(function (v) { return { verifier: v.miner, valid: v.work_value > 0 }; })
               }).catch(function (err) {
-                console.error("[BTCPC P2P] Failed to slash miner:", err.message);
+                console.error("[HONE P2P] Failed to slash miner:", err.message);
               });
             }
           }
         }
       }
     } catch (err) {
-      console.error("[BTCPC P2P] Failed to process verification:", err.message);
+      console.error("[HONE P2P] Failed to process verification:", err.message);
     }
   })();
 
@@ -2250,7 +2250,7 @@ function handleTestnetHeartbeat(peer, msg, ctx) {
   var timeDerivedEpoch = Math.floor((Date.now() - GENESIS_TS) / EPOCH_MS);
   var fileEpoch = Math.max(_currentEpochCache > 0 ? _currentEpochCache : 0, timeDerivedEpoch);
 
-  console.log("[BTCPC P2P] TESTNET_HEARTBEAT from " + account + " (filing under epoch " + fileEpoch + ")");
+  console.log("[HONE P2P] TESTNET_HEARTBEAT from " + account + " (filing under epoch " + fileEpoch + ")");
   recordTestnetNode(account, fileEpoch);
   ctx.broadcast(msg, peer.address);
 }
@@ -2295,7 +2295,7 @@ function handleClockHeartbeat(peer, msg, ctx) {
     timeDerivedEpoch
   );
 
-  console.log("[BTCPC P2P] CLOCK_HEARTBEAT from " + account + " (claimed epoch " + claimedEpoch + ", filing under " + fileEpoch + ", source: " + source + ")");
+  console.log("[HONE P2P] CLOCK_HEARTBEAT from " + account + " (claimed epoch " + claimedEpoch + ", filing under " + fileEpoch + ", source: " + source + ")");
 
   recordPeerEpoch(msg.nodeId || account, claimedEpoch);
   recordNodeActivity(msg.nodeId, account, fileEpoch);
@@ -2325,7 +2325,7 @@ function handlePeerAnnounce(peer, msg, ctx) {
   }
   if (newCount > 0) {
     saveKnownPeers();
-    console.log("[BTCPC P2P] PEER_ANNOUNCE: learned " + newCount + " new peer(s) from " + (peer.nodeId || "?").slice(0, 12));
+    console.log("[HONE P2P] PEER_ANNOUNCE: learned " + newCount + " new peer(s) from " + (peer.nodeId || "?").slice(0, 12));
   }
   // Rebroadcast to other peers
   ctx.broadcast(msg, peer.address);
@@ -2351,7 +2351,7 @@ function startPeerAnnounce(ctx) {
     }, ctx.NODE_ID);
     ctx.broadcast(announceMsg);
     saveKnownPeers();
-    console.log("[BTCPC P2P] PEER_ANNOUNCE broadcast: " + peersArray.length + " known peer(s)");
+    console.log("[HONE P2P] PEER_ANNOUNCE broadcast: " + peersArray.length + " known peer(s)");
   }, PEER_ANNOUNCE_INTERVAL);
 }
 
@@ -2389,10 +2389,10 @@ async function handleResponseLedger(peer, msg, _ctx) {
     var { applyRemoteEntries } = require("../services/ledger");
     var applied = await applyRemoteEntries(entries);
     if (applied > 0) {
-      console.log("[BTCPC P2P] Ledger sync: " + applied + " entries from " + (peer.nodeId || "unknown").slice(0, 12));
+      console.log("[HONE P2P] Ledger sync: " + applied + " entries from " + (peer.nodeId || "unknown").slice(0, 12));
     }
   } catch (err) {
-    console.error("[BTCPC P2P] Failed to process ledger response:", err.message);
+    console.error("[HONE P2P] Failed to process ledger response:", err.message);
   }
 }
 
@@ -2421,7 +2421,7 @@ function handleToolCall(peer, msg, ctx) {
   var data = msg.data || {};
   if (!data.session_id || !data.call_id || !data.tool_name) return;
 
-  console.log("[BTCPC Agent] Tool call: " + data.tool_name +
+  console.log("[HONE Agent] Tool call: " + data.tool_name +
     " call_id=" + data.call_id.slice(0, 12) + "..." +
     " session=" + data.session_id.slice(0, 12) + "...");
 
@@ -2456,7 +2456,7 @@ function handleToolResult(peer, msg, ctx) {
   var data = msg.data || {};
   if (!data.session_id || !data.call_id) return;
 
-  console.log("[BTCPC Agent] Tool result: call_id=" + data.call_id.slice(0, 12) + "..." +
+  console.log("[HONE Agent] Tool result: call_id=" + data.call_id.slice(0, 12) + "..." +
     " session=" + data.session_id.slice(0, 12) + "..." +
     (data.error ? " ERROR: " + data.error : " OK"));
 
@@ -2488,14 +2488,14 @@ function handleShardRegister(peer, msg, ctx) {
     var shardRegistry = require("../inference/shardRegistry");
     var result = shardRegistry.registerShard(data);
 
-    console.log("[BTCPC Shard] Registered shard: " + data.node_id.slice(0, 12) +
+    console.log("[HONE Shard] Registered shard: " + data.node_id.slice(0, 12) +
       " model=" + data.model_name +
       " layers=[" + data.layer_start + ".." + data.layer_end + "/" + data.total_layers + "]" +
       " engine=" + (data.engine || "ollama"));
 
     if (result.groupResult && result.groupResult.formed) {
       var group = result.groupResult.group;
-      console.log("[BTCPC Shard] Group formed for " + group.model_name +
+      console.log("[HONE Shard] Group formed for " + group.model_name +
         " group_id=" + group.group_id +
         " shards=" + group.shards.length +
         " total_params=" + group.total_params);
@@ -2521,7 +2521,7 @@ function handleShardRegister(peer, msg, ctx) {
       ctx.broadcast(groupMsg);
     }
   } catch (err) {
-    console.error("[BTCPC Shard] handleShardRegister error:", err.message);
+    console.error("[HONE Shard] handleShardRegister error:", err.message);
   }
 
   // Relay the registration to all peers
@@ -2551,12 +2551,12 @@ function handleEnsembleResult(peer, msg, ctx) {
       data.model_hash || null
     );
 
-    console.log("[BTCPC Ensemble] Contribution from " + data.node_id.slice(0, 12) +
+    console.log("[HONE Ensemble] Contribution from " + data.node_id.slice(0, 12) +
       " request=" + data.request_id.slice(0, 12) +
       " status=" + outcome.status);
 
     if (outcome.consensusAchieved) {
-      console.log("[BTCPC Ensemble] Consensus on request " + data.request_id.slice(0, 12) +
+      console.log("[HONE Ensemble] Consensus on request " + data.request_id.slice(0, 12) +
         " nodes=" + outcome.consensusNodes.join(",").slice(0, 40));
 
       var consensusMsg = createMessage(MESSAGE_TYPES.ENSEMBLE_CONSENSUS, {
@@ -2569,7 +2569,7 @@ function handleEnsembleResult(peer, msg, ctx) {
       ctx.broadcast(consensusMsg);
     }
   } catch (err) {
-    console.error("[BTCPC Ensemble] handleEnsembleResult error:", err.message);
+    console.error("[HONE Ensemble] handleEnsembleResult error:", err.message);
   }
 
   // Relay to all peers

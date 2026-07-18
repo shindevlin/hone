@@ -1,4 +1,4 @@
-# BTCPC Chain Remediation Options
+# HONE Chain Remediation Options
 
 Date: 2026-04-28
 
@@ -113,7 +113,7 @@ Use this order:
 
 Based on the observed state:
 
-- `natoshisakamoto` replays to a negative spendable BTCPC balance
+- `natoshisakamoto` replays to a negative spendable HONE balance
 - the latest finality snapshot already contains that negative balance
 - the account is not a system account
 

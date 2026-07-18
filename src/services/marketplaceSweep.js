@@ -38,7 +38,7 @@ async function _sweepBrowserJobs(epoch) {
       await ledger.recordEscrowRefund(job.buyer, job.job_id, job.max_fee, epoch);
       await ledger.recordBrowserJobRefund(job.job_id, job.buyer, "ttl_expired", epoch);
       swept++;
-      console.log(`[MarketplaceSweep] Browser job ${job.job_id} expired at epoch ${epoch} — refunded ${job.max_fee} BTCPC to ${job.buyer}`);
+      console.log(`[MarketplaceSweep] Browser job ${job.job_id} expired at epoch ${epoch} — refunded ${job.max_fee} HONE to ${job.buyer}`);
     } catch (err) {
       console.warn(`[MarketplaceSweep] Failed to sweep browser job ${job.job_id}: ${err.message}`);
     }
@@ -58,7 +58,7 @@ async function _sweepFinetuneJobs(epoch) {
       await ledger.recordEscrowRefund(job.buyer, job.finetune_id, job.fee, epoch);
       await ledger.recordFinetuneJobRefund(job.finetune_id, job.buyer, "ttl_expired", epoch);
       swept++;
-      console.log(`[MarketplaceSweep] Finetune job ${job.finetune_id} expired at epoch ${epoch} — refunded ${job.fee} BTCPC to ${job.buyer}`);
+      console.log(`[MarketplaceSweep] Finetune job ${job.finetune_id} expired at epoch ${epoch} — refunded ${job.fee} HONE to ${job.buyer}`);
     } catch (err) {
       console.warn(`[MarketplaceSweep] Failed to sweep finetune job ${job.finetune_id}: ${err.message}`);
     }

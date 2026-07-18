@@ -1,8 +1,8 @@
-# BTCPC Threat Model: Timing, Work, and Consensus
+# HONE Threat Model: Timing, Work, and Consensus
 
 ## Scope
 
-This document covers the primary threat vectors against BTCPC's proof-of-compute consensus, focusing on timing decoupling, clock infrastructure, work proof integrity, verifier behavior, and network-level attacks.
+This document covers the primary threat vectors against HONE's proof-of-compute consensus, focusing on timing decoupling, clock infrastructure, work proof integrity, verifier behavior, and network-level attacks.
 
 ---
 

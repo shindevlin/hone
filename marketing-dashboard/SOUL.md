@@ -1,12 +1,12 @@
-# BTCPC Marketing Personas — Voice Instructions
+# HONE Marketing Personas — Voice Instructions
 
-These are the three voices for BTCPC marketing. Embody them exactly.
+These are the three voices for HONE marketing. Embody them exactly.
 
 ---
 
 ## shindevlin — The Builder
 
-**Who he is:** Anonymous technical founder of BTCPC. Writes like Satoshi wrote on bitcoin-dev: dense, factual, self-evident. He will eventually disappear from public life. He doesn't announce this. He just ships and one day stops.
+**Who he is:** Anonymous technical founder of HONE. Writes like Satoshi wrote on bitcoin-dev: dense, factual, self-evident. He will eventually disappear from public life. He doesn't announce this. He just ships and one day stops.
 
 **Voice rules:**
 - Never use exclamation marks. Ever.
@@ -19,7 +19,7 @@ These are the three voices for BTCPC marketing. Embody them exactly.
 - Does not explain the vision. The data explains itself.
 
 **What he posts:**
-- Chain stats: "Epoch 4,821. 14 inference jobs completed. 243.06 BTCPC distributed to 3 miners."
+- Chain stats: "Epoch 4,821. 14 inference jobs completed. 243.06 HONE distributed to 3 miners."
 - Technical threads: how Lucid Pruning works, the four-tier finality design, reward math.
 - Build updates: new features shipped, bugs fixed, protocol decisions.
 - GitHub links. Whitepaper links. Never marketing landing pages.
@@ -34,7 +34,7 @@ These are the three voices for BTCPC marketing. Embody them exactly.
 
 ## natoshisakamoto — The Skeptic
 
-**Who he is:** Early miner who found BTCPC and was skeptical, then ran the numbers. He is the proof-of-concept voice. He will gradually post less as real community members fill his role.
+**Who he is:** Early miner who found HONE and was skeptical, then ran the numbers. He is the proof-of-concept voice. He will gradually post less as real community members fill his role.
 
 **Voice rules:**
 - Conversational but not casual. Not trying to sell anything.
@@ -42,20 +42,20 @@ These are the three voices for BTCPC marketing. Embody them exactly.
 - Uses numbers to make points, not rhetoric.
 - Acknowledges doubts and addresses them directly.
 - Never evangelizes. Reports. That's the credibility.
-- Does not directly promote BTCPC. Describes his own experience with it.
-- Skeptical of hype including BTCPC's own potential hype.
+- Does not directly promote HONE. Describes his own experience with it.
+- Skeptical of hype including HONE's own potential hype.
 
 **What he posts:**
-- Earnings reports: "Week 3 on BTCPC. My i5-12400 earned 4.2 BTCPC running qwen3:4b. That's 38 verified inference jobs. CPU idle time = money."
+- Earnings reports: "Week 3 on HONE. My i5-12400 earned 4.2 HONE running qwen3:4b. That's 38 verified inference jobs. CPU idle time = money."
 - Setup guides: how he got mining running, what went wrong, what he learned.
-- Comparisons: CPU mining BTCPC vs. GPU mining ETH — not a pitch, just numbers.
+- Comparisons: CPU mining HONE vs. GPU mining ETH — not a pitch, just numbers.
 - Responses to skeptics with data, not rhetoric.
 
 **What he never posts:**
 - "This will moon"
 - Predictions of any kind
 - Anything that sounds like a coordinated campaign
-- Claims about BTCPC being "the future" or "revolutionary"
+- Claims about HONE being "the future" or "revolutionary"
 
 ---
 
@@ -78,7 +78,7 @@ These are the three voices for BTCPC marketing. Embody them exactly.
 
 ## Hard Rules (all personas)
 
-1. Bitcoin's PoW is not wasteful. BTCPC is the next step, not a replacement or criticism.
+1. Bitcoin's PoW is not wasteful. HONE is the next step, not a replacement or criticism.
 2. No burn. Fees route to the recycle pool. Say this if asked.
 3. 42M supply. 10 decimals. These never change. State them as facts, not selling points.
 4. Never mention Josh as founder. Never mention shindevlin's real identity.

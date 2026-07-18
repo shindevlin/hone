@@ -6,9 +6,9 @@
  * Covers user + project CRUD, password verification, API key hashing,
  * Telegram ID indexing, and forward-compat index rebuilding.
  *
- * Uses an isolated per-worker SECRETS_PATH via BTCPC_SECRETS_PATH env
+ * Uses an isolated per-worker SECRETS_PATH via HONE_SECRETS_PATH env
  * var so parallel jest runs don't clobber each other or the user's
- * real ~/.btcpc/secrets.json.
+ * real ~/.hone/secrets.json.
  */
 
 const fs = require('fs');
@@ -16,8 +16,8 @@ const os = require('os');
 const path = require('path');
 
 // Isolate per-worker BEFORE requiring secretStore (path is computed at load)
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-secretstore-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-secretstore-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 
 const secretStore = require('../src/services/secretStore');
 
@@ -32,7 +32,7 @@ describe('secretStore — loading', () => {
   });
 
   it('creates the secrets file on first load', () => {
-    expect(fs.existsSync(process.env.BTCPC_SECRETS_PATH)).toBe(true);
+    expect(fs.existsSync(process.env.HONE_SECRETS_PATH)).toBe(true);
   });
 
   it('reads back an existing store', async () => {
@@ -49,7 +49,7 @@ describe('secretStore — loading', () => {
   // protects — on Linux/macOS CI; it's skipped on Windows dev machines.
   const itPosix = process.platform === 'win32' ? it.skip : it;
   itPosix('creates the file with mode 0600', () => {
-    const stat = fs.statSync(process.env.BTCPC_SECRETS_PATH);
+    const stat = fs.statSync(process.env.HONE_SECRETS_PATH);
     // mode & 0o777 gives permission bits
     const perms = stat.mode & 0o777;
     expect(perms).toBe(0o600);
@@ -193,9 +193,9 @@ describe('secretStore — projects + api keys', () => {
       wallet_address: 'alice',
     });
     expect(result.project.name).toBeUndefined(); // name isn't in the stored record, only as the map key
-    expect(result.apiKey).toMatch(/^btcpc_[a-f0-9]{32}$/);
+    expect(result.apiKey).toMatch(/^hone_[a-f0-9]{32}$/);
     expect(result.project.api_key_hash).toBeTruthy();
-    expect(result.project.api_key_hash).not.toContain('btcpc_');
+    expect(result.project.api_key_hash).not.toContain('hone_');
   });
 
   it('getProjectByApiKey looks up by sha256 hash', async () => {
@@ -269,9 +269,9 @@ describe('secretStore — persistence across reloads', () => {
 
     // Corrupt the file by removing the telegram_id_index (simulates a
     // secrets.json from before D.5-alpha upgraded the format)
-    const raw = JSON.parse(fs.readFileSync(process.env.BTCPC_SECRETS_PATH, 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(process.env.HONE_SECRETS_PATH, 'utf8'));
     delete raw.telegram_id_index;
-    fs.writeFileSync(process.env.BTCPC_SECRETS_PATH, JSON.stringify(raw));
+    fs.writeFileSync(process.env.HONE_SECRETS_PATH, JSON.stringify(raw));
 
     // Reload in a fresh module instance
     const secretStoreModule = require.resolve('../src/services/secretStore');

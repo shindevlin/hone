@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Clock Consensus
+ * HONE Clock Consensus
  * Shin Devlin
  *
  * Manages the dynamic clock quorum for epoch sealing.
@@ -24,7 +24,7 @@
 const crypto = require("crypto");
 const EventEmitter = require("events");
 
-const SEAL_COLLECT_MS = parseInt(process.env.BTCPC_SEAL_COLLECT_MS) || 5000;
+const SEAL_COLLECT_MS = parseInt(process.env.HONE_SEAL_COLLECT_MS) || 5000;
 const OUTLIER_EPOCH_TOLERANCE = 2; // epochs (60s) max deviation from median
 const EPOCH_MS = 30000;
 const ISOLATION_EPOCH_THRESHOLD = 3; // epochs without external peer → observer mode
@@ -64,10 +64,10 @@ function updatePeerConnectivity(peers) {
   if (isolated !== observerMode) {
     observerMode = isolated;
     if (observerMode) {
-      console.log("[BTCPC Clock] No external peers for " + ISOLATION_EPOCH_THRESHOLD +
+      console.log("[HONE Clock] No external peers for " + ISOLATION_EPOCH_THRESHOLD +
         " epochs — downgrading to observer mode. Will not produce seals.");
     } else {
-      console.log("[BTCPC Clock] External peers restored — resuming seal production.");
+      console.log("[HONE Clock] External peers restored — resuming seal production.");
     }
   }
 }
@@ -119,7 +119,7 @@ function produceSeal(epochNumber, nodeId, signingFn) {
   updatePeerConnectivity(_getPeers());
 
   if (observerMode) {
-    console.log("[BTCPC Clock] Observer mode — skipping seal for epoch " + epochNumber);
+    console.log("[HONE Clock] Observer mode — skipping seal for epoch " + epochNumber);
     return null;
   }
 
@@ -143,7 +143,7 @@ function _resolveEpoch(epochNumber) {
   const seals = state.seals;
 
   if (seals.length === 0) {
-    console.log("[BTCPC Clock] Epoch " + epochNumber + ": no seals received — skipping");
+    console.log("[HONE Clock] Epoch " + epochNumber + ": no seals received — skipping");
     emitter.emit("epoch_sealed", { epoch: epochNumber, sealed: false, quorum: 0 });
     return;
   }
@@ -155,14 +155,14 @@ function _resolveEpoch(epochNumber) {
       return;
     }
     if (seals[0].node_id !== "genesis") {
-      console.warn("[BTCPC Clock] Epoch " + epochNumber +
+      console.warn("[HONE Clock] Epoch " + epochNumber +
         ": only self-seal and no external peers — deferring (potential isolation)");
       return;
     }
     const winner = seals[0];
     state.winner = winner;
     _updateClockScore(winner.node_id, true);
-    console.log("[BTCPC Clock] Epoch " + epochNumber + ": self-sealed (single clock, isolated)");
+    console.log("[HONE Clock] Epoch " + epochNumber + ": self-sealed (single clock, isolated)");
     emitter.emit("epoch_sealed", { epoch: epochNumber, sealed: true, quorum: 1, winner, seals });
     _pruneOldEpochs(epochNumber);
     return;
@@ -178,7 +178,7 @@ function _resolveEpoch(epochNumber) {
 
   outliers.forEach(s => {
     _updateClockScore(s.node_id, false);
-    console.warn("[BTCPC Clock] Epoch " + epochNumber + ": outlier clock " + s.node_id +
+    console.warn("[HONE Clock] Epoch " + epochNumber + ": outlier clock " + s.node_id +
       " (deviation " + Math.round(Math.abs(s.timestamp - median) / 1000) + "s) — ignored");
   });
 
@@ -186,7 +186,7 @@ function _resolveEpoch(epochNumber) {
   // Scale: as network grows, the inlier cluster naturally represents the honest majority
   const quorumNeeded = Math.max(1, Math.ceil(inliers.length * MIN_QUORUM_FRACTION));
   if (inliers.length < quorumNeeded) {
-    console.warn("[BTCPC Clock] Epoch " + epochNumber +
+    console.warn("[HONE Clock] Epoch " + epochNumber +
       ": insufficient quorum (" + inliers.length + "/" + quorumNeeded + ") — deferring");
     // Could retry after more seals arrive; for now defer
     return;
@@ -206,7 +206,7 @@ function _resolveEpoch(epochNumber) {
   const winner = winnerSeals[0];
   state.winner = winner;
 
-  console.log("[BTCPC Clock] Epoch " + epochNumber + " sealed: quorum=" + winnerSeals.length +
+  console.log("[HONE Clock] Epoch " + epochNumber + " sealed: quorum=" + winnerSeals.length +
     "/" + seals.length + " seals, outliers=" + outliers.length);
 
   emitter.emit("epoch_sealed", {

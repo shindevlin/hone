@@ -209,7 +209,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-sdk"
+name = "hone-sdk"
 version = "1.0.0"
 dependencies = [
  "anyhow",
@@ -230,11 +230,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-wallet-create"
+name = "hone-wallet-create"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "btcpc-sdk",
+ "hone-sdk",
  "eframe",
  "egui",
  "reqwest",

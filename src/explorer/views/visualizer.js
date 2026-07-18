@@ -492,7 +492,7 @@ function visualizerView() {
 
       <section class="visualizer-hero">
         <div class="live-pill">Live Chain Visualizer</div>
-        <h1>BTCPC turns useful work into finalized chain state.</h1>
+        <h1>HONE turns useful work into finalized chain state.</h1>
         <p>This page reads the live explorer API and shows the current epoch, mempool, compute, storage, sensors, finality anchors, and cross-chain bridge state in one flow.</p>
         <div class="chain-flow" id="chainFlow">
           <div class="flow-node"><div class="node-kicker">Loading</div><div class="node-value">...</div><div class="node-label">Waiting for chain state</div></div>
@@ -614,7 +614,7 @@ function visualizerView() {
           bridgeList.innerHTML = chains.map(function (chain) {
             return '<div class="bridge-row">' +
               '<strong>' + safeText(chain.name || chain.chain_id) + '</strong>' +
-              '<div class="bridge-meta">locked ' + safeText(fmt(chain.total_locked_btcpc || 0)) + ' BTCPC<br>wrapped ' + safeText(fmt(chain.circulating_wbtcpc || 0)) + ' wBTCPC</div>' +
+              '<div class="bridge-meta">locked ' + safeText(fmt(chain.total_locked_hone || 0)) + ' HONE<br>wrapped ' + safeText(fmt(chain.circulating_whone || 0)) + ' wHONE</div>' +
               '<span class="status status-finalized">live</span>' +
             '</div>';
           }).join("");
@@ -631,7 +631,7 @@ function visualizerView() {
             '<div class="flow-node"><div class="node-kicker">Useful Work</div><div class="node-value">' + safeText(fmt(work.role_points || 0)) + '</div><div class="node-label">role instances, not PCs</div><div class="node-detail">' + safeText(multiRoleDetail(work)) + '</div>' + workBars(work) + '</div>' +
             flowNode("State Root", shortHash(epoch.state_root), "account state", "blocks on disk: " + fmt(epoch.blocks_on_disk || 0)) +
             flowNode("Sensors", fmt((work.sensors || 0) + (work.gateways || 0)), "IoT stream", fmt(work.sensors || 0) + " sensors, " + fmt(work.gateways || 0) + " gateways") +
-            flowNode("Reward", fmt(epoch.reward_per_epoch || 0), "BTCPC per epoch", "constant reward through weekly doublings");
+            flowNode("Reward", fmt(epoch.reward_per_epoch || 0), "HONE per epoch", "constant reward through weekly doublings");
           renderAnchors(data);
           renderBridge(data);
           status.textContent = "Last update: " + new Date().toLocaleTimeString();
@@ -831,7 +831,7 @@ function visualizerView() {
         ].forEach(([role, count]) => {
           if (Number(count || 0) > 0) result.push(makeHub("role:" + role, role, count));
         });
-        return result.length ? result : [makeHub("btcpc:genesis", "clock", 1)];
+        return result.length ? result : [makeHub("hone:genesis", "clock", 1)];
       }
 
       function renderHubs(data) {

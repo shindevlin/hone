@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+/**
+ * HONE Auto-Updater
+ *
+ * Checks the GitHub remote for new commits. If updates are found:
+ *   1. git pull
+ *   2. npm install (in case deps changed)
+ *   3. Restart the miner via pm2
+ *
+ * Designed to run on a schedule (pm2 cron or Windows Task Scheduler).
+ *
+ * Usage:
+ *   node bin/hone-update
+ */
+
+"use strict";
+
+const { execSync } = require('child_process');
+const path = require('path');
+
+const REPO_DIR = path.resolve(__dirname, '..');
+const PM2_PROCESS_NAME = 'hone-mine';
+const CHECK_INTERVAL_LABEL = process.env.HONE_UPDATE_INTERVAL || '15m';
+
+function run(cmd, opts) {
+  const result = execSync(cmd, { cwd: REPO_DIR, encoding: 'utf8', timeout: 120000, ...opts });
+  return result.trim();
+}
+
+function log(msg) {
+  const ts = new Date().toISOString();
+  console.log(`[HONE-UPDATE] ${ts} -- ${msg}`);
+}
+
+async function main() {
+  log('Checking for updates...');
+
+  try {
+    // Fetch latest from remote
+    run('git fetch origin');
+
+    // Compare local HEAD with remote
+    const localHash = run('git rev-parse HEAD');
+    const remoteHash = run('git rev-parse origin/main');
+
+    if (localHash === remoteHash) {
+      log(`Up to date (${localHash.slice(0, 8)})`);
+      return;
+    }
+
+    // There are updates
+    const behindCount = run('git rev-list HEAD..origin/main --count');
+    log(`${behindCount} new commit(s) found, updating...`);
+
+    // Show what's coming
+    const commitLog = run('git log HEAD..origin/main --oneline');
+    console.log(commitLog);
+
+    // Pull changes
+    run('git pull origin main');
+    log('Git pull complete');
+
+    // Reinstall dependencies if package.json changed
+    const changedFiles = run('git diff HEAD~' + behindCount + ' --name-only');
+    if (changedFiles.includes('package.json') || changedFiles.includes('package-lock.json')) {
+      log('Dependencies changed, running npm install...');
+      run('npm install', { timeout: 300000 });
+      log('npm install complete');
+    }
+
+    // Restart the miner
+    try {
+      run('pm2 restart ' + PM2_PROCESS_NAME);
+      log('Miner restarted with new code');
+    } catch (e) {
+      log('pm2 restart failed (miner may not be running): ' + e.message);
+    }
+
+  } catch (err) {
+    log('Update check failed: ' + err.message);
+    process.exit(1);
+  }
+}
+
+main();

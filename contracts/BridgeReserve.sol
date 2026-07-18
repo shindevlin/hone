@@ -9,16 +9,16 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @title BridgeReserve
  * @notice Destination-side reserve contract deployed on Base/Ethereum.
  *
- * Holds USDT, USDC, DAI, and ETH that back outbound BTCPC → EVM
+ * Holds USDT, USDC, DAI, and ETH that back outbound HONE → EVM
  * bridge payouts (BridgeUnwrap flow).
  *
  * Flow:
- *   1. User submits a BridgeUnwrap entry on the BTCPC chain.
- *   2. BTCPC node burns the user's wBTCPC and queues an UnlockRequest.
- *   3. The trusted relayer calls `unlock()` here with the BTCPC tx hash.
+ *   1. User submits a BridgeUnwrap entry on the HONE chain.
+ *   2. HONE node burns the user's wHONE and queues an UnlockRequest.
+ *   3. The trusted relayer calls `unlock()` here with the HONE tx hash.
  *   4. Funds are released to `recipient`; the tx hash is marked spent.
  *
- * Replay protection: each `btcpcTxHash` can only be used once.
+ * Replay protection: each `honeTxHash` can only be used once.
  *
  * Deployer / funded wallet: 0xBDe88F2B3a224B242704bD166804E0E12c75e830
  */
@@ -28,7 +28,7 @@ contract BridgeReserve is Ownable, ReentrancyGuard {
     /// @notice Trusted relayer address authorised to call `unlock`.
     address public relayer;
 
-    /// @notice btcpcTxHash => already processed (replay protection).
+    /// @notice honeTxHash => already processed (replay protection).
     mapping(bytes32 => bool) public processedTxHashes;
 
     // ── Events ────────────────────────────────────────────────────────────────
@@ -38,13 +38,13 @@ contract BridgeReserve is Ownable, ReentrancyGuard {
      * @param recipient    EVM address that receives the funds.
      * @param token        ERC-20 address, or address(0) for ETH.
      * @param amount       Raw amount transferred.
-     * @param btcpcTxHash  BTCPC chain transaction hash that authorised this payout.
+     * @param honeTxHash  HONE chain transaction hash that authorised this payout.
      */
     event BridgeUnlockEvent(
         address indexed recipient,
         address indexed token,
         uint256 amount,
-        bytes32 indexed btcpcTxHash
+        bytes32 indexed honeTxHash
     );
 
     /// @notice Emitted when the owner funds the reserve with ERC-20 tokens.
@@ -76,24 +76,24 @@ contract BridgeReserve is Ownable, ReentrancyGuard {
     // ── Relayer-facing ────────────────────────────────────────────────────────
 
     /**
-     * @notice Release funds to a recipient after the BTCPC node confirms a
-     *         BridgeUnwrap entry. Each `btcpcTxHash` is single-use.
+     * @notice Release funds to a recipient after the HONE node confirms a
+     *         BridgeUnwrap entry. Each `honeTxHash` is single-use.
      * @param recipient    EVM address to pay out.
      * @param token        ERC-20 token to send, or address(0) for ETH.
      * @param amount       Amount to transfer (token's native decimals for ERC-20; wei for ETH).
-     * @param btcpcTxHash  Sha-256 hash of the BTCPC chain BridgeUnwrap transaction.
+     * @param honeTxHash  Sha-256 hash of the HONE chain BridgeUnwrap transaction.
      */
     function unlock(
         address recipient,
         address token,
         uint256 amount,
-        bytes32 btcpcTxHash
+        bytes32 honeTxHash
     ) external nonReentrant onlyRelayer {
         require(recipient != address(0), "Zero recipient");
         require(amount > 0, "Zero amount");
-        require(!processedTxHashes[btcpcTxHash], "TX hash already processed");
+        require(!processedTxHashes[honeTxHash], "TX hash already processed");
 
-        processedTxHashes[btcpcTxHash] = true;
+        processedTxHashes[honeTxHash] = true;
 
         if (token == address(0)) {
             require(address(this).balance >= amount, "Insufficient ETH reserve");
@@ -107,7 +107,7 @@ contract BridgeReserve is Ownable, ReentrancyGuard {
             IERC20(token).transfer(recipient, amount);
         }
 
-        emit BridgeUnlockEvent(recipient, token, amount, btcpcTxHash);
+        emit BridgeUnlockEvent(recipient, token, amount, honeTxHash);
     }
 
     // ── Owner / Funding ───────────────────────────────────────────────────────

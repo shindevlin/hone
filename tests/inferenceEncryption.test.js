@@ -59,7 +59,7 @@ describe("encrypt / decrypt — round-trip", () => {
   });
 
   test("plaintext survives encrypt → decrypt", () => {
-    const original = "Hello from BTCPC encrypted inference!";
+    const original = "Hello from HONE encrypted inference!";
     const enc = encrypt(original, shared);
     expect(enc).toHaveProperty("ciphertext");
     expect(enc).toHaveProperty("iv");
@@ -152,7 +152,7 @@ describe("encrypted job flow — end-to-end", () => {
     expect(decryptedPrompt).toBe(prompt);
 
     // 4. Mock Ollama: run inference on plaintext
-    const mockResult = "Proof of Compute is BTCPC's consensus mechanism that validates AI inference work.";
+    const mockResult = "Proof of Compute is HONE's consensus mechanism that validates AI inference work.";
 
     // 5. Miner encrypts result with same shared secret
     const encryptedResult = encrypt(mockResult, minerSecret);

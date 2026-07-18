@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Sensor Keystore
+ * HONE Sensor Keystore
  * Shin Devlin
  *
  * ed25519 keypair management for IoT sensors.
@@ -10,7 +10,7 @@
  *
  *   1. HARDWARE-DERIVED (Android/Termux phones)
  *      Reads android_id + device serial from the OS — no user input.
- *      Seed = HKDF-SHA512(SHA512(android_id + ":" + serial), info="btcpc-sensor-v1:<sensor_id>")
+ *      Seed = HKDF-SHA512(SHA512(android_id + ":" + serial), info="hone-sensor-v1:<sensor_id>")
  *      Same hardware = same key. Survives app reinstall. Resets only on factory reset.
  *
  *   2. RANDOM (dedicated hardware: Hyfix, ESP32, Flipper Zero, laptop nodes)
@@ -20,11 +20,11 @@
  * The mnemonic is NOT used for sensor keys. Sensor identity is hardware-bound,
  * wallet identity is mnemonic-bound. They are separate.
  *
- * Key storage: ~/.btcpc/sensor-keys.json (or BTCPC_SENSOR_KEYS env var)
- * BTCPC_DATA_DIR is only used if that path exists on the current machine,
- * so Termux with a grouchly-specific mount falls back to ~/.btcpc safely.
+ * Key storage: ~/.hone/sensor-keys.json (or HONE_SENSOR_KEYS env var)
+ * HONE_DATA_DIR is only used if that path exists on the current machine,
+ * so Termux with a grouchly-specific mount falls back to ~/.hone safely.
  *
- * Signing payload format (pipe-delimited, matches btcpc-gnss-capture Rust):
+ * Signing payload format (pipe-delimited, matches hone-gnss-capture Rust):
  *   "<sensor_id>|<value>|<device_timestamp_ms>"
  *   or with epoch_hash:
  *   "<sensor_id>|<value>|<device_timestamp_ms>|<epoch_hash>"
@@ -38,10 +38,10 @@ const path = require('path');
 const os = require('os');
 
 function _resolveKeystorePath() {
-  if (process.env.BTCPC_SENSOR_KEYS) return process.env.BTCPC_SENSOR_KEYS;
-  const envDir = process.env.BTCPC_DATA_DIR;
+  if (process.env.HONE_SENSOR_KEYS) return process.env.HONE_SENSOR_KEYS;
+  const envDir = process.env.HONE_DATA_DIR;
   if (envDir && fs.existsSync(envDir)) return path.join(envDir, 'sensor-keys.json');
-  return path.join(os.homedir(), '.btcpc', 'sensor-keys.json');
+  return path.join(os.homedir(), '.hone', 'sensor-keys.json');
 }
 
 const KEYSTORE_PATH = _resolveKeystorePath();
@@ -124,7 +124,7 @@ function _deriveFromHardware(hwMaterial, sensorId) {
     'sha512',
     hwHash,
     Buffer.alloc(32),                                      // salt
-    Buffer.from('btcpc-sensor-v1:' + sensorId),            // info
+    Buffer.from('hone-sensor-v1:' + sensorId),            // info
     32                                                     // output length
   );
   const pkcs8 = _seedToPkcs8(Buffer.from(derived));

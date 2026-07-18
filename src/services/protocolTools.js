@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Protocol-native tools for the BTCPC agentic inference marketplace.
+ * Protocol-native tools for the HONE agentic inference marketplace.
  *
  * These tools are executed trustlessly by the miner (no buyer round-trip).
  * Their inputs/outputs are deterministic and verifiable by any chain node.
@@ -20,18 +20,18 @@ const PROTOCOL_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "btcpc_balance",
-      description: "Check the BTCPC token balance of any account on the BTCPC chain. Returns the current balance and any staked amount.",
+      name: "hone_balance",
+      description: "Check the HONE token balance of any account on the HONE chain. Returns the current balance and any staked amount.",
       parameters: {
         type: "object",
         properties: {
           account: {
             type: "string",
-            description: "The BTCPC account name to check",
+            description: "The HONE account name to check",
           },
           token: {
             type: "string",
-            description: "Token symbol to check (default: BTCPC)",
+            description: "Token symbol to check (default: HONE)",
           },
         },
         required: ["account"],
@@ -41,8 +41,8 @@ const PROTOCOL_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "btcpc_chain_query",
-      description: "Query the BTCPC blockchain for current state — epoch number, block height, account info, or network stats.",
+      name: "hone_chain_query",
+      description: "Query the HONE blockchain for current state — epoch number, block height, account info, or network stats.",
       parameters: {
         type: "object",
         properties: {
@@ -63,7 +63,7 @@ const PROTOCOL_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "btcpc_sensor_query",
+      name: "hone_sensor_query",
       description: "Query sensor data from the Verasens network. Returns recent readings from registered IoT sensors. Can filter by sensor ID, data type, and result count.",
       parameters: {
         type: "object",
@@ -131,9 +131,9 @@ const PROTOCOL_TOOL_SCHEMAS = [
 
 // Tools that miners execute inline (no buyer round-trip needed)
 const PROTOCOL_NATIVE_TOOLS = new Set([
-  "btcpc_balance",
-  "btcpc_chain_query",
-  "btcpc_sensor_query",
+  "hone_balance",
+  "hone_chain_query",
+  "hone_sensor_query",
 ]);
 
 // Tools that are miner-executed but not chain-verifiable
@@ -165,17 +165,17 @@ function getSchema(name) {
 async function executeProtocolTool(name, input) {
   input = input || {};
 
-  if (name === "btcpc_balance") {
+  if (name === "hone_balance") {
     return _execBalance(input);
   }
-  if (name === "btcpc_chain_query") {
+  if (name === "hone_chain_query") {
     return _execChainQuery(input);
   }
-  if (name === "btcpc_sensor_query") {
+  if (name === "hone_sensor_query") {
     return _execSensorQuery(input);
   }
   if (name === "execute_code") {
-    if (process.env.BTCPC_CODE_EXEC_ENABLED !== "true") {
+    if (process.env.HONE_CODE_EXEC_ENABLED !== "true") {
       return { content: "Code execution is disabled on this miner.", trusted: true, error: "disabled" };
     }
     return _execCode(input);
@@ -192,7 +192,7 @@ async function executeProtocolTool(name, input) {
 
 function _execBalance(input) {
   const account = input.account;
-  const token = input.token || "BTCPC";
+  const token = input.token || "HONE";
   if (!account) {
     return { content: "account parameter required", trusted: true, error: "missing_param" };
   }
@@ -320,7 +320,7 @@ function _execCode(input) {
   }
 
   // Write code to a temp file
-  const tmpFile = path.join(os.tmpdir(), `btcpc_exec_${Date.now()}${ext}`);
+  const tmpFile = path.join(os.tmpdir(), `hone_exec_${Date.now()}${ext}`);
   try {
     fs.writeFileSync(tmpFile, code, "utf8");
     const stdout = execSync(`${cmd} ${tmpFile}`, {

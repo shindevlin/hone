@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Encrypted Inference Router
+ * HONE Encrypted Inference Router
  * Shin Devlin
  *
  * Handles SIK-bound encrypted inference requests.
@@ -33,7 +33,7 @@ router.post("/v1/session", async (req, res) => {
     const sess = await session.createSession();
     res.json(sess);
   } catch (err) {
-    console.error("[BTCPC Inference] Session creation failed:", err.message);
+    console.error("[HONE Inference] Session creation failed:", err.message);
     res.status(500).json({ error: "Session creation failed" });
   }
 });
@@ -117,7 +117,7 @@ router.post("/v1/inference/encrypted", async (req, res) => {
       `${OLLAMA_URL}/api/generate`,
       {
         model: model || "qwen3.5:27b",
-        prompt: `[BTCPC_TOKENS:${tokens.join(",")}]`,
+        prompt: `[HONE_TOKENS:${tokens.join(",")}]`,
         raw: true,
         stream: false,
         options: {
@@ -195,10 +195,10 @@ router.post("/v1/inference/encrypted", async (req, res) => {
     });
 
     console.log(
-      `[BTCPC Inference] Encrypted request: ${tokens.length} tokens in, ${tokensGenerated} tokens out, ${elapsed}ms, remap:${remap_hash || "?"}`
+      `[HONE Inference] Encrypted request: ${tokens.length} tokens in, ${tokensGenerated} tokens out, ${elapsed}ms, remap:${remap_hash || "?"}`
     );
   } catch (err) {
-    console.error("[BTCPC Inference] Error:", err.message);
+    console.error("[HONE Inference] Error:", err.message);
     if (decryptedPayload) decryptedPayload.fill(0);
     res.status(500).json({ error: "Inference failed" });
   }

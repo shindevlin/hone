@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC Knowledge Map</title>
+  <title>HONE Knowledge Map</title>
   <style>
     :root {
       --bg0: #07090f;
@@ -371,10 +371,10 @@
   <div class="app">
     <header class="topbar">
       <div class="brand">
-        <div class="eyebrow">BTCPC Vault</div>
+        <div class="eyebrow">HONE Vault</div>
         <h1>Obsidian-like knowledge map</h1>
         <div class="sub">
-          Search the docs, drag nodes around, zoom the graph, and jump between BTCPC systems.
+          Search the docs, drag nodes around, zoom the graph, and jump between HONE systems.
           This is a visual vault for the chain, the code wiki, and the main docs.
         </div>
       </div>
@@ -390,7 +390,7 @@
         <div class="panel-header">
           <strong>Vault Explorer</strong>
           <span>Search the docs and code wiki, then click a page to focus it.</span>
-          <input id="search" class="search" type="search" placeholder="Search BTCPC docs, code wiki, roles, or systems">
+          <input id="search" class="search" type="search" placeholder="Search HONE docs, code wiki, roles, or systems">
           <div class="chips">
             <span>Docs</span><span>Code Wiki</span><span>Graph</span><span>Backlinks</span>
           </div>
@@ -408,11 +408,11 @@
           </div>
           <div class="stats">
             <span id="counts">0 docs</span>
-            <span class="pill" id="center-pill">BTCPC Core</span>
+            <span class="pill" id="center-pill">HONE Core</span>
           </div>
         </div>
         <div class="graph-wrap">
-          <svg id="graph" viewBox="0 0 1200 760" aria-label="BTCPC knowledge graph"></svg>
+          <svg id="graph" viewBox="0 0 1200 760" aria-label="HONE knowledge graph"></svg>
         </div>
       </section>
 
@@ -426,11 +426,11 @@
             <div class="detail-title">
               <div>
                 <div class="badge" id="node-group">core</div>
-                <h2 id="node-title">BTCPC Core</h2>
+                <h2 id="node-title">HONE Core</h2>
               </div>
               <a id="open-page" class="button" href="/docs/INDEX.md">Open</a>
             </div>
-            <p id="node-summary">BTCPC’s docs, graph, and core systems all connect here.</p>
+            <p id="node-summary">HONE’s docs, graph, and core systems all connect here.</p>
             <p id="node-note">Select a node to inspect how it fits into the vault.</p>
           </div>
 
@@ -461,15 +461,15 @@
 
   <script>
     const docs = [
-      { id: "core", title: "BTCPC Core", href: "/docs/INDEX.md", group: "core", size: 1.8, summary: "The canonical docs index and architecture entry point.", note: "Start here when you want the whole network in one place.", tags: ["entry", "docs"], x: 590, y: 120 },
+      { id: "core", title: "HONE Core", href: "/docs/INDEX.md", group: "core", size: 1.8, summary: "The canonical docs index and architecture entry point.", note: "Start here when you want the whole network in one place.", tags: ["entry", "docs"], x: 590, y: 120 },
       { id: "docs-home", title: "Docs Home", href: "/docs/README.md", group: "docs", size: 1.3, summary: "Human-facing documentation landing page.", note: "Where the site points people first.", tags: ["docs", "website"], x: 350, y: 240 },
       { id: "code-wiki", title: "Code Wiki", href: "/docs/code-wiki/README.md", group: "docs", size: 1.35, summary: "Graph-generated docs with the most useful code communities.", note: "This is the generated repo map.", tags: ["graph", "generated"], x: 820, y: 240 },
-      { id: "visual-map", title: "Visual Map", href: "/docs/knowledge-map.html", group: "docs", size: 1.3, summary: "This interactive Obsidian-like vault map.", note: "A visual browser for BTCPC systems.", tags: ["graph", "visual"], x: 585, y: 250 },
-      { id: "role-matrix", title: "ROLE_MATRIX", href: "/docs/ROLE_MATRIX.md", group: "docs", size: 1.2, summary: "Which device classes can run which BTCPC roles.", note: "One process per role, one machine per instance.", tags: ["roles", "devices"], x: 125, y: 410 },
-      { id: "roadmap", title: "ROADMAP", href: "/docs/ROADMAP.md", group: "docs", size: 1.15, summary: "What BTCPC is building next and what’s already shipped.", note: "Useful if you want the product direction.", tags: ["plan", "product"], x: 305, y: 410 },
+      { id: "visual-map", title: "Visual Map", href: "/docs/knowledge-map.html", group: "docs", size: 1.3, summary: "This interactive Obsidian-like vault map.", note: "A visual browser for HONE systems.", tags: ["graph", "visual"], x: 585, y: 250 },
+      { id: "role-matrix", title: "ROLE_MATRIX", href: "/docs/ROLE_MATRIX.md", group: "docs", size: 1.2, summary: "Which device classes can run which HONE roles.", note: "One process per role, one machine per instance.", tags: ["roles", "devices"], x: 125, y: 410 },
+      { id: "roadmap", title: "ROADMAP", href: "/docs/ROADMAP.md", group: "docs", size: 1.15, summary: "What HONE is building next and what’s already shipped.", note: "Useful if you want the product direction.", tags: ["plan", "product"], x: 305, y: 410 },
       { id: "tokenomics", title: "TOKENOMICS", href: "/docs/TOKENOMICS.md", group: "docs", size: 1.15, summary: "42M supply, no burn, recycle economics.", note: "The money layer under the whole chain.", tags: ["economics", "supply"], x: 200, y: 570 },
       { id: "governance", title: "Governance", href: "/docs/governance.md", group: "docs", size: 1.1, summary: "Founder-irrelevance and sovereignty design.", note: "How decisions are supposed to stay decentralized.", tags: ["policy", "sovereignty"], x: 400, y: 570 },
-      { id: "wallets", title: "Wallets", href: "/docs/wallets.md", group: "product", size: 1.35, summary: "Send, receive, stake, and delegate BTCPC.", note: "User money and permissions live here.", tags: ["wallet", "delegate"], x: 700, y: 570 },
+      { id: "wallets", title: "Wallets", href: "/docs/wallets.md", group: "product", size: 1.35, summary: "Send, receive, stake, and delegate HONE.", note: "User money and permissions live here.", tags: ["wallet", "delegate"], x: 700, y: 570 },
       { id: "bots", title: "Bots", href: "/docs/bots.md", group: "product", size: 1.1, summary: "Telegram bot onboarding and flows.", note: "A user entrypoint and automation layer.", tags: ["telegram", "ux"], x: 940, y: 570 },
       { id: "clock-node", title: "Clock Node", href: "/docs/clock-node.md", group: "network", size: 1.25, summary: "Clock node behavior and timing rules.", note: "The timing side of the network.", tags: ["clock", "epoch"], x: 995, y: 235 },
       { id: "android-clock", title: "Android Clock", href: "/docs/android-clock-node.md", group: "network", size: 1.12, summary: "Android-specific clock node behavior.", note: "How phones participate as clock nodes.", tags: ["android", "clock"], x: 1110, y: 410 },
@@ -479,7 +479,7 @@
       { id: "chain-node", title: "Node registry", href: "/docs/code-wiki/chain-node.md", group: "network", size: 1.28, summary: "Registered miners, clocks, storage hosts, devices.", note: "Who is doing what on the network.", tags: ["registry", "roles"], x: 745, y: 405 },
       { id: "mining-model", title: "Mining model", href: "/docs/code-wiki/mining-model.md", group: "roles", size: 1.28, summary: "AI inference work that earns miner rewards.", note: "The useful-work engine.", tags: ["miner", "inference"], x: 610, y: 600 },
       { id: "mining-final", title: "Mining finalization", href: "/docs/code-wiki/mining-finalization.md", group: "roles", size: 1.2, summary: "Work proofs, rewards, and block finalization.", note: "How mining gets settled.", tags: ["mining", "rewards"], x: 825, y: 650 },
-      { id: "services-blob", title: "Blob services", href: "/docs/code-wiki/services-blob.md", group: "roles", size: 1.2, summary: "BTCPC-FS storage hosts content-addressed files.", note: "The durable storage layer.", tags: ["storage", "fs"], x: 1030, y: 655 },
+      { id: "services-blob", title: "Blob services", href: "/docs/code-wiki/services-blob.md", group: "roles", size: 1.2, summary: "HONE-FS storage hosts content-addressed files.", note: "The durable storage layer.", tags: ["storage", "fs"], x: 1030, y: 655 },
       { id: "services-stateful", title: "Stateful hosting", href: "/docs/code-wiki/services-stateful.md", group: "roles", size: 1.15, summary: "Host lifecycle for stateful services.", note: "Long-lived application hosting.", tags: ["services", "hosting"], x: 1120, y: 170 },
       { id: "tests-heartbeat", title: "Heartbeat tests", href: "/docs/code-wiki/tests-heartbeat.md", group: "tests", size: 1.05, summary: "Clock liveness, witness checks, reward eligibility.", note: "Coverage for the clock path.", tags: ["tests", "clock"], x: 1060, y: 300 },
       { id: "tests-stateful", title: "Stateful tests", href: "/docs/code-wiki/tests-stateful.md", group: "tests", size: 1.05, summary: "Storage and stateful service behavior.", note: "Coverage for durable service flows.", tags: ["tests", "storage"], x: 885, y: 300 },
@@ -576,8 +576,8 @@
     const zoomResetBtn = document.getElementById("zoom-reset");
     const toggleLabelsBtn = document.getElementById("toggle-labels");
 
-    const STORAGE_KEY = "btcpc-knowledge-map-state";
-    const POS_KEY = "btcpc-knowledge-map-positions";
+    const STORAGE_KEY = "hone-knowledge-map-state";
+    const POS_KEY = "hone-knowledge-map-positions";
 
     function nodeById(id) { return docs.find(d => d.id === id); }
     function neighborsOf(id) {

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Secret Store — per-installation secrets file.
+ * HONE Secret Store — per-installation secrets file.
  * Shin Devlin
  *
  * Holds data that is NOT chain state:
@@ -51,8 +51,8 @@ var os = require("os");
 var crypto = require("crypto");
 var bcrypt = require("bcryptjs");
 
-var SECRETS_PATH = process.env.BTCPC_SECRETS_PATH ||
-  path.join(os.homedir(), ".btcpc", "secrets.json");
+var SECRETS_PATH = process.env.HONE_SECRETS_PATH ||
+  path.join(os.homedir(), ".hone", "secrets.json");
 
 var state = null;
 
@@ -317,7 +317,7 @@ async function createProject(fields) {
   if (state.projects[fields.name]) throw new Error("project exists");
 
   // Generate a fresh API key (plaintext shown ONCE to the caller)
-  var plaintextKey = "btcpc_" + crypto.randomBytes(16).toString("hex");
+  var plaintextKey = "hone_" + crypto.randomBytes(16).toString("hex");
   var hash = _sha256(plaintextKey);
 
   state.projects[fields.name] = {
@@ -348,7 +348,7 @@ async function rotateProjectKey(name) {
   }
 
   // Generate new
-  var plaintextKey = "btcpc_" + crypto.randomBytes(16).toString("hex");
+  var plaintextKey = "hone_" + crypto.randomBytes(16).toString("hex");
   var hash = _sha256(plaintextKey);
   project.api_key_hash = hash;
   state.api_key_index[hash] = name;

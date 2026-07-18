@@ -1,11 +1,11 @@
 "use strict";
 
 /**
- * BTCPC LoRa Gateway Registry — v2.15-alpha
+ * HONE LoRa Gateway Registry — v2.15-alpha
  * Shin Devlin
  *
  * In-memory registry of LoRa gateways that relay sensor readings from
- * nearby BTCPC-nano devices to the BTCPC network. A gateway is a host
+ * nearby HONE-nano devices to the HONE network. A gateway is a host
  * for sensors: it receives LoRa radio packets and forwards them via
  * HTTP or P2P.
  *
@@ -54,7 +54,7 @@ function parseGatewayId(gatewayId) {
  * Register a new LoRa gateway. Can also update an existing gateway's
  * spec (owner cannot change on update).
  *
- * @param {string} owner — BTCPC account that owns this gateway
+ * @param {string} owner — HONE account that owns this gateway
  * @param {string} gatewayId — "<owner>/<gateway-name>"
  * @param {object} spec
  * @param {string} spec.region — geographic region identifier

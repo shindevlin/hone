@@ -1,19 +1,19 @@
 "use strict";
 
 /**
- * BTCPC P2P Network Manager
+ * HONE P2P Network Manager
  * Shin Devlin
  *
- * WebSocket-based peer-to-peer network layer for the BTCPC sovereign chain.
+ * WebSocket-based peer-to-peer network layer for the HONE sovereign chain.
  * Handles peer discovery, connection management, message broadcasting,
  * and auto-reconnection with exponential backoff.
  *
- * When BTCPC_USE_RUST_P2P=true, delegates entirely to the Rust btcpc-p2p
+ * When HONE_USE_RUST_P2P=true, delegates entirely to the Rust hone-p2p
  * sidecar via Unix socket IPC. The sidecar uses libp2p (QUIC + TCP, Kademlia
  * DHT, gossipsub) and exports the same interface as this module.
  */
 
-if (process.env.BTCPC_USE_RUST_P2P === "true") {
+if (process.env.HONE_USE_RUST_P2P === "true") {
   const sidecar = require("./rustP2pIpc");
   // startServer() is called by the chain process after require() —
   // but if network.js is loaded standalone we start it here too.
@@ -29,7 +29,7 @@ const transport = require("./encryptedTransport");
 const { shouldStartBackgroundTimers } = require("../services/backgroundTimers");
 
 // Node identity — generated once on first start, persisted in env or memory
-const NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
+const NODE_ID = process.env.HONE_NODE_ID || crypto.randomBytes(16).toString("hex");
 
 const DEFAULT_PORT = 6942;
 const MAX_PEERS = 50;
@@ -40,15 +40,15 @@ const HEARTBEAT_INTERVAL_MS = 30000;
 const MAX_RECONNECT_DELAY_MS = 60000; // 1 minute
 // Cap on a single unencrypted relay message before JSON.parse (DoS guard).
 // Block sync uses windowed REQUEST_BLOCKS, so legit relay frames stay small.
-const MAX_RELAY_MESSAGE_BYTES = parseInt(process.env.BTCPC_MAX_RELAY_MESSAGE_BYTES) || 1048576; // 1 MiB
+const MAX_RELAY_MESSAGE_BYTES = parseInt(process.env.HONE_MAX_RELAY_MESSAGE_BYTES) || 1048576; // 1 MiB
 
-// Relay URLs — supports multiple for redundancy via BTCPC_RELAY_URLS (comma-separated).
-// Falls back to BTCPC_RELAY_URL (single) or the built-in Cloudflare relay.
+// Relay URLs — supports multiple for redundancy via HONE_RELAY_URLS (comma-separated).
+// Falls back to HONE_RELAY_URL (single) or the built-in Cloudflare relay.
 // The Cloudflare relay speaks plain JSON — Noise_XX is skipped for all relay connections.
 const RELAY_URLS = (function () {
-  const multi = process.env.BTCPC_RELAY_URLS;
+  const multi = process.env.HONE_RELAY_URLS;
   if (multi) return multi.split(",").map(function (u) { return u.trim(); }).filter(Boolean);
-  const single = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
+  const single = process.env.HONE_RELAY_URL || "wss://hone-relay.shindevlin.workers.dev/ws";
   return single ? [single] : [];
 })();
 
@@ -64,12 +64,12 @@ function isRelayAddress(address) {
 
 /**
  * Connect to all configured relay URLs. Call this instead of connectToPeer(relayUrl)
- * so that all relays in BTCPC_RELAY_URLS are tried; surviving relays maintain
+ * so that all relays in HONE_RELAY_URLS are tried; surviving relays maintain
  * connectivity if others go down.
  */
 function connectToRelays() {
   if (RELAY_URLS.length === 0) return;
-  console.log("[BTCPC P2P] Connecting to " + RELAY_URLS.length + " relay(s)");
+  console.log("[HONE P2P] Connecting to " + RELAY_URLS.length + " relay(s)");
   for (var i = 0; i < RELAY_URLS.length; i++) {
     connectToPeer(RELAY_URLS[i]);
   }
@@ -92,7 +92,7 @@ let heartbeatTimer = null;
  * Start the WebSocket server to accept incoming peer connections.
  */
 function startServer(port) {
-  const listenPort = port || parseInt(process.env.P2P_PORT || process.env.BTCPC_API_P2P_PORT) || DEFAULT_PORT;
+  const listenPort = port || parseInt(process.env.P2P_PORT || process.env.HONE_API_P2P_PORT) || DEFAULT_PORT;
 
   function _attachServerHandlers(server) {
     server.on("connection", function (ws, req) {
@@ -100,22 +100,22 @@ function startServer(port) {
       var rawAddr = req.socket.remoteAddress || "unknown";
       if (rawAddr.startsWith("::ffff:")) rawAddr = rawAddr.slice(7);
       var remoteAddr = "inbound:" + rawAddr + ":" + req.socket.remotePort;
-      console.log("[BTCPC P2P] Incoming connection from " + rawAddr);
+      console.log("[HONE P2P] Incoming connection from " + rawAddr);
 
       setupPeerSocket(ws, remoteAddr, "inbound");
 
       // Noise_XX handshake — responder waits for initiator's first message
       transport.acceptHandshake(ws, transport.getStaticKeypair(), remoteAddr).then(function () {
-        // Handshake complete — send BTCPC protocol handshake over encrypted channel
+        // Handshake complete — send HONE protocol handshake over encrypted channel
         sendHandshake(ws);
       }).catch(function (err) {
-        console.error("[BTCPC Noise] Inbound handshake failed from " + rawAddr + ":", err.message);
+        console.error("[HONE Noise] Inbound handshake failed from " + rawAddr + ":", err.message);
         ws.close();
       });
     });
 
     server.on("error", function (err) {
-      console.error("[BTCPC P2P] Server error:", err.message);
+      console.error("[HONE P2P] Server error:", err.message);
     });
   }
 
@@ -123,16 +123,16 @@ function startServer(port) {
     wss = new WebSocket.Server({ port: tryPort });
     wss.once("error", function (err) {
       if (err.code === "EADDRINUSE" && retriesLeft > 0) {
-        console.warn("[BTCPC P2P] Port " + tryPort + " in use, retrying on " + (tryPort + 1));
+        console.warn("[HONE P2P] Port " + tryPort + " in use, retrying on " + (tryPort + 1));
         wss.close();
         _bindServer(tryPort + 1, retriesLeft - 1);
       } else {
-        console.error("[BTCPC P2P] Server error:", err.message);
+        console.error("[HONE P2P] Server error:", err.message);
       }
     });
     wss.once("listening", function () {
-      console.log("[BTCPC P2P] Server listening on port " + tryPort);
-      console.log("[BTCPC P2P] Node ID: " + NODE_ID);
+      console.log("[HONE P2P] Server listening on port " + tryPort);
+      console.log("[HONE P2P] Node ID: " + NODE_ID);
     });
     _attachServerHandlers(wss);
   }
@@ -181,7 +181,7 @@ function stopServer() {
     wss = null;
   }
 
-  console.log("[BTCPC P2P] Server stopped");
+  console.log("[HONE P2P] Server stopped");
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +195,7 @@ function connectToPeer(address) {
   const normalized = normalizeP2PAddress(address);
   if (!normalized) {
     if (address && isConnectableP2PAddress(address) === false) {
-      console.log("[BTCPC P2P] Skipping non-connectable peer address: " + address);
+      console.log("[HONE P2P] Skipping non-connectable peer address: " + address);
     }
     return;
   }
@@ -209,21 +209,21 @@ function connectToPeer(address) {
   }
 
   if (peers.size >= MAX_PEERS) {
-    console.log("[BTCPC P2P] Max peers reached, skipping " + peerAddress);
+    console.log("[HONE P2P] Max peers reached, skipping " + peerAddress);
     return;
   }
 
-  console.log("[BTCPC P2P] Connecting to peer: " + peerAddress);
+  console.log("[HONE P2P] Connecting to peer: " + peerAddress);
 
   try {
     const ws = new WebSocket(peerAddress);
 
     ws.on("open", function () {
-      console.log("[BTCPC P2P] Connected to " + peerAddress);
+      console.log("[HONE P2P] Connected to " + peerAddress);
       setupPeerSocket(ws, peerAddress, "outbound");
 
       if (isRelayAddress(peerAddress)) {
-        // Relay speaks plain JSON — skip Noise, send BTCPC handshake directly
+        // Relay speaks plain JSON — skip Noise, send HONE handshake directly
         sendHandshake(ws);
         knownPeers.add(peerAddress);
         return;
@@ -231,21 +231,21 @@ function connectToPeer(address) {
 
       // Noise_XX handshake — initiator sends first message
       transport.startHandshake(ws, transport.getStaticKeypair(), peerAddress).then(function () {
-        // Handshake complete — send BTCPC protocol handshake and pin peer
+        // Handshake complete — send HONE protocol handshake and pin peer
         sendHandshake(ws);
         knownPeers.add(peerAddress);
       }).catch(function (err) {
-        console.error("[BTCPC Noise] Outbound handshake failed to " + peerAddress + ":", err.message);
+        console.error("[HONE Noise] Outbound handshake failed to " + peerAddress + ":", err.message);
         ws.close();
       });
     });
 
     ws.on("error", function (err) {
-      console.error("[BTCPC P2P] Connection error (" + peerAddress + "):", err.message);
+      console.error("[HONE P2P] Connection error (" + peerAddress + "):", err.message);
       scheduleReconnect(peerAddress);
     });
   } catch (err) {
-    console.error("[BTCPC P2P] Failed to connect to " + peerAddress + ":", err.message);
+    console.error("[HONE P2P] Failed to connect to " + peerAddress + ":", err.message);
     scheduleReconnect(peerAddress);
   }
 }
@@ -255,8 +255,8 @@ function connectToPeer(address) {
 // before the relay provides a full peer list. These are long-running
 // infrastructure nodes operated by the core team.
 const BOOTSTRAP_PEERS = [
-  "wss://node1.btcpc.network:6942",
-  "wss://node2.btcpc.network:6942",
+  "wss://node1.hone.network:6942",
+  "wss://node2.hone.network:6942",
 ];
 
 /**
@@ -271,7 +271,7 @@ function connectToSeeds(seedList) {
     connectToPeer(BOOTSTRAP_PEERS[i]);
   }
 
-  const seeds = seedList || process.env.BTCPC_SEED_PEERS || "";
+  const seeds = seedList || process.env.HONE_SEED_PEERS || "";
   if (!seeds) return;
 
   const addresses = seeds.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
@@ -329,7 +329,7 @@ function setupPeerSocket(ws, address, direction) {
           ? Buffer.byteLength(data, "utf8")
           : (data && data.length) || 0;
         if (byteLen > MAX_RELAY_MESSAGE_BYTES) {
-          console.error("[BTCPC P2P] Oversized relay message from " + address +
+          console.error("[HONE P2P] Oversized relay message from " + address +
             " (" + byteLen + " bytes > " + MAX_RELAY_MESSAGE_BYTES + ") — dropped");
           return;
         }
@@ -337,7 +337,7 @@ function setupPeerSocket(ws, address, direction) {
         const msg = JSON.parse(raw);
         handleIncoming(peer, msg);
       } catch (err) {
-        console.error("[BTCPC P2P] Bad relay message from " + address + ":", err.message);
+        console.error("[HONE P2P] Bad relay message from " + address + ":", err.message);
       }
       return;
     }
@@ -353,7 +353,7 @@ function setupPeerSocket(ws, address, direction) {
     try {
       plaintext = transport.receive(ws, data);
     } catch (err) {
-      console.error("[BTCPC Noise] Decrypt error from " + address + ":", err.message);
+      console.error("[HONE Noise] Decrypt error from " + address + ":", err.message);
       return;
     }
 
@@ -361,12 +361,12 @@ function setupPeerSocket(ws, address, direction) {
       const msg = JSON.parse(plaintext);
       handleIncoming(peer, msg);
     } catch (err) {
-      console.error("[BTCPC P2P] Bad message from " + address + ":", err.message);
+      console.error("[HONE P2P] Bad message from " + address + ":", err.message);
     }
   });
 
   ws.on("close", function () {
-    console.log("[BTCPC P2P] Disconnected from " + address);
+    console.log("[HONE P2P] Disconnected from " + address);
     peer.status = "disconnected";
     transport.closeTransport(ws);
     if (direction === "outbound") {
@@ -407,7 +407,7 @@ function send(ws, msg) {
     try {
       ws.send(typeof msg === "string" ? msg : JSON.stringify(msg));
     } catch (err) {
-      console.error("[BTCPC P2P] Relay send error:", err.message);
+      console.error("[HONE P2P] Relay send error:", err.message);
     }
     return;
   }
@@ -416,7 +416,7 @@ function send(ws, msg) {
     try {
       transport.send(ws, msg);
     } catch (err) {
-      console.error("[BTCPC P2P] Send error:", err.message);
+      console.error("[HONE P2P] Send error:", err.message);
     }
   }
 }
@@ -435,13 +435,13 @@ function broadcast(message, excludeAddress) {
       try {
         peer.ws.send(typeof message === "string" ? message : JSON.stringify(message));
       } catch (err) {
-        console.error("[BTCPC P2P] Relay broadcast error to " + addr + ":", err.message);
+        console.error("[HONE P2P] Relay broadcast error to " + addr + ":", err.message);
       }
     } else if (transport.isReady(peer.ws)) {
       try {
         transport.send(peer.ws, message);
       } catch (err) {
-        console.error("[BTCPC P2P] Broadcast error to " + addr + ":", err.message);
+        console.error("[HONE P2P] Broadcast error to " + addr + ":", err.message);
       }
     }
   }
@@ -467,7 +467,7 @@ function handleIncoming(peer, msg) {
     try {
       handler(msg, peer);
     } catch (err) {
-      console.error("[BTCPC P2P] Message handler error:", err.message);
+      console.error("[HONE P2P] Message handler error:", err.message);
     }
   }
 }
@@ -501,7 +501,7 @@ function scheduleReconnect(address) {
     MAX_RECONNECT_DELAY_MS
   );
 
-  console.log("[BTCPC P2P] Reconnecting to " + address + " in " + (delay / 1000) + "s (attempt " + peer.reconnectAttempts + ")");
+  console.log("[HONE P2P] Reconnecting to " + address + " in " + (delay / 1000) + "s (attempt " + peer.reconnectAttempts + ")");
 
   peer.reconnectTimer = setTimeout(function () {
     peer.reconnectTimer = null;
@@ -525,7 +525,7 @@ function heartbeat() {
       // If isAlive is still false from last heartbeat the peer is a zombie — close it.
       // Outbound close fires scheduleReconnect; inbound close drops the slot.
       if (!peer.isAlive) {
-        console.warn("[BTCPC P2P] Peer " + addr + " missed pong — closing");
+        console.warn("[HONE P2P] Peer " + addr + " missed pong — closing");
         peer.ws.terminate();
         continue;
       }
@@ -589,7 +589,7 @@ if (require.main === module) {
   const port = parseInt(process.env.P2P_PORT) || DEFAULT_PORT;
   startServer(port);
   connectToSeeds();
-  console.log("[BTCPC P2P] Running in standalone mode");
+  console.log("[HONE P2P] Running in standalone mode");
 }
 
 // ---------------------------------------------------------------------------
@@ -604,7 +604,7 @@ process.on("SIGTERM", function () {
 // Exports
 // ---------------------------------------------------------------------------
 
-if (process.env.BTCPC_USE_RUST_P2P !== "true") {
+if (process.env.HONE_USE_RUST_P2P !== "true") {
   module.exports = {
     startServer,
     stopServer,

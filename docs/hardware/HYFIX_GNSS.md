@@ -1,4 +1,4 @@
-# Hyfix GNSS Base Station — BTCPC Hardware Reference
+# Hyfix GNSS Base Station — HONE Hardware Reference
 
 ## Device Info
 - **Model**: Hyfix MobileCM MCMv3
@@ -9,14 +9,14 @@
 - **IP**: 192.168.68.75 (DHCP, WiFi — intermittent)
 - **WiFi**: 2.4 GHz (connected to "Hale la Puerta")
 - **WiFi Signal**: -62 dBm (needs external antenna)
-- **BTCPC Account**: natoshisakamoto (sensor: natoshisakamoto/gnss-base)
+- **HONE Account**: natoshisakamoto (sensor: natoshisakamoto/gnss-base)
 - **Status**: TRANSMITTING (when WiFi is up)
 
 ## What It Does
 - Receives GNSS satellite signals (GPS, GLONASS, Galileo, BeiDou)
 - Computes RTK correction data (RTCM3 format)
 - Streams corrections to GEODNET server (52.8.236.207:2201 UDP)
-- BTCPC intercepts the stream and forwards to additional services
+- HONE intercepts the stream and forwards to additional services
 
 ## Web API (port 80)
 
@@ -55,18 +55,18 @@ Response: {
 | wifiStrength | dBm (below -70 = weak, needs antenna) |
 | uptime | seconds since boot |
 
-## BTCPC Integration
+## HONE Integration
 
-### btcpc-gnss-bridge (runs on natoshi PC)
+### hone-gnss-bridge (runs on natoshi PC)
 - Polls /devStatus every 30 seconds
-- Submits SENSOR_READING entries to BTCPC chain
+- Submits SENSOR_READING entries to HONE chain
 - Sensor ID: natoshisakamoto/gnss-base
 - Type: gps, unit: gnss_correction
 - Earns from 10% IoT pool
 
-### btcpc-gnss-relay (DEPRECATED — do not use)
+### hone-gnss-relay (DEPRECATED — do not use)
 
-> Replaced by **btcpc-gnss-bridge**, which HTTP-polls the Hyfix device over
+> Replaced by **hone-gnss-bridge**, which HTTP-polls the Hyfix device over
 > WiFi and requires no root access. The ARP-spoof/tcpdump approach below is
 > kept for historical reference only.
 
@@ -74,9 +74,9 @@ Response: {
 - Forwards copies to multiple NTRIP casters:
   - RTK Direct (ntrip.rtkdirect.com:2101)
   - onocoy (servers.onocoy.com:2121, needs TLS)
-- Records RTCM frame metadata on BTCPC chain
+- Records RTCM frame metadata on HONE chain
 - **NOTE**: ARP spoofing only works on same layer-2 segment. WiFi↔ethernet bridge may not work.
-- **Requires sudo** — use btcpc-gnss-bridge instead.
+- **Requires sudo** — use hone-gnss-bridge instead.
 
 ### Environment Variables (.env on natoshi)
 ```
@@ -96,7 +96,7 @@ HONE_RTK_MOUNT=<in env>
 
 | Service | Token | Protocol | Status |
 |---------|-------|----------|--------|
-| BTCPC | BTCPC | HTTP poll → chain | bridge running (when WiFi up) |
+| HONE | HONE | HTTP poll → chain | bridge running (when WiFi up) |
 | RTK Direct | RTK | NTRIP TCP | connected (409 conflict clears after session timeout) |
 | GEODNET | GEOD | UDP direct | waiting on support to deregister previous owner |
 | onocoy | ONO | NTRIP TLS | needs TLS support in relay (ECONNRESET) |

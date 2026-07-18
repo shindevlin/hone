@@ -4,7 +4,7 @@
  * Retrieval-Augmented Generation (RAG) service.
  * Shin Devlin
  *
- * Fetches BTCPC-FS blobs by CID, chunks the text content, generates
+ * Fetches HONE-FS blobs by CID, chunks the text content, generates
  * embeddings via Ollama's /api/embed endpoint, and returns the top-k
  * most relevant chunks for a given query. No external vector DB required —
  * embeddings are computed per-job at inference time.
@@ -17,12 +17,12 @@ const path = require("path");
 const fs = require("fs");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const EMBED_MODEL = process.env.BTCPC_EMBED_MODEL || "nomic-embed-text";
+const EMBED_MODEL = process.env.HONE_EMBED_MODEL || "nomic-embed-text";
 const CHUNK_SIZE = 512;      // characters per chunk
 const CHUNK_OVERLAP = 64;    // character overlap between chunks
 const DEFAULT_TOP_K = 5;
 const MAX_CONTEXT_CHARS = 6000;
-const BLOB_DATA_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const BLOB_DATA_DIR = process.env.HONE_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
 
 // ── Text chunking ─────────────────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ async function loadBlobContent(cid) {
 // ── Main RAG function ─────────────────────────────────────────────────────────
 
 /**
- * Retrieve relevant context chunks from a set of BTCPC-FS blobs.
+ * Retrieve relevant context chunks from a set of HONE-FS blobs.
  *
  * @param {string} query - The user's query / prompt
  * @param {string[]} cids - Array of blob CIDs to search over

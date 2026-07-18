@@ -24,7 +24,7 @@ function _normalizeRecipient(transfer) {
 }
 
 function _normalizeToken(transfer) {
-  return sanitizeString((transfer && transfer.token) || "BTCPC", 20) || "BTCPC";
+  return sanitizeString((transfer && transfer.token) || "HONE", 20) || "HONE";
 }
 
 function _normalizeMemo(transfer) {
@@ -37,7 +37,7 @@ function _normalizeAddress(address) {
 
 function _challengeText(username, normalizedTransfer, chain, challengeId, address) {
   return [
-    "BTCPC CHAIN TRANSFER",
+    "HONE CHAIN TRANSFER",
     "challenge_id=" + challengeId,
     "account=" + username,
     "chain=" + chain,
@@ -86,10 +86,10 @@ function buildTransferChallenge(username, transferInput) {
   if (!to) throw new Error("recipient required");
   if (!amount) throw new Error("amount required");
   if (!mnemonicAddress) {
-    throw new Error("no BTCPC mnemonic-linked wallet available for " + chain + " controller mode");
+    throw new Error("no HONE mnemonic-linked wallet available for " + chain + " controller mode");
   }
   if (address && _normalizeAddress(address) !== mnemonicAddress) {
-    throw new Error("controller approval must use the BTCPC mnemonic-linked " + chain + " wallet");
+    throw new Error("controller approval must use the HONE mnemonic-linked " + chain + " wallet");
   }
 
   const challengeId = _challengeId();
@@ -205,14 +205,14 @@ async function verifyTransferAuthorization(username, transferInput, authInput) {
     return {
       ok: false,
       status: 422,
-      error: "no BTCPC mnemonic-linked wallet available for this approval chain",
+      error: "no HONE mnemonic-linked wallet available for this approval chain",
     };
   }
   if ((rec.address || "") !== mnemonicAddress) {
     return {
       ok: false,
       status: 403,
-      error: "controller approval must use the BTCPC mnemonic-linked wallet",
+      error: "controller approval must use the HONE mnemonic-linked wallet",
     };
   }
 
@@ -220,7 +220,7 @@ async function verifyTransferAuthorization(username, transferInput, authInput) {
   try {
     recovered = chainLink.verifySignatureForChain(chain, challenge, signature, mnemonicAddress);
   } catch (err) {
-    return { ok: false, status: 401, error: "signature does not match the BTCPC mnemonic-linked wallet: " + err.message };
+    return { ok: false, status: 401, error: "signature does not match the HONE mnemonic-linked wallet: " + err.message };
   }
 
   const normalizedRecovered = String(recovered.recoveredAddress || "").trim().toLowerCase();
@@ -228,7 +228,7 @@ async function verifyTransferAuthorization(username, transferInput, authInput) {
     return {
       ok: false,
       status: 403,
-      error: "signer is not the BTCPC mnemonic-linked wallet",
+      error: "signer is not the HONE mnemonic-linked wallet",
     };
   }
 

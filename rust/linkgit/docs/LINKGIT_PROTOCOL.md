@@ -1,6 +1,6 @@
 # LinkGit Protocol
 
-LinkGit is a custom Git remote helper that stores repositories on the BTCPC chain.
+LinkGit is a custom Git remote helper that stores repositories on the HONE chain.
 
 ## URL Format
 
@@ -10,7 +10,7 @@ linkgit://owner/repo
 
 ## Storage Model
 
-Git objects (blobs, trees, commits, tags) are stored as BTCPC chain transactions. Each object is identified by its SHA-1 hash. Refs (branches, tags) are stored as named pointers to object hashes.
+Git objects (blobs, trees, commits, tags) are stored as HONE chain transactions. Each object is identified by its SHA-1 hash. Refs (branches, tags) are stored as named pointers to object hashes.
 
 ## Mirroring
 

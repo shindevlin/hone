@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * BTCPC Project Job Runner — 24/7 inference from all natoshi projects
+ * HONE Project Job Runner — 24/7 inference from all natoshi projects
  *
  * Each project submits inference jobs matching its real use case.
- * Each has its own BTCPC account, wallet, and API key.
+ * Each has its own HONE account, wallet, and API key.
  * Rotates through projects every 2 minutes.
  *
  * Usage: node scripts/project-jobs.js
@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
-// Load project configs from .envbtcpc files
+// Load project configs from .envhone files
 const PROJECT_DIRS = {
   bullship: '/home/ubuntclaw/repos/bullship',
   nsfwotica: '/home/ubuntclaw/repos/nsfwotica',
@@ -29,18 +29,18 @@ const PROJECT_DIRS = {
   waitlyfi: '/home/ubuntclaw/repos/waitlyfi'
 };
 
-// Load API keys from .envbtcpc
+// Load API keys from .envhone
 const PROJECTS = {};
 for (const [name, dir] of Object.entries(PROJECT_DIRS)) {
-  const envPath = path.join(dir, '.envbtcpc');
+  const envPath = path.join(dir, '.envhone');
   if (fs.existsSync(envPath)) {
     const env = {};
     fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
       const [k, ...v] = line.split('=');
       if (k && v.length) env[k.trim()] = v.join('=').trim();
     });
-    if (env.BTCPC_PROJECT_KEY) {
-      PROJECTS[name] = { key: env.BTCPC_PROJECT_KEY, url: env.BTCPC_API_URL || 'http://localhost:3000' };
+    if (env.HONE_PROJECT_KEY) {
+      PROJECTS[name] = { key: env.HONE_PROJECT_KEY, url: env.HONE_API_URL || 'http://localhost:3000' };
     }
   }
 }
@@ -118,7 +118,7 @@ async function submitJob() {
   const name = projectNames[currentIndex];
   const project = PROJECTS[name];
   const dir = PROJECT_DIRS[name];
-  const prompts = PROMPTS[name] || ["What is BTCPC?"];
+  const prompts = PROMPTS[name] || ["What is HONE?"];
   const prompt = prompts[Math.floor(Math.random() * prompts.length)];
   const ts = new Date().toISOString();
 
@@ -135,7 +135,7 @@ async function submitJob() {
     totalJobs++;
     console.log(`[${ts}] #${totalJobs} ${name}: ${data.job_id} (${data.model})`);
 
-    // Poll for result and save to project's .btcpc-inference/ folder
+    // Poll for result and save to project's .hone-inference/ folder
     const jobId = data.job_id;
     setTimeout(async () => {
       try {
@@ -157,16 +157,16 @@ async function submitJob() {
         }
 
         if (result && dir) {
-          // Save to .btcpc-inference/ subfolder
-          const inferDir = path.join(dir, '.btcpc-inference');
+          // Save to .hone-inference/ subfolder
+          const inferDir = path.join(dir, '.hone-inference');
           if (!fs.existsSync(inferDir)) fs.mkdirSync(inferDir, { recursive: true });
 
           // Add to gitignore if not there
           const gitignorePath = path.join(dir, '.gitignore');
           if (fs.existsSync(gitignorePath)) {
             const gi = fs.readFileSync(gitignorePath, 'utf8');
-            if (!gi.includes('.btcpc-inference')) {
-              fs.appendFileSync(gitignorePath, '\n.btcpc-inference/\n');
+            if (!gi.includes('.hone-inference')) {
+              fs.appendFileSync(gitignorePath, '\n.hone-inference/\n');
             }
           }
 

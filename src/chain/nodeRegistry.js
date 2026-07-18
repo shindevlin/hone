@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Node Registry — Lightweight, No MongoDB
+ * HONE Node Registry — Lightweight, No MongoDB
  * Shin Devlin
  *
  * Reads registered nodes from block files and in-memory state.
@@ -19,7 +19,7 @@
 var blockStore = require("./blockStore");
 
 // Minimum stake for permissionless nodes to participate in authority rotation
-var PERMISSIONLESS_MIN_STAKE = 100; // BTCPC
+var PERMISSIONLESS_MIN_STAKE = 100; // HONE
 
 // In-memory registry: username → { type, stake, p2pAddress, registeredEpoch, permissioned }
 var nodes = new Map();

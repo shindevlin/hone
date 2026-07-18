@@ -3,7 +3,7 @@
 /**
  * autoUpdate.test.js
  *
- * Unit tests for bin/btcpc-auto-update logic.
+ * Unit tests for bin/hone-auto-update logic.
  *
  * Strategy: The script is not a module — it's an executable that starts its
  * own loop on require(). So we test the helper logic by extracting the
@@ -133,11 +133,11 @@ function makeDeps(overrides) {
   return { updater: buildAutoUpdater(Object.assign({}, defaults, overrides)), calls, savedHashValue };
 }
 
-var VERSION_URL = "https://btcpc.net/btcpc-image-version.txt";
-var IMAGE_URL   = "https://btcpc.net/btcpc-image.tar.gz";
-var PENDING     = "/tmp/.btcpc-update-pending";
-var HASH_FILE   = "/tmp/.btcpc-image-hash";
-var TMP_PATH    = "/tmp/.btcpc-image-download.tar.gz";
+var VERSION_URL = "https://hone.net/hone-image-version.txt";
+var IMAGE_URL   = "https://hone.net/hone-image.tar.gz";
+var PENDING     = "/tmp/.hone-update-pending";
+var HASH_FILE   = "/tmp/.hone-image-hash";
+var TMP_PATH    = "/tmp/.hone-image-download.tar.gz";
 
 function runCheck(updater) {
   return updater.checkForUpdate(VERSION_URL, IMAGE_URL, PENDING, HASH_FILE, TMP_PATH);
@@ -319,7 +319,7 @@ describe("auto-update — flag file mechanics", () => {
   var tmpDir;
 
   beforeAll(function () {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "btcpc-autoupdate-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hone-autoupdate-test-"));
   });
 
   afterAll(function () {
@@ -327,7 +327,7 @@ describe("auto-update — flag file mechanics", () => {
   });
 
   test("pending flag file is created at the specified path", async () => {
-    var flagPath = path.join(tmpDir, ".btcpc-update-pending");
+    var flagPath = path.join(tmpDir, ".hone-update-pending");
 
     var { updater } = makeDeps({
       fetchText: async () => NEW_HASH,
@@ -345,7 +345,7 @@ describe("auto-update — flag file mechanics", () => {
   });
 
   test("pending flag file contains a numeric timestamp", async () => {
-    var flagPath = path.join(tmpDir, ".btcpc-update-pending-ts");
+    var flagPath = path.join(tmpDir, ".hone-update-pending-ts");
 
     var { updater } = makeDeps({
       fetchText: async () => NEW_HASH,
@@ -364,50 +364,50 @@ describe("auto-update — flag file mechanics", () => {
 });
 
 describe("auto-update — script file checks", () => {
-  var SCRIPT = path.resolve(__dirname, "../bin/btcpc-auto-update");
+  var SCRIPT = path.resolve(__dirname, "../bin/hone-auto-update");
 
-  test("bin/btcpc-auto-update file exists", () => {
+  test("bin/hone-auto-update file exists", () => {
     expect(fs.existsSync(SCRIPT)).toBe(true);
   });
 
   // The executable bit is a POSIX concept; NTFS/Windows doesn't track it
   // (Node reports it unset). Assertion runs on Linux/macOS CI, skipped on Windows.
   var testPosix = process.platform === 'win32' ? test.skip : test;
-  testPosix("bin/btcpc-auto-update has executable bit set", () => {
+  testPosix("bin/hone-auto-update has executable bit set", () => {
     var stat = fs.statSync(SCRIPT);
     // 0o100 = owner execute
     expect(stat.mode & 0o100).toBeTruthy();
   });
 
-  test("bin/btcpc-auto-update starts with #!/usr/bin/env node shebang", () => {
+  test("bin/hone-auto-update starts with #!/usr/bin/env node shebang", () => {
     var content = fs.readFileSync(SCRIPT, "utf8");
     expect(content).toMatch(/^#!\/usr\/bin\/env node/);
   });
 
-  test("bin/btcpc-auto-update contains [auto-update] log prefix", () => {
+  test("bin/hone-auto-update contains [auto-update] log prefix", () => {
     var content = fs.readFileSync(SCRIPT, "utf8");
     expect(content).toMatch(/\[auto-update\]/);
   });
 
-  test("bin/btcpc-auto-update references BTCPC_UPDATE_INTERVAL_MS env var", () => {
+  test("bin/hone-auto-update references HONE_UPDATE_INTERVAL_MS env var", () => {
     var content = fs.readFileSync(SCRIPT, "utf8");
-    expect(content).toMatch(/BTCPC_UPDATE_INTERVAL_MS/);
+    expect(content).toMatch(/HONE_UPDATE_INTERVAL_MS/);
   });
 
-  test("bin/btcpc-all references .btcpc-update-pending flag file", () => {
-    var allScript = path.resolve(__dirname, "../bin/btcpc-all");
+  test("bin/hone-all references .hone-update-pending flag file", () => {
+    var allScript = path.resolve(__dirname, "../bin/hone-all");
     var content = fs.readFileSync(allScript, "utf8");
-    expect(content).toMatch(/\.btcpc-update-pending/);
+    expect(content).toMatch(/\.hone-update-pending/);
   });
 
-  test("bin/btcpc-all launches auto-update as a child role", () => {
-    var allScript = path.resolve(__dirname, "../bin/btcpc-all");
+  test("bin/hone-all launches auto-update as a child role", () => {
+    var allScript = path.resolve(__dirname, "../bin/hone-all");
     var content = fs.readFileSync(allScript, "utf8");
     expect(content).toMatch(/auto-update/);
   });
 
-  test("bin/btcpc-all logs supervisor update message", () => {
-    var allScript = path.resolve(__dirname, "../bin/btcpc-all");
+  test("bin/hone-all logs supervisor update message", () => {
+    var allScript = path.resolve(__dirname, "../bin/hone-all");
     var content = fs.readFileSync(allScript, "utf8");
     expect(content).toMatch(/Update detected.*restarting children/);
   });

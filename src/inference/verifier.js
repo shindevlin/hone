@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Inference Verifier
+ * HONE Inference Verifier
  * Shin Devlin
  *
  * Random nodes verify inference output quality and compute validity.

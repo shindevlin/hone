@@ -1,11 +1,11 @@
 "use strict";
 
 /**
- * BTCPC Tool API Routes
+ * HONE Tool API Routes
  * Shin Devlin
  *
  * REST API for the native tool use system.
- * Called by: commandRouter, btcpc-cli, Telegram bot.
+ * Called by: commandRouter, hone-cli, Telegram bot.
  *
  * All tool execution runs on the REQUESTER'S machine.
  * These routes expose the local MCP server and tool registry.
@@ -22,7 +22,7 @@
 const express = require("express");
 const router = express.Router();
 const toolRegistry = require("../mcp/toolRegistry");
-const mcpServer = require("../mcp/btcpcMcpServer");
+const mcpServer = require("../mcp/mcpJsonRpcServer");
 
 function isLoopbackAddress(value) {
   if (!value) return false;

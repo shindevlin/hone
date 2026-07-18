@@ -100,22 +100,22 @@ describe('commerce HTTP routes (v2.10.1)', () => {
     ['alice', 'bob', 'carol', 'mallory', 'shindevlin', 'protocol'].forEach(
       a => epochBandwidth.seedForTest(a)
     );
-    // Give Alice some BTCPC so she can stake
+    // Give Alice some HONE so she can stake
     stateStore.applyEntry({
       type: 'FAUCET',
-      from: 'btcpc_genesis',
+      from: 'hone_genesis',
       to: 'alice',
-      token: 'BTCPC',
+      token: 'HONE',
       amount: 10000,
       epoch: 0,
       timestamp: 1,
     });
-    // Give Bob some BTCPC so he can buy
+    // Give Bob some HONE so he can buy
     stateStore.applyEntry({
       type: 'FAUCET',
-      from: 'btcpc_genesis',
+      from: 'hone_genesis',
       to: 'bob',
-      token: 'BTCPC',
+      token: 'HONE',
       amount: 1000,
       epoch: 0,
       timestamp: 2,
@@ -148,7 +148,7 @@ describe('commerce HTTP routes (v2.10.1)', () => {
       expect(r.body.success).toBe(true);
       expect(r.body.store.name).toBe('Alice Shop');
       expect(r.body.store.capacity).toBe(10);
-      expect(r.body.stake_btcpc).toBe(10); // 1 BTCPC per slot
+      expect(r.body.stake_hone).toBe(10); // 1 HONE per slot
       expect(stateStore.getStore('alice')).toBeTruthy();
     });
 
@@ -175,7 +175,7 @@ describe('commerce HTTP routes (v2.10.1)', () => {
         port,
         'POST',
         '/api/commerce/stores',
-        { name: 'Big Shop', initial_capacity: 10000 }, // requires 10000 BTCPC stake
+        { name: 'Big Shop', initial_capacity: 10000 }, // requires 10000 HONE stake
         'bob' // only has 1000
       );
       expect(r.status).toBe(402);
@@ -365,7 +365,7 @@ describe('commerce HTTP routes (v2.10.1)', () => {
     });
 
     test('insufficient balance returns 402', async () => {
-      // carol has no BTCPC at all
+      // carol has no HONE at all
       const r = await request(
         port,
         'POST',
@@ -477,7 +477,7 @@ describe('commerce HTTP routes (v2.10.1)', () => {
       const r = await request(port, 'GET', '/api/commerce/quote/capacity?current=0&additional=10');
       expect(r.status).toBe(200);
       expect(r.body.cost_usd).toBeGreaterThan(0);
-      expect(r.body.stake_btcpc).toBe(10);
+      expect(r.body.stake_hone).toBe(10);
     });
   });
 });

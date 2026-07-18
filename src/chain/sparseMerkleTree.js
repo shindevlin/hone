@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Sparse Merkle Tree
+ * HONE Sparse Merkle Tree
  * Shin Devlin
  *
  * Fixed-depth (32-level) Sparse Merkle Tree for account state commitments.

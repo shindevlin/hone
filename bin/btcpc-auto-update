@@ -1,8 +1,0 @@
-#!/usr/bin/env node
-"use strict";
-// DEPRECATED — auto-update logic ported to rust/btcpc-node/src/updater.rs
-// Kept as a stub so existing test assertions on file presence continue to pass.
-
-const INTERVAL = parseInt(process.env.BTCPC_UPDATE_INTERVAL_MS || "21600000", 10);
-
-process.stdout.write("[auto-update] stub — active implementation is in Rust updater\n");

@@ -27,16 +27,16 @@ const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const MIN_STREAM_FEE = 0.001;
 const COST_PER_TOKEN = 0.000001;
 const MAX_PROMPT_LENGTH = 8000;
-const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const BLOB_DIR = process.env.HONE_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
 
 const VISION_MODEL_PATTERNS = [/llava/i, /bakllava/i, /moondream/i, /minicpm-v/i, /qwen.*vl/i];
 function _isVisionModel(name) { return VISION_MODEL_PATTERNS.some((re) => re.test(name)); }
 
 function _pickStreamModel(tier, hasImages, requestedModel) {
-  if (hasImages) return requestedModel || process.env.BTCPC_VISION_MODEL || "llava:7b";
-  if (tier === "reasoning") return requestedModel || process.env.BTCPC_REASONING_MODEL || "qwq:32b";
-  if (tier === "fast") return requestedModel || process.env.BTCPC_FAST_MODEL || "qwen3:0.6b";
-  return requestedModel || process.env.BTCPC_MODEL || "qwen3:4b";
+  if (hasImages) return requestedModel || process.env.HONE_VISION_MODEL || "llava:7b";
+  if (tier === "reasoning") return requestedModel || process.env.HONE_REASONING_MODEL || "qwq:32b";
+  if (tier === "fast") return requestedModel || process.env.HONE_FAST_MODEL || "qwen3:0.6b";
+  return requestedModel || process.env.HONE_MODEL || "qwen3:4b";
 }
 
 function _storeInlineBlob(b64, maxBytes) {
@@ -65,9 +65,9 @@ router.post("/stream", authenticateToken, async (req, res) => {
 
   if (!prompt) return res.status(400).json({ error: "prompt required" });
 
-  const balance = stateStore.getBalance(buyer, "BTCPC");
+  const balance = stateStore.getBalance(buyer, "HONE");
   if (balance < MIN_STREAM_FEE) {
-    return res.status(402).json({ error: `Insufficient balance: need at least ${MIN_STREAM_FEE} BTCPC` });
+    return res.status(402).json({ error: `Insufficient balance: need at least ${MIN_STREAM_FEE} HONE` });
   }
 
   // Images: accept pre-uploaded CIDs or inline base64 (max 4MB each, max 5)
@@ -168,7 +168,7 @@ router.post("/stream", authenticateToken, async (req, res) => {
     });
 
     // Charge after streaming completes
-    const costPerToken = parseFloat(process.env.BTCPC_STREAM_COST_PER_TOKEN) || COST_PER_TOKEN;
+    const costPerToken = parseFloat(process.env.HONE_STREAM_COST_PER_TOKEN) || COST_PER_TOKEN;
     const actualCost = Math.min(maxFee, parseFloat((totalTokens * costPerToken).toFixed(10)));
 
     try {
@@ -188,7 +188,7 @@ router.post("/stream", authenticateToken, async (req, res) => {
 
     send("done", {
       tokens: totalTokens,
-      cost_btcpc: actualCost,
+      cost_hone: actualCost,
       model: resolvedModel,
       images: imageCids.length > 0 ? imageCids.length : undefined,
       audio_transcribed: audioTranscript ? true : undefined,

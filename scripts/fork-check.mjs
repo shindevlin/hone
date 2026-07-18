@@ -24,7 +24,7 @@
 //
 // SECONDARY USE — RE-GENESIS CUTOVER VERIFIER
 // -------------------------------------------
-// During the BTCPC->HONE re-genesis cutover, every founder rebuilds, wipes its
+// During the HONE->HONE re-genesis cutover, every founder rebuilds, wipes its
 // data dir, and restarts on the new "hone" genesis. The single question that
 // determines whether the cutover SUCCEEDED is: "did every node land on the
 // SAME new block-0 hash?" Run this script with --epoch 0 against all founder
@@ -39,7 +39,7 @@
 //      GET /api/latest                        -> latest sealed epoch + hash
 //   2. Assert every node reports the SAME chain_id. A chain_id mismatch means
 //      the nodes are not even trying to be the same network (e.g. one still on
-//      "btcpc-2", one on "hone") — reported as a distinct, louder failure than
+//      "hone-2", one on "hone") — reported as a distinct, louder failure than
 //      a hash fork.
 //   3. Pick the comparison height: the MINIMUM latest-sealed epoch across all
 //      nodes (the highest block every node is guaranteed to have), unless the
@@ -229,7 +229,7 @@ async function main() {
   if (chainIds.length > 1) {
     report.verdict = "CHAIN_ID_MISMATCH";
     report.detail += `Nodes report DIFFERENT chain_ids: ${reachable.map(n => `${n.label}=${n.chain_id}`).join(", ")}. `
-                   + `These are not the same network (e.g. a node still on btcpc-2 vs hone). Fix before comparing blocks.`;
+                   + `These are not the same network (e.g. a node still on hone-2 vs hone). Fix before comparing blocks.`;
     return finish(report, 2);
   }
   const chainId = chainIds[0];

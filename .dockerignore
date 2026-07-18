@@ -9,8 +9,8 @@ logs
 *.log
 .DS_Store
 btcpc/
-website/btcpc-image.tar.gz
-website/btcpc-image.tar
+website/hone-image.tar.gz
+website/hone-image.tar
 tests
 coverage
 .nyc_output

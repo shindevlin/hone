@@ -3,7 +3,7 @@
 # Usage: bash scripts/emergency-pause.sh
 export PATH="$HOME/.foundry/bin:$PATH"
 source .env
-KEY="${BTCPC_SHIN_EVM_KEY}"
+KEY="${HONE_SHIN_EVM_KEY}"
 if [ -z "$KEY" ]; then echo "FATAL: No EVM key"; exit 1; fi
 
 echo "!!! EMERGENCY PAUSE — ALL CHAINS !!!"

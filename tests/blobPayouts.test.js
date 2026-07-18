@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS payout tests — v2.11.1
+ * HONE-FS payout tests — v2.11.1
  *
  * Tests the pro-rata payout distribution logic in isolation (computePayouts)
  * and with real ledger + stateStore wiring (settlePayouts).
@@ -39,7 +39,7 @@ describe('blobPayouts (v2.11.1)', () => {
     test('90/9/1 split of the pool', () => {
       const result = payouts.computePayouts({
         cid: CID_A,
-        payment_btcpc: 100,
+        payment_hone: 100,
         bytes_served_by_host: { alice: 1000 },
       });
       expect(result.total_pool).toBe(100);
@@ -51,25 +51,25 @@ describe('blobPayouts (v2.11.1)', () => {
     test('single host gets 100% of host pool', () => {
       const result = payouts.computePayouts({
         cid: CID_A,
-        payment_btcpc: 100,
+        payment_hone: 100,
         bytes_served_by_host: { alice: 1000 },
       });
       expect(result.host_payouts.length).toBe(1);
       expect(result.host_payouts[0].host).toBe('alice');
-      expect(result.host_payouts[0].amount_btcpc).toBe(90);
+      expect(result.host_payouts[0].amount_hone).toBe(90);
     });
 
     test('two hosts split pro-rata by bytes served', () => {
       const result = payouts.computePayouts({
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         bytes_served_by_host: { alice: 300, bob: 700 },
       });
       // host_pool = 900
       // alice = 900 * (300/1000) = 270
       // bob   = 900 * (700/1000) = 630
       const byHost = {};
-      result.host_payouts.forEach((p) => { byHost[p.host] = p.amount_btcpc; });
+      result.host_payouts.forEach((p) => { byHost[p.host] = p.amount_hone; });
       expect(byHost.alice).toBeCloseTo(270, 5);
       expect(byHost.bob).toBeCloseTo(630, 5);
     });
@@ -77,19 +77,19 @@ describe('blobPayouts (v2.11.1)', () => {
     test('three hosts split equally when bytes equal', () => {
       const result = payouts.computePayouts({
         cid: CID_A,
-        payment_btcpc: 300,
+        payment_hone: 300,
         bytes_served_by_host: { alice: 100, bob: 100, carol: 100 },
       });
       // host_pool = 270, each = 90
       result.host_payouts.forEach((p) => {
-        expect(p.amount_btcpc).toBeCloseTo(90, 5);
+        expect(p.amount_hone).toBeCloseTo(90, 5);
       });
     });
 
     test('zero bytes served → zero host payouts (pool preserved)', () => {
       const result = payouts.computePayouts({
         cid: CID_A,
-        payment_btcpc: 100,
+        payment_hone: 100,
         bytes_served_by_host: {},
       });
       expect(result.total_bytes_served).toBe(0);
@@ -101,7 +101,7 @@ describe('blobPayouts (v2.11.1)', () => {
     test('zero pool → zero payouts', () => {
       const result = payouts.computePayouts({
         cid: CID_A,
-        payment_btcpc: 0,
+        payment_hone: 0,
         bytes_served_by_host: { alice: 1000 },
       });
       expect(result.host_pool).toBe(0);
@@ -112,11 +112,11 @@ describe('blobPayouts (v2.11.1)', () => {
     test('host with zero bytes in non-empty map gets zero', () => {
       const result = payouts.computePayouts({
         cid: CID_A,
-        payment_btcpc: 100,
+        payment_hone: 100,
         bytes_served_by_host: { alice: 0, bob: 1000 },
       });
       const byHost = {};
-      result.host_payouts.forEach((p) => { byHost[p.host] = p.amount_btcpc; });
+      result.host_payouts.forEach((p) => { byHost[p.host] = p.amount_hone; });
       expect(byHost.alice).toBe(0);
       expect(byHost.bob).toBe(90);
     });
@@ -124,12 +124,12 @@ describe('blobPayouts (v2.11.1)', () => {
 
   describe('settlePayouts (end-to-end with ledger)', () => {
     beforeEach(() => {
-      // Seed uploader with BTCPC so recordTransfer succeeds
+      // Seed uploader with HONE so recordTransfer succeeds
       stateStore.applyEntry({
         type: 'FAUCET',
-        from: 'btcpc_genesis',
+        from: 'hone_genesis',
         to: 'shindevlin',
-        token: 'BTCPC',
+        token: 'HONE',
         amount: 10000,
         epoch: 0,
         timestamp: 1,
@@ -144,7 +144,7 @@ describe('blobPayouts (v2.11.1)', () => {
         1000,
         ['alice'],
         100,
-        100, // 100 BTCPC payment pool
+        100, // 100 HONE payment pool
         1
       );
       // Alice serves some bytes
@@ -157,14 +157,14 @@ describe('blobPayouts (v2.11.1)', () => {
       });
 
       expect(result.transfers.length).toBeGreaterThan(0);
-      // Alice should receive 90 BTCPC (the full host pool)
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBeCloseTo(90, 5);
+      // Alice should receive 90 HONE (the full host pool)
+      expect(stateStore.getBalance('alice', 'HONE')).toBeCloseTo(90, 5);
       // Recycle gets 9
-      expect(stateStore.getBalance('btcpc_recycle', 'BTCPC')).toBeCloseTo(9, 5);
+      expect(stateStore.getBalance('hone_recycle', 'HONE')).toBeCloseTo(9, 5);
       // Reputation pool gets 1
-      expect(stateStore.getBalance('btcpc_reputation_pool', 'BTCPC')).toBeCloseTo(1, 5);
+      expect(stateStore.getBalance('hone_reputation_pool', 'HONE')).toBeCloseTo(1, 5);
       // Uploader paid 100 total
-      expect(stateStore.getBalance('shindevlin', 'BTCPC')).toBeCloseTo(10000 - 100, 5);
+      expect(stateStore.getBalance('shindevlin', 'HONE')).toBeCloseTo(10000 - 100, 5);
     });
 
     test('settles three-host pool pro-rata', async () => {
@@ -174,7 +174,7 @@ describe('blobPayouts (v2.11.1)', () => {
         1000,
         ['alice', 'bob', 'carol'],
         100,
-        1000, // 1000 BTCPC payment pool
+        1000, // 1000 HONE payment pool
         1
       );
       await ledger.recordBlobServeProof('alice', CID_A, 100, 1, null, 2); // 10%
@@ -186,11 +186,11 @@ describe('blobPayouts (v2.11.1)', () => {
 
       // host_pool = 900
       // alice = 90, bob = 270, carol = 540
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBeCloseTo(90, 5);
-      expect(stateStore.getBalance('bob', 'BTCPC')).toBeCloseTo(270, 5);
-      expect(stateStore.getBalance('carol', 'BTCPC')).toBeCloseTo(540, 5);
-      expect(stateStore.getBalance('btcpc_recycle', 'BTCPC')).toBeCloseTo(90, 5);
-      expect(stateStore.getBalance('btcpc_reputation_pool', 'BTCPC')).toBeCloseTo(10, 5);
+      expect(stateStore.getBalance('alice', 'HONE')).toBeCloseTo(90, 5);
+      expect(stateStore.getBalance('bob', 'HONE')).toBeCloseTo(270, 5);
+      expect(stateStore.getBalance('carol', 'HONE')).toBeCloseTo(540, 5);
+      expect(stateStore.getBalance('hone_recycle', 'HONE')).toBeCloseTo(90, 5);
+      expect(stateStore.getBalance('hone_reputation_pool', 'HONE')).toBeCloseTo(10, 5);
     });
 
     test('no-bytes-served returns empty transfers, no debits', async () => {
@@ -209,8 +209,8 @@ describe('blobPayouts (v2.11.1)', () => {
         epoch: 2,
       });
       expect(result.transfers).toEqual([]);
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBe(0);
-      expect(stateStore.getBalance('shindevlin', 'BTCPC')).toBe(10000);
+      expect(stateStore.getBalance('alice', 'HONE')).toBe(0);
+      expect(stateStore.getBalance('shindevlin', 'HONE')).toBe(10000);
     });
 
     test('zero pool returns empty transfers', async () => {
@@ -239,7 +239,7 @@ describe('blobPayouts (v2.11.1)', () => {
         size: 1000,
         hosts: ['alice'],
         uploader: null,
-        payment_btcpc: 100,
+        payment_hone: 100,
         bytes_served_by_host: { alice: 5000 },
       };
       await expect(
@@ -254,7 +254,7 @@ describe('blobPayouts (v2.11.1)', () => {
       // Pass no uploader option — should use blob.uploader
       const result = await payouts.settlePayouts(blob, { epoch: 3 });
       expect(result.transfers.length).toBe(3);
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBeCloseTo(90, 5);
+      expect(stateStore.getBalance('alice', 'HONE')).toBeCloseTo(90, 5);
     });
   });
 });

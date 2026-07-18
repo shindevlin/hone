@@ -2,11 +2,11 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const TelegramBot = require('node-telegram-bot-api');
 const mongoose = require('mongoose');
 
-const BOT_TOKEN = process.env.BTCPC_BOT_TOKEN;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://root:example@localhost:27017/btcpc?authSource=admin';
+const BOT_TOKEN = process.env.HONE_BOT_TOKEN;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://root:example@localhost:27017/hone?authSource=admin';
 
 if (!BOT_TOKEN) {
-  console.error('BTCPC_BOT_TOKEN required');
+  console.error('HONE_BOT_TOKEN required');
   process.exit(1);
 }
 
@@ -44,14 +44,14 @@ async function getLinkedUser(telegramId) {
 // ── /start ──
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, [
-    `\u{26D3} *BTCPC Node Bot*`,
+    `\u{26D3} *HONE Node Bot*`,
     ``,
     `Link your account: \`/link <username>\``,
     `Then verify: \`/verify <challenge>\``,
     ``,
     `*Commands:*`,
-    `/claim — get 1 free BTCPC (one-time)`,
-    `/balance — BTCPC balance & staked`,
+    `/claim — get 1 free HONE (one-time)`,
+    `/balance — HONE balance & staked`,
     `/mining — mining stats & recent epochs`,
     `/epoch — current epoch info`,
     `/network — network overview`,
@@ -62,7 +62,7 @@ bot.onText(/\/start/, (msg) => {
     `/reward — current block reward`,
     `/price [model] — inference pricing (model-aware)`,
     `/models — models available on the network`,
-    `Just type anything to submit inference (0.001 BTCPC/token)`,
+    `Just type anything to submit inference (0.001 HONE/token)`,
     `/peers — list registered P2P peers`,
     `/register <ws://ip:port> — register your node for peer discovery`,
     `/unlink — unlink Telegram account`,
@@ -91,7 +91,7 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
       `\`${result.challenge}\``,
       ``,
       `*How to sign (CLI):*`,
-      `\`node bin/btcpc-cli sign-challenge ${result.challenge}\``,
+      `\`node bin/hone-cli sign-challenge ${result.challenge}\``,
       ``,
       `Then reply here with:`,
       `\`/verify <signature>:<recovery>\``,
@@ -114,14 +114,14 @@ bot.onText(/\/verify\s+(\S+)/, async (msg, match) => {
     // Parse signature:recovery format
     const parts = input.split(':');
     if (parts.length !== 2) {
-      return bot.sendMessage(chatId, 'Format: `/verify <signature>:<recovery>`\nGet this from: `node bin/btcpc-cli sign-challenge <challenge>`', { parse_mode: 'Markdown' });
+      return bot.sendMessage(chatId, 'Format: `/verify <signature>:<recovery>`\nGet this from: `node bin/hone-cli sign-challenge <challenge>`', { parse_mode: 'Markdown' });
     }
 
     const signature = parts[0];
     const recovery = parseInt(parts[1], 10);
 
     if (!/^[0-9a-f]{128}$/i.test(signature) || isNaN(recovery)) {
-      return bot.sendMessage(chatId, 'Invalid signature format. Use the output from `btcpc-cli sign-challenge`.', { parse_mode: 'Markdown' });
+      return bot.sendMessage(chatId, 'Invalid signature format. Use the output from `hone-cli sign-challenge`.', { parse_mode: 'Markdown' });
     }
 
     // Find user with pending link for this telegram ID
@@ -162,13 +162,13 @@ bot.onText(/\/claim/, async (msg) => {
   try {
     const FAUCET_AMOUNT = 1;
 
-    let wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+    let wallet = await Wallet.findOne({ userId: user._id, chain: 'hone' });
     if (!wallet) {
       wallet = new Wallet({
         userId: user._id,
-        chain: 'btcpc',
-        address: 'btcpc_' + require('crypto').randomBytes(20).toString('hex'),
-        balance: new Map([['BTCPC', 0]])
+        chain: 'hone',
+        address: 'hone_' + require('crypto').randomBytes(20).toString('hex'),
+        balance: new Map([['HONE', 0]])
       });
     }
 
@@ -177,26 +177,26 @@ bot.onText(/\/claim/, async (msg) => {
       return bot.sendMessage(msg.chat.id, `You've already claimed your starter tokens. To request more, email shindevlin@proton.me with your username.`);
     }
 
-    const balance = wallet.balance.get('BTCPC') || 0;
-    wallet.balance.set('BTCPC', balance + FAUCET_AMOUNT);
+    const balance = wallet.balance.get('HONE') || 0;
+    wallet.balance.set('HONE', balance + FAUCET_AMOUNT);
     await wallet.save();
 
     const tx = new Transaction({
-      from: 'btcpc_faucet',
+      from: 'hone_faucet',
       to: wallet.address,
       amount: FAUCET_AMOUNT,
       type: 'faucet',
-      memo: 'Welcome to BTCPC — starter tokens'
+      memo: 'Welcome to HONE — starter tokens'
     });
     await tx.save();
 
     bot.sendMessage(msg.chat.id, [
-      `\u{2705} *Claimed ${FAUCET_AMOUNT} BTCPC*`,
+      `\u{2705} *Claimed ${FAUCET_AMOUNT} HONE*`,
       ``,
-      `Balance: \`${fmt(balance + FAUCET_AMOUNT)} BTCPC\``,
+      `Balance: \`${fmt(balance + FAUCET_AMOUNT)} HONE\``,
       ``,
       `You can now use inference \\(just type a message\\)`,
-      `Need more? Email shin@btcpc\\.network`,
+      `Need more? Email shin@hone\\.network`,
     ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
@@ -209,8 +209,8 @@ bot.onText(/\/balance/, async (msg) => {
   if (!user) return bot.sendMessage(msg.chat.id, 'Link your account first: `/link <username>`', { parse_mode: 'Markdown' });
 
   try {
-    const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-    const balance = wallet?.balance?.get('BTCPC') || 0;
+    const wallet = await Wallet.findOne({ userId: user._id, chain: 'hone' });
+    const balance = wallet?.balance?.get('HONE') || 0;
 
     const node = await Node.findOne({ account: user._id });
     const staked = node?.stake_amount || 0;
@@ -221,9 +221,9 @@ bot.onText(/\/balance/, async (msg) => {
     bot.sendMessage(msg.chat.id, [
       `\u{1F4B0} *${user.username}* Balance`,
       ``,
-      `Spendable: \`${fmt(balance)} BTCPC\``,
-      `Staked: \`${fmt(staked)} BTCPC\``,
-      `Total: \`${fmt(balance + staked)} BTCPC\``,
+      `Spendable: \`${fmt(balance)} HONE\``,
+      `Staked: \`${fmt(staked)} HONE\``,
+      `Total: \`${fmt(balance + staked)} HONE\``,
       ``,
       `Mining Proofs: ${proofCount} \\(soulbound\\)`,
       `Genesis Dreams: ${dreamCount} \\(NFTs\\)`,
@@ -254,7 +254,7 @@ bot.onText(/\/mining/, async (msg) => {
 
     const recentLines = recentEpochs.map(e => {
       const reward = e.rewards_distributed?.[0]?.amount || e.block_reward || 0;
-      return `  Epoch ${e.epoch_number}: \\+${esc(fmt(reward))} BTCPC`;
+      return `  Epoch ${e.epoch_number}: \\+${esc(fmt(reward))} HONE`;
     });
 
     bot.sendMessage(msg.chat.id, [
@@ -284,7 +284,7 @@ bot.onText(/\/epoch/, async (msg) => {
       `\u{1F4E6} *Epoch ${current.epoch_number}*`,
       ``,
       `Status: ${current.status}`,
-      `Block reward: \`${fmt(reward, 8)} BTCPC\``,
+      `Block reward: \`${fmt(reward, 8)} HONE\``,
       `Total work: ${current.total_work}`,
       `Difficulty: ${current.difficulty}`,
       `Started: ${current.started_at?.toISOString?.() || 'N/A'}`,
@@ -313,11 +313,11 @@ bot.onText(/\/network/, async (msg) => {
     const currentReward = getBlockReward(totalEpochs);
 
     bot.sendMessage(msg.chat.id, [
-      `\u{1F310} *BTCPC Network*`,
+      `\u{1F310} *HONE Network*`,
       ``,
-      `Total supply: 42,000,000 BTCPC`,
-      `Mined so far: \`${fmt(mined)} BTCPC\``,
-      `Current block reward: \`${fmt(currentReward, 8)} BTCPC\``,
+      `Total supply: 42,000,000 HONE`,
+      `Mined so far: \`${fmt(mined)} HONE\``,
+      `Current block reward: \`${fmt(currentReward, 8)} HONE\``,
       ``,
       `Epochs: ${finalizedEpochs} finalized`,
       `Active nodes: ${activeNodes}`,
@@ -343,7 +343,7 @@ bot.onText(/\/proofs/, async (msg) => {
     if (!proofs.length) return bot.sendMessage(msg.chat.id, 'No mining proofs yet.');
 
     const lines = proofs.map(p =>
-      `  Block ${p.block_number}: ${fmt(p.reward_earned)} BTCPC | ${p.tokens_computed} tokens | ${p.model}`
+      `  Block ${p.block_number}: ${fmt(p.reward_earned)} HONE | ${p.tokens_computed} tokens | ${p.model}`
     );
 
     bot.sendMessage(msg.chat.id, [
@@ -400,7 +400,7 @@ bot.onText(/\/node/, async (msg) => {
       `Status: ${node.status}`,
       `Models: ${node.models.join(', ') || 'none'}`,
       `Endpoint: \`${node.endpoint}\``,
-      `Stake: ${fmt(node.stake_amount)} BTCPC`,
+      `Stake: ${fmt(node.stake_amount)} HONE`,
       `Reputation: ${node.reputation}/100`,
       `Last epoch: ${node.last_epoch_commitment}`,
       ``,
@@ -430,7 +430,7 @@ bot.onText(/\/history/, async (msg) => {
     const lines = txs.map(tx => {
       const dir = tx.to === user.username ? '\u{2B06}' : '\u{2B07}';
       const other = tx.to === user.username ? tx.from : tx.to;
-      return `  ${dir} ${tx.type}: ${fmt(tx.amount)} BTCPC ${tx.to === user.username ? 'from' : 'to'} ${other}`;
+      return `  ${dir} ${tx.type}: ${fmt(tx.amount)} HONE ${tx.to === user.username ? 'from' : 'to'} ${other}`;
     });
 
     bot.sendMessage(msg.chat.id, [
@@ -455,8 +455,8 @@ bot.onText(/\/reward/, async (msg) => {
       `\u{1F4B8} *Block Reward*`,
       ``,
       `Current epoch: ${epochNum}`,
-      `Reward: \`${fmt(reward, 8)} BTCPC\``,
-      `Next epoch reward: \`${fmt(nextReward, 8)} BTCPC\``,
+      `Reward: \`${fmt(reward, 8)} HONE\``,
+      `Next epoch reward: \`${fmt(nextReward, 8)} HONE\``,
     ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
@@ -470,11 +470,11 @@ bot.onText(/\/price\s*(.*)/, async (msg, match) => {
     const model = match[1]?.trim() || undefined;
     const p = await getCurrentPricing(model);
     bot.sendMessage(msg.chat.id, [
-      `\u{1F4B0} *BTCPC Inference Pricing*`,
+      `\u{1F4B0} *HONE Inference Pricing*`,
       model ? `Model: \`${model}\`` : '',
       ``,
-      `1 BTCPC = ${p.tokensPerBtcpc} tokens`,
-      `Cost per token: ${p.costPerToken.toFixed(6)} BTCPC`,
+      `1 HONE = ${p.tokensPerHone} tokens`,
+      `Cost per token: ${p.costPerToken.toFixed(6)} HONE`,
       `Network load: ${(p.load * 100).toFixed(1)}%`,
       `Load multiplier: ${p.loadMultiplier}x`,
       `Model weight: ${p.modelWeight}x`,
@@ -522,8 +522,8 @@ bot.onText(/\/models/, async (msg) => {
 });
 
 // ── Inference via relay ──
-const RELAY_URL = process.env.BTCPC_RELAY_URL || 'https://btcpc-relay.shindevlin.workers.dev';
-const RELAY_API_KEY = process.env.BTCPC_RELAY_API_KEY || 'btcpc_0236fb3a9c63dc7e556bfeed5dc92290';
+const RELAY_URL = process.env.HONE_RELAY_URL || 'https://hone-relay.shindevlin.workers.dev';
+const RELAY_API_KEY = process.env.HONE_RELAY_API_KEY || 'hone_0236fb3a9c63dc7e556bfeed5dc92290';
 const axios = require('axios');
 
 // ── Default message handler — any text that isn't a command goes to inference ──
@@ -539,26 +539,26 @@ bot.on('message', async (msg) => {
   if (!user) return bot.sendMessage(chatId, 'Link your account first: `/link <username>`', { parse_mode: 'Markdown' });
 
   const Wallet = require('../src/models/Wallet');
-  const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-  const balance = wallet?.balance?.get('BTCPC') || 0;
-  // Check user has staked at least 1 BTCPC for bot access
+  const wallet = await Wallet.findOne({ userId: user._id, chain: 'hone' });
+  const balance = wallet?.balance?.get('HONE') || 0;
+  // Check user has staked at least 1 HONE for bot access
   const StakingPool = require('../src/models/StakingPool');
   const stake = await StakingPool.findOne({ account: user._id, status: 'active' });
   const staked = stake?.staked_amount || 0;
   if (staked < 1) {
-    return bot.sendMessage(chatId, `\u{274C} You need at least 1 BTCPC staked to use inference. Currently staked: ${fmt(staked)}. Use the CLI to stake.`);
+    return bot.sendMessage(chatId, `\u{274C} You need at least 1 HONE staked to use inference. Currently staked: ${fmt(staked)}. Use the CLI to stake.`);
   }
 
   const minBalance = 0.01; // minimum to submit
   if (balance < minBalance) {
-    return bot.sendMessage(chatId, `\u{274C} Insufficient balance. You have ${fmt(balance)} BTCPC, need at least ${minBalance}.`);
+    return bot.sendMessage(chatId, `\u{274C} Insufficient balance. You have ${fmt(balance)} HONE, need at least ${minBalance}.`);
   }
 
-  const statusMsg = await bot.sendMessage(chatId, '\u{1F504} Submitting to BTCPC network...');
+  const statusMsg = await bot.sendMessage(chatId, '\u{1F504} Submitting to HONE network...');
 
   try {
     // Submit async job via local API
-    const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3000';
+    const API_URL = process.env.HONE_API_URL || 'http://localhost:3000';
     const submitRes = await axios.post(`${API_URL}/v1/inference/submit`, {
       model: 'qwen3.5:27b',
       messages: [{ role: 'user', content: prompt }],
@@ -616,7 +616,7 @@ bot.on('message', async (msg) => {
     const newBalance = balance - cost;
 
     // Deduct
-    wallet.balance.set('BTCPC', Math.max(0, newBalance));
+    wallet.balance.set('HONE', Math.max(0, newBalance));
     await wallet.save();
 
     // Delete status message
@@ -625,7 +625,7 @@ bot.on('message', async (msg) => {
     // Send result
     const maxLen = 3600;
     const truncated = text.length > maxLen ? text.slice(0, maxLen) + '\n\n... (truncated)' : text;
-    const footer = `\n\n\u{26D3} ${tokens} tokens | ${fmt(cost)} BTCPC | bal: ${fmt(newBalance)} | ${(elapsed / 1000).toFixed(1)}s | ${node}`;
+    const footer = `\n\n\u{26D3} ${tokens} tokens | ${fmt(cost)} HONE | bal: ${fmt(newBalance)} | ${(elapsed / 1000).toFixed(1)}s | ${node}`;
 
     bot.sendMessage(chatId, truncated + footer).catch(() => {
       bot.sendMessage(chatId, text.slice(0, 3600) + footer);
@@ -686,7 +686,7 @@ bot.onText(/\/peers/, async (msg) => {
       ...lines,
       ``,
       `Add to your .env:`,
-      `\`BTCPC_SEED_PEERS=${peers.map(p => p.address).join(',')}\``,
+      `\`HONE_SEED_PEERS=${peers.map(p => p.address).join(',')}\``,
     ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
@@ -765,20 +765,20 @@ httpApp.post('/peers/heartbeat', async (req, res) => {
   res.json({ ok: true });
 });
 
-httpApp.get('/health', (_req, res) => res.json({ status: 'ok', service: 'btcpc-bot' }));
+httpApp.get('/health', (_req, res) => res.json({ status: 'ok', service: 'hone-bot' }));
 
 const HTTP_PORT = process.env.BOT_HTTP_PORT || 3003;
 
 // ── Connect and start ──
 async function main() {
-  console.log('[btcpc-bot] Connecting to MongoDB...');
+  console.log('[hone-bot] Connecting to MongoDB...');
   await mongoose.connect(MONGODB_URI);
-  console.log('[btcpc-bot] MongoDB connected');
-  httpApp.listen(HTTP_PORT, () => console.log(`[btcpc-bot] HTTP peer registry on port ${HTTP_PORT}`));
-  console.log('[btcpc-bot] @btcpcbot is live');
+  console.log('[hone-bot] MongoDB connected');
+  httpApp.listen(HTTP_PORT, () => console.log(`[hone-bot] HTTP peer registry on port ${HTTP_PORT}`));
+  console.log('[hone-bot] @honebot is live');
 }
 
 main().catch(err => {
-  console.error('[btcpc-bot] Fatal:', err.message);
+  console.error('[hone-bot] Fatal:', err.message);
   process.exit(1);
 });

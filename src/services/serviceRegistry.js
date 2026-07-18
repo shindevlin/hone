@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Service Registry — v2.13-alpha
+ * HONE Service Registry — v2.13-alpha
  * Shin Devlin
  *
  * In-memory registry for stateless compute hosting. A "service" is a
@@ -15,14 +15,14 @@
  * exercised by routes, tests, and the host-side service runner.
  *
  * Service slug format: "<deployer>/<service-name>"
- *   - deployer must be a valid BTCPC account name
+ *   - deployer must be a valid HONE account name
  *   - service-name matches /^[a-z0-9][a-z0-9-]{0,62}$/
  *   - same rules as commerce product slugs (v2.10)
  *
  * Runtime spec:
  *   {
  *     type: "http" | "tcp" | "wasm" | "static",
- *     binary_cid: 64-char hex (BTCPC-FS reference to executable/build),
+ *     binary_cid: 64-char hex (HONE-FS reference to executable/build),
  *     cpu: number (cores requested),
  *     ram_mb: number (RAM requested),
  *     port: number | null (TCP/HTTP port, null for static/wasm),
@@ -119,7 +119,7 @@ function deploy(deployer, slug, runtimeSpec, options) {
       runtime: runtimeSpec,
       min_replicas: options.min_replicas || 1,
       price_per_hour: _round(options.price_per_hour || 0),
-      price_token: options.price_token || "BTCPC",
+      price_token: options.price_token || "HONE",
       active_hosts: [],
       total_sessions: 0,
       deployed_epoch: options.epoch || 0,

@@ -1,4 +1,4 @@
-# Soft Branch Protection Plan (BTCPC)
+# Soft Branch Protection Plan (HONE)
 
 This is a soft rollout. We run OPSEC checks and review results before hard enforcement.
 

@@ -123,44 +123,44 @@ describe('bridgeFeeDistributor — distributeFeesToLPs', () => {
   afterEach(() => bridge.resetForTests());
 
   it('distributes fees proportionally to LP weight', () => {
-    // shindevlin: 2000 BTCPC × ~365 days = higher weight
-    // natoshisakamoto: 1000 BTCPC × ~365 days = lower weight (2:1 ratio)
-    const distributions = dist.distributeFeesToLPs('base', 100, 'BTCPC', bridge);
+    // shindevlin: 2000 HONE × ~365 days = higher weight
+    // natoshisakamoto: 1000 HONE × ~365 days = lower weight (2:1 ratio)
+    const distributions = dist.distributeFeesToLPs('base', 100, 'HONE', bridge);
     expect(distributions).toHaveLength(2);
     const shin = distributions.find(d => d.funder === 'shindevlin');
     const nato = distributions.find(d => d.funder === 'natoshisakamoto');
     expect(shin).toBeDefined();
     expect(nato).toBeDefined();
-    // shindevlin should get ~2x natoshisakamoto (2000 vs 1000 BTCPC)
+    // shindevlin should get ~2x natoshisakamoto (2000 vs 1000 HONE)
     expect(shin.amount).toBeGreaterThan(nato.amount);
     expect(shin.amount / nato.amount).toBeCloseTo(2, 0);
   });
 
   it('shares sum to total fee (within rounding)', () => {
-    const distributions = dist.distributeFeesToLPs('base', 100, 'BTCPC', bridge);
+    const distributions = dist.distributeFeesToLPs('base', 100, 'HONE', bridge);
     const total = distributions.reduce((s, d) => s + d.amount, 0);
     expect(total).toBeCloseTo(100, 4);
   });
 
   it('currency is passed through correctly', () => {
-    const distributions = dist.distributeFeesToLPs('base', 50, 'wBTCPC', bridge);
-    distributions.forEach(d => expect(d.currency).toBe('wBTCPC'));
+    const distributions = dist.distributeFeesToLPs('base', 50, 'wHONE', bridge);
+    distributions.forEach(d => expect(d.currency).toBe('wHONE'));
   });
 
   it('returns empty array if no funders', () => {
     bridge.resetForTests();
     bridge.registerChain('base', { name: 'Base', bridge_reserve_address: '0xBASE' });
-    const distributions = dist.distributeFeesToLPs('base', 100, 'BTCPC', bridge);
+    const distributions = dist.distributeFeesToLPs('base', 100, 'HONE', bridge);
     expect(distributions).toHaveLength(0);
   });
 
   it('returns empty array if fee is zero', () => {
-    const distributions = dist.distributeFeesToLPs('base', 0, 'BTCPC', bridge);
+    const distributions = dist.distributeFeesToLPs('base', 0, 'HONE', bridge);
     expect(distributions).toHaveLength(0);
   });
 
   it('throws if bridgeRegistry is missing', () => {
-    expect(() => dist.distributeFeesToLPs('base', 100, 'BTCPC', null)).toThrow(/bridgeRegistry required/);
+    expect(() => dist.distributeFeesToLPs('base', 100, 'HONE', null)).toThrow(/bridgeRegistry required/);
   });
 });
 

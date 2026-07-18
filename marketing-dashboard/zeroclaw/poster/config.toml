@@ -1,11 +1,11 @@
-# ZeroClaw — BTCPC Marketing Poster
-# Routes inference through the BTCPC chain (POST /v1/chat/completions → miners)
-# api_key is injected at runtime from btcpc .env by post.sh
+# ZeroClaw — HONE Marketing Poster
+# Routes inference through the HONE chain (POST /v1/chat/completions → miners)
+# api_key is injected at runtime from hone .env by post.sh
 
-workspace_dir       = "/home/ubuntclaw/repos/btcpc/marketing-dashboard/zeroclaw/poster/workspace"
+workspace_dir       = "/home/ubuntclaw/repos/hone/marketing-dashboard/zeroclaw/poster/workspace"
 default_provider    = "openai"
 default_model       = "qwen3.5:9b"
-api_key             = "BTCPC_API_KEY_HERE"
+api_key             = "HONE_API_KEY_HERE"
 api_url             = "http://localhost:4242"
 default_temperature = 0.3
 provider_timeout_secs = 300

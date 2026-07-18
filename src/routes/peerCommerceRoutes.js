@@ -1,7 +1,7 @@
 /**
  * Peer commerce read relay — serves store/product catalog from local ledger replay.
  *
- * Every BTCPC node replays the full commerce ledger, so every node holds a complete
+ * Every HONE node replays the full commerce ledger, so every node holds a complete
  * copy of all stores and products. These routes expose that local copy publicly,
  * making the catalog censorship-resistant: no single IP is required to browse.
  *
@@ -26,7 +26,7 @@ router.get("/stores", (req, res) => {
   res.json({
     stores: stores.slice(Number(offset), Number(offset) + Number(limit)),
     total,
-    served_by: process.env.BTCPC_NODE_ID || "unknown",
+    served_by: process.env.HONE_NODE_ID || "unknown",
     source: "local-ledger",
   });
 });
@@ -41,7 +41,7 @@ router.get("/stores/:seller", (req, res) => {
   res.json({
     store: strip_store_private(store),
     products,
-    served_by: process.env.BTCPC_NODE_ID || "unknown",
+    served_by: process.env.HONE_NODE_ID || "unknown",
     source: "local-ledger",
   });
 });
@@ -59,7 +59,7 @@ router.get("/products", (req, res) => {
   res.json({
     products: products.slice(Number(offset), Number(offset) + Number(limit)).map(strip_private),
     total,
-    served_by: process.env.BTCPC_NODE_ID || "unknown",
+    served_by: process.env.HONE_NODE_ID || "unknown",
     source: "local-ledger",
   });
 });
@@ -81,9 +81,9 @@ router.get("/health", (req, res) => {
     ok: true,
     stores: stores.length,
     products: products.length,
-    served_by: process.env.BTCPC_NODE_ID || "unknown",
+    served_by: process.env.HONE_NODE_ID || "unknown",
     source: "local-ledger",
-    note: "This node mirrors the full BTCPC commerce catalog. No single IP required.",
+    note: "This node mirrors the full HONE commerce catalog. No single IP required.",
   });
 });
 

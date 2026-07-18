@@ -1,17 +1,17 @@
 "use strict";
 
 /**
- * BTCPC EVM Claim Submitter
+ * HONE EVM Claim Submitter
  * Shin Devlin
  *
- * Submits signed claim proofs to wBTCPC contracts on EVM chains.
+ * Submits signed claim proofs to wHONE contracts on EVM chains.
  * Supports: Ethereum, Base, Arbitrum, Optimism, and any EVM-compatible chain.
  *
  * Flow:
- *   1. Miner earns BTCPC reward
+ *   1. Miner earns HONE reward
  *   2. claimProofGenerator creates a signed proof
- *   3. This module submits the proof to the wBTCPC contract
- *   4. wBTCPC contract verifies signature and mints wrapped tokens
+ *   3. This module submits the proof to the wHONE contract
+ *   4. wHONE contract verifies signature and mints wrapped tokens
  *
  * Requires: funded wallet on each target chain for gas.
  * Uses raw HTTP JSON-RPC (no ethers.js dependency).
@@ -33,28 +33,28 @@ var CHAINS = {
     name: "Ethereum",
     chainId: 1,
     rpc: process.env.ETH_RPC_URL || "https://eth.llamarpc.com",
-    contract: process.env.WBTCPC_ETH_CONTRACT || null,
+    contract: process.env.WHONE_ETH_CONTRACT || null,
     explorer: "https://etherscan.io/tx/"
   },
   base: {
     name: "Base",
     chainId: 8453,
     rpc: process.env.BASE_RPC_URL || "https://mainnet.base.org",
-    contract: process.env.WBTCPC_BASE_CONTRACT || null,
+    contract: process.env.WHONE_BASE_CONTRACT || null,
     explorer: "https://basescan.org/tx/"
   },
   arbitrum: {
     name: "Arbitrum",
     chainId: 42161,
     rpc: process.env.ARB_RPC_URL || "https://arb1.arbitrum.io/rpc",
-    contract: process.env.WBTCPC_ARB_CONTRACT || null,
+    contract: process.env.WHONE_ARB_CONTRACT || null,
     explorer: "https://arbiscan.io/tx/"
   },
   optimism: {
     name: "Optimism",
     chainId: 10,
     rpc: process.env.OP_RPC_URL || "https://mainnet.optimism.io",
-    contract: process.env.WBTCPC_OP_CONTRACT || null,
+    contract: process.env.WHONE_OP_CONTRACT || null,
     explorer: "https://optimistic.etherscan.io/tx/"
   }
 };
@@ -98,7 +98,7 @@ function jsonRpc(rpcUrl, method, params) {
 // ─── EVM Signing ─────────────────────────────────────────────────
 
 /**
- * Sign a claim proof for the wBTCPC contract.
+ * Sign a claim proof for the wHONE contract.
  * Produces the same signature format the contract expects.
  *
  * @param {number} chainId — target chain ID
@@ -159,7 +159,7 @@ function encodeAddress(addr) {
 // ─── Claim Submission ────────────────────────────────────────────
 
 /**
- * Submit a claim to a wBTCPC contract on an EVM chain.
+ * Submit a claim to a wHONE contract on an EVM chain.
  *
  * @param {string} chain — chain key (e.g. "base", "ethereum")
  * @param {object} proof — from claimProofGenerator
@@ -170,7 +170,7 @@ function encodeAddress(addr) {
 async function submitClaim(chain, proof, signingKey, submitterKey) {
   var config = CHAINS[chain];
   if (!config) throw new Error("Unknown chain: " + chain);
-  if (!config.contract) throw new Error("No wBTCPC contract deployed on " + chain);
+  if (!config.contract) throw new Error("No wHONE contract deployed on " + chain);
 
   // Check if already claimed
   var claimKey = proof.miner + '|' + chain + '|' + proof.epoch;
@@ -224,8 +224,8 @@ async function submitClaim(chain, proof, signingKey, submitterKey) {
   };
   claimStore.set(claimKey, claim);
 
-  console.log("[BTCPC Claims] " + config.name + ": epoch " + proof.epoch +
-    " | " + proof.direct_amount + " wBTCPC → " + proof.target_wallet.slice(0, 10) + "...");
+  console.log("[HONE Claims] " + config.name + ": epoch " + proof.epoch +
+    " | " + proof.direct_amount + " wHONE → " + proof.target_wallet.slice(0, 10) + "...");
 
   // Note: actual on-chain submission requires a funded gas wallet and
   // transaction signing. This is the full data preparation.
@@ -240,7 +240,7 @@ async function submitClaim(chain, proof, signingKey, submitterKey) {
     chain: config.name,
     contract: config.contract,
     callData: callData,
-    amount: proof.direct_amount + " wBTCPC",
+    amount: proof.direct_amount + " wHONE",
     claim_id: claimKey
   };
 }
@@ -264,7 +264,7 @@ async function submitAllClaims(miner, epoch, amount, linkedChains, signingKey) {
       var result = await submitClaim(chain, proof, signingKey, null);
       results.push(result);
     } catch (err) {
-      console.error("[BTCPC Claims] " + chain + " failed: " + err.message);
+      console.error("[HONE Claims] " + chain + " failed: " + err.message);
     }
   }
 

@@ -5,24 +5,24 @@ const nodeRegistry = require('../chain/nodeRegistry');
 const { getModelWeight } = require('../mining/workGenerator');
 
 /**
- * Dynamic pricing engine for BTCPC inference.
+ * Dynamic pricing engine for HONE inference.
  *
  * Two factors determine cost:
  * 1. Network load — busier network = higher price
  * 2. Model size — bigger models cost more (weight factor applied)
  *
- * Base rate: 1 BTCPC = BASE_TOKENS_PER_BTCPC tokens (for a 1.0x weight model)
+ * Base rate: 1 HONE = BASE_TOKENS_PER_HONE tokens (for a 1.0x weight model)
  * A 4.0x model costs 4x more per token than a 1.0x model.
  *
  * Phase E: Epoch, WorkProof, Node Mongoose models removed.
  * Uses stateStore for epoch data and nodeRegistry for miner counts.
  */
 
-// Base: 1 BTCPC buys this many tokens at normal load (1.0x weight model)
-const BASE_TOKENS_PER_BTCPC = parseInt(process.env.BTCPC_BASE_TOKENS) || 1000;
+// Base: 1 HONE buys this many tokens at normal load (1.0x weight model)
+const BASE_TOKENS_PER_HONE = parseInt(process.env.HONE_BASE_TOKENS) || 1000;
 
 // How many recent epochs to sample for load calculation
-const LOAD_WINDOW = parseInt(process.env.BTCPC_LOAD_WINDOW) || 12; // ~1 hour at 5min epochs
+const LOAD_WINDOW = parseInt(process.env.HONE_LOAD_WINDOW) || 12; // ~1 hour at 5min epochs
 
 // Price floor/ceiling multipliers (prevents runaway pricing)
 const MIN_MULTIPLIER = 0.25;
@@ -78,7 +78,7 @@ async function getBasePricing() {
   cachedBasePricing = {
     loadMultiplier: parseFloat(loadMultiplier.toFixed(4)),
     load: parseFloat(load.toFixed(4)),
-    baseRate: BASE_TOKENS_PER_BTCPC
+    baseRate: BASE_TOKENS_PER_HONE
   };
   cacheExpiry = now + 60000;
 
@@ -98,17 +98,17 @@ async function getCurrentPricing(model) {
 
   // Total multiplier = network load * model weight (in billions)
   const totalMultiplier = base.loadMultiplier * modelWeight;
-  const tokensPerBtcpc = Math.floor(BASE_TOKENS_PER_BTCPC / totalMultiplier);
-  const costPerToken = 1 / tokensPerBtcpc;
+  const tokensPerHone = Math.floor(BASE_TOKENS_PER_HONE / totalMultiplier);
+  const costPerToken = 1 / tokensPerHone;
 
   return {
-    tokensPerBtcpc,
+    tokensPerHone,
     costPerToken,
     loadMultiplier: base.loadMultiplier,
     modelWeight,
     totalMultiplier: parseFloat(totalMultiplier.toFixed(4)),
     load: base.load,
-    baseRate: BASE_TOKENS_PER_BTCPC,
+    baseRate: BASE_TOKENS_PER_HONE,
     model: model || 'default (1.0x)'
   };
 }

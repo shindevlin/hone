@@ -1,4 +1,4 @@
-# BTCPC Version Notes
+# HONE Version Notes
 
 Version: `2026-04-24-v7`
 
@@ -13,7 +13,7 @@ wizard, legal pages, and the controller/desktop alignment pass.
 - Terms and Privacy pages are published on the website.
 - The homepage, install page, app shell, controller page, README, roadmap, and
   whitepaper all point at the same start-first flow.
-- The controller surface stays embedded in BTCPC with no BTCPC browser
+- The controller surface stays embedded in HONE with no HONE browser
   extension required.
 - The roadmap now includes a dedicated start-first UX phase.
 - `/start` now renders as a true step-by-step wizard with persistent progress,

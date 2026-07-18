@@ -1,18 +1,18 @@
 Scanning dir /src
 Starting filesystem walk for root: /
 Scanned /src/camofox-browser/package-lock.json file and found 439 packages
-Scanned /src/rust/btcpc-android/Cargo.lock file and found 551 packages
-Scanned /src/rust/btcpc-cli/Cargo.lock file and found 253 packages
-Scanned /src/rust/btcpc-node/Cargo.lock file and found 539 packages
-Scanned /src/rust/btcpc-contract-sdk/Cargo.lock file and found 41 packages
-Scanned /src/rust/btcpc-bot/Cargo.lock file and found 258 packages
-Scanned /src/rust/btcpc-sdk/Cargo.lock file and found 225 packages
+Scanned /src/rust/hone-android/Cargo.lock file and found 551 packages
+Scanned /src/rust/hone-cli/Cargo.lock file and found 253 packages
+Scanned /src/rust/hone-node/Cargo.lock file and found 539 packages
+Scanned /src/rust/hone-contract-sdk/Cargo.lock file and found 41 packages
+Scanned /src/rust/hone-bot/Cargo.lock file and found 258 packages
+Scanned /src/rust/hone-sdk/Cargo.lock file and found 225 packages
 Scanned /src/rust/betchu-bot/Cargo.lock file and found 563 packages
 Scanned /src/rust/chain-core/Cargo.lock file and found 1 package
-Scanned /src/rust/btcpc-contract-runtime/Cargo.lock file and found 207 packages
-Scanned /src/rust/btcpc-ble-tracker/Cargo.lock file and found 359 packages
-Scanned /src/btcpc/package-lock.json file and found 835 packages
+Scanned /src/rust/hone-contract-runtime/Cargo.lock file and found 207 packages
+Scanned /src/rust/hone-ble-tracker/Cargo.lock file and found 359 packages
+Scanned /src/hone/package-lock.json file and found 835 packages
 Scanned /src/android/rust/ort-patched/Cargo.lock file and found 142 packages
-Scanned /src/android/rust/btcpc-miner/Cargo.lock file and found 303 packages
+Scanned /src/android/rust/hone-miner/Cargo.lock file and found 303 packages
 Scanned /src/_archived/telegram-bot/package-lock.json file and found 195 packages
 End status: 1730 dirs visited, 16287 inodes visited, 15 Extract calls, 420.436268ms elapsed, 420.436339ms wall time

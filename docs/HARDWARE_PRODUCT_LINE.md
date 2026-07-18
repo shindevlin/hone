@@ -1,4 +1,4 @@
-# BTCPC Hardware Product Line
+# HONE Hardware Product Line
 **Bitcoin Proof of Compute — Physical Network Nodes**
 *Shin Devlin — April 2026*
 
@@ -6,13 +6,13 @@
 
 ## Overview
 
-BTCPC hardware devices are physical nodes that earn BTCPC passively by contributing real-world data to the network: air quality, weather, seismic activity, noise pollution, GPS mobility, and more. Every device is a mining node, a sensor array, and a data relay simultaneously.
+HONE hardware devices are physical nodes that earn HONE passively by contributing real-world data to the network: air quality, weather, seismic activity, noise pollution, GPS mobility, and more. Every device is a mining node, a sensor array, and a data relay simultaneously.
 
 The business model is two-sided:
-- **Device owners** earn BTCPC rewards for data contribution
-- **The protocol** sells aggregated B2B data to weather services, city governments, health insurers, and research institutions — and returns 70% of that revenue to device owners as additional BTCPC rewards
+- **Device owners** earn HONE rewards for data contribution
+- **The protocol** sells aggregated B2B data to weather services, city governments, health insurers, and research institutions — and returns 70% of that revenue to device owners as additional HONE rewards
 
-No subscription. No cloud dependency. The device connects to the BTCPC network directly and earns from day one.
+No subscription. No cloud dependency. The device connects to the HONE network directly and earns from day one.
 
 ---
 
@@ -39,7 +39,7 @@ The Micro signs every sensor reading with its own registered device key. Any rel
 | Radio | Purpose |
 |-------|---------|
 | BLE 5.3 | Pairs with phone app or General device — primary relay |
-| LoRa (SX1262) | Fallback — reaches any TTN / Helium / BTCPC gateway within 2–5 km |
+| LoRa (SX1262) | Fallback — reaches any TTN / Helium / HONE gateway within 2–5 km |
 
 #### Power
 - 500 mAh LiPo, fully sealed, Qi wireless charging
@@ -134,11 +134,11 @@ Retail at ~2.65× BOM: **$220**
 **Retail price**: ~$500  
 **Power**: 12V DC input, XT60 solar/DC port, 10W solar panel runs it indefinitely when mounted outdoors
 
-This is a full BTCPC network node. It runs the complete BTCPC node software on Linux, earns mining rewards, sensor rewards, storage rewards, and clock rewards simultaneously. It acts as a LoRa gateway for nearby Micro and General devices.
+This is a full HONE network node. It runs the complete HONE node software on Linux, earns mining rewards, sensor rewards, storage rewards, and clock rewards simultaneously. It acts as a LoRa gateway for nearby Micro and General devices.
 
 #### Compute
 - **Raspberry Pi CM4** (2 GB RAM, 16 GB eMMC) on a custom carrier board
-- Full Linux — Node.js BTCPC software runs natively
+- Full Linux — Node.js HONE software runs natively
 - SSH access, OTA via standard Linux tooling
 - Alternatively: Pi Zero 2W for cost-sensitive deployments (~$15 vs ~$35 for CM4)
 
@@ -160,7 +160,7 @@ This is a full BTCPC network node. It runs the complete BTCPC node software on L
 
 | Radio | Purpose |
 |-------|---------|
-| LTE Cat-4 modem (SIM7600) | Primary uplink — direct to BTCPC network, no WiFi needed |
+| LTE Cat-4 modem (SIM7600) | Primary uplink — direct to HONE network, no WiFi needed |
 | WiFi 6 + BT 5.0 | Built into CM4 — local network, BLE to nearby devices |
 | LoRa SX1262 | Gateway for Micro + General devices within 5 km |
 | Optional: 915 MHz sub-GHz | Extended IoT sensor compatibility |
@@ -215,9 +215,9 @@ Every device earns on multiple dimensions simultaneously:
 | Storage hosting | No | No | Yes (full node) |
 | Clock node | No | No | Yes (full node) |
 | LoRa gateway relay fees | No | Yes | Yes |
-| Cross-chain wBTCPC credits | Yes | Yes | Yes |
+| Cross-chain wHONE credits | Yes | Yes | Yes |
 
-Cross-chain credits: every BTCPC earned generates 0.1 BTCPC claimable as wBTCPC on each of 10 supported chains (Ethereum, Base, Arbitrum, Optimism, Solana, TON, Bitcoin, Hive, BSC, Polygon). A device earning 1 BTCPC/day also accrues 1.0 BTCPC/day in cross-chain credits across those chains.
+Cross-chain credits: every HONE earned generates 0.1 HONE claimable as wHONE on each of 10 supported chains (Ethereum, Base, Arbitrum, Optimism, Solana, TON, Bitcoin, Hive, BSC, Polygon). A device earning 1 HONE/day also accrues 1.0 HONE/day in cross-chain credits across those chains.
 
 ---
 
@@ -225,7 +225,7 @@ Cross-chain credits: every BTCPC earned generates 0.1 BTCPC claimable as wBTCPC 
 
 Sensor data is not taken on faith. Three-layer verification:
 
-1. **Device key signing**: every reading is signed with a registered secp256k1 device key. Fabricated readings require a registered device with staked BTCPC behind it — raising the cost of spoofing.
+1. **Device key signing**: every reading is signed with a registered secp256k1 device key. Fabricated readings require a registered device with staked HONE behind it — raising the cost of spoofing.
 
 2. **Cross-corroboration**: readings from devices in the same geographic area are compared. A device reporting 15°C in Phoenix in July, or PM2.5 of 0 µg/m³ in downtown Los Angeles, gets flagged. An attacker would need to control a neighborhood's worth of devices to fake plausible data.
 
@@ -235,7 +235,7 @@ Sensor data is not taken on faith. Three-layer verification:
 
 ## Data Buyers and Market
 
-The data collected by BTCPC devices has established commercial buyers today:
+The data collected by HONE devices has established commercial buyers today:
 
 | Data category | Primary buyers | Market evidence |
 |---------------|----------------|-----------------|
@@ -246,7 +246,7 @@ The data collected by BTCPC devices has established commercial buyers today:
 | Seismic (distributed) | USGS, national earthquake networks | ShakeAlert partnership potential |
 | Light / UV | Solar installers, climate researchers, dermatology | Niche but consistent demand |
 
-The protocol sells data via a B2B API. Device owners receive 70% of revenue as BTCPC rewards. The protocol retains 30%.
+The protocol sells data via a B2B API. Device owners receive 70% of revenue as HONE rewards. The protocol retains 30%.
 
 ---
 
@@ -254,7 +254,7 @@ The protocol sells data via a B2B API. Device owners receive 70% of revenue as B
 
 ### Assumptions
 - Hardware gross margin: 40%
-- Data revenue split: 70% to device owners (BTCPC rewards), 30% to protocol
+- Data revenue split: 70% to device owners (HONE rewards), 30% to protocol
 - Average data value per active device per year: $80 (Y1) → $180 (Y2) → $250 (Y3)
 - Unit mix: 60% Micro, 30% General, 10% Macro by volume
 
@@ -285,7 +285,7 @@ The protocol sells data via a B2B API. Device owners receive 70% of revenue as B
 | Helium | ~900k LoRa gateways | Token market cap peaked ~$5B |
 | AirGradient | ~10k DIY air quality | Bootstrap profitable |
 
-A BTCPC network of 170k devices with 10 sensor categories, a sovereign chain, cross-chain wBTCPC on 10 networks, and a verified data marketplace is in a different category than any of the above.
+A HONE network of 170k devices with 10 sensor categories, a sovereign chain, cross-chain wHONE on 10 networks, and a verified data marketplace is in a different category than any of the above.
 
 ---
 
@@ -295,21 +295,21 @@ A BTCPC network of 170k devices with 10 sensor categories, a sovereign chain, cr
 - Open hardware files on GitHub
 - Micro and General available as DIY kits first (lower unit cost, community builds trust)
 - Flipper Zero community, Meshtastic community, home weather station hobbyists
-- BTCPC token rewards as the primary acquisition incentive
+- HONE token rewards as the primary acquisition incentive
 
 **Phase 2 — Consumer retail**
 - Finished retail units on honemesh.network/shop
 - Amazon listing for Micro and General
-- Bundle: "BTCPC Starter Pack" — 1 General + 3 Micros for $450
+- Bundle: "HONE Starter Pack" — 1 General + 3 Micros for $450
 
 **Phase 3 — B2B / city deployments**
 - Macro units sold to city governments, universities, research institutions
-- "Deploy 100 sensors across your city" program — data stays on BTCPC chain, city gets API access
+- "Deploy 100 sensors across your city" program — data stays on HONE chain, city gets API access
 - Revenue share: city gets 20% of their nodes' data revenue back as service credit
 
 **Phase 4 — OEM / white label**
 - Sensor hardware licensed to other IoT manufacturers
-- wBTCPC integration as a revenue-sharing protocol layer on top of existing sensor networks
+- wHONE integration as a revenue-sharing protocol layer on top of existing sensor networks
 
 ---
 
@@ -318,5 +318,5 @@ A BTCPC network of 170k devices with 10 sensor categories, a sovereign chain, cr
 - **Certification**: FCC Part 15 (USA), CE (EU), IC (Canada) required for commercial sale. Budget $15–30k per device per region for certification testing.
 - **Contract manufacturing**: Shenzhen EMS at 10k+ units; JLCPCB / PCBWay for initial prototypes
 - **SIM for Macro**: Global eSIM (Hologram, Eseye) at $2–5/month per device, or negotiate with carriers at volume
-- **Firmware**: nRF52840 firmware in Zephyr RTOS (open source, Nordic-supported); Pi firmware is standard Linux + BTCPC node software
+- **Firmware**: nRF52840 firmware in Zephyr RTOS (open source, Nordic-supported); Pi firmware is standard Linux + HONE node software
 - **Regulatory for sensor data sales**: GDPR/CCPA compliance required for any location data — aggregate and anonymize before selling GPS mobility data

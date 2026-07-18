@@ -125,7 +125,7 @@ describe('commerce (v2.10)', () => {
     test('place → fulfill → delivered flow updates store counters', async () => {
       await ledger.recordStoreOpen('alice', { name: 'Alice' }, 5, 5, 6, 1);
       await ledger.recordProductCreate('alice', { product_id: 'p1', title: 'W', price: 5, stock: 10 }, 1);
-      await ledger.recordOrderPlace('bob', 'alice', 'o1', 'p1', 2, 5, 'BTCPC', 'escrow-1', 2);
+      await ledger.recordOrderPlace('bob', 'alice', 'o1', 'p1', 2, 5, 'HONE', 'escrow-1', 2);
       await ledger.recordOrderFulfill('alice', 'o1', 'Qmshipped', 2);
       await ledger.recordOrderDelivered('bob', 'o1', 3);
 
@@ -144,7 +144,7 @@ describe('commerce (v2.10)', () => {
     test('cancellation restores stock', async () => {
       await ledger.recordStoreOpen('alice', { name: 'Alice' }, 5, 5, 6, 1);
       await ledger.recordProductCreate('alice', { product_id: 'p1', title: 'W', price: 5, stock: 10 }, 1);
-      await ledger.recordOrderPlace('bob', 'alice', 'o1', 'p1', 3, 5, 'BTCPC', 'escrow-1', 2);
+      await ledger.recordOrderPlace('bob', 'alice', 'o1', 'p1', 3, 5, 'HONE', 'escrow-1', 2);
       expect(stateStore.getProduct('p1').stock).toBe(7);
       await ledger.recordOrderCancel('bob', 'o1', 3);
       expect(stateStore.getProduct('p1').stock).toBe(10);
@@ -154,7 +154,7 @@ describe('commerce (v2.10)', () => {
     test('buyer can dispute, seller cannot', async () => {
       await ledger.recordStoreOpen('alice', { name: 'Alice' }, 5, 5, 6, 1);
       await ledger.recordProductCreate('alice', { product_id: 'p1', title: 'W', price: 5, stock: 10 }, 1);
-      await ledger.recordOrderPlace('bob', 'alice', 'o1', 'p1', 1, 5, 'BTCPC', 'escrow-1', 2);
+      await ledger.recordOrderPlace('bob', 'alice', 'o1', 'p1', 1, 5, 'HONE', 'escrow-1', 2);
       // seller can't self-dispute
       await ledger.recordOrderDispute('alice', 'o1', 'fake', 3);
       expect(stateStore.getOrder('o1').status).toBe('placed');

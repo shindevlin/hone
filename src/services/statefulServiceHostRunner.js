@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Stateful Service Host Runner — v2.14-alpha
+ * HONE Stateful Service Host Runner — v2.14-alpha
  * Shin Devlin
  *
  * Wrapper around serviceHostRunner that adds snapshot save/restore
@@ -19,7 +19,7 @@
  * Snapshot lifecycle:
  *   start(slug)       — loads latest snapshot before spawn, writes state
  *                       file bytes into binary_bytes (overrides fetched binary
- *                       for state; the binary itself still comes from BTCPC-FS)
+ *                       for state; the binary itself still comes from HONE-FS)
  *   stop(slug)        — captures state via getStateBytes(slug) callback,
  *                       saves snapshot, then sends SIGTERM
  *   snapshotNow(slug) — explicit checkpoint without stopping
@@ -128,7 +128,7 @@ function createStatefulRunner(options) {
    * snapshot exists, its bytes are injected into the runtime record's
    * binary_bytes field so the runtime can read on-boot state.
    *
-   * The binary itself (from BTCPC-FS) is still fetched and run normally;
+   * The binary itself (from HONE-FS) is still fetched and run normally;
    * the snapshot bytes are delivered alongside it for the runtime to
    * consume as its initial state file.
    *
@@ -146,7 +146,7 @@ function createStatefulRunner(options) {
         // start() first then check — but we need to set BEFORE spawn.
         // We do it by calling prepareBinary ourselves first.
         try {
-          // prepareBinary fetches from BTCPC-FS into record.binary_bytes
+          // prepareBinary fetches from HONE-FS into record.binary_bytes
           innerRunner.prepareBinary(slug);
         } catch (_) {
           // If it fails, let start() handle the error state.

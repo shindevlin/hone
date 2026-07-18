@@ -1,15 +1,15 @@
 "use strict";
 
 // Tracks which agentic engines are installed and how they're performing
-// within the BTCPC ecosystem. Stored in ~/.btcpc/engine-stats.json.
-// Surfaced in btcpc-cli status and the explorer dashboard.
+// within the HONE ecosystem. Stored in ~/.hone/engine-stats.json.
+// Surfaced in hone-cli status and the explorer dashboard.
 
 const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
 const { spawnSync } = require("child_process");
 
-const STATS_PATH = path.join(os.homedir(), ".btcpc", "engine-stats.json");
+const STATS_PATH = path.join(os.homedir(), ".hone", "engine-stats.json");
 
 const KNOWN_ENGINES = [
   { id: "hermes",          label: "Hermes Agent",      check: () => _binExists("hermes") },
@@ -49,7 +49,7 @@ function _save(stats) {
   } catch (_) {}
 }
 
-// Scan and update engine stats. Called on btcpc-cli status and at startup.
+// Scan and update engine stats. Called on hone-cli status and at startup.
 function scan() {
   const stats = _load();
   const now = Date.now();
@@ -80,7 +80,7 @@ function recordSkillRegistered(engineId) {
   _save(stats);
 }
 
-// Record a command invocation through an engine (called from btcpc-cli)
+// Record a command invocation through an engine (called from hone-cli)
 function recordInvocation(engineId, command, ok) {
   const stats = _load();
   if (!stats[engineId]) stats[engineId] = {};
@@ -94,7 +94,7 @@ function recordInvocation(engineId, command, ok) {
   _save(stats);
 }
 
-// Return a summary for btcpc-cli status output
+// Return a summary for hone-cli status output
 function summary() {
   const stats = _load();
   const results = [];

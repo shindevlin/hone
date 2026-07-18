@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Chain Reset — Genesis v3.0
+ * HONE Chain Reset — Genesis v3.0
  * Shin Devlin
  *
  * Performs the actual v3.0 chain restart:
@@ -34,7 +34,7 @@ const stateStore = require(path.join(REPO_ROOT, "src/chain/stateStore"));
 const stateManager = require(path.join(REPO_ROOT, "src/chain/stateManager"));
 
 const MIGRATION_PATH = path.join(REPO_ROOT, "data", "genesis-migration.json");
-const WHITEPAPER_PATH = path.join(REPO_ROOT, "docs", "BTCPC_WHITEPAPER.md");
+const WHITEPAPER_PATH = path.join(REPO_ROOT, "docs", "HONE_WHITEPAPER.md");
 const BLOCKS_DIR = path.join(REPO_ROOT, "data", "blocks");
 const STATEDB_DIR = path.join(REPO_ROOT, "data", "statedb");
 const PENDING_ENTRIES_PATH = path.join(REPO_ROOT, "data", "pending-entries.jsonl");
@@ -47,8 +47,8 @@ const GENESIS_STATE_HASH = "0".repeat(64);
 function confirmDanger() {
   // In CI or non-TTY environments, require an explicit env flag
   if (!process.stdin.isTTY) {
-    if (process.env.BTCPC_RESET_CONFIRMED !== "yes") {
-      console.error("[ABORT] Non-interactive mode: set BTCPC_RESET_CONFIRMED=yes to proceed.");
+    if (process.env.HONE_RESET_CONFIRMED !== "yes") {
+      console.error("[ABORT] Non-interactive mode: set HONE_RESET_CONFIRMED=yes to proceed.");
       process.exit(1);
     }
     return;
@@ -101,7 +101,7 @@ function wipeDir(dirPath) {
 // ── Main ─────────────────────────────────────────────────────────────
 async function run() {
   console.log("=".repeat(60));
-  console.log("  BTCPC Chain Reset — Genesis v3.0");
+  console.log("  HONE Chain Reset — Genesis v3.0");
   console.log("=".repeat(60));
 
   // ── Step 0: Danger confirmation ──────────────────────────────────
@@ -119,7 +119,7 @@ async function run() {
   console.log("[1/7] Accounts to migrate: " + migration.accounts.length);
   console.log("[1/7] System accounts: " + migration.system_accounts.length);
   console.log("[1/7] Genesis entries: " + migration.genesis_entries.length);
-  console.log("[1/7] Total BTCPC: " + migration.total_supply_migrated);
+  console.log("[1/7] Total HONE: " + migration.total_supply_migrated);
 
   // ── Step 2: Read whitepaper ──────────────────────────────────────
   console.log("\n[2/7] Reading whitepaper for Dream #0...");
@@ -159,17 +159,17 @@ async function run() {
     type: "GENESIS_DREAM",
     from: GENESIS_MINER,
     to: GENESIS_MINER,
-    token: "BTCPC",
+    token: "HONE",
     amount: 0,
     epoch: 0,
     timestamp: nowIso,
     signed_by: GENESIS_MINER,
-    memo: "Genesis Dream #0 — BTCPC v3.0 Whitepaper",
+    memo: "Genesis Dream #0 — HONE v3.0 Whitepaper",
     account_data: {
       block_number: 0,
       original_miner: GENESIS_MINER,
       inscription: {
-        project: "btcpc",
+        project: "hone",
         tag: "Genesis — The chain dreamed itself into existence",
         custom_data: {
           title: "Bitcoin Proof of Compute — Whitepaper v3.0",
@@ -274,13 +274,13 @@ async function run() {
   console.log("  State root:              " + stateRoot.slice(0, 32) + "...");
   console.log("  Accounts migrated:       " + migration.accounts.length + " user + " +
               migration.system_accounts.length + " system");
-  console.log("  Total BTCPC supply:      " + migration.total_supply_migrated);
+  console.log("  Total HONE supply:      " + migration.total_supply_migrated);
   console.log("  Genesis entries:         " + allEntries.length);
   console.log("  Dream #0 whitepaper:     " + whitepaper.length + " chars");
   console.log("  Source chain height:     epoch " + migration.source_chain_height);
   console.log("=".repeat(60));
   console.log("\n  The chain has been reset. Start nodes to begin epoch 1.");
-  console.log("  node bin/btcpc-all\n");
+  console.log("  node bin/hone-all\n");
 
   process.exit(0);
 }

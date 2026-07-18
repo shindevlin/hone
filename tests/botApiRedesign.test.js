@@ -33,8 +33,8 @@ const express = require('express');
 const crypto = require('crypto');
 
 // ── Isolate secretStore ──────────────────────────────────────────────────────
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-botapi-redesign-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-botapi-redesign-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 process.env.JWT_SECRET = 'test-jwt-secret-botapi-redesign';
 process.env.BOT_API_KEY = 'test-bot-key-redesign';
 
@@ -294,10 +294,10 @@ describe('Bot API redesign — conversational wallet + password auth', () => {
     expect(res.status).toBe(200);
     const addr = res.body.chain_addresses;
     expect(addr).toBeDefined();
-    expect(addr.btcpc).toBeTruthy();
+    expect(addr.hone).toBeTruthy();
     expect(addr.hive).toBe('walletuser5');
     // evm/solana/bitcoin/ton may be null if wallet derivation isn't supported in test env
-    expect(Object.keys(addr)).toEqual(expect.arrayContaining(['btcpc', 'evm', 'solana', 'bitcoin', 'ton', 'hive']));
+    expect(Object.keys(addr)).toEqual(expect.arrayContaining(['hone', 'evm', 'solana', 'bitcoin', 'ton', 'hive']));
   });
 
   // ── 6. Login correct password → JWT ───────────────────────────────────────
@@ -420,7 +420,7 @@ describe('Bot API redesign — conversational wallet + password auth', () => {
     expect(res.body.username).toBe('addruser1');
     const addr = res.body.addresses || res.body.chain_addresses;
     expect(addr).toBeDefined();
-    expect(Object.keys(addr)).toEqual(expect.arrayContaining(['btcpc', 'evm', 'solana', 'bitcoin', 'ton', 'hive']));
+    expect(Object.keys(addr)).toEqual(expect.arrayContaining(['hone', 'evm', 'solana', 'bitcoin', 'ton', 'hive']));
   });
 
   // ── 12. GET /addresses unknown telegramId → 404 ───────────────────────────

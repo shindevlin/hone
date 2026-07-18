@@ -1,4 +1,4 @@
-# BTCPC On-Chain Governance
+# HONE On-Chain Governance
 
 ## Principle
 
@@ -12,11 +12,11 @@ Every protocol parameter is changeable by network consensus. When the project is
 | Dormancy decay rate | 10% per year | Annual decay of dormant tokens |
 | Cross-chain freeze extension | 5 years | Extra grace for cross-chain-active accounts |
 | Clock reward percentage | 2% | Share of block reward to clock nodes |
-| Minimum stake (permissionless) | 100 BTCPC | Required stake for permissionless consensus participation |
-| Minimum stake (mining) | 1000 BTCPC | Required stake for mining |
+| Minimum stake (permissionless) | 100 HONE | Required stake for permissionless consensus participation |
+| Minimum stake (mining) | 1000 HONE | Required stake for mining |
 | Epoch duration | 5 minutes | Time between blocks |
 | Proposal window | 30 seconds | Time for finalization proposals |
-| Token creation fee | 42 BTCPC | Cost to create a custom token |
+| Token creation fee | 42 HONE | Cost to create a custom token |
 | Inference verification count | 1 (genesis) / 3 (consensus) | Number of miners that must verify each inference |
 | Minimum version | 2.0.75 | Oldest software version allowed on the network |
 | Escrow timeout | 10 minutes | Auto-refund for stuck escrows |
@@ -57,12 +57,12 @@ Staked accounts vote by submitting `GOVERNANCE_VOTE` ledger entries:
 }
 ```
 
-Voting power = staked BTCPC. One token = one vote. Delegated stake votes with the delegator's choice unless the delegatee overrides.
+Voting power = staked HONE. One token = one vote. Delegated stake votes with the delegator's choice unless the delegatee overrides.
 
 ### 3. Resolution
 
 After the voting period ends:
-- **Quorum**: at least 10% of total staked BTCPC must vote
+- **Quorum**: at least 10% of total staked HONE must vote
 - **Threshold**: 66% supermajority required to pass
 - **Timelock**: changes take effect 100 epochs (~8 hours) after passing — gives nodes time to update
 
@@ -74,7 +74,7 @@ The chain reads protocol parameters from the governance state (stored on-chain),
 
 There are no hardcoded sacred cows. If the network reaches consensus, anything can change — including the total supply.
 
-Bitcoin's 21 million cap is a social contract, not a technical constraint. A hard fork could change it tomorrow. BTCPC makes this explicit: the 42M supply is the **default**, and the network can vote to change it, the same way it can vote to change any other parameter.
+Bitcoin's 21 million cap is a social contract, not a technical constraint. A hard fork could change it tomorrow. HONE makes this explicit: the 42M supply is the **default**, and the network can vote to change it, the same way it can vote to change any other parameter.
 
 Some changes require a **higher bar** than others:
 
@@ -138,7 +138,7 @@ Bad block at epoch 5,432
 
 Ethereum's DAO rollback in 2016 proved that "code is law" is aspirational, not absolute. When 3.6M ETH was stolen, the network voted to roll back. Those who disagreed forked to Ethereum Classic.
 
-BTCPC builds this into the protocol explicitly — not as an emergency hack, but as a governed, transparent, vote-based mechanism. The community decides, not one developer.
+HONE builds this into the protocol explicitly — not as an emergency hack, but as a governed, transparent, vote-based mechanism. The community decides, not one developer.
 
 ### Safeguards
 
@@ -153,7 +153,7 @@ BTCPC builds this into the protocol explicitly — not as an emergency hack, but
 For critical security fixes, a separate fast-track path:
 - Requires 90% supermajority (not 66%)
 - No timelock — takes effect immediately
-- Can only be submitted by accounts with 10,000+ BTCPC staked
+- Can only be submitted by accounts with 10,000+ HONE staked
 - Must include a detailed security rationale
 
 ## Genesis Phase
@@ -179,7 +179,7 @@ This can be built incrementally — start with one parameter (e.g., clock reward
 Governance is designed but not active during genesis phase. It activates when:
 1. Shin passes operational control to the network
 2. At least 10 unique staked accounts exist
-3. At least 1000 BTCPC is staked across the network
+3. At least 1000 HONE is staked across the network
 
 Until then, the genesis operator (shindevlin) manages protocol parameters.
 After activation, all changes require network consensus votes.

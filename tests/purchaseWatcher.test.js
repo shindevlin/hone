@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Tests for BTCPC stablecoin purchase system.
+ * Tests for HONE stablecoin purchase system.
  * Covers quote math, fulfillment logic, deduplication, validation, order flow, and status.
  * Shin Devlin
  */
@@ -14,7 +14,7 @@ const crypto = require("crypto");
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function tmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "btcpc-purchase-test-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "hone-purchase-test-"));
 }
 
 function readJsonl(file) {
@@ -29,9 +29,9 @@ function appendJsonl(file, rec) {
   fs.appendFileSync(file, JSON.stringify(rec) + "\n");
 }
 
-// ── Extracted logic (mirrors purchaseRoutes.js / btcpc-purchase-watcher) ─────
+// ── Extracted logic (mirrors purchaseRoutes.js / hone-purchase-watcher) ─────
 
-const BTCPC_PRICE_USD = 0.001;
+const HONE_PRICE_USD = 0.001;
 const MIN_USD = 10;
 const MAX_USD = 10000;
 
@@ -44,7 +44,7 @@ const SOL_MINTS = { USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" };
 const SUPPORTED_CHAINS = ["ethereum", "solana", "ton"];
 const SUPPORTED_TOKENS = { ethereum: ["USDC","USDT","DAI"], solana: ["USDC"], ton: ["USDC"] };
 
-function calcBtcpc(usdAmount, price) {
+function calcHone(usdAmount, price) {
   return usdAmount / price;
 }
 
@@ -66,7 +66,7 @@ function getStatusFromFiles(ordersFile, historyFile, purchaseId) {
   const history = readJsonl(historyFile);
   const fulfilled = history.find(h => h.purchase_id === purchaseId);
   if (fulfilled) {
-    return { status: "fulfilled", btcpc_amount: fulfilled.btcpc_amount, tx_hash: fulfilled.tx_hash, fulfilled_epoch: fulfilled.fulfilled_epoch };
+    return { status: "fulfilled", hone_amount: fulfilled.hone_amount, tx_hash: fulfilled.tx_hash, fulfilled_epoch: fulfilled.fulfilled_epoch };
   }
   const order = readJsonl(ordersFile).find(o => o.purchase_id === purchaseId);
   if (!order) return null;
@@ -100,7 +100,7 @@ function isLocalhostAddr(addr) {
 }
 
 function buildQuoteResponse(usdAmount, chain, token) {
-  const price = BTCPC_PRICE_USD;
+  const price = HONE_PRICE_USD;
   const addrMap = { ethereum: "0xEthAddr", solana: "SolAddr", ton: "TonAddr" };
   const contractMap = {
     ethereum: { USDC: ETH_CONTRACTS.USDC, USDT: ETH_CONTRACTS.USDT, DAI: ETH_CONTRACTS.DAI },
@@ -108,8 +108,8 @@ function buildQuoteResponse(usdAmount, chain, token) {
     ton: { USDC: "native" },
   };
   return {
-    btcpc_amount: usdAmount / price,
-    price_per_btcpc_usd: price,
+    hone_amount: usdAmount / price,
+    price_per_hone_usd: price,
     payment_address: addrMap[chain] || null,
     token_contract: (contractMap[chain] || {})[token] || null,
     min_usd: MIN_USD,
@@ -120,21 +120,21 @@ function buildQuoteResponse(usdAmount, chain, token) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("Quote calculation", () => {
-  test("calculates correct BTCPC at $0.001/BTCPC", () => {
-    expect(calcBtcpc(100, 0.001)).toBe(100000);
-    expect(calcBtcpc(10, 0.001)).toBe(10000);
-    expect(calcBtcpc(10000, 0.001)).toBe(10000000);
+  test("calculates correct HONE at $0.001/HONE", () => {
+    expect(calcHone(100, 0.001)).toBe(100000);
+    expect(calcHone(10, 0.001)).toBe(10000);
+    expect(calcHone(10000, 0.001)).toBe(10000000);
   });
 
   test("calculates correctly at non-default price", () => {
-    expect(calcBtcpc(50, 0.005)).toBe(10000);
-    expect(calcBtcpc(1000, 0.01)).toBe(100000);
+    expect(calcHone(50, 0.005)).toBe(10000);
+    expect(calcHone(1000, 0.01)).toBe(100000);
   });
 
   test("quote response has all required fields", () => {
     const q = buildQuoteResponse(100, "ethereum", "USDC");
-    expect(q).toHaveProperty("btcpc_amount", 100000);
-    expect(q).toHaveProperty("price_per_btcpc_usd", 0.001);
+    expect(q).toHaveProperty("hone_amount", 100000);
+    expect(q).toHaveProperty("price_per_hone_usd", 0.001);
     expect(q).toHaveProperty("payment_address");
     expect(q).toHaveProperty("token_contract");
     expect(q).toHaveProperty("min_usd", 10);
@@ -187,12 +187,12 @@ describe("Order file persistence", () => {
   afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
   test("writes purchase order to jsonl", () => {
-    const order = { purchase_id: "abc123", btcpc_account: "testuser", usd_amount: 100, status: "pending", created_at: Date.now() };
+    const order = { purchase_id: "abc123", hone_account: "testuser", usd_amount: 100, status: "pending", created_at: Date.now() };
     appendJsonl(ordersFile, order);
     const orders = readJsonl(ordersFile);
     expect(orders).toHaveLength(1);
     expect(orders[0].purchase_id).toBe("abc123");
-    expect(orders[0].btcpc_account).toBe("testuser");
+    expect(orders[0].hone_account).toBe("testuser");
   });
 
   test("multiple orders are written and readable", () => {
@@ -230,7 +230,7 @@ describe("Fulfillment deduplication", () => {
 
   test("same tx_hash not processed twice", () => {
     const txHash = "0xabc123def456";
-    appendJsonl(historyFile, { tx_hash: txHash, purchase_id: "pid1", btcpc_amount: 100000 });
+    appendJsonl(historyFile, { tx_hash: txHash, purchase_id: "pid1", hone_amount: 100000 });
     expect(isAlreadyProcessed(historyFile, txHash)).toBe(true);
   });
 
@@ -273,10 +273,10 @@ describe("Status endpoint logic", () => {
   test("returns fulfilled when history record exists", () => {
     const pid = "fulfilled-pid-1";
     appendJsonl(ordersFile, { purchase_id: pid, status: "pending", created_at: Date.now() });
-    appendJsonl(historyFile, { purchase_id: pid, tx_hash: "0xfulfilled", btcpc_amount: 100000, fulfilled_epoch: 42 });
+    appendJsonl(historyFile, { purchase_id: pid, tx_hash: "0xfulfilled", hone_amount: 100000, fulfilled_epoch: 42 });
     const result = getStatusFromFiles(ordersFile, historyFile, pid);
     expect(result.status).toBe("fulfilled");
-    expect(result.btcpc_amount).toBe(100000);
+    expect(result.hone_amount).toBe(100000);
     expect(result.tx_hash).toBe("0xfulfilled");
   });
 

@@ -1,0 +1,8 @@
+App(
+    appid="hone_sensor",
+    name="HONE Sensor",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="hone_sensor_app",
+    stack_size=8 * 1024,
+    fap_category="HONE",
+)

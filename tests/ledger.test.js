@@ -12,12 +12,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// v2.13.1: _persist also appends to <BTCPC_DATA_DIR>/pending-entries.jsonl
+// v2.13.1: _persist also appends to <HONE_DATA_DIR>/pending-entries.jsonl
 // so that entries created in the API server process are picked up by the
 // miner process on flush. Tests use an isolated data dir per worker so
 // parallel jest runs don't race.
-const ISOLATED_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-ledger-test-'));
-process.env.BTCPC_DATA_DIR = ISOLATED_DATA_DIR;
+const ISOLATED_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-ledger-test-'));
+process.env.HONE_DATA_DIR = ISOLATED_DATA_DIR;
 
 const User = require('../src/models/User');
 const ledger = require('../src/services/ledger');
@@ -43,14 +43,14 @@ describe('ledger service', () => {
   });
 
   test('recordTransfer rejects self-transfers before touching the mempool', async () => {
-    await expect(ledger.recordTransfer('alice', 'alice', 1, 'BTCPC', null, 1)).rejects.toThrow('Cannot transfer to self');
+    await expect(ledger.recordTransfer('alice', 'alice', 1, 'HONE', null, 1)).rejects.toThrow('Cannot transfer to self');
     expect(mockMempoolSubmit).not.toHaveBeenCalled();
   });
 
   test('recordTransfer writes a ledger entry to pending store', async () => {
     mockMempoolSubmit.mockReturnValue({ accepted: true });
 
-    const entry = await ledger.recordTransfer('alice', 'bob', 7, 'BTCPC', null, 42, 'memo');
+    const entry = await ledger.recordTransfer('alice', 'bob', 7, 'HONE', null, 42, 'memo');
 
     expect(mockMempoolSubmit).toHaveBeenCalled();
     // Phase E: recordTransfer returns a plain object (no Mongoose doc).
@@ -66,7 +66,7 @@ describe('ledger service', () => {
   test('recordAuthorizedTransfer records private-auth metadata', async () => {
     mockMempoolSubmit.mockReturnValue({ accepted: true });
 
-    const entry = await ledger.recordAuthorizedTransfer('alice', 'bob', 7, 'BTCPC', null, 42, 'memo', {
+    const entry = await ledger.recordAuthorizedTransfer('alice', 'bob', 7, 'HONE', null, 42, 'memo', {
       signedBy: 'private_auth',
       requestId: 'req-1',
       threshold: 2,
@@ -118,10 +118,10 @@ describe('ledger service', () => {
     const stateStore = require('../src/chain/stateStore');
     stateStore.resetAll();
     // Credit 13.5, debit 3.25 — net 10.25
-    stateStore.applyEntry({ type: 'FAUCET', to: 'alice', token: 'BTCPC', amount: 13.5, epoch: 1, timestamp: 1 });
-    stateStore.applyEntry({ type: 'TRANSFER', from: 'alice', to: 'bob', token: 'BTCPC', amount: 3.25, epoch: 1, timestamp: 2 });
+    stateStore.applyEntry({ type: 'FAUCET', to: 'alice', token: 'HONE', amount: 13.5, epoch: 1, timestamp: 1 });
+    stateStore.applyEntry({ type: 'TRANSFER', from: 'alice', to: 'bob', token: 'HONE', amount: 3.25, epoch: 1, timestamp: 2 });
 
-    const balance = await ledger.getBalance('alice', 'BTCPC');
+    const balance = await ledger.getBalance('alice', 'HONE');
     expect(balance).toBe(10.25);
   });
 
@@ -129,31 +129,31 @@ describe('ledger service', () => {
     const stateStore = require('../src/chain/stateStore');
     stateStore.resetAll();
     stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'bob', epoch: 1, account_data: { public_keys: {}, chain_addresses: {} } });
-    stateStore.applyEntry({ type: 'FAUCET', to: 'btcpc_faucet', token: 'BTCPC', amount: 10, epoch: 1, timestamp: 1 });
+    stateStore.applyEntry({ type: 'FAUCET', to: 'hone_faucet', token: 'HONE', amount: 10, epoch: 1, timestamp: 1 });
 
     const entry = await ledger.recordFaucet('bob', 1, 2);
 
     expect(entry.type).toBe('DELEGATE');
-    expect(entry.from).toBe('btcpc_faucet');
+    expect(entry.from).toBe('hone_faucet');
     expect(entry.to).toBe('bob');
-    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
-    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(1);
+    expect(stateStore.getBalance('bob', 'HONE')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'HONE')).toBe(1);
 
-    await ledger.recordTransfer('bob', 'alice', 1, 'BTCPC', null, 3, null);
-    expect(stateStore.getBalance('alice', 'BTCPC')).toBe(0);
-    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(1);
+    await ledger.recordTransfer('bob', 'alice', 1, 'HONE', null, 3, null);
+    expect(stateStore.getBalance('alice', 'HONE')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'HONE')).toBe(1);
   });
 
   test('delegated faucet credit can fund direct network-service escrow and refunds as delegated', async () => {
     const stateStore = require('../src/chain/stateStore');
     stateStore.resetAll();
     stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'bob', epoch: 1, account_data: { public_keys: {}, chain_addresses: {} } });
-    stateStore.applyEntry({ type: 'FAUCET', to: 'btcpc_faucet', token: 'BTCPC', amount: 10, epoch: 1, timestamp: 1 });
+    stateStore.applyEntry({ type: 'FAUCET', to: 'hone_faucet', token: 'HONE', amount: 10, epoch: 1, timestamp: 1 });
     await ledger.recordFaucet('bob', 1, 2);
 
     await ledger.recordEscrowLock('bob', 'sensor-query-1', 1, 3);
-    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
-    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(0);
+    expect(stateStore.getBalance('bob', 'HONE')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'HONE')).toBe(0);
     expect(stateStore.getEscrow('sensor-query-1')).toEqual(expect.objectContaining({
       payer: 'bob',
       amount: 1,
@@ -162,8 +162,8 @@ describe('ledger service', () => {
     }));
 
     await ledger.recordEscrowRefund('bob', 'sensor-query-1', 1, 4);
-    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
-    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(1);
+    expect(stateStore.getBalance('bob', 'HONE')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'HONE')).toBe(1);
   });
 
   test('network service charge does not mint when payer has no usable balance', async () => {
@@ -172,9 +172,9 @@ describe('ledger service', () => {
 
     await ledger.recordInferenceCharge('bob', 'miner-a', 1, 2, 'req-no-funds');
 
-    expect(stateStore.getBalance('miner-a', 'BTCPC')).toBe(0);
-    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
-    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(0);
+    expect(stateStore.getBalance('miner-a', 'HONE')).toBe(0);
+    expect(stateStore.getBalance('bob', 'HONE')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'HONE')).toBe(0);
   });
 
   test('stake and unstake cannot mint from insufficient owned balance', async () => {
@@ -183,29 +183,29 @@ describe('ledger service', () => {
 
     await ledger.recordStake('bob', 5, 'mining', 2);
     expect(stateStore.getStakePool('bob')).toBe(null);
-    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
+    expect(stateStore.getBalance('bob', 'HONE')).toBe(0);
 
-    stateStore.applyEntry({ type: 'FAUCET', to: 'bob', token: 'BTCPC', amount: 3, epoch: 3, timestamp: 3 });
+    stateStore.applyEntry({ type: 'FAUCET', to: 'bob', token: 'HONE', amount: 3, epoch: 3, timestamp: 3 });
     await ledger.recordStake('bob', 2, 'mining', 4);
     expect(stateStore.getStakePool('bob').total_staked).toBe(2);
-    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(1);
+    expect(stateStore.getBalance('bob', 'HONE')).toBe(1);
 
     await ledger.recordUnstake('bob', 5, 5);
     expect(stateStore.getStakePool('bob').total_staked).toBe(2);
-    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(1);
+    expect(stateStore.getBalance('bob', 'HONE')).toBe(1);
   });
 
   test('escrow release cannot pay more than the locked service amount', async () => {
     const stateStore = require('../src/chain/stateStore');
     stateStore.resetAll();
-    stateStore.applyEntry({ type: 'FAUCET', to: 'bob', token: 'BTCPC', amount: 2, epoch: 1, timestamp: 1 });
+    stateStore.applyEntry({ type: 'FAUCET', to: 'bob', token: 'HONE', amount: 2, epoch: 1, timestamp: 1 });
 
     await ledger.recordEscrowLock('bob', 'service-escrow-1', 2, 2);
     await ledger.recordEscrowRelease('miner-a', 'service-escrow-1', 1.25, 3, 'service payout');
     await ledger.recordEscrowRelease('miner-b', 'service-escrow-1', 1.25, 4, 'service payout');
 
-    expect(stateStore.getBalance('miner-a', 'BTCPC')).toBe(1.25);
-    expect(stateStore.getBalance('miner-b', 'BTCPC')).toBe(0);
+    expect(stateStore.getBalance('miner-a', 'HONE')).toBe(1.25);
+    expect(stateStore.getBalance('miner-b', 'HONE')).toBe(0);
     expect(stateStore.getEscrow('service-escrow-1')).toEqual(expect.objectContaining({
       amount: 2,
       released_amount: 1.25,
@@ -215,7 +215,7 @@ describe('ledger service', () => {
   test('flushPendingEntries returns and clears pending entries', async () => {
     mockMempoolSubmit.mockReturnValue({ accepted: true });
 
-    await ledger.recordTransfer('alice', 'bob', 1, 'BTCPC', null, 1, null);
+    await ledger.recordTransfer('alice', 'bob', 1, 'HONE', null, 1, null);
 
     const firstFlush = ledger.flushPendingEntries();
     const secondFlush = ledger.flushPendingEntries();

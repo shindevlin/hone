@@ -1,0 +1,18 @@
+{
+  "name": "hone-desktop",
+  "version": "0.1.0",
+  "description": "HONE Desktop — one-click mining for any computer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  }
+}

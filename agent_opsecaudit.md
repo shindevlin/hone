@@ -56,7 +56,7 @@ Each finding must include:
 7. Propose minimal patches and required tests.
 8. Retest and close only when exploit path is broken.
 
-## Repo-Specific Requirements (BTCPC)
+## Repo-Specific Requirements (HONE)
 - Use code-review-graph tools first for exploration/impact/test mapping.
 - Explicitly audit Tier-1 items in `docs/security/SECURITY_CHECKLIST.md`.
 - Verify slashing, epoch binding, replay resistance, verifier selection, and P2P authentication paths.

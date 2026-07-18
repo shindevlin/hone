@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Genesis Migration Snapshot
+ * HONE Genesis Migration Snapshot
  * Shin Devlin
  *
  * Replays the current chain from disk, then exports a complete snapshot of all
@@ -28,13 +28,13 @@ const blockStore = require(path.join(REPO_ROOT, "src/chain/blockStore"));
 const { RESERVED_OWNER, getReservedNamesForShin } = require(path.join(REPO_ROOT, "src/services/reservedNames"));
 
 const OUTPUT_PATH = path.join(REPO_ROOT, "data", "genesis-migration.json");
-const WHITEPAPER_PATH = path.join(REPO_ROOT, "docs", "BTCPC_WHITEPAPER.md");
+const WHITEPAPER_PATH = path.join(REPO_ROOT, "docs", "HONE_WHITEPAPER.md");
 
-const SYSTEM_ACCOUNTS = ["btcpc_recycle", "btcpc_treasury", "btcpc_staking_pool", "btcpc_escrow", "btcpc_genesis", "btcpc_mint"];
+const SYSTEM_ACCOUNTS = ["hone_recycle", "hone_treasury", "hone_staking_pool", "hone_escrow", "hone_genesis", "hone_mint"];
 
 async function run() {
   console.log("=".repeat(60));
-  console.log("  BTCPC Genesis Migration Snapshot");
+  console.log("  HONE Genesis Migration Snapshot");
   console.log("=".repeat(60));
 
   // ── Step 1: Replay current chain from disk ──────────────────────
@@ -57,7 +57,7 @@ async function run() {
   try {
     const mongoose = require("mongoose");
     await mongoose.connect(
-      process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/btcpc?authSource=admin",
+      process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/hone?authSource=admin",
       { serverSelectionTimeoutMS: 5000 }
     );
     const User = require(path.join(REPO_ROOT, "src/models/User"));
@@ -95,23 +95,23 @@ async function run() {
     // Pull full account detail via getAccount (includes balance + stake)
     const detail = stateStore.getAccount(username);
 
-    // Pull all token balances (BTCPC + any user-created tokens)
+    // Pull all token balances (HONE + any user-created tokens)
     const tokenBalances = stateStore.getTokenBalances(username);
 
     const isSystem = SYSTEM_ACCOUNTS.indexOf(username) !== -1 ||
                      username.startsWith("project:") ||
                      username.startsWith("escrow:");
 
-    const btcpcBalance = detail ? detail.balance : 0;
+    const honeBalance = detail ? detail.balance : 0;
 
     if (isSystem) {
       systemAccountEntries.push({
         username: username,
-        balance: btcpcBalance,
+        balance: honeBalance,
         token_balances: tokenBalances,
       });
     } else {
-      totalSupplyMigrated += btcpcBalance;
+      totalSupplyMigrated += honeBalance;
       // Merge keys: prefer stateStore (on-chain), fall back to Mongo
       let publicKeys = acct.public_keys || {};
       if ((!publicKeys.owner) && mongoKeys[username]) {
@@ -121,7 +121,7 @@ async function run() {
 
       accounts.push({
         username: username,
-        balance: btcpcBalance,
+        balance: honeBalance,
         token_balances: tokenBalances,
         public_keys: publicKeys,
         chain_addresses: acct.chain_addresses || {},
@@ -137,7 +137,7 @@ async function run() {
 
   console.log("[2/5] User accounts: " + accounts.length);
   console.log("[2/5] System accounts: " + systemAccountEntries.length);
-  console.log("[2/5] Total BTCPC migrated: " + totalSupplyMigrated.toFixed(10));
+  console.log("[2/5] Total HONE migrated: " + totalSupplyMigrated.toFixed(10));
 
   // ── Step 3: Build genesis entries ───────────────────────────────
   console.log("\n[3/5] Building genesis entries...");
@@ -152,13 +152,13 @@ async function run() {
   for (const acct of accounts) {
     genesisEntries.push({
       type: "ACCOUNT_CREATE",
-      from: "btcpc_genesis",
+      from: "hone_genesis",
       to: acct.username,
       amount: 0,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 0,
       timestamp: now,
-      signed_by: "btcpc_genesis",
+      signed_by: "hone_genesis",
       memo: "genesis migration v3.0",
       account_data: {
         public_keys: acct.public_keys,
@@ -183,10 +183,10 @@ async function run() {
         from: RESERVED_OWNER,
         to: nestedWallet,
         amount: 0,
-        token: "BTCPC",
+        token: "HONE",
         epoch: 0,
         timestamp: now,
-        signed_by: "btcpc_genesis",
+        signed_by: "hone_genesis",
         memo: "genesis migration v3.4 — reserve premium name as nested wallet for shindevlin",
         wallet_data: {
           parent: RESERVED_OWNER,
@@ -205,28 +205,28 @@ async function run() {
     if (acct.balance > 0) {
       genesisEntries.push({
         type: "GENESIS_MINT",
-        from: "btcpc_genesis",
+        from: "hone_genesis",
         to: acct.username,
-        token: "BTCPC",
+        token: "HONE",
         amount: acct.balance,
         epoch: 0,
         timestamp: now,
-        signed_by: "btcpc_genesis",
+        signed_by: "hone_genesis",
         memo: "genesis migration v3.0 — balance preserved from epoch " + chainHeight,
       });
     }
     // Mint any user-created token balances too
     for (const [tok, bal] of Object.entries(acct.token_balances || {})) {
-      if (tok !== "BTCPC" && bal > 0) {
+      if (tok !== "HONE" && bal > 0) {
         genesisEntries.push({
           type: "GENESIS_MINT",
-          from: "btcpc_genesis",
+          from: "hone_genesis",
           to: acct.username,
           token: tok,
           amount: bal,
           epoch: 0,
           timestamp: now,
-          signed_by: "btcpc_genesis",
+          signed_by: "hone_genesis",
           memo: "genesis migration v3.0 — " + tok + " balance preserved",
         });
       }
@@ -237,26 +237,26 @@ async function run() {
   for (const sys of systemAccountEntries) {
     genesisEntries.push({
       type: "ACCOUNT_CREATE",
-      from: "btcpc_genesis",
+      from: "hone_genesis",
       to: sys.username,
       amount: 0,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 0,
       timestamp: now,
-      signed_by: "btcpc_genesis",
+      signed_by: "hone_genesis",
       memo: "genesis migration v3.0 — system account",
       account_data: { public_keys: {}, chain_addresses: {} },
     });
     if (sys.balance > 0) {
       genesisEntries.push({
         type: "GENESIS_MINT",
-        from: "btcpc_genesis",
+        from: "hone_genesis",
         to: sys.username,
-        token: "BTCPC",
+        token: "HONE",
         amount: sys.balance,
         epoch: 0,
         timestamp: now,
-        signed_by: "btcpc_genesis",
+        signed_by: "hone_genesis",
         memo: "genesis migration v3.0 — system account balance preserved",
       });
     }
@@ -286,7 +286,7 @@ async function run() {
     reserved_nested_wallets_count: reservedNestedCount,
     genesis_entries: genesisEntries,
     total_supply_migrated: parseFloat(totalSupplyMigrated.toFixed(10)),
-    whitepaper_path: "docs/BTCPC_WHITEPAPER.md",
+    whitepaper_path: "docs/HONE_WHITEPAPER.md",
     whitepaper_size_bytes: whitepaperStat.size,
   };
 
@@ -305,7 +305,7 @@ async function run() {
   console.log("  System accounts:      " + systemAccountEntries.length);
   console.log("  Reserved nested:      " + reservedNestedCount);
   console.log("  Genesis entries:      " + genesisEntries.length);
-  console.log("  Total BTCPC:          " + totalSupplyMigrated.toFixed(4));
+  console.log("  Total HONE:          " + totalSupplyMigrated.toFixed(4));
   console.log("  Output:               data/genesis-migration.json");
   console.log("=".repeat(60));
   console.log("\nNext step: node scripts/reset-chain.js");

@@ -1,18 +1,18 @@
 # Miner Update Guide
 
-When the BTCPC network code is updated, miners need to pull the latest and restart to stay compatible with the P2P inference protocol.
+When the HONE network code is updated, miners need to pull the latest and restart to stay compatible with the P2P inference protocol.
 
 ## Quick Update
 
 ```bash
-cd ~/repos/btcpc          # or wherever your btcpc repo is
+cd ~/repos/hone          # or wherever your hone repo is
 git pull origin main
 npm install                # if dependencies changed
 
 # Restart the miner
-pkill -f 'node bin/btcpc-mine'
+pkill -f 'node bin/hone-mine'
 sleep 2
-node bin/btcpc-mine &
+node bin/hone-mine &
 ```
 
 ## What Changed (Latest)
@@ -32,10 +32,10 @@ After updating, check that:
 
 ```bash
 # Miner is running
-ps aux | grep btcpc-mine
+ps aux | grep hone-mine
 
 # P2P is connected (check logs)
-tail -20 /tmp/btcpc-mine.log | grep 'Connected\|Handshake'
+tail -20 /tmp/hone-mine.log | grep 'Connected\|Handshake'
 
 # Ollama is serving models
 curl http://localhost:11434/api/tags
@@ -46,7 +46,7 @@ curl http://localhost:11434/api/tags
 ```bash
 # Add to crontab for automatic pulls (checks every hour)
 crontab -e
-# Add: 0 * * * * cd ~/repos/btcpc && git pull origin main && npm install 2>/dev/null
+# Add: 0 * * * * cd ~/repos/hone && git pull origin main && npm install 2>/dev/null
 ```
 
 ## Environment

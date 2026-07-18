@@ -1,0 +1,36 @@
+[package]
+name = "hone-miner"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "hone_miner"
+crate-type = ["cdylib"]
+
+[dependencies]
+jni = { version = "0.21", features = ["invocation"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "sync", "time", "macros", "fs"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+# Pure-Rust ONNX runtime — no native library dependency, works with cargo-ndk
+tract-onnx = "0.21"
+tract-core = "0.21"
+# Tokenizer (BPE / sentencepiece)
+tokenizers = { version = "0.19", default-features = false, features = ["unstable_wasm"] }
+log = "0.4"
+android_logger = "0.13"
+once_cell = "1"
+parking_lot = "0.12"
+anyhow = "1"
+futures = "0.3"
+bytes = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

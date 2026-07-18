@@ -31,7 +31,7 @@ const initializer = iface.encodeFunctionData("setup", [
 const salt = ethers.keccak256(
     ethers.AbiCoder.defaultAbiCoder().encode(
         ["address","address","address","uint256","string"],
-        [...SIGNERS, THRESHOLD, "btcpc-bridge-v1"]
+        [...SIGNERS, THRESHOLD, "hone-bridge-v1"]
     )
 );
 
@@ -56,7 +56,7 @@ const create2Salt = ethers.keccak256(
 
 const safeAddress = ethers.getCreate2Address(SAFE_FACTORY, create2Salt, initCodeHash);
 
-console.log("=== BTCPC Bridge Safe (predicted address) ===");
+console.log("=== HONE Bridge Safe (predicted address) ===");
 console.log("Safe address:  ", safeAddress);
 console.log("Signers (2-of-3):");
 SIGNERS.forEach((s, i) => console.log(`  [${i+1}] ${s}`));

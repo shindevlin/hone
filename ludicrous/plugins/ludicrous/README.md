@@ -1,6 +1,6 @@
 # Claude Code + Ludicrous Terminal
 
-Official [Ludicrous Terminal](https://github.com/shindevlin/btcpc/tree/main/ludicrous/plugins/ludicrous) integration for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+Official [Ludicrous Terminal](https://github.com/shindevlin/hone/tree/main/ludicrous/plugins/ludicrous) integration for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 ## Features
 
@@ -37,7 +37,7 @@ Once restarted, you'll see a confirmation message and notifications will appear 
 
 ## Requirements
 
-- [Ludicrous Terminal](https://github.com/shindevlin/btcpc/tree/main/ludicrous/plugins/ludicrous) (macOS, Linux, or Windows)
+- [Ludicrous Terminal](https://github.com/shindevlin/hone/tree/main/ludicrous/plugins/ludicrous) (macOS, Linux, or Windows)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
 - `jq` for JSON parsing (install via `brew install jq` or your package manager)
 

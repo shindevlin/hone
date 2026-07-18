@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Encrypted P2P Transport — Noise_XX with ChaCha20-Poly1305
+ * HONE Encrypted P2P Transport — Noise_XX with ChaCha20-Poly1305
  * Shin Devlin
  *
  * Implements the Noise_XX handshake pattern using Node.js built-in crypto.
@@ -44,12 +44,12 @@ const TAG_LEN = 16;
 const KEY_LEN = 32;
 const HASH_LEN = 32;
 const DHLEN = 32;
-const PROLOGUE = Buffer.from("btcpc-p2p-v1");
+const PROLOGUE = Buffer.from("hone-p2p-v1");
 
 // Static keypair storage path
 const STATIC_KEY_PATH = path.join(
   process.env.HOME || process.env.USERPROFILE || "/root",
-  ".btcpc", "noise-static-key.json"
+  ".hone", "noise-static-key.json"
 );
 
 // ---------------------------------------------------------------------------
@@ -389,7 +389,7 @@ function readMessage(hs, message) {
 
 /**
  * Load or generate the persistent Noise static keypair.
- * Stored in ~/.btcpc/noise-static-key.json.
+ * Stored in ~/.hone/noise-static-key.json.
  * File mode 0600 (user-readable only).
  */
 function loadOrGenerateStaticKeypair() {
@@ -415,9 +415,9 @@ function loadOrGenerateStaticKeypair() {
       public: kp.public.toString("hex"),
       created: new Date().toISOString()
     }), { mode: 0o600 });
-    console.log("[BTCPC Noise] Generated new static keypair → " + STATIC_KEY_PATH);
+    console.log("[HONE Noise] Generated new static keypair → " + STATIC_KEY_PATH);
   } catch (err) {
-    console.warn("[BTCPC Noise] Could not persist static keypair:", err.message);
+    console.warn("[HONE Noise] Could not persist static keypair:", err.message);
   }
   return kp;
 }
@@ -428,7 +428,7 @@ function loadOrGenerateStaticKeypair() {
 
 const PEER_KEYS_PATH = path.join(
   process.env.HOME || process.env.USERPROFILE || "/root",
-  ".btcpc", "noise-peer-keys.json"
+  ".hone", "noise-peer-keys.json"
 );
 
 var peerKeys = new Map(); // peerId (address:port or nodeId) → hex public key
@@ -453,9 +453,9 @@ function savePeerKeys() {
 function recordPeerKey(peerId, publicKeyHex) {
   var existing = peerKeys.get(peerId);
   if (existing && existing !== publicKeyHex) {
-    console.warn("[BTCPC Noise] PEER KEY CHANGE for " + peerId +
+    console.warn("[HONE Noise] PEER KEY CHANGE for " + peerId +
       " — old=" + existing.slice(0, 16) + "... new=" + publicKeyHex.slice(0, 16) + "...");
-    if (process.env.BTCPC_NOISE_STRICT_KEY_PIN === "true") {
+    if (process.env.HONE_NOISE_STRICT_KEY_PIN === "true") {
       return false; // reject connection
     }
   }
@@ -582,7 +582,7 @@ function processHandshakeData(ws, data, staticKeypair) {
         return true;
       }
     } catch (err) {
-      console.error("[BTCPC Noise] Handshake error:", err.message);
+      console.error("[HONE Noise] Handshake error:", err.message);
       handshakeState.delete(ws);
       state.reject(err);
       return false;
@@ -600,7 +600,7 @@ function _finalizeHandshake(ws, state, cs1, cs2, remoteStaticKey) {
   if (remoteStaticKey && state.peerId) {
     var ok = recordPeerKey(state.peerId, remoteStaticKey.toString("hex"));
     if (!ok) {
-      console.error("[BTCPC Noise] Rejecting peer " + state.peerId + " due to key change (strict mode)");
+      console.error("[HONE Noise] Rejecting peer " + state.peerId + " due to key change (strict mode)");
       handshakeState.delete(ws);
       state.reject(new Error("Peer key changed (strict mode active)"));
       return false;
@@ -616,7 +616,7 @@ function _finalizeHandshake(ws, state, cs1, cs2, remoteStaticKey) {
 
   handshakeState.delete(ws);
   state.resolve({ remoteStaticKey: remoteStaticKey });
-  console.log("[BTCPC Noise] Handshake complete with " + (state.peerId || "peer") +
+  console.log("[HONE Noise] Handshake complete with " + (state.peerId || "peer") +
     " remote_key=" + (remoteStaticKey ? remoteStaticKey.toString("hex").slice(0, 16) + "..." : "?"));
   return true;
 }

@@ -3,7 +3,7 @@
 /**
  * installerScripts.test.js
  *
- * Verifies that the three BTCPC installer scripts follow the self-heal
+ * Verifies that the three HONE installer scripts follow the self-heal
  * rule: auto-recover on every failure, never ask the user to do something.
  *
  * Checks:

@@ -1,14 +1,14 @@
 #!/bin/bash
-# BTCPC Meshtastic Setup — earn BTCPC by relaying sensor data
+# HONE Meshtastic Setup — earn HONE by relaying sensor data
 # Shin Devlin
 #
-# Usage: curl -fsSL https://btcpc.net/meshtastic-setup.sh | bash
+# Usage: curl -fsSL https://hone.net/meshtastic-setup.sh | bash
 #
 # This script:
 #   1. Installs the Meshtastic Python CLI
 #   2. Detects your connected Meshtastic device
-#   3. Adds the "btcpc" channel to the device
-#   4. Shows you how to run the BTCPC bridge
+#   3. Adds the "hone" channel to the device
+#   4. Shows you how to run the HONE bridge
 #
 # Works with: T-Beam, Heltec V3, RAK WisBlock, LilyGo T-Echo,
 #             Station G2, any Meshtastic-compatible device
@@ -28,7 +28,7 @@ echo -e "${ORANGE} | |_) | | || |___|  __/| |___${NC}"
 echo -e "${ORANGE} |____/  |_| \\____|_|    \\____|${NC}"
 echo ""
 echo -e "${ORANGE}Meshtastic Bridge Setup${NC}"
-echo "Earn BTCPC by relaying sensor data over mesh radio"
+echo "Earn HONE by relaying sensor data over mesh radio"
 echo ""
 
 # ─── Check for Python ────────────────────────────────────────────
@@ -89,20 +89,20 @@ else
   DEVICE_PORT="auto"
 fi
 
-# ─── Add BTCPC channel ──────────────────────────────────────────
+# ─── Add HONE channel ──────────────────────────────────────────
 
 echo ""
-echo -e "${GREEN}[3/4]${NC} Adding BTCPC channel to device..."
+echo -e "${GREEN}[3/4]${NC} Adding HONE channel to device..."
 
-if meshtastic --port "$DEVICE_PORT" --ch-add btcpc 2>/dev/null; then
-  echo "  BTCPC channel added"
+if meshtastic --port "$DEVICE_PORT" --ch-add hone 2>/dev/null; then
+  echo "  HONE channel added"
 else
   # Channel may already exist
-  echo "  BTCPC channel already exists (or device not connected)"
+  echo "  HONE channel already exists (or device not connected)"
 fi
 
 # Set channel name explicitly on the new index
-meshtastic --port "$DEVICE_PORT" --ch-set name btcpc --ch-index 1 2>/dev/null || true
+meshtastic --port "$DEVICE_PORT" --ch-set name hone --ch-index 1 2>/dev/null || true
 
 # ─── Done ────────────────────────────────────────────────────────
 
@@ -111,16 +111,16 @@ echo -e "${GREEN}[4/4]${NC} Setup complete!"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo -e "  Your Meshtastic device is now on the ${ORANGE}btcpc${NC} channel."
-echo "  It will relay BTCPC sensor data and earn from the IoT pool."
+echo -e "  Your Meshtastic device is now on the ${ORANGE}hone${NC} channel."
+echo "  It will relay HONE sensor data and earn from the IoT pool."
 echo ""
 echo "  To run the bridge daemon:"
 echo ""
-echo -e "    ${GREEN}node bin/btcpc-meshtastic --account <your-btcpc-name>${NC}"
+echo -e "    ${GREEN}node bin/hone-meshtastic --account <your-hone-name>${NC}"
 echo ""
-echo "  Or install BTCPC first:"
+echo "  Or install HONE first:"
 echo ""
-echo -e "    ${GREEN}curl -fsSL https://btcpc.net/install.sh | bash${NC}"
+echo -e "    ${GREEN}curl -fsSL https://hone.net/install.sh | bash${NC}"
 echo ""
 echo "  Compatible devices:"
 echo "    - LILYGO T-Beam (ESP32 + LoRa + GPS)"
@@ -130,7 +130,7 @@ echo "    - LilyGo T-Echo (nRF52840 + LoRa + GPS + E-Ink)"
 echo "    - Station G2 (ESP32-S3 + LoRa + Ethernet)"
 echo "    - Any Meshtastic-compatible device"
 echo ""
-echo -e "  Learn more: ${ORANGE}https://btcpc.net/meshtastic${NC}"
+echo -e "  Learn more: ${ORANGE}https://hone.net/meshtastic${NC}"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

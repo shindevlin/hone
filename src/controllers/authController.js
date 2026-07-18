@@ -115,7 +115,7 @@ async function migrateUserToSecretStore(mongoUser) {
 
 /**
  * Register New User
- * Creates BTCPC account with BIP-39 mnemonic and wallets on all 7 chains.
+ * Creates HONE account with BIP-39 mnemonic and wallets on all 7 chains.
  * Mnemonic is shown ONCE — user must save it. We never store it.
  */
 async function registerUser(req, res) {
@@ -139,7 +139,7 @@ async function registerUser(req, res) {
     });
     const token = jwt.sign(
       { username: result.username, src: 'register' },
-      process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET,
+      process.env.JWT_SECRET || process.env.HONE_JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
@@ -274,9 +274,9 @@ async function linkTelegram(req, res) {
     }
 
     // DISABLED: Direct linking without Telegram verification is an identity hijack vector.
-    // Use /link <username> in the @btcpcbot Telegram bot instead.
+    // Use /link <username> in the @honebot Telegram bot instead.
     return res.status(403).json({
-      error: 'Direct Telegram linking disabled. Use /link <username> in @btcpcbot instead.',
+      error: 'Direct Telegram linking disabled. Use /link <username> in @honebot instead.',
       help: 'The bot verifies your posting key signature before linking.'
     });
 

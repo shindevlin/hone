@@ -3,11 +3,11 @@
 # Run as root or with sudo.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/shindevlin/btcpc/stable/scripts/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/shindevlin/hone/stable/scripts/install.sh | sudo bash
 
 set -euo pipefail
 
-GITHUB_REPO="shindevlin/btcpc"
+GITHUB_REPO="shindevlin/hone"
 RELEASE_TAG="node-v1.1.0"
 ARCH="$(uname -m)"
 case "$ARCH" in

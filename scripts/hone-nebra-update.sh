@@ -7,7 +7,7 @@ set -euo pipefail
 BINARY_DIR=/home/pi/hone-node
 BINARY=$BINARY_DIR/hone-node
 VERSION_FILE=$BINARY_DIR/.hone-node-version
-REPO="shindevlin/btcpc"
+REPO="shindevlin/hone"
 ASSET_NAME="hone-node-aarch64-linux"
 SERVICE="hone-node"
 TMP=/tmp/hone-node-update

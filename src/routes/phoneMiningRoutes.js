@@ -46,7 +46,7 @@ const SYNTHETIC_PROMPTS = [
     "The capital of Japan is",
     "SHA256 is a type of",
     "A blockchain is a distributed",
-    "The unit of BTCPC is",
+    "The unit of HONE is",
     "Proof of work is",
 ];
 
@@ -150,7 +150,7 @@ router.post('/submit', authenticateToken, (req, res) => {
     // them weight=1 without requiring pre-existing stake. Post-bootstrap unstaked
     // miners get weight=0, making earnings impossible for new accounts with no balance.
     // Phone mining is an onboarding path — permissioned registration fixes the
-    // chicken-and-egg: you need BTCPC to stake, but need to mine to get BTCPC.
+    // chicken-and-egg: you need HONE to stake, but need to mine to get HONE.
     try {
         if (!nodeRegistry.getNode(account)) {
             nodeRegistry.registerNode(account, 'miner', 0, null, targetEpoch, true);
@@ -173,13 +173,13 @@ router.post('/submit', authenticateToken, (req, res) => {
         // stateStore unavailable — track in memory so stats still work
     }
 
-    // Broadcast MINING_PROOF via P2P so btcpc-mine picks it up in
+    // Broadcast MINING_PROOF via P2P so hone-mine picks it up in
     // handleMiningProof → recordMinerWork → blockProposal reward distribution.
     try {
         const proofMsg = protocol.createMessage('MINING_PROOF', {
             block_number: targetEpoch,
             miner: account,
-            model: req.body.model_id || 'btcpc-phone-v1',
+            model: req.body.model_id || 'hone-phone-v1',
             work_value: workValue,
             work_hash,
             device: 'android',
@@ -194,7 +194,7 @@ router.post('/submit', authenticateToken, (req, res) => {
         const rewardSettlement = require('../chain/rewardSettlement');
         rewardSettlement.submitWorkProof({
             node_id: account,
-            model: req.body.model_id || 'btcpc-phone-v1',
+            model: req.body.model_id || 'hone-phone-v1',
             prompt_hash: crypto.createHash('sha256').update(work_hash).digest('hex'),
             result_hash: work_hash,
             tokens_generated: token_count || 0,
@@ -212,7 +212,7 @@ router.post('/submit', authenticateToken, (req, res) => {
         verifierEngine.addToPool({
             id: job_id,
             node_id: account,
-            model: req.body.model_id || 'btcpc-phone-v1',
+            model: req.body.model_id || 'hone-phone-v1',
             prompt_hash: crypto.createHash('sha256').update(work_hash).digest('hex'),
             tokens_generated: token_count || 0,
             work_value: workValue,

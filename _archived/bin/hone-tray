@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# HONE System Tray — Native per-OS
+# Linux: GtkStatusIcon via yad (GNOME/KDE/XFCE)
+# Mac: NSStatusItem via osascript (AppleScript)
+# Windows: NotifyIcon via PowerShell
+#
+# Install:
+#   Linux:   sudo apt install yad
+#   Mac:     nothing needed (osascript is built-in)
+#   Windows: nothing needed (PowerShell is built-in)
+#
+# Usage:
+#   ./bin/hone-tray &
+#   (runs in background, adds icon to system tray)
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+EXPLORER_URL="http://localhost:4242"
+SETTINGS_URL="$EXPLORER_URL/settings"
+
+OS="$(uname -s)"
+
+case "$OS" in
+  Linux)
+    exec "$SCRIPT_DIR/tray/linux-tray.sh" "$@"
+    ;;
+  Darwin)
+    exec osascript "$SCRIPT_DIR/tray/mac-tray.applescript" "$@"
+    ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+    exec powershell -ExecutionPolicy Bypass -File "$SCRIPT_DIR/tray/windows-tray.ps1" "$@"
+    ;;
+  *)
+    echo "[HONE Tray] Unsupported OS: $OS"
+    echo "[HONE Tray] Falling back to notification-only mode"
+    while true; do
+      notify-send --app-name=HONE "HONE Miner" "Mining active" 2>/dev/null
+      sleep 300
+    done
+    ;;
+esac

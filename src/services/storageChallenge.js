@@ -26,7 +26,7 @@ function shouldChallenge(epochNumber) {
  * @param {object} [opts] — optional { offset, length } for deterministic testing
  */
 function _blobFilePath(cid) {
-  var blobDir = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+  var blobDir = process.env.HONE_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
   return path.join(blobDir, cid.slice(0, 2), cid.slice(2, 4), cid);
 }
 

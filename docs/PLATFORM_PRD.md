@@ -1,6 +1,6 @@
-# BTCPC Platform PRD — Verticals, Storage, and New Products
+# HONE Platform PRD — Verticals, Storage, and New Products
 
-> **Canonical, all-up backlog for BTCPC's product verticals**, distinct from
+> **Canonical, all-up backlog for HONE's product verticals**, distinct from
 > `docs/ROADMAP.md` (protocol/consensus hardening phases) and
 > `docs/SELF_HEAL_PRD.md` (fail-path auto-recovery). This file is where
 > Verasens, unified storage, Freeport, LinkGit, bots, and new verticals get
@@ -17,11 +17,11 @@
 ## GitHub-wide review findings (2026-07)
 
 A full review of every repo under `shindevlin` on GitHub (8 repos total:
-`btcpc`, `btcpc-desktop`, `btcpc-gnss-capture`, `btcpc-market`,
-`btcpc-marketing`, `phonehome`, `btcpc-terminal`, `btcpc-p2p`) turned up two
+`hone`, `hone-desktop`, `hone-gnss-capture`, `hone-market`,
+`hone-marketing`, `phonehome`, `hone-terminal`, `hone-p2p`) turned up two
 things worth acting on:
 
-1. **`btcpc-marketing`'s `INNOVATIONS.md` oversells several features as
+1. **`hone-marketing`'s `INNOVATIONS.md` oversells several features as
    built when they are not.** Verified by grep against `rust/hone-node`:
    - **Lucid Pruning** (chain self-compression via AI inference) — **no
      code found.** Pure marketing copy.
@@ -51,7 +51,7 @@ things worth acting on:
      this session), Mempool with tx hashes (real, matches existing P2P
      mempool code reviewed in this session).
    - **Action item:** `marketing/INNOVATIONS.md` (mirrored 1:1 locally from
-     `btcpc-marketing`) needs a truth pass — either build the missing
+     `hone-marketing`) needs a truth pass — either build the missing
      features for real, or stop claiming them. This is now a tracked item,
      see Phase 8 below. Do not let unverified marketing claims keep
      circulating as if they're shipped.
@@ -141,9 +141,9 @@ every future sensor type without a code change per sensor.
 
   - **Units.** `crates/hone-types/src/lib.rs:12` defines
     `HUNITS_PER_HONE = 10_000_000_000` (1e10). **This contradicts the
-    "1 BTCPC = 100,000,000 dreams" figure used in some loose docs** (including
+    "1 HONE = 100,000,000 dreams" figure used in some loose docs** (including
     the 1.4 settlement-seam record above) — the **code is canonical:
-    1 BTCPC = 10,000,000,000 dreams**. All numbers below use the code value.
+    1 HONE = 10,000,000,000 dreams**. All numbers below use the code value.
     (`SUPPLY_CAP_HUNITS = 42_000_000 * 1e10`, `emission.rs:107`, confirms it.)
   - **`SensorReward` today** (`chain.rs:1936`): a straight
     `credit(node_id, NATIVE_TOKEN, *amount)` with no usage gating. `amount` is
@@ -166,7 +166,7 @@ every future sensor type without a code change per sensor.
 
   **Decision: creation mints a flat, tiny, cost-recovery fee of
   `SENSOR_CREATION_FEE_HUNITS = 2_000` dreams per accepted `SensorReading`
-  (= 0.0000002 BTCPC), NOT the score-weighted pool slice it mints today.** The
+  (= 0.0000002 HONE), NOT the score-weighted pool slice it mints today.** The
   score-weighted `SensorReward` pool emission is retained ONLY as the wrapper
   the fee is paid through (existing `SensorReward` entry plumbing and per-owner
   grouping stay intact); the *magnitude* drops to the flat fee. Score still
@@ -237,7 +237,7 @@ every future sensor type without a code change per sensor.
 
   ##### (3) Numeric model — usage dominates creation over the data lifetime
 
-  Assume a conservative purchase `fee` of **0.001 BTCPC = 10,000,000 dreams**
+  Assume a conservative purchase `fee` of **0.001 HONE = 10,000,000 dreams**
   per query batch (~one weight-unit base fee — buyers pay real money for
   aggregated intelligence, so this is deliberately modest). Owner keeps 80% =
   **8,000,000 dreams per purchase**. Creation fee is **2,000 dreams per
@@ -246,9 +246,9 @@ every future sensor type without a code change per sensor.
 
   | Sensor type | Readings/epoch | Lifetime readings | Creation earnings (2,000 ea) | Plausible query rate | Lifetime purchases | Usage earnings (8,000,000 ea) | Usage ÷ creation |
   |---|---|---|---|---|---|---|---|
-  | `continuous` (temp/RH) | 2 | 518,400 | 1,036,800,000 dreams (0.104 BTCPC) | 1 buy / 6 h → 360 | 360 | 2,880,000,000 dreams (0.288 BTCPC) | **2.78×** |
-  | `sampled` (GNSS) | 30 | 7,776,000 | 15,552,000,000 dreams (1.555 BTCPC) | 1 buy / h → 2,160 | 2,160 | 17,280,000,000 dreams (1.728 BTCPC) | **1.11×** |
-  | `event` (Flipper NFC/IR) | 0.2 | 51,840 | 103,680,000 dreams (0.0104 BTCPC) | 1 buy / 30 min → 4,320 | 4,320 | 34,560,000,000 dreams (3.456 BTCPC) | **333×** |
+  | `continuous` (temp/RH) | 2 | 518,400 | 1,036,800,000 dreams (0.104 HONE) | 1 buy / 6 h → 360 | 360 | 2,880,000,000 dreams (0.288 HONE) | **2.78×** |
+  | `sampled` (GNSS) | 30 | 7,776,000 | 15,552,000,000 dreams (1.555 HONE) | 1 buy / h → 2,160 | 2,160 | 17,280,000,000 dreams (1.728 HONE) | **1.11×** |
+  | `event` (Flipper NFC/IR) | 0.2 | 51,840 | 103,680,000 dreams (0.0104 HONE) | 1 buy / 30 min → 4,320 | 4,320 | 34,560,000,000 dreams (3.456 HONE) | **333×** |
 
   Usage-payment earnings exceed creation-fee earnings for **all three** types.
   The margin is thinnest for the highest-volume/lowest-value type
@@ -263,7 +263,7 @@ every future sensor type without a code change per sensor.
   profit center. **A pure spammer** (no buyers ever) earns only
   `2,000 × readings` dreams while paying real hardware/energy per fabricated,
   signed reading — net negative by construction, since 2,000 dreams
-  (0.0000002 BTCPC) does not cover the cost to produce one reading.
+  (0.0000002 HONE) does not cover the cost to produce one reading.
 
   ##### (4) Reasoning (summary)
 
@@ -374,7 +374,7 @@ every future sensor type without a code change per sensor.
   - **Range:** normalized `r ∈ [0.0, 1.0]` (fixed-point on-chain, e.g.
     basis points `0..=10_000`, to stay deterministic — no floats in consensus
     state).
-  - **Signals (already on-chain, no new gamed input):** count/BTCPC-volume of
+  - **Signals (already on-chain, no new gamed input):** count/HONE-volume of
     distinct-buyer `SensorDataPurchase` events for this `sensor_id`;
     corroboration (independent devices agreeing, as `CoverageReport` already
     rewards); complaint/dispute history. All are things Phase 6's design bullet
@@ -499,8 +499,8 @@ every future sensor type without a code change per sensor.
   rounding remainder), completing the real 80/15/5 split. `rep_mult`/
   `g_create`/`g_split` hooks left as no-ops per the design handoff (Phase 6
   not yet built). Added 3 tests (spam-is-unprofitable, high-query-out-earns-
-  low-query, three-way purchase split) — 257/257 `btcpc-node` tests +
-  11/11 `btcpc-types` tests green. **Follow-up flagged:** no per-batch
+  low-query, three-way purchase split) — 257/257 `hone-node` tests +
+  11/11 `hone-types` tests green. **Follow-up flagged:** no per-batch
   storage-node identity exists yet to pay `STORAGE_CONTRACT_FUND_ACCOUNT`
   out proportionally — a future item should drain that pool once
   batch-to-node tracking exists (noted inline in `emission.rs` and
@@ -569,16 +569,16 @@ every future sensor type without a code change per sensor.
       real, but re-checked by direct grep during implementation — `main.rs`
       does not actually construct a `SensorReading` entry anywhere; only
       `sim.rs` and the Android client do). Removed from the producer list.
-    - `rust/btcpc-android/src/sensors.rs` — **the live Android sensor
+    - `rust/hone-android/src/sensors.rs` — **the live Android sensor
       client. Confirmed it has NO account-key signing capability today.**
-      Verified precisely during implementation: `rust/btcpc-android` DOES
+      Verified precisely during implementation: `rust/hone-android` DOES
       have an ed25519 `Keypair` in `net.rs`, but it's a **libp2p transport
       identity** (peer-to-peer networking/handshake identity), not a
-      BTCPC account posting key that `check_signature` would recognize —
+      HONE account posting key that `check_signature` would recognize —
       those are registered on-chain per `AccountId` via
       `AccountUpdateKey`/`SensorKeyRegister`, which this crate has no
       account/wallet module for at all (confirmed: no `account.rs`,
-      `wallet.rs`, or equivalent exists under `rust/btcpc-android/src/`).
+      `wallet.rs`, or equivalent exists under `rust/hone-android/src/`).
       **This means wiring real signing into the Android client is separate,
       larger feature work** (deriving/storing a posting key, exposing it to
       `sensors.rs`, signing the canonical entry hash, submitting `sig_hex`
@@ -591,8 +591,8 @@ every future sensor type without a code change per sensor.
       exactly where the theft vector lived (a remote attacker forging
       entries for someone else's account). The phone's own local apply of
       its own genuine readings was never the risk.
-    - **Follow-up item (not urgent, tracked separately):** add real BTCPC
-      posting-key signing to `rust/btcpc-android` so genuine phone-submitted
+    - **Follow-up item (not urgent, tracked separately):** add real HONE
+      posting-key signing to `rust/hone-android` so genuine phone-submitted
       readings can pass the "owner has a posting key" branch of the new
       check instead of relying on the bootstrap-skip path forever. Until
       this lands, phone sensor owners should avoid registering a posting
@@ -634,7 +634,7 @@ every future sensor type without a code change per sensor.
      bootstrap-skip behavior for brand-new device-owner accounts.
   4. **Update all three producers** to sign when the owner account has a
      posting key available: `main.rs`, `sim.rs`, and — the one with real
-     user impact — `btcpc-android/src/sensors.rs` needs an actual signing
+     user impact — `hone-android/src/sensors.rs` needs an actual signing
      path added (device posting key must be available on-device; check
      how the Android app currently manages any chain keys at all before
      assuming one exists to reuse).
@@ -784,7 +784,7 @@ every future sensor type without a code change per sensor.
   ---
 
 - [x] **Build the Verasens aggregation service** (new: likely a Rust sidecar
-  alongside `btcpc-market`/`linkgit`, e.g. `rust/verasens/`, replacing the
+  alongside `hone-market`/`linkgit`, e.g. `rust/verasens/`, replacing the
   empty root `verasens/` README stub). Ingests `SensorReading` events from
   the chain, groups by sensor type + geography + time window, and exposes a
   query API. This is the actual product — not a passthrough of raw chain
@@ -842,9 +842,9 @@ every future sensor type without a code change per sensor.
   fully certain a capability is stock vs. module, it is called out explicitly
   rather than asserted.
 
-  The existing prototype (`clients/btcpc-flipper`, ~240 LOC C, do not modify
+  The existing prototype (`clients/hone-flipper`, ~240 LOC C, do not modify
   here) already anticipates most of these: its BLE wire protocol
-  (`protocol/btcpc_protocol.h`) defines `SUBGHZ_OBS`, `RFID_SCAN`, `NFC_SCAN`,
+  (`protocol/hone_protocol.h`) defines `SUBGHZ_OBS`, `RFID_SCAN`, `NFC_SCAN`,
   `IBUTTON`, `IR_CAPTURE`, `HEARTBEAT` frames, plus phone→Flipper `GPS` and
   `CLOCK_SYNC` — so the radio set below is consistent with what the firmware
   scaffolding already reserves message types for. The Flipper signs each frame
@@ -916,12 +916,12 @@ every future sensor type without a code change per sensor.
   under either 1.2 outcome and are recommended as inputs to that decision.
 
   **No tests to run** — this is a documentation/inventory item only, no code
-  was written or modified (the ~240-LOC C prototype in `clients/btcpc-flipper`
+  was written or modified (the ~240-LOC C prototype in `clients/hone-flipper`
   was read for grounding but intentionally left untouched). The firmware work
   (capturing and submitting these `SensorReading` entries per class) and the
   real-hardware verification remain as the two downstream 1.3 items below.
 
-- [x] **Extend/replace `clients/btcpc-flipper`** (currently ~240 lines, C,
+- [x] **Extend/replace `clients/hone-flipper`** (currently ~240 lines, C,
   prototype only) to capture and submit `SensorReading` entries for each
   supported sensor, signed by the device key already described in
   `DeviceKeyRegister`/`DeviceClaimStake`. **Done — branch
@@ -933,7 +933,7 @@ every future sensor type without a code change per sensor.
   ibutton, ir added as new capture scenes following the existing sub-GHz
   scene's capture → pack → `data_hash` → ed25519-sign → BLE-send pattern),
   plus wired all 5 into the adaptive Auto Rotate scene (previously only
-  drove sub-GHz+heartbeat). Added the `BtcpcIrCapture` payload + wire
+  drove sub-GHz+heartbeat). Added the `HoneIrCapture` payload + wire
   message (additive, backward-compatible protocol change) and a portable
   `crypto/sha256.c` for `data_hash` computation matching the phone's
   independent recomputation in `flipper_rx.rs`. **Notable fix found in the
@@ -956,7 +956,7 @@ every future sensor type without a code change per sensor.
 ### 1.4 — Institutional dashboard (B2B, USD billing)
 
 - [x] **Design the institutional product**: companies log in, browse/query
-  aggregated Verasens intelligence, pay in **USD** (not BTCPC) — needs a
+  aggregated Verasens intelligence, pay in **USD** (not HONE) — needs a
   fiat billing integration (Stripe or equivalent), auth (proper
   login/session, not the existing bot-JWT pattern which is consumer-scale),
   and a rate plan (per-query, subscription, or both — decide and document
@@ -973,7 +973,7 @@ every future sensor type without a code change per sensor.
   **(1) AUTH / SESSION MODEL — org accounts + API keys + session cookies.**
 
   Why the existing bot-JWT pattern is inadequate: the consumer bots
-  (`bots/btcpcbot`, `bots/btcpcwalletbot`) authenticate a single Telegram
+  (`bots/honebot`, `bots/honewalletbot`) authenticate a single Telegram
   user to a single wallet with a long-lived bearer JWT minted per user.
   That model has no concept of an *organisation*, no multi-seat membership,
   no role/permission separation, no key rotation or revocation story, and
@@ -1006,7 +1006,7 @@ every future sensor type without a code change per sensor.
     scopes (`query:read`, `usage:read`), are independently revocable, and
     every request is rate-limited and metered per key (so an org can attach
     a key to a data pipeline and see exactly what it cost). Programmatic
-    clients authenticate with `Authorization: Bearer btcpc_live_…`; the
+    clients authenticate with `Authorization: Bearer hone_live_…`; the
     dashboard authenticates with the session cookie. These are two separate
     credential paths that never mix.
 
@@ -1086,7 +1086,7 @@ every future sensor type without a code change per sensor.
   below).**
 
   Hard requirement (PRD): USD payments must NEVER bypass on-chain
-  settlement — the sensor owner is paid in BTCPC/dreams regardless of how
+  settlement — the sensor owner is paid in HONE/dreams regardless of how
   the buyer paid. The seam makes the on-chain posting a mandatory,
   idempotent consequence of every billable query, decoupled from Stripe's
   invoice cycle (Stripe bills the buyer in USD monthly; the chain must pay
@@ -1109,11 +1109,11 @@ every future sensor type without a code change per sensor.
     batch_hash, usd_amount_cents, dreams_amount, fx_rate_id, status,
     chain_entry_hash, created_at, posted_at)`. `status`:
     `pending` → `posting` → `posted` | `failed`. `dreams_amount` is the
-    BTCPC/dreams the owner must receive (1 BTCPC = 10,000,000,000 dreams,
+    HONE/dreams the owner must receive (1 HONE = 10,000,000,000 dreams,
     canonical `HUNITS_PER_HONE`);
-    `fx_rate_id` pins the USD→BTCPC rate source/timestamp used, so the
+    `fx_rate_id` pins the USD→HONE rate source/timestamp used, so the
     conversion is auditable and not re-derived later.
-  - **Bridge interface (implemented by the separate "USD → BTCPC settlement
+  - **Bridge interface (implemented by the separate "USD → HONE settlement
     bridge" item below).** A single async worker contract:
     `post_settlement(intent) -> Result<chain_entry_hash>` that MUST, for a
     `pending`/`failed` intent: (1) resolve `dreams_amount` from
@@ -1137,7 +1137,7 @@ every future sensor type without a code change per sensor.
     never settled."
   - **Funding of the settlement account** (bridge concern, noted so the seam
     is complete, NOT built here): the platform pre-funds / periodically
-    tops up the settlement account's BTCPC balance from treasury; USD
+    tops up the settlement account's HONE balance from treasury; USD
     revenue collected via Stripe backs that treasury. The reconciliation
     invariant the bridge must uphold: `Σ dreams posted on-chain for owners`
     corresponds to `Σ billable queries` at the pinned FX rates — surfaced on
@@ -1160,9 +1160,9 @@ every future sensor type without a code change per sensor.
 - [ ] **Build the dashboard** (new web app, e.g. `verasens/dashboard/` or
   a service alongside `website/`) — login, query builder against the
   aggregation service's API, USD invoicing/billing, usage history.
-- [ ] **USD → BTCPC settlement bridge** — when a company pays USD, the
+- [ ] **USD → HONE settlement bridge** — when a company pays USD, the
   underlying `SensorDataPurchase` fee still needs to be posted on-chain in
-  BTCPC/dreams so sensor owners get paid in the native token regardless of
+  HONE/dreams so sensor owners get paid in the native token regardless of
   how the buyer paid. Design and implement this conversion step explicitly;
   do not let USD payments bypass on-chain settlement.
 - [ ] **Tests**: end-to-end — company account created, query made, USD
@@ -1229,11 +1229,11 @@ niche storefront (drop-ship model), reconciling multi-warehouse shipping.
   decided, existing entries `OrderPlace`/`OrderFulfill`/`OrderCancel`/
   `OrderDispute`/`EscrowRelease` must still be the settlement backbone —
   don't invent parallel settlement.
-- [ ] **Implement cross-store listing/curation** in `btcpc-market` (or
+- [ ] **Implement cross-store listing/curation** in `hone-market` (or
   wherever Phase 3.1's design lands it).
 - [ ] **Implement shipping reconciliation** per the Phase 3.2 design.
 - [ ] **Seller insurance pool** (new vertical, folds in here since it's
-  Freeport-specific): sellers stake BTCPC into a shared pool; buyers get
+  Freeport-specific): sellers stake HONE into a shared pool; buyers get
   automatic refund from the pool on verified non-delivery/dispute
   (`OrderDispute` already exists as the trigger entry). Adversarial design
   required: what stops a seller intentionally under-fulfilling to drain the
@@ -1282,7 +1282,7 @@ storage + versioning work landing first.
 Smaller scope, but currently the least reliable user-facing surface next to
 the client stubs.
 
-- [ ] **Add real tests** for `bots/btcpcbot` and `bots/btcpcwalletbot` —
+- [ ] **Add real tests** for `bots/honebot` and `bots/honewalletbot` —
   currently untested single-file monoliths (29k/90k LOC). Start with the
   highest-traffic commands (balance, transfer, create) before full
   coverage.
@@ -1338,7 +1338,7 @@ start code until the design item is done and reviewed.
   inference job flow (`InferenceJobPost` → `...Pay`) exactly, so the
   pattern is proven and just needs a new job-type, not new mechanics.
 - [ ] **7.2 — Agent economy marketplace (OpenClaw-linked).** Agents hire
-  other agents for sub-tasks, settled in BTCPC. **Must be secure and
+  other agents for sub-tasks, settled in HONE. **Must be secure and
   private by design** — default to no visibility into what agents are
   working on or who's paying whom outside the transacting parties. Design
   the privacy mechanism explicitly (encrypted job payloads? Payment
@@ -1353,7 +1353,7 @@ start code until the design item is done and reviewed.
   first (needs real aggregated sensor data to verify against).
 - [ ] **7.4 — Resilient phone light-agent / light-storage nodes.**
   **UPDATED after full GitHub review:** no dedicated phone-light-agent
-  BTCPC repo exists, but `github.com/shindevlin/phonehome` (same author,
+  HONE repo exists, but `github.com/shindevlin/phonehome` (same author,
   separate project — a Rust Telegram↔Claude Code bridge) is a working,
   real precedent for the exact resilience pattern needed here: Telegram
   long-polling with a configurable interval, session-resume via a
@@ -1370,7 +1370,7 @@ start code until the design item is done and reviewed.
   storage-contribution logic — the resilience model is the hard part, not
   the phone-side feature work. Closest existing footholds: `website/app.html`
   (already usable from a phone browser per README) and
-  `clients/btcpc-android` (currently a thin Capacitor scaffold). Follow the
+  `clients/hone-android` (currently a thin Capacitor scaffold). Follow the
   same self-heal rule as `docs/SELF_HEAL_PRD.md`.
 - [ ] **7.5 — Micro-lending against provable earnings.** Freeport sellers,
   storage operators, and miners have on-chain earning history. Design
@@ -1390,7 +1390,7 @@ every future Phase 1-8 item that touches Rust code from running its own
 tests before landing, and blocks the daily/parallel workflow's implementation
 items from ever validating a `cargo test` result.
 
-**Symptom:** `cargo check --bin btcpc-node` triggers a genuine rustc internal
+**Symptom:** `cargo check --bin hone-node` triggers a genuine rustc internal
 compiler panic (ICE) during `resolver_for_lowering`/`check_mod_deathness`
 analysis of the `api` module — not a code error, a compiler crash.
 
@@ -1404,14 +1404,14 @@ analysis of the `api` module — not a code error, a compiler crash.
 - **Net result: no rustc version currently on this machine, or installable
   via `rustup` at the time of this check, can both (a) satisfy the
   workspace's own dependency floor and (b) avoid the ICE.**
-- The narrower `crates/hone-types` package (a dependency of `btcpc-node`,
+- The narrower `crates/hone-types` package (a dependency of `hone-node`,
   not the full binary) DOES compile cleanly — the ICE is specific to
-  building the full `btcpc-node` binary crate, not a fundamental problem
+  building the full `hone-node` binary crate, not a fundamental problem
   with the workspace's Rust code in general.
 - Confirmed NOT a memory/resource issue (31GB RAM available, plenty free).
 - Confirmed this is a **known, pre-existing problem**, not new: found
   `build.err`/`build.first.err` log files already present in the deployment
-  checkout (`/home/beastly/btcpc-node/rust/hone-node/`) from a prior
+  checkout (`/home/beastly/hone-node/rust/hone-node/`) from a prior
   session's build attempts, plus a `howtoinstallandrun.md` "lessons
   learned" doc that recommends downloading a prebuilt release binary
   specifically because building from source on this machine is unreliable.
@@ -1446,7 +1446,7 @@ ICE — see this section").
 
 ## Phase 8 — Marketing truth pass (found during GitHub-wide review)
 
-`marketing/INNOVATIONS.md` (mirrored from `btcpc-marketing` repo) claims
+`marketing/INNOVATIONS.md` (mirrored from `hone-marketing` repo) claims
 several features as built that are not, per direct code verification (see
 "GitHub-wide review findings" above). This phase can run in parallel with
 any other phase — it's independent, low-risk, and prevents false claims
@@ -1456,16 +1456,16 @@ from continuing to circulate.
   For each of Lucid Pruning, Genesis Dreams/inscriptions, Sparse Merkle
   Tree state proofs, and Resource-aware mining/auto-throttle: either scope
   it as a real build item (in whichever phase above it best fits, or a new
-  one) or rewrite `marketing/INNOVATIONS.md` (and `btcpc-marketing`'s copy)
+  one) or rewrite `marketing/INNOVATIONS.md` (and `hone-marketing`'s copy)
   to stop claiming it exists. Do not leave it in an unverified limbo state.
 - [ ] **Correct the "Finality blocks" claim precision** — either build the
   actual "every 100 epochs, full network snapshot, seconds-to-sync" feature
   described, or narrow the marketing copy to accurately describe what
   `snapshot_replication.rs` actually does (per-account snapshots) today.
 - [ ] **Push corrected copy to both locations** — `marketing/*.md` in this
-  repo AND the standalone `btcpc-marketing` GitHub repo must stay in sync;
+  repo AND the standalone `hone-marketing` GitHub repo must stay in sync;
   decide which is canonical (recommend: this repo's `marketing/` is
-  canonical, `btcpc-marketing` becomes a mirror or is retired — document
+  canonical, `hone-marketing` becomes a mirror or is retired — document
   the decision here once made).
 
 ---

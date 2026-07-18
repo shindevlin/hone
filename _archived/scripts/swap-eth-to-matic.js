@@ -9,8 +9,8 @@
 const { ethers } = require("ethers");
 
 const RPC = "https://1rpc.io/eth";
-const PRIVATE_KEY = process.env.BTCPC_SHIN_EVM_KEY;
-if (!PRIVATE_KEY) { console.error("Set BTCPC_SHIN_EVM_KEY in .env"); process.exit(1); }
+const PRIVATE_KEY = process.env.HONE_SHIN_EVM_KEY;
+if (!PRIVATE_KEY) { console.error("Set HONE_SHIN_EVM_KEY in .env"); process.exit(1); }
 
 // Addresses
 const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";

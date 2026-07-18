@@ -17,7 +17,7 @@ Result:
 - trivy findings: `2 high`, `0 critical`
 
 Remaining Trivy findings:
-- `GHSA-82j2-j2ch-gfr8` in `android/rust/btcpc-miner/Cargo.lock` (`rustls-webpki 0.101.7`)
+- `GHSA-82j2-j2ch-gfr8` in `android/rust/hone-miner/Cargo.lock` (`rustls-webpki 0.101.7`)
 - `GHSA-82j2-j2ch-gfr8` in `android/rust/ort-patched/Cargo.lock` (`rustls-webpki 0.103.5`)
 
 Conclusion:

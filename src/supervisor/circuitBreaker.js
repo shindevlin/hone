@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Circuit breaker for the btcpc-all supervisor.
+ * Circuit breaker for the hone-all supervisor.
  *
  * If a role crashes more than MAX_CRASHES times within WINDOW_MS, the breaker
  * trips for that role. The supervisor stops restarting it and keeps all other
@@ -11,8 +11,8 @@
  * Map<roleName, number[]> that the caller owns.
  */
 
-var WINDOW_MS   = parseInt(process.env.BTCPC_CB_WINDOW_MS)    || 60 * 60 * 1000; // 1 hour
-var MAX_CRASHES = parseInt(process.env.BTCPC_CB_MAX_CRASHES)  || 20;
+var WINDOW_MS   = parseInt(process.env.HONE_CB_WINDOW_MS)    || 60 * 60 * 1000; // 1 hour
+var MAX_CRASHES = parseInt(process.env.HONE_CB_MAX_CRASHES)  || 20;
 
 /**
  * Record one crash for `role` and return true if the breaker just tripped.

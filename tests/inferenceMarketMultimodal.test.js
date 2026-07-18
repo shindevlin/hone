@@ -16,8 +16,8 @@ const http = require("http");
 const crypto = require("crypto");
 
 // ── Test blob directory ────────────────────────────────────────────────────────
-const TEST_BLOB_DIR = path.join(os.tmpdir(), "btcpc-test-mm-blobs-" + process.pid);
-process.env.BTCPC_BLOB_DIR = TEST_BLOB_DIR;
+const TEST_BLOB_DIR = path.join(os.tmpdir(), "hone-test-mm-blobs-" + process.pid);
+process.env.HONE_BLOB_DIR = TEST_BLOB_DIR;
 
 // ── Mock P2P / network deps that route/service modules pull in ─────────────────
 jest.mock("../src/p2p/mempool", () => ({
@@ -106,7 +106,7 @@ function request(port, method, urlPath, body, opts) {
   });
 }
 
-/** Create an account with enough BTCPC balance to open jobs */
+/** Create an account with enough HONE balance to open jobs */
 function setupBuyer(username, balance) {
   balance = balance !== undefined ? balance : 100;
   stateStore.applyEntry({
@@ -121,7 +121,7 @@ function setupBuyer(username, balance) {
     type: "MINING_REWARD",
     to: username,
     amount: balance,
-    token: "BTCPC",
+    token: "HONE",
     epoch: 1,
     timestamp: 1,
   });

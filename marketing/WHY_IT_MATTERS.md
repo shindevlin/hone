@@ -1,4 +1,4 @@
-# Why BTCPC Matters
+# Why HONE Matters
 
 ## The Problem
 
@@ -17,16 +17,16 @@ Every new blockchain launches with no liquidity, no users, no ecosystem. They sp
 
 ## The Opportunity
 
-BTCPC solves all three at once:
+HONE solves all three at once:
 
 ### Useful Mining
-Every unit of energy spent mining BTCPC produces real AI inference that people pay for. The work that secures the network IS the work that serves users. No wasted energy.
+Every unit of energy spent mining HONE produces real AI inference that people pay for. The work that secures the network IS the work that serves users. No wasted energy.
 
 ### Decentralized AI
 Anyone with a GPU can be an AI provider. No single company controls access. If one node goes down, others take over. The network is censorship-resistant — nobody can prevent a computation from happening.
 
 ### Cross-Chain Liquidity
-When a miner earns BTCPC, they automatically receive claimable tokens on every blockchain they're connected to — Ethereum, Solana, Bitcoin, TON, Hive. One chain generates liquidity across the entire crypto ecosystem from day one.
+When a miner earns HONE, they automatically receive claimable tokens on every blockchain they're connected to — Ethereum, Solana, Bitcoin, TON, Hive. One chain generates liquidity across the entire crypto ecosystem from day one.
 
 ## Why Now
 
@@ -38,13 +38,13 @@ When a miner earns BTCPC, they automatically receive claimable tokens on every b
 
 ## Market Positioning
 
-BTCPC sits at the intersection of three massive markets:
+HONE sits at the intersection of three massive markets:
 
 ```
         Cryptocurrency ($2T)
               |
               |
-    BTCPC ----+---- AI Compute ($150B and growing 40%/yr)
+    HONE ----+---- AI Compute ($150B and growing 40%/yr)
               |
               |
         Decentralized Infrastructure
@@ -54,17 +54,17 @@ There is no other project that combines all three with a working product.
 
 ## Competitive Landscape
 
-| Project | What They Do | How BTCPC Is Different |
+| Project | What They Do | How HONE Is Different |
 |---------|-------------|----------------------|
-| **Bitcoin** | Proof of Work (SHA-256) | BTCPC does useful work (AI inference) |
-| **Ethereum** | Proof of Stake + smart contracts | BTCPC is purpose-built for AI compute |
-| **Render Network** | GPU rendering marketplace | BTCPC is a full blockchain, not a marketplace |
-| **Akash Network** | Cloud compute marketplace | BTCPC has its own chain, currency, and consensus |
-| **Bittensor** | AI training incentives | BTCPC focuses on inference (serving users), not training |
-| **io.net** | GPU aggregation | BTCPC verifies output quality; io.net trusts providers |
+| **Bitcoin** | Proof of Work (SHA-256) | HONE does useful work (AI inference) |
+| **Ethereum** | Proof of Stake + smart contracts | HONE is purpose-built for AI compute |
+| **Render Network** | GPU rendering marketplace | HONE is a full blockchain, not a marketplace |
+| **Akash Network** | Cloud compute marketplace | HONE has its own chain, currency, and consensus |
+| **Bittensor** | AI training incentives | HONE focuses on inference (serving users), not training |
+| **io.net** | GPU aggregation | HONE verifies output quality; io.net trusts providers |
 
 ## The Moat
 
 1. **First mover on Proof of Useful Work for AI** — anyone can copy the concept, but the network effects of miners, users, and cross-chain integrations compound over time
-2. **Chain data is useful** — BTCPC's chain contains real AI inference results, not just financial transactions. This data has inherent value.
-3. **Ecosystem stickiness** — projects that build on BTCPC get cheap inference AND a token economy. Switching costs increase as integrations deepen.
+2. **Chain data is useful** — HONE's chain contains real AI inference results, not just financial transactions. This data has inherent value.
+3. **Ecosystem stickiness** — projects that build on HONE get cheap inference AND a token economy. Switching costs increase as integrations deepen.

@@ -36,7 +36,7 @@ On Windows host the artifact is `hone_miner.dll`; on Android it is
 `Cargo.toml` declares `openssl = { features = ["vendored"] }`. Building vendored
 OpenSSL on **Windows/MSYS (Git-Bash)** FAILS — MSYS `perl` emits VMS-style paths
 and is missing `Locale::Maketext::Simple`. This is the same blocker seen during
-the BTCPC→HONE rename.
+the HONE→HONE rename.
 
 **Host compile-check / bindgen workaround** (do NOT hard-code these into the crate):
 ```bash

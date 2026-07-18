@@ -3,7 +3,7 @@ var mongoose = require("mongoose");
 var Schema = mongoose.Schema;
 
 /**
- * BTCPC Work Proof Schema
+ * HONE Work Proof Schema
  * Records each unit of verified inference work performed by a mining node.
  * Work value = tokens_generated x model_weight_factor.
  */

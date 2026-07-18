@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Ensemble Coordinator
+ * HONE Ensemble Coordinator
  * Shin Devlin
  *
  * Mode A inference sharding: multiple nodes each run the full prompt on their

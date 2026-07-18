@@ -1,10 +1,10 @@
 "use strict";
 
 /**
- * Inference Marketplace — Verasens / BTCPC Network
+ * Inference Marketplace — Verasens / HONE Network
  * Shin Devlin
  *
- * Connects compute buyers to miners. Buyers post jobs with a BTCPC escrow.
+ * Connects compute buyers to miners. Buyers post jobs with a HONE escrow.
  * Miners claim, run inference via Ollama, submit a result hash. Reviewers
  * verify work, challenge windows gate disputes, and finality closes the job.
  * Protocol takes 10% of the inference payout.
@@ -25,13 +25,13 @@ const nodeRegistry = require("../chain/nodeRegistry");
 const ledger = require("./ledger");
 const protocolTools = require("./protocolTools");
 
-const PROTOCOL_FEE_ACCOUNT = "btcpc_fees";
+const PROTOCOL_FEE_ACCOUNT = "hone_fees";
 const PROTOCOL_FEE_PCT = 0.10;
 const DEFAULT_TTL_EPOCHS = 20; // 10 minutes at 30s/epoch
 const DEFAULT_REVIEW_FEE_PCT = 0.05;
 const DEFAULT_CHALLENGE_FEE_PCT = 0.02;
-const DEFAULT_CHALLENGE_WINDOW_EPOCHS = parseInt(process.env.BTCPC_CHALLENGE_WINDOW_EPOCHS, 10) || 2880;
-const MIN_JOB_FEE = 0.01; // 0.01 BTCPC minimum
+const DEFAULT_CHALLENGE_WINDOW_EPOCHS = parseInt(process.env.HONE_CHALLENGE_WINDOW_EPOCHS, 10) || 2880;
+const MIN_JOB_FEE = 0.01; // 0.01 HONE minimum
 
 function _jobId() {
   return "job_" + crypto.randomBytes(8).toString("hex");
@@ -66,16 +66,16 @@ function _jobFinalityHash(job) {
  * Buyer opens a marketplace job. Escrow is locked immediately.
  * Returns the jobId that miners can claim.
  *
- * @param {string} buyer - BTCPC account name
+ * @param {string} buyer - HONE account name
  * @param {string} prompt - The inference prompt
- * @param {number} maxFee - BTCPC to escrow (miner earns 90%, protocol 10%)
+ * @param {number} maxFee - HONE to escrow (miner earns 90%, protocol 10%)
  * @param {object} opts - { model, ttlEpochs, systemPrompt, streaming }
  */
 async function openJob(buyer, prompt, maxFee, opts) {
   opts = opts || {};
   if (!buyer || !prompt) throw new Error("buyer and prompt required");
   if (!maxFee || maxFee < MIN_JOB_FEE) {
-    throw new Error(`maxFee must be at least ${MIN_JOB_FEE} BTCPC`);
+    throw new Error(`maxFee must be at least ${MIN_JOB_FEE} HONE`);
   }
 
   const reviewMode = ["computer", "human"].includes(opts.reviewMode || opts.review_mode)
@@ -93,9 +93,9 @@ async function openJob(buyer, prompt, maxFee, opts) {
   );
   const totalEscrow = parseFloat((maxFee + reviewFee).toFixed(10));
 
-  const balance = stateStore.getBalance(buyer, "BTCPC");
+  const balance = stateStore.getBalance(buyer, "HONE");
   if (balance < totalEscrow) {
-    throw new Error(`Insufficient balance: have ${balance} BTCPC, need ${totalEscrow}`);
+    throw new Error(`Insufficient balance: have ${balance} HONE, need ${totalEscrow}`);
   }
 
   const jobId = _jobId();
@@ -190,7 +190,7 @@ async function openJob(buyer, prompt, maxFee, opts) {
  * Only one miner can claim a job at a time.
  *
  * @param {string} jobId
- * @param {string} miner - BTCPC account name
+ * @param {string} miner - HONE account name
  */
 async function claimJob(jobId, miner) {
   const job = stateStore.getInferenceJob(jobId);

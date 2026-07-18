@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Epoch Consensus
+ * HONE Epoch Consensus
  * Shin Devlin
  *
  * Decentralized epoch timing — no single authority.
@@ -11,7 +11,7 @@
  *
  * Permission tiers:
  *   permissioned — approved by genesis operator, can start/finalize epochs immediately
- *   permissionless — must stake BTCPC to participate in epoch consensus
+ *   permissionless — must stake HONE to participate in epoch consensus
  *
  * Consensus rules:
  *   1. Any registered node can broadcast EPOCH_START when the clock says it's time
@@ -133,7 +133,7 @@ function validateProposer(proposer, epochNumber, previousBlockHash, eligibleAcco
     return { valid: true, reason: null, designated: designated, fallback: false };
   }
   var epochMs = 30000;
-  var envEpochMs = parseInt(process.env.BTCPC_EPOCH_DURATION_MS || process.env.EPOCH_DURATION_MS, 10);
+  var envEpochMs = parseInt(process.env.HONE_EPOCH_DURATION_MS || process.env.EPOCH_DURATION_MS, 10);
   if (Number.isFinite(envEpochMs) && envEpochMs > 0) epochMs = envEpochMs;
   var start = Number(epochStartMs);
   var now = Number(nowMs || Date.now());

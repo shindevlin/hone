@@ -49,8 +49,8 @@ function makeBidEntry(name, bidder, bidUsd, opts) {
       bid_usd: bidUsd,
       chain: opts.chain || 'ethereum',
       tx_hash: opts.tx_hash || '0xabc123',
-      btcpc_account: opts.btcpc_account || bidder,
-      btcpc_pubkeys: opts.btcpc_pubkeys || { posting: 'STMposting_' + bidder },
+      hone_account: opts.hone_account || bidder,
+      hone_pubkeys: opts.hone_pubkeys || { posting: 'STMposting_' + bidder },
     },
   };
 }
@@ -116,12 +116,12 @@ test('opens an auction and records it in state', function() {
 
 test('placing a valid bid updates the auction bids array', function() {
   stateStore.applyEntry(makeOpenEntry(TEST_NAME));
-  stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_A, 15, { btcpc_pubkeys: KEYS_A }));
+  stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_A, 15, { hone_pubkeys: KEYS_A }));
   var auction = stateStore.getAuction(TEST_NAME);
   expect(auction.bids).toHaveLength(1);
   expect(auction.bids[0].bidder).toBe(BIDDER_A);
   expect(auction.bids[0].bid_usd).toBe(15);
-  expect(auction.bids[0].btcpc_pubkeys).toMatchObject({ posting: KEYS_A.posting });
+  expect(auction.bids[0].hone_pubkeys).toMatchObject({ posting: KEYS_A.posting });
 });
 
 // ─────────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ test('second bid below current_top + increment is rejected', function() {
 test('second higher bid becomes top bid', function() {
   stateStore.applyEntry(makeOpenEntry(TEST_NAME));
   stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_A, 15));
-  stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_B, 25, { btcpc_pubkeys: KEYS_B }));
+  stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_B, 25, { hone_pubkeys: KEYS_B }));
   var auction = stateStore.getAuction(TEST_NAME);
   expect(auction.bids).toHaveLength(2);
   var topBid = auction.bids[auction.bids.length - 1];
@@ -168,7 +168,7 @@ test('second higher bid becomes top bid', function() {
 test('settle sets status to settled and winner to highest bidder', function() {
   stateStore.applyEntry(makeOpenEntry(TEST_NAME));
   stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_A, 15));
-  stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_B, 25, { btcpc_pubkeys: KEYS_B }));
+  stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_B, 25, { hone_pubkeys: KEYS_B }));
   stateStore.applyEntry(makeSettleEntry(TEST_NAME));
   var auction = stateStore.getAuction(TEST_NAME);
   expect(auction.status).toBe('settled');
@@ -181,7 +181,7 @@ test('settle sets status to settled and winner to highest bidder', function() {
 
 test('settle applies winning bid public keys to the name account', function() {
   stateStore.applyEntry(makeOpenEntry(TEST_NAME));
-  stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_B, 25, { btcpc_pubkeys: KEYS_B }));
+  stateStore.applyEntry(makeBidEntry(TEST_NAME, BIDDER_B, 25, { hone_pubkeys: KEYS_B }));
   stateStore.applyEntry(makeSettleEntry(TEST_NAME));
   var acct = stateStore.getAccount(TEST_NAME);
   expect(acct).not.toBeNull();

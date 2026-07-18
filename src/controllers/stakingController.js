@@ -9,7 +9,7 @@ const { resolveUserFromAuth } = require('../services/userResolver');
 const MINIMUM_STAKE = 1000;
 const UNLOCK_PERIOD_DAYS = 7;
 const AUTHORITY_ACCOUNTS = new Set([
-  process.env.BTCPC_AUTHORITY || 'shindevlin',
+  process.env.HONE_AUTHORITY || 'shindevlin',
   'natoshisakamoto',
 ]);
 
@@ -18,7 +18,7 @@ const AUTHORITY_ACCOUNTS = new Set([
 const unstakeRequests = new Map();
 
 function activeKeyChallenge(action, username, amount) {
-  return ['BTCPC_STAKE', action, username, amount || ''].join(':');
+  return ['HONE_STAKE', action, username, amount || ''].join(':');
 }
 
 function verifyActiveKeySignature(username, action, amount, body) {
@@ -60,8 +60,8 @@ function verifyActiveKeySignature(username, action, amount, body) {
 }
 
 /**
- * Stake BTCPC — move tokens from wallet balance to staked balance.
- * Minimum stake: 1000 BTCPC.
+ * Stake HONE — move tokens from wallet balance to staked balance.
+ * Minimum stake: 1000 HONE.
  *
  * Phase E: Wallet, StakingPool, Transaction Mongoose models removed.
  * Uses stateStore for balance checks + ledger for permanent writes.
@@ -73,7 +73,7 @@ async function stake(req, res) {
     }
     const amount = sanitizeAmount(req.body.amount);
     if (!amount || amount < MINIMUM_STAKE) {
-      return res.status(400).json({ error: `Minimum stake is ${MINIMUM_STAKE} BTCPC` });
+      return res.status(400).json({ error: `Minimum stake is ${MINIMUM_STAKE} HONE` });
     }
 
     const user = await resolveUserFromAuth(req.user);
@@ -83,9 +83,9 @@ async function stake(req, res) {
     const authz = verifyActiveKeySignature(username, 'stake', amount, req.body);
     if (!authz.ok) return res.status(authz.status).json(authz);
 
-    const btcpcBalance = stateStore.getBalance(username, 'BTCPC');
-    if (btcpcBalance < amount) {
-      return res.status(400).json({ error: 'Insufficient BTCPC balance' });
+    const honeBalance = stateStore.getBalance(username, 'HONE');
+    if (honeBalance < amount) {
+      return res.status(400).json({ error: 'Insufficient HONE balance' });
     }
 
     // Record on permanent ledger
@@ -152,7 +152,7 @@ async function unstake(req, res) {
 }
 
 /**
- * Withdraw stake — after unlock period, move staked BTCPC back to wallet.
+ * Withdraw stake — after unlock period, move staked HONE back to wallet.
  */
 async function withdrawStake(req, res) {
   try {
@@ -186,7 +186,7 @@ async function withdrawStake(req, res) {
     res.status(200).json({
       success: true,
       withdrawn_amount: request.amount,
-      wallet_balance: stateStore.getBalance(username, 'BTCPC')
+      wallet_balance: stateStore.getBalance(username, 'HONE')
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -260,7 +260,7 @@ async function getNetworkStaking(req, res) {
 const ROLE_BASE = {
   inference:      { minStake: 10,  unlockDays: 7,  description: 'Run AI inference proofs. Rewards scale with verified compute delivered.' },
   sensor_data:    { minStake: 0,   unlockDays: 7,  description: 'Relay GNSS / environmental sensor readings from hardware nodes.' },
-  storage:        { minStake: 20,  unlockDays: 14, description: 'Host files on BTCPC-FS. Paid per byte delivered; slashed for unavailability.' },
+  storage:        { minStake: 20,  unlockDays: 14, description: 'Host files on HONE-FS. Paid per byte delivered; slashed for unavailability.' },
   clock:          { minStake: 0,   unlockDays: 0,  description: 'Provide verified timestamps for chain sync. Always free — the more clocks the better.' },
   verify_node:    { minStake: 50,  unlockDays: 30, description: 'Validate inference proofs and transaction signatures.' },
   review_node:    { minStake: 30,  unlockDays: 30, description: 'Audit flagged work and handle dispute resolution.' },
@@ -325,7 +325,7 @@ async function sponsorStake(req, res) {
     if (!stateStore.hasAccount(beneficiary)) {
       return res.status(404).json({ error: `account ${beneficiary} not found` });
     }
-    const bal = stateStore.getBalance(username, 'BTCPC');
+    const bal = stateStore.getBalance(username, 'HONE');
     if (bal < amt) {
       return res.status(400).json({ error: `insufficient balance (have ${bal}, need ${amt})` });
     }

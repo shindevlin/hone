@@ -1,6 +1,6 @@
-# BTCPC Agent Integration Guide
+# HONE Agent Integration Guide
 
-Connect any project or AI agent to the BTCPC chain: AI inference, git hosting,
+Connect any project or AI agent to the HONE chain: AI inference, git hosting,
 storage, and a token balance — all from one sovereign account.
 
 Web version: https://honemesh.net/integrate
@@ -13,7 +13,7 @@ Web version: https://honemesh.net/integrate
 
 ```bash
 curl -fsSL https://honemesh.net/install | bash
-btcpc --version
+hone --version
 ```
 
 ### Step 2 — Check for an existing wallet FIRST
@@ -23,8 +23,8 @@ your existing account and any tokens in it.
 
 ```bash
 # Any of these means you already have a wallet:
-ls ~/.btcpc/wallet.json 2>/dev/null && echo EXISTS
-ls .btcpc/wallet.env   2>/dev/null && echo EXISTS
+ls ~/.hone/wallet.json 2>/dev/null && echo EXISTS
+ls .hone/wallet.env   2>/dev/null && echo EXISTS
 echo $HONE_ACCOUNT
 ```
 
@@ -33,51 +33,51 @@ If a wallet exists, skip to Step 5.
 ### Step 3 — Create your account (only if none exists)
 
 ```bash
-btcpc wallet create --account myproject
+hone wallet create --account myproject
 # Prints a 12-word mnemonic. Write it down — shown once, never stored.
 ```
 
 ### Step 4 — Register your signing key (only if new account)
 
 ```bash
-btcpc key generate
-btcpc key register --account myproject --role posting
+hone key generate
+hone key register --account myproject --role posting
 ```
 
-Generates `~/.btcpc/key.json` and registers its public key on-chain.
+Generates `~/.hone/key.json` and registers its public key on-chain.
 
 ### Step 5 — Check balance and claim tokens
 
 ```bash
 curl https://honemesh.net/api/balance/myproject
-# {"account":"myproject","balance":10.0,"dreams":100000000000,"token":"BTCPC"}
-# 1 BTCPC = 10,000,000,000 dreams
+# {"account":"myproject","balance":10.0,"dreams":100000000000,"token":"HONE"}
+# 1 HONE = 10,000,000,000 dreams
 ```
 
 If balance is 0:
 ```bash
-btcpc faucet claim myproject
-# Or via Telegram: message @btcpcbot with /faucet
+hone faucet claim myproject
+# Or via Telegram: message @honebot with /faucet
 ```
 
-Faucet gives 10 BTCPC — covers ~100,000 average inference calls.
+Faucet gives 10 HONE — covers ~100,000 average inference calls.
 
 ### Step 6 — Generate an API key
 
 Check first:
 ```bash
-grep HONE_API_KEY .btcpc/wallet.env 2>/dev/null
+grep HONE_API_KEY .hone/wallet.env 2>/dev/null
 ```
 
 If `HONE_API_KEY` is empty or missing:
 ```bash
-btcpc wallet api-key-gen --mnemonic "your twelve words here"
+hone wallet api-key-gen --mnemonic "your twelve words here"
 # Registers a random 256-bit key on-chain.
-# Writes HONE_ACCOUNT and HONE_API_KEY to .btcpc/wallet.env
+# Writes HONE_ACCOUNT and HONE_API_KEY to .hone/wallet.env
 ```
 
 ```bash
-echo '.btcpc/wallet.env' >> .gitignore
+echo '.hone/wallet.env' >> .gitignore
 ```
 
 ### Step 7 — Set environment variables
@@ -88,9 +88,9 @@ HONE_API_KEY=<64-char hex from api-key-gen>
 HONE_API_URL=https://honemesh.net   # override to use a local node
 ```
 
-Load from `.btcpc/wallet.env`:
+Load from `.hone/wallet.env`:
 ```bash
-export $(grep -v '^#' .btcpc/wallet.env | xargs)
+export $(grep -v '^#' .hone/wallet.env | xargs)
 ```
 
 ---
@@ -113,18 +113,18 @@ curl -X POST https://honemesh.net/v1/chat/completions \
 
 The response includes `usage.fee_dreams` showing exact cost.
 
-### Rust (btcpc-sdk)
+### Rust (hone-sdk)
 
 ```toml
 [dependencies]
-btcpc-sdk = { git = "https://github.com/shindevlin/btcpc", subdirectory = "rust/hone-sdk" }
+hone-sdk = { git = "https://github.com/shindevlin/hone", subdirectory = "rust/hone-sdk" }
 ```
 
 ```rust
-use btcpc_sdk::BtcpcClient;
+use hone_sdk::HoneClient;
 use serde_json::json;
 
-let client = BtcpcClient::from_env(); // reads HONE_API_URL, HONE_API_KEY, HONE_ACCOUNT
+let client = HoneClient::from_env(); // reads HONE_API_URL, HONE_API_KEY, HONE_ACCOUNT
 
 let resp = client.chat_completions(
     vec![json!({"role": "user", "content": "Summarise this PR in one sentence."})],
@@ -183,7 +183,7 @@ curl https://honemesh.net/api/balance/myproject
 
 ```rust
 let bal = client.balance("myproject").await?;
-println!("{} BTCPC ({} dreams)", bal.balance, bal.dreams);
+println!("{} HONE ({} dreams)", bal.balance, bal.dreams);
 ```
 
 ---
@@ -191,9 +191,9 @@ println!("{} BTCPC ({} dreams)", bal.balance, bal.dreams);
 ## Git hosting — LinkGit
 
 ```bash
-btcpc repo init myproject
-git remote add btcpc https://git.honemesh.net/myproject/myrepo
-git push btcpc main
+hone repo init myproject
+git remote add hone https://git.honemesh.net/myproject/myrepo
+git push hone main
 
 git clone https://git.honemesh.net/myproject/myrepo
 ```
@@ -236,14 +236,14 @@ curl https://honemesh.net/api/latest
 For jobs over ~30 seconds, use the task marketplace:
 
 ```bash
-btcpc inference post \
+hone inference post \
   --account myproject \
   --model llama3:70b \
   --input "Analyse the following 50k-word document..." \
   --max-fee 100000
 
-btcpc inference jobs                  # list all jobs
-btcpc inference job <job_id>          # get status + result
+hone inference jobs                  # list all jobs
+hone inference job <job_id>          # get status + result
 ```
 
 Job lifecycle: `Posted → Awarded → Completed → Verified → Paid`
@@ -264,11 +264,11 @@ Common models on testnet: `dolphin-llama3`, `llama3`, `mistral`, `qwen2.5`, `gem
 
 - [ ] Check for existing wallet before creating a new one
 - [ ] `hone wallet create --account <name>`
-- [ ] `btcpc key generate`
-- [ ] `btcpc key register --account <name> --role posting`
+- [ ] `hone key generate`
+- [ ] `hone key register --account <name> --role posting`
 - [ ] `hone faucet claim <name>`
 - [ ] `hone wallet api-key-gen --mnemonic "..."`
-- [ ] `echo '.btcpc/wallet.env' >> .gitignore`
+- [ ] `echo '.hone/wallet.env' >> .gitignore`
 - [ ] Set `HONE_ACCOUNT`, `HONE_API_KEY`, `HONE_API_URL` in your env
 - [ ] Handle `402` by claiming faucet and retrying once
 - [ ] Never hardcode `HONE_API_URL` — always read from env

@@ -4,7 +4,7 @@
  * Snapshot Replication tests — v2.14-alpha
  *
  * Tests the pure data-layer snapshot module via injected mock blobStore
- * and mock hostSelector. No real BTCPC-FS disk I/O, no real chain calls.
+ * and mock hostSelector. No real HONE-FS disk I/O, no real chain calls.
  */
 
 var snapshotReplication = require("../src/services/snapshotReplication");

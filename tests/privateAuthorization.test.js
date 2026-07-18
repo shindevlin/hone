@@ -38,10 +38,10 @@ describe('privateAuthorization', () => {
   beforeEach(() => {
     privateAuthorization.resetState();
     jest.clearAllMocks();
-    process.env.BTCPC_PRIVATE_AUTH_ENABLED = 'true';
-    delete process.env.BTCPC_LIGHTNING_PROVIDER_URL;
-    delete process.env.BTCPC_LIGHTNING_PROVIDER_KEY;
-    delete process.env.BTCPC_ZK_VERIFIER_URL;
+    process.env.HONE_PRIVATE_AUTH_ENABLED = 'true';
+    delete process.env.HONE_LIGHTNING_PROVIDER_URL;
+    delete process.env.HONE_LIGHTNING_PROVIDER_KEY;
+    delete process.env.HONE_ZK_VERIFIER_URL;
     userDoc = {
       username: 'alice',
       privateAuth: { enabled: false, threshold: 1, factors: [], updatedAt: new Date() },
@@ -92,7 +92,7 @@ describe('privateAuthorization', () => {
       from: 'alice',
       to: 'bob',
       amount: 7,
-      token: 'BTCPC',
+      token: 'HONE',
       memo: 'payment',
       approval_chain: 'evm'
     });
@@ -101,7 +101,7 @@ describe('privateAuthorization', () => {
       from: 'alice',
       to: 'bob',
       amount: 7,
-      token: 'BTCPC',
+      token: 'HONE',
       memo: 'payment'
     }, {
       requestId: transfer.requestId,
@@ -129,7 +129,7 @@ describe('privateAuthorization', () => {
       from: 'alice',
       to: 'bob',
       amount: 1,
-      token: 'BTCPC',
+      token: 'HONE',
       memo: 'test',
       approval_chain: 'evm'
     });
@@ -138,7 +138,7 @@ describe('privateAuthorization', () => {
       from: 'alice',
       to: 'bob',
       amount: 1,
-      token: 'BTCPC',
+      token: 'HONE',
       memo: 'test'
     }, {
       requestId: transfer.requestId,
@@ -149,7 +149,7 @@ describe('privateAuthorization', () => {
   });
 
   test('supports lightning invoice enrollment and transfer authorization', async () => {
-    process.env.BTCPC_LIGHTNING_PROVIDER_URL = 'https://ln.example';
+    process.env.HONE_LIGHTNING_PROVIDER_URL = 'https://ln.example';
     axios.post.mockResolvedValueOnce({ data: { invoice: 'ln-invoice-enroll', payment_hash: 'enroll-hash' } });
     axios.get.mockResolvedValueOnce({ data: { settled: true, amount_sats: 1 } });
 
@@ -169,7 +169,7 @@ describe('privateAuthorization', () => {
       from: 'alice',
       to: 'bob',
       amount: 3,
-      token: 'BTCPC',
+      token: 'HONE',
       memo: 'ln pay',
       approval_chain: 'lightning'
     });
@@ -178,7 +178,7 @@ describe('privateAuthorization', () => {
       from: 'alice',
       to: 'bob',
       amount: 3,
-      token: 'BTCPC',
+      token: 'HONE',
       memo: 'ln pay'
     }, {
       requestId: transfer.requestId,
@@ -204,7 +204,7 @@ describe('privateAuthorization', () => {
   });
 
   test('supports zkvm verifier-backed authorization receipts', async () => {
-    process.env.BTCPC_ZK_VERIFIER_URL = 'https://zk.example';
+    process.env.HONE_ZK_VERIFIER_URL = 'https://zk.example';
     axios.post.mockResolvedValue({ data: { valid: true, receipt_id: 'zk-ok' } });
 
     const enroll = await privateAuthorization.requestEnrollment('alice', 'zkvm', 'zk factor');
@@ -219,7 +219,7 @@ describe('privateAuthorization', () => {
       from: 'alice',
       to: 'bob',
       amount: 4,
-      token: 'BTCPC',
+      token: 'HONE',
       memo: 'zk pay',
       approval_chain: 'zkvm',
       proof_backend: 'sp1'
@@ -229,7 +229,7 @@ describe('privateAuthorization', () => {
       from: 'alice',
       to: 'bob',
       amount: 4,
-      token: 'BTCPC',
+      token: 'HONE',
       memo: 'zk pay'
     }, {
       requestId: transfer.requestId,
@@ -258,7 +258,7 @@ describe('privateAuthorization', () => {
     expect(summary.some((route) => route.path.endsWith('/transfer/verify'))).toBe(true);
   });
 
-  test('persists controller policy metadata for the BTCPC mnemonic-linked controller', async () => {
+  test('persists controller policy metadata for the HONE mnemonic-linked controller', async () => {
     await privateAuthorization.setPolicy('alice', {
       enabled: false,
       threshold: 1,
@@ -276,12 +276,12 @@ describe('privateAuthorization', () => {
       provider: 'privy',
       mode: 'linked_chain',
       approvalChain: 'evm',
-      walletSource: 'btcpc_mnemonic',
+      walletSource: 'hone_mnemonic',
       allowActiveKey: false
     }));
   });
 
-  test('forces controller wallet source to the BTCPC mnemonic-derived wallet', async () => {
+  test('forces controller wallet source to the HONE mnemonic-derived wallet', async () => {
     await privateAuthorization.setPolicy('alice', {
       enabled: false,
       threshold: 1,
@@ -295,7 +295,7 @@ describe('privateAuthorization', () => {
     });
 
     const policy = await privateAuthorization.getPolicy('alice');
-    expect(policy.controller.walletSource).toBe('btcpc_mnemonic');
+    expect(policy.controller.walletSource).toBe('hone_mnemonic');
     expect(policy.controller.mode).toBe('linked_chain');
   });
 

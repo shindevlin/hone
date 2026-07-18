@@ -1,19 +1,19 @@
-# BTCPC Telegram Bots
+# HONE Telegram Bots
 
 ## Architecture
 
-Bots are **thin HTTP clients**. They have no database access — all data comes from the BTCPC API at `/api/bot/*`, authenticated by `x-bot-key` header.
+Bots are **thin HTTP clients**. They have no database access — all data comes from the HONE API at `/api/bot/*`, authenticated by `x-bot-key` header.
 
 ```
-Telegram → Bot (polling) → BTCPC API (/api/bot/*) → MongoDB
+Telegram → Bot (polling) → HONE API (/api/bot/*) → MongoDB
 ```
 
 ## Active Bots
 
 | Bot | Username | Repo | Purpose |
 |-----|----------|------|---------|
-| BTCPC Bot | @btcpcbot | `~/repos/btcpcbot/` | Inference, network, mining, linking |
-| Wallet Bot | @btcpcwalletbot | `~/repos/btcpcwalletbot/` | Balance, history, claim, projects, alerts |
+| HONE Bot | @honebot | `~/repos/honebot/` | Inference, network, mining, linking |
+| Wallet Bot | @honewalletbot | `~/repos/honewalletbot/` | Balance, history, claim, projects, alerts |
 
 ## Token Management
 
@@ -28,7 +28,7 @@ Telegram → Bot (polling) → BTCPC API (/api/bot/*) → MongoDB
 # IMPORTANT: Kill all zombies first
 for pid in $(pgrep -x node); do
   cwd=$(readlink /proc/$pid/cwd 2>/dev/null)
-  if echo "$cwd" | grep -qE "btcpcbot|btcpcwalletbot|telegram-bot|alertbot"; then
+  if echo "$cwd" | grep -qE "honebot|honewalletbot|telegram-bot|alertbot"; then
     kill -9 $pid
   fi
 done
@@ -37,9 +37,9 @@ done
 sleep 35
 
 # Start exactly one of each
-cd ~/repos/btcpcbot && node index.js > /tmp/btcpcbot.log 2>&1 &
+cd ~/repos/honebot && node index.js > /tmp/honebot.log 2>&1 &
 sleep 5
-cd ~/repos/btcpcwalletbot && node index.js > /tmp/btcpcwalletbot.log 2>&1 &
+cd ~/repos/honewalletbot && node index.js > /tmp/honewalletbot.log 2>&1 &
 ```
 
 ## Zombie Prevention
@@ -50,7 +50,7 @@ cd ~/repos/btcpcwalletbot && node index.js > /tmp/btcpcwalletbot.log 2>&1 &
 # Find zombies
 for pid in $(pgrep -x node); do
   cwd=$(readlink /proc/$pid/cwd 2>/dev/null)
-  if echo "$cwd" | grep -qE "btcpcbot|btcpcwalletbot|telegram-bot|alertbot"; then
+  if echo "$cwd" | grep -qE "honebot|honewalletbot|telegram-bot|alertbot"; then
     echo "PID $pid: $cwd"
   fi
 done
@@ -90,11 +90,11 @@ All at `/api/bot/*`, require `x-bot-key` header:
 
 1. User sends `/link <username>` on either bot
 2. Bot calls `POST /api/bot/link` → gets challenge
-3. User signs challenge with posting key: `node bin/btcpc-cli sign-challenge <challenge>`
+3. User signs challenge with posting key: `node bin/hone-cli sign-challenge <challenge>`
 4. User sends `/verify <signature>:<recovery>`
 5. Bot calls `POST /api/bot/verify` → posting key signature verified → on-chain tx recorded
 
-## Other Telegram Bots (NOT BTCPC)
+## Other Telegram Bots (NOT HONE)
 
 | Bot | Project | Location |
 |-----|---------|----------|

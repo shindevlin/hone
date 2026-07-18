@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Mempool Fee Market — v2.12-beta
+ * HONE Mempool Fee Market — v2.12-beta
  * Shin Devlin
  *
  * Fee-aware transaction selection for block inclusion. Sibling to
@@ -20,7 +20,7 @@
  *     src/chain/blockSizeCap.MAX_BLOCK_PAYLOAD_BYTES as the cap.
  *
  *  4. Free transactions (fee_per_byte = 0) still get included if
- *     there's space remaining after all fee-paying ones — BTCPC is
+ *     there's space remaining after all fee-paying ones — HONE is
  *     not "fees only" by default, free txs work as long as the
  *     mempool isn't congested.
  *
@@ -44,7 +44,7 @@ var blockSizeCap = require("../chain/blockSizeCap");
 
 /**
  * Compute fee_per_byte for a transaction.
- * fee is in BTCPC; size is the JSON byte length.
+ * fee is in HONE; size is the JSON byte length.
  *
  * Free transactions (no fee field, or fee = 0) return 0.
  */
@@ -173,7 +173,7 @@ function congestionLevel(pendingTxs) {
  *   congestion 0.5–1  → floor = base_fee × congestion
  *   congestion > 1    → floor = base_fee × congestion (multiplier scales)
  *
- * The base_fee is a chain parameter (default 0.0001 BTCPC per byte).
+ * The base_fee is a chain parameter (default 0.0001 HONE per byte).
  */
 function suggestMinFeePerByte(pendingTxs, opts) {
   opts = opts || {};

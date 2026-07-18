@@ -8,7 +8,7 @@ author: Shin Devlin
 # Secret Store Design
 
 ## Decision
-Local file (`~/.btcpc/secrets.enc`) is the **source of truth**. RocksDB CF_META is the runtime index only.
+Local file (`~/.hone/secrets.enc`) is the **source of truth**. RocksDB CF_META is the runtime index only.
 
 ## Rationale
 User must be able to delete or encrypt secrets with their own passphrase. A DB-only store is opaque.

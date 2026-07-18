@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS Host Selector — v2.11.2
+ * HONE-FS Host Selector — v2.11.2
  * Shin Devlin
  *
  * Protocol-driven host selection for BLOB_STORE_COMMIT. Picks N active

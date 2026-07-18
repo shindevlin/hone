@@ -24,16 +24,16 @@ function installSkill() {
   try {
     fs.mkdirSync(OC_SKILLS, { recursive: true });
 
-    // BTCPC tool skill
-    const skillDest = path.join(OC_SKILLS, "btcpc.md");
+    // HONE tool skill
+    const skillDest = path.join(OC_SKILLS, "hone.md");
     fs.copyFileSync(SKILL_SRC, skillDest);
 
     // SOUL.md as setup profile
-    const soulDest = path.join(OC_DIR, "btcpc-setup-soul.md");
+    const soulDest = path.join(OC_DIR, "hone-setup-soul.md");
     fs.copyFileSync(SOUL_SRC, soulDest);
 
-    console.log(`  ✓ BTCPC skill installed in OpenClaw at ${skillDest}`);
-    console.log("  Try: openclaw 'what is my btcpc balance'");
+    console.log(`  ✓ HONE skill installed in OpenClaw at ${skillDest}`);
+    console.log("  Try: openclaw 'what is my hone balance'");
     return true;
   } catch (e) {
     console.warn(`  ⚠ Could not install OpenClaw skill: ${e.message}`);
@@ -52,7 +52,7 @@ function install() {
 // Send a message to a running OpenClaw HTTP gateway and stream the response.
 async function send(message, port = 3333) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ message, skill: "btcpc" });
+    const body = JSON.stringify({ message, skill: "hone" });
     const req = http.request({
       hostname: "localhost", port, path: "/chat",
       method: "POST",

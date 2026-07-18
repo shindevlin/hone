@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC — Marketing Dashboard</title>
+  <title>HONE — Marketing Dashboard</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -715,7 +715,7 @@
 
 <!-- ── Top bar ── -->
 <div id="topbar">
-  <div class="logo">◈ <em>BTCPC</em> MARKETING</div>
+  <div class="logo">◈ <em>HONE</em> MARKETING</div>
   <span id="pending-count" style="font-size:12px;color:var(--text-dim)">
     Pending: <span id="pending-num" class="pending-badge">0</span>
   </span>
@@ -906,7 +906,7 @@
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">
           <div class="side-title" style="margin-bottom:8px">About</div>
           <p style="font-size:12px;color:var(--text-dim);line-height:1.65">
-            BTCPC Marketing Dashboard — human-in-the-loop content management.<br><br>
+            HONE Marketing Dashboard — human-in-the-loop content management.<br><br>
             ZeroClaw drafts posts daily. <strong>Your only job is to approve or reject.</strong>
             Rejection notes feed back into ZeroClaw's voice memory so it learns your personas.<br><br>
             Data lives on the local server at <code>localhost:7979</code> → <code>marketing-dashboard/data/</code>.
@@ -934,7 +934,7 @@
    CONFIG — edit here to adapt for another project
 ========================================================== */
 const C = {
-  project: 'BTCPC',
+  project: 'HONE',
 
   personas: [
     {
@@ -944,7 +944,7 @@ const C = {
       voice: 'Direct. No hype. Shows math and code. Posts data, not vision. Dense, factual, self-evident — like Satoshi\'s bitcoin-dev posts.',
       platforms: ['twitter','reddit_localllama','hn','substack'],
       starters: [
-        'BTCPC epoch stats: [X] inference jobs completed today across [N] active miners.',
+        'HONE epoch stats: [X] inference jobs completed today across [N] active miners.',
         'Shipped: [feature]. Here\'s how the math works:',
         'Why Lucid Pruning works: the chain only stores what current state needs.',
         'CPU vs GPU miners — both earn pro-rata. Last week\'s reward split:',
@@ -958,10 +958,10 @@ const C = {
       voice: 'Skeptical. Practical. Talks in numbers. Reports personal experience. "My i5 earned X for doing Y." Doesn\'t evangelize — just reports.',
       platforms: ['twitter','reddit_gpumining','reddit_cryptocurrency','reddit_bitcoin'],
       starters: [
-        'CPU mining update: my i5-13500T earned [X] BTCPC this week running qwen3:4b.',
+        'CPU mining update: my i5-13500T earned [X] HONE this week running qwen3:4b.',
         'I was wrong about this one. Here\'s what changed my mind:',
-        'Real numbers from [time period]: [X] inference jobs, [Y] BTCPC earned.',
-        'Compare: GPU mining vs BTCPC CPU — the actual numbers:',
+        'Real numbers from [time period]: [X] inference jobs, [Y] HONE earned.',
+        'Compare: GPU mining vs HONE CPU — the actual numbers:',
         'My machine did actual work today. Not hashes. Inference that someone paid for.',
       ]
     },
@@ -972,7 +972,7 @@ const C = {
       voice: 'Legal clarity. Governance explainer. Responds to questions, doesn\'t initiate. Pre-handover: advisor only.',
       platforms: ['twitter'],
       starters: [
-        'On the regulatory framing: BTCPC tokens represent work done, not…',
+        'On the regulatory framing: HONE tokens represent work done, not…',
         'Governance question from the community — structural answer:',
         'Clock node update: still running, still keeping time.',
       ]
@@ -983,11 +983,11 @@ const C = {
     {
       id:1, title:'PoW Extended, Not Criticized',
       personas:['shin','natoshi'],
-      desc:'Bitcoin\'s proof of work is elegant and necessary. SHA-256 IS the security model. BTCPC extends the insight — what if the work also produced something people wanted?',
+      desc:'Bitcoin\'s proof of work is elegant and necessary. SHA-256 IS the security model. HONE extends the insight — what if the work also produced something people wanted?',
       examples:[
         '"Bitcoin mining isn\'t wasteful — the hash IS the security. We just added useful output."',
         '"SHA-256 proved commitment in 2009. Useful work proves commitment + delivers value."',
-        '"Never criticize Bitcoin. BTCPC is the next step, not a correction."',
+        '"Never criticize Bitcoin. HONE is the next step, not a correction."',
       ]
     },
     {
@@ -995,9 +995,9 @@ const C = {
       personas:['natoshi'],
       desc:'A CPU running Ollama earns tokens for real inference jobs real users submitted. Not hashing. Working.',
       examples:[
-        '"My i5 earned [X] BTCPC last week running qwen3:4b. That\'s a real job someone paid for."',
+        '"My i5 earned [X] HONE last week running qwen3:4b. That\'s a real job someone paid for."',
         '"CPU vs GPU doesn\'t matter — both earn proportional to verified param count."',
-        '"Week 1 numbers: [X] jobs, [Y] BTCPC earned, [Z]% of total miner pool."',
+        '"Week 1 numbers: [X] jobs, [Y] HONE earned, [Z]% of total miner pool."',
       ]
     },
     {
@@ -1013,9 +1013,9 @@ const C = {
     {
       id:4, title:'No Burn, No Punishment, No Gatekeeping',
       personas:['shin'],
-      desc:'42M BTCPC forever. No slashing for going offline. No staking requirement to mine. No synthetic work. Unclaimed pools recycle.',
+      desc:'42M HONE forever. No slashing for going offline. No staking requirement to mine. No synthetic work. Unclaimed pools recycle.',
       examples:[
-        '"No burn, ever. 42M BTCPC, permanently in circulation."',
+        '"No burn, ever. 42M HONE, permanently in circulation."',
         '"No slashing for going offline. Your balance is untouched — you just stop earning."',
         '"If nobody submits an inference job today, the miner pool recycles. No fake work."',
       ]
@@ -1091,7 +1091,7 @@ function shareUrls(post) {
     const lines = txt.split('\n');
     const title = lines[0].slice(0, 200);
     return [{ label:'Submit to HackerNews', cls:'hn', icon:'Y',
-      url:`https://news.ycombinator.com/submitlink?t=${enc(title)}&u=https://btcpc.net` }];
+      url:`https://news.ycombinator.com/submitlink?t=${enc(title)}&u=https://hone.net` }];
   }
 
   // Substack — new post draft (opens editor; content must be pasted manually)
@@ -1140,12 +1140,12 @@ async function load() {
     const res = await fetch(`${API}/posts`);
     if (!res.ok) throw new Error('server unreachable');
     S.posts = await res.json();
-    const stored = JSON.parse(localStorage.getItem('btcpc_metrics') || '{}');
+    const stored = JSON.parse(localStorage.getItem('hone_metrics') || '{}');
     if (stored) S.metrics = stored;
   } catch(e) {
     // Fall back to localStorage if server not running
     try {
-      const d = JSON.parse(localStorage.getItem('btcpc_mkt_v1') || '{}');
+      const d = JSON.parse(localStorage.getItem('hone_mkt_v1') || '{}');
       if (d.posts)   S.posts   = d.posts;
       if (d.metrics) S.metrics = d.metrics;
       console.warn('Dashboard server offline — using localStorage fallback');
@@ -1155,7 +1155,7 @@ async function load() {
 
 // persist() now only saves metrics locally; posts go via API
 function persist() {
-  localStorage.setItem('btcpc_metrics', JSON.stringify(S.metrics));
+  localStorage.setItem('hone_metrics', JSON.stringify(S.metrics));
 }
 
 async function apiPost(post) {
@@ -1703,7 +1703,7 @@ document.getElementById('zeroclaw-export-btn').addEventListener('click', ()=>{
 
 document.getElementById('export-btn').addEventListener('click', ()=>{
   const blob = new Blob([JSON.stringify({posts:S.posts,metrics:S.metrics,exportedAt:new Date().toISOString()},null,2)], {type:'application/json'});
-  const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:`btcpc-marketing-${new Date().toISOString().slice(0,10)}.json`});
+  const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:`hone-marketing-${new Date().toISOString().slice(0,10)}.json`});
   a.click(); URL.revokeObjectURL(a.href);
 });
 
@@ -1760,95 +1760,95 @@ async function init() {
   S.posts = [
     // ── WEEK 1 ──────────────────────────────────────────────
     p('shin','twitter','draft',
-      'BTCPC epoch stats: [X] inference jobs completed today across [N] active miners.\n\nAll work is real — submitted by users, routed to Ollama miners, verified by the chain. No synthetic puzzles.',
+      'HONE epoch stats: [X] inference jobs completed today across [N] active miners.\n\nAll work is real — submitted by users, routed to Ollama miners, verified by the chain. No synthetic puzzles.',
       at(0,0,10,0),1,'Replace [X] and [N] with live numbers from explorer'),
     p('natoshi','twitter','draft',
       'I was a Bitcoin maxi. Thought every new chain was noise.\n\nThen Shin asked me to install something. No pitch — just run it.\n\nMy i5 ran real AI inference. Someone needed that output. I got paid for it proportional to my model\'s parameter count.\n\nCouldn\'t argue with my own machine.',
       at(0,0,15,0),2,'Natoshi origin story — short, personal'),
     p('natoshi','reddit_gpumining','draft',
-      'CPU mining on BTCPC — first week numbers\n\nHardware: i5-13500T, 62GB RAM, no GPU\nModel: qwen3:4b via Ollama\nJobs completed: [X]\nBTCPC earned: [Y]\n\nNot staking. Not hashing. My machine ran AI inference requests submitted by actual users. Reward is proportional to verified parameter count, not hashrate.\n\nAnyone else running this on CPU?',
+      'CPU mining on HONE — first week numbers\n\nHardware: i5-13500T, 62GB RAM, no GPU\nModel: qwen3:4b via Ollama\nJobs completed: [X]\nHONE earned: [Y]\n\nNot staking. Not hashing. My machine ran AI inference requests submitted by actual users. Reward is proportional to verified parameter count, not hashrate.\n\nAnyone else running this on CPU?',
       at(0,1,14,0),2,'Check miner dashboard for real numbers before posting'),
     p('shin','reddit_localllama','draft',
       'I built a blockchain where GPU miners run Ollama instead of SHA-256\n\nThe mining loop:\n1. User submits inference job via API\n2. Job broadcast to miners\n3. Miner runs it through any Ollama model (qwen, llama, mistral, deepseek — anything)\n4. Result returned to user\n5. Miner earns tokens proportional to verified parameter count\n\nNo PoW puzzle. The inference result IS the proof. CPU or GPU, any model size.\n\nHappy to answer questions about the routing, reward math, or consensus model.',
       at(0,2,11,0),1,'r/LocalLLaMA loves the Ollama angle — lead with that'),
     p('shin','twitter','draft',
-      'BTCPC has five reward pools. Any device earns from one:\n\n• GPU → AI inference (60%)\n• Any device → epoch clock (5%)\n• NAS or spare disk → storage (15%)\n• Raspberry Pi + LoRa → IoT sensor data (10%)\n• Cloud VM → app hosting (10%)\n\nPools with no participants recycle. Nothing is ever burned. 42M supply, forever.',
-      at(0,2,17,0),3,'Link to btcpc.net'),
+      'HONE has five reward pools. Any device earns from one:\n\n• GPU → AI inference (60%)\n• Any device → epoch clock (5%)\n• NAS or spare disk → storage (15%)\n• Raspberry Pi + LoRa → IoT sensor data (10%)\n• Cloud VM → app hosting (10%)\n\nPools with no participants recycle. Nothing is ever burned. 42M supply, forever.',
+      at(0,2,17,0),3,'Link to hone.net'),
     p('natoshi','reddit_cryptocurrency','draft',
-      'A blockchain where the mining IS the product — not the security cost\n\nBitcoin\'s PoW produces hashes nobody uses. That\'s fine — it\'s the security model.\n\nBut what if the work that secures the chain also produced AI inference that users actually paid for?\n\nBTCPC does this. Miners run Ollama. Users submit jobs. Miners get paid per verified parameter. The chain is secured by real economic demand.\n\nNot another L2. Not another EVM fork. Sovereign chain with 5 work categories.',
+      'A blockchain where the mining IS the product — not the security cost\n\nBitcoin\'s PoW produces hashes nobody uses. That\'s fine — it\'s the security model.\n\nBut what if the work that secures the chain also produced AI inference that users actually paid for?\n\nHONE does this. Miners run Ollama. Users submit jobs. Miners get paid per verified parameter. The chain is secured by real economic demand.\n\nNot another L2. Not another EVM fork. Sovereign chain with 5 work categories.',
       at(0,3,13,0),1,'Be measured — r/CC is skeptical, lead with what makes it different from L2s'),
     p('shin','twitter','draft',
-      'The design principle behind BTCPC:\n\nMining should produce output that someone wanted.\n\nNot hashes. Not validator votes. Something a user submitted and paid for.\n\nIf nobody submits an inference job today, the miner pool recycles to the next epoch. No fake work.',
+      'The design principle behind HONE:\n\nMining should produce output that someone wanted.\n\nNot hashes. Not validator votes. Something a user submitted and paid for.\n\nIf nobody submits an inference job today, the miner pool recycles to the next epoch. No fake work.',
       at(0,3,10,0),4,'Core philosophy post — can repeat this one in different forms'),
     p('natoshi','twitter','draft',
-      'Week [N] on BTCPC CPU mining:\n\n[X] inference jobs\n[Y] BTCPC earned\n[Z]% of total miner pool\n\nAll on an i5 with no GPU.\n\nI expected nothing. I got paid for real work my machine did.',
+      'Week [N] on HONE CPU mining:\n\n[X] inference jobs\n[Y] HONE earned\n[Z]% of total miner pool\n\nAll on an i5 with no GPU.\n\nI expected nothing. I got paid for real work my machine did.',
       at(0,4,9,0),2,'Fill in the bracket numbers from miner dashboard'),
     p('shin','substack','draft',
-      'Why Mining Should Produce Output That Someone Wanted\n\nBitcoin\'s proof-of-work is not wasteful. SHA-256 puzzles ARE the security model. The hash proves commitment. The energy cost is what makes attacks expensive. Satoshi understood this precisely.\n\nBut the computational output of every solved puzzle is discarded immediately. The hash goes nowhere. This was a deliberate design choice in 2009 — the goal was a credibly neutral settlement layer. The puzzles were intentionally useless so nobody could capture their output.\n\nThe world has changed. AI inference is a multi-hundred-billion-dollar industry controlled by four corporations. Millions of GPUs sit idle inside gaming rigs, mining rigs, and cloud servers that are underutilized for most of every day.\n\nBTCPC applies Bitcoin\'s core insight to a domain where the work has market value...',
+      'Why Mining Should Produce Output That Someone Wanted\n\nBitcoin\'s proof-of-work is not wasteful. SHA-256 puzzles ARE the security model. The hash proves commitment. The energy cost is what makes attacks expensive. Satoshi understood this precisely.\n\nBut the computational output of every solved puzzle is discarded immediately. The hash goes nowhere. This was a deliberate design choice in 2009 — the goal was a credibly neutral settlement layer. The puzzles were intentionally useless so nobody could capture their output.\n\nThe world has changed. AI inference is a multi-hundred-billion-dollar industry controlled by four corporations. Millions of GPUs sit idle inside gaming rigs, mining rigs, and cloud servers that are underutilized for most of every day.\n\nHONE applies Bitcoin\'s core insight to a domain where the work has market value...',
       at(0,4,12,0),1,'Expand from whitepaper section 1.1 — this is the flagship Substack piece'),
 
     // ── WEEK 2 ──────────────────────────────────────────────
     p('shin','twitter','draft',
-      'Lucid Pruning: the chain that dreams itself smaller.\n\nBTCPC doesn\'t store every block forever. The chain maintains a verified state snapshot + recent blocks. Older blocks are pruned once their state is absorbed.\n\nNew nodes sync from the latest snapshot, verify the Merkle root, and start participating in minutes.',
+      'Lucid Pruning: the chain that dreams itself smaller.\n\nHONE doesn\'t store every block forever. The chain maintains a verified state snapshot + recent blocks. Older blocks are pruned once their state is absorbed.\n\nNew nodes sync from the latest snapshot, verify the Merkle root, and start participating in minutes.',
       at(1,0,10,0),4,'Technical deep dive — good for the builder audience'),
     p('natoshi','reddit_gpumining','draft',
-      'BTCPC month 1 CPU mining report\n\nSetup: i5-13500T, 62GB RAM, qwen3:4b\nTotal jobs: [X]\nTotal earned: [Y] BTCPC\nUptime: [Z]%\n\nBiggest thing I learned: reward scales with model parameter count, not hardware speed. A faster CPU running the same model doesn\'t earn more — it just finishes jobs faster and gets more of them.\n\nRunning a larger model on the same hardware earns more per job.',
+      'HONE month 1 CPU mining report\n\nSetup: i5-13500T, 62GB RAM, qwen3:4b\nTotal jobs: [X]\nTotal earned: [Y] HONE\nUptime: [Z]%\n\nBiggest thing I learned: reward scales with model parameter count, not hardware speed. A faster CPU running the same model doesn\'t earn more — it just finishes jobs faster and gets more of them.\n\nRunning a larger model on the same hardware earns more per job.',
       at(1,0,15,0),2,'Monthly report format — credible, data-driven'),
     p('shin','reddit_localllama','draft',
-      'BTCPC routing update: how inference jobs get matched to miners\n\nWhen a user submits a job, it broadcasts to all connected miners. Miners that have the requested model loaded respond with availability. The network routes to the fastest responder.\n\nRight now routing is first-come. Next phase: N=3 consensus (3 miners run the same job, result verified by majority). This matters for private inference — no single miner sees the full prompt.',
+      'HONE routing update: how inference jobs get matched to miners\n\nWhen a user submits a job, it broadcasts to all connected miners. Miners that have the requested model loaded respond with availability. The network routes to the fastest responder.\n\nRight now routing is first-come. Next phase: N=3 consensus (3 miners run the same job, result verified by majority). This matters for private inference — no single miner sees the full prompt.',
       at(1,1,11,0),1,'Technical update — r/LocalLLaMA likes the MPC angle'),
     p('natoshi','twitter','draft',
       'Something I didn\'t expect from running a CPU miner:\n\nThe requests are real. Someone typed a prompt. My machine answered it. They got their output. I got paid.\n\nThat\'s it. No puzzle. No synthetic work. Just a transaction between a person who needed compute and a machine that had it.',
       at(1,1,9,30),2,'Observation post — short, conversational'),
     p('shin','twitter','draft',
-      'BTCPC clock nodes: any device can earn 5% of every block\'s emission just by keeping time.\n\nPhone, laptop, Raspberry Pi. No GPU, no minimum stake, no special software beyond the node binary.\n\nEpochs run every 30 seconds. Clock nodes sign timestamps. The network takes the median.',
+      'HONE clock nodes: any device can earn 5% of every block\'s emission just by keeping time.\n\nPhone, laptop, Raspberry Pi. No GPU, no minimum stake, no special software beyond the node binary.\n\nEpochs run every 30 seconds. Clock nodes sign timestamps. The network takes the median.',
       at(1,2,10,0),3,'Entry-level mining angle — good for non-GPU audience'),
     p('natoshi','reddit_cryptocurrency','draft',
-      'I\'ve been CPU mining BTCPC for a month. Here\'s what changed my mind about it.\n\nI was skeptical. Another chain, another whitepaper, another token.\n\nBut my friend built it so I ran it. And the thing that got me wasn\'t the tokenomics or the roadmap.\n\nIt was that my CPU answered a real AI question someone paid for. That\'s the whole chain. That\'s all it does. Every token exists because a machine did something useful.\n\nI can\'t find a counter-argument to that.',
+      'I\'ve been CPU mining HONE for a month. Here\'s what changed my mind about it.\n\nI was skeptical. Another chain, another whitepaper, another token.\n\nBut my friend built it so I ran it. And the thing that got me wasn\'t the tokenomics or the roadmap.\n\nIt was that my CPU answered a real AI question someone paid for. That\'s the whole chain. That\'s all it does. Every token exists because a machine did something useful.\n\nI can\'t find a counter-argument to that.',
       at(1,2,14,0),2,'Skeptic-turned-believer arc — authentic Natoshi voice'),
     p('shin','twitter','draft',
-      'The four-key hierarchy in BTCPC (borrowed from Hive):\n\n• Owner key — full control, cold storage\n• Active key — spend BTCPC, stake, unstake\n• Posting key — sign inference proofs, submit work\n• Memo key — encrypt P2P messages\n\nMiners never touch the active key during normal operation.',
+      'The four-key hierarchy in HONE (borrowed from Hive):\n\n• Owner key — full control, cold storage\n• Active key — spend HONE, stake, unstake\n• Posting key — sign inference proofs, submit work\n• Memo key — encrypt P2P messages\n\nMiners never touch the active key during normal operation.',
       at(1,3,10,0),4,'Security architecture post — good for the technical audience'),
     p('natoshi','twitter','draft',
-      'Bitcoin maxi opinion: proof of work is not wasteful.\n\nSHA-256 hashes ARE the security. The energy cost is the point.\n\nBut Bitcoin also proved something else: costly, verifiable work can back a scarce asset.\n\nBTCPC applies that insight to AI compute — work that has market value outside the chain. Not a criticism of Bitcoin. A continuation of it.',
-      at(1,3,15,0),1,'Important framing — Natoshi as bridge between BTC maxis and BTCPC'),
+      'Bitcoin maxi opinion: proof of work is not wasteful.\n\nSHA-256 hashes ARE the security. The energy cost is the point.\n\nBut Bitcoin also proved something else: costly, verifiable work can back a scarce asset.\n\nHONE applies that insight to AI compute — work that has market value outside the chain. Not a criticism of Bitcoin. A continuation of it.',
+      at(1,3,15,0),1,'Important framing — Natoshi as bridge between BTC maxis and HONE'),
     p('shin','reddit_localllama','draft',
-      'How BTCPC verifies inference results\n\nRight now: single miner per job. Reward requires the result to be returned and acknowledged by the user\'s session.\n\nPhase 1 (multi-miner): N=3 consensus. Three miners run the same job. Majority result wins. Minority miners don\'t get paid for that epoch.\n\nPhase 2 (MPC): sharded inference across N miners. No single miner sees the full prompt. Premium pricing tier for private inference.\n\nInterested in the MPC implementation? Happy to share the design doc.',
+      'How HONE verifies inference results\n\nRight now: single miner per job. Reward requires the result to be returned and acknowledged by the user\'s session.\n\nPhase 1 (multi-miner): N=3 consensus. Three miners run the same job. Majority result wins. Minority miners don\'t get paid for that epoch.\n\nPhase 2 (MPC): sharded inference across N miners. No single miner sees the full prompt. Premium pricing tier for private inference.\n\nInterested in the MPC implementation? Happy to share the design doc.',
       at(1,4,11,0),4,'Technical roadmap post — generates discussion in r/LocalLLaMA'),
     p('natoshi','reddit_gpumining','draft',
-      'Comparing GPU mining returns: traditional PoW vs BTCPC inference\n\n[Fill in actual comparison numbers]\n\nThe difference: BTCPC reward scales with model parameter count, not pure hashrate. A 27B parameter model earns ~6.75x more per job than a 4B model, holding hardware constant.\n\nBiggest lever isn\'t hardware — it\'s which model you load.',
+      'Comparing GPU mining returns: traditional PoW vs HONE inference\n\n[Fill in actual comparison numbers]\n\nThe difference: HONE reward scales with model parameter count, not pure hashrate. A 27B parameter model earns ~6.75x more per job than a 4B model, holding hardware constant.\n\nBiggest lever isn\'t hardware — it\'s which model you load.',
       at(1,4,14,0),2,'Fill in numbers — this is a strong comparison post for GPU miners'),
 
     // ── WEEK 3 ──────────────────────────────────────────────
     p('shin','twitter','draft',
-      'No slashing for going offline on BTCPC.\n\nStorage hosts, clock nodes, service hosts — if your internet goes down, your balance is untouched. You just stop earning until you\'re back.\n\nSlashing only applies to miners who submit invalid work proofs. Absence is never punished.',
+      'No slashing for going offline on HONE.\n\nStorage hosts, clock nodes, service hosts — if your internet goes down, your balance is untouched. You just stop earning until you\'re back.\n\nSlashing only applies to miners who submit invalid work proofs. Absence is never punished.',
       at(2,0,10,0),4,'Key differentiator — important for home miners'),
     p('natoshi','twitter','draft',
-      'My Raspberry Pi is a clock node now.\n\nCosts nothing to run. Earns 5% of every block\'s emission proportional to uptime.\n\nThis is the point of BTCPC: heterogeneous hardware. GPU, CPU, SBC — all participating. One architecture going down doesn\'t take out the network.',
+      'My Raspberry Pi is a clock node now.\n\nCosts nothing to run. Earns 5% of every block\'s emission proportional to uptime.\n\nThis is the point of HONE: heterogeneous hardware. GPU, CPU, SBC — all participating. One architecture going down doesn\'t take out the network.',
       at(2,0,9,0),3,'Clock node angle — accessible to non-GPU audience'),
     p('shin','reddit_localllama','draft',
-      'Building on BTCPC: the inference API is OpenAI-compatible\n\nYou can point any OpenAI client at the BTCPC endpoint and route your inference through the decentralized miner network instead of a centralized API.\n\nMiners earn per job. You pay in BTCPC. The chain settles the transaction in the next epoch.\n\nCurrently in alpha. Would love feedback from anyone building apps that use local models.',
+      'Building on HONE: the inference API is OpenAI-compatible\n\nYou can point any OpenAI client at the HONE endpoint and route your inference through the decentralized miner network instead of a centralized API.\n\nMiners earn per job. You pay in HONE. The chain settles the transaction in the next epoch.\n\nCurrently in alpha. Would love feedback from anyone building apps that use local models.',
       at(2,1,11,0),3,'Dev-facing post — r/LocalLLaMA has builders who will try this'),
     p('natoshi','reddit_cryptocurrency','draft',
-      'BTCPC 2-month mining report — CPU only\n\n[Fill with actual stats]\n\nHonest take: the chain is early. Two miners right now (me and Shin). But the model works. I\'ve earned BTCPC for real inference jobs on a machine I already owned.\n\nThe question isn\'t whether the model works. The question is whether enough people run nodes to make the network valuable. That\'s the only real risk.',
+      'HONE 2-month mining report — CPU only\n\n[Fill with actual stats]\n\nHonest take: the chain is early. Two miners right now (me and Shin). But the model works. I\'ve earned HONE for real inference jobs on a machine I already owned.\n\nThe question isn\'t whether the model works. The question is whether enough people run nodes to make the network valuable. That\'s the only real risk.',
       at(2,1,14,0),2,'Honest, measured — this is credible because it acknowledges the early stage'),
     p('shin','twitter','draft',
-      'BTCPC\'s bridge model: lock-and-recycle, not burn-and-mint.\n\nWhen you wrap BTCPC to wBTCPC on Base:\n• Native tokens are locked 1:1 in reserve\n• Pre-minted wBTCPC is released from the destination pool\n• Hard cap: 4.2M wBTCPC per chain (10% of supply)\n\nNo minting. No burning. Transfers between reserve pools.',
+      'HONE\'s bridge model: lock-and-recycle, not burn-and-mint.\n\nWhen you wrap HONE to wHONE on Base:\n• Native tokens are locked 1:1 in reserve\n• Pre-minted wHONE is released from the destination pool\n• Hard cap: 4.2M wHONE per chain (10% of supply)\n\nNo minting. No burning. Transfers between reserve pools.',
       at(2,2,10,0),4,'Bridge architecture — good for the crypto-native audience'),
     p('shin','twitter','draft',
-      'The Genesis Operator role on BTCPC:\n\n• Controls epoch finalization until governance activates\n• Holds a soulbound NFT — 0.25% perpetual protocol rev-share\n• Designed to be temporary\n• Transfers to the network automatically when 10+ miners stake enough BTCPC for independent consensus\n\nBuild it so well that you become unnecessary.',
+      'The Genesis Operator role on HONE:\n\n• Controls epoch finalization until governance activates\n• Holds a soulbound NFT — 0.25% perpetual protocol rev-share\n• Designed to be temporary\n• Transfers to the network automatically when 10+ miners stake enough HONE for independent consensus\n\nBuild it so well that you become unnecessary.',
       at(2,2,16,0),5,'Handoff arc — Shin talking about his own exit'),
     p('natoshi','reddit_gpumining','draft',
-      'What I wish I knew before running a BTCPC CPU miner\n\n1. Model size matters more than CPU speed. Bigger model = higher param count = higher reward per job.\n2. Job frequency depends on network demand. Low demand = fewer jobs, but pool still pays pro-rata.\n3. The clock role is worth running in parallel. 5% of every block for just keeping time.\n4. You don\'t need 24/7 uptime. No slashing for going offline.',
+      'What I wish I knew before running a HONE CPU miner\n\n1. Model size matters more than CPU speed. Bigger model = higher param count = higher reward per job.\n2. Job frequency depends on network demand. Low demand = fewer jobs, but pool still pays pro-rata.\n3. The clock role is worth running in parallel. 5% of every block for just keeping time.\n4. You don\'t need 24/7 uptime. No slashing for going offline.',
       at(2,3,14,0),3,'FAQ-style post — high value for miners considering the switch'),
     p('shin','substack','draft',
-      'The Second Miner Problem\n\nWhen BTCPC was a single machine talking to itself, it wasn\'t a blockchain. It was a server.\n\nThe moment a second independent node connected — separate machine, separate P2P connection, separate hardware — BTCPC became real. Two nodes reaching consensus. Two miners splitting rewards. Two clocks keeping time.\n\nThe second miner is just as important as the first. More important, maybe. The first miner proves the concept. The second miner proves the network...',
+      'The Second Miner Problem\n\nWhen HONE was a single machine talking to itself, it wasn\'t a blockchain. It was a server.\n\nThe moment a second independent node connected — separate machine, separate P2P connection, separate hardware — HONE became real. Two nodes reaching consensus. Two miners splitting rewards. Two clocks keeping time.\n\nThe second miner is just as important as the first. More important, maybe. The first miner proves the concept. The second miner proves the network...',
       at(2,3,12,0),5,'Narrative deep dive — the Natoshi story told from Shin\'s perspective'),
     p('natoshi','twitter','draft',
-      'Hot take: the most important thing about BTCPC isn\'t the AI compute angle.\n\nIt\'s that the founder designed his own exit into the protocol from day one.\n\nGenesis Operator NFT transfers to governance automatically. No vote needed. No permission asked.\n\nThat\'s either extremely confident or extremely principled. Maybe both.',
+      'Hot take: the most important thing about HONE isn\'t the AI compute angle.\n\nIt\'s that the founder designed his own exit into the protocol from day one.\n\nGenesis Operator NFT transfers to governance automatically. No vote needed. No permission asked.\n\nThat\'s either extremely confident or extremely principled. Maybe both.',
       at(2,4,9,30),5,'Natoshi commenting on the handoff design — interesting outside perspective'),
     p('shin','twitter','draft',
-      'BTCPC four-tier finality:\n\n• Native (every 30s) — working consensus\n• Base/Arbitrum (every ~50min) — cross-chain verification\n• Ethereum (every ~8hrs) — deep finality\n• Bitcoin (every ~3.5 days) — ultimate anchoring\n\nBTCPC doesn\'t depend on any of these external chains. They\'re anchoring points, not consensus dependencies.',
+      'HONE four-tier finality:\n\n• Native (every 30s) — working consensus\n• Base/Arbitrum (every ~50min) — cross-chain verification\n• Ethereum (every ~8hrs) — deep finality\n• Bitcoin (every ~3.5 days) — ultimate anchoring\n\nHONE doesn\'t depend on any of these external chains. They\'re anchoring points, not consensus dependencies.',
       at(2,4,10,0),4,'Architecture post — Bitcoin anchoring is a strong credibility signal'),
 
     // ── WEEK 4 ──────────────────────────────────────────────
@@ -1856,31 +1856,31 @@ async function init() {
       'Show HN post going up today. Thread here if you want to follow the discussion.',
       at(3,0,9,0),1,'Link to the HN submission once live'),
     p('shin','hn','draft',
-      'Show HN: I built a blockchain where GPU miners run Ollama instead of solving SHA-256\n\nBTCPC is a sovereign chain where block rewards are earned by machines doing real AI inference.\n\nThe mining loop: user submits job via API → broadcast to miners → miner runs through Ollama (any model) → result returned → miner earns proportional to verified parameter count.\n\nNo PoW puzzle. The inference result IS the proof. CPU or GPU, any model. If nobody submits a job today, the miner pool recycles — no make-work.\n\nFive reward pools: inference (60%), verifiers (10%), clock nodes (5%), storage (15%), services+IoT (10%).\n\n42M supply, 10 decimals, 30-second epochs. Whitepaper inscribed on block 0.\n\nHappy to answer questions about consensus, inference routing, or the reward math.',
+      'Show HN: I built a blockchain where GPU miners run Ollama instead of solving SHA-256\n\nHONE is a sovereign chain where block rewards are earned by machines doing real AI inference.\n\nThe mining loop: user submits job via API → broadcast to miners → miner runs through Ollama (any model) → result returned → miner earns proportional to verified parameter count.\n\nNo PoW puzzle. The inference result IS the proof. CPU or GPU, any model. If nobody submits a job today, the miner pool recycles — no make-work.\n\nFive reward pools: inference (60%), verifiers (10%), clock nodes (5%), storage (15%), services+IoT (10%).\n\n42M supply, 10 decimals, 30-second epochs. Whitepaper inscribed on block 0.\n\nHappy to answer questions about consensus, inference routing, or the reward math.',
       at(3,0,11,0),1,'The big Show HN launch — time carefully, aim for 9-11am ET Monday'),
     p('natoshi','twitter','draft',
       'Shin posted on HN today. Go upvote and ask him hard questions.\n\nHe likes hard questions.',
       at(3,0,12,0),1,'Natoshi amplifying the HN post — timing right after it goes live'),
     p('natoshi','reddit_gpumining','draft',
-      'BTCPC is on HN right now if anyone wants to ask the builder questions directly.\n\n[Link]\n\nI\'ve been running a node since day 1. Happy to answer questions from the GPU miner side while Shin handles the technical ones.',
+      'HONE is on HN right now if anyone wants to ask the builder questions directly.\n\n[Link]\n\nI\'ve been running a node since day 1. Happy to answer questions from the GPU miner side while Shin handles the technical ones.',
       at(3,0,13,0),1,'Cross-post amplification — coordinate timing with HN launch'),
     p('shin','twitter','draft',
       'HN thread recap: [summary of top questions and answers]\n\nThe question that came up most: how do you prevent miners from faking inference results?\n\nAnswer:',
       at(3,1,10,0),4,'Follow-up thread post-HN — synthesize the best discussion'),
     p('natoshi','reddit_cryptocurrency','draft',
-      '3 months running BTCPC — where things stand\n\n[Full honest update with real numbers]\n\nWhat\'s working: the reward model is sound. CPU inference earns real tokens for real work.\n\nWhat needs to grow: more miners. Right now it\'s two nodes. The network gets stronger with each independent participant.\n\nIf you\'re curious, the builder is active on HN right now.',
+      '3 months running HONE — where things stand\n\n[Full honest update with real numbers]\n\nWhat\'s working: the reward model is sound. CPU inference earns real tokens for real work.\n\nWhat needs to grow: more miners. Right now it\'s two nodes. The network gets stronger with each independent participant.\n\nIf you\'re curious, the builder is active on HN right now.',
       at(3,2,14,0),2,'Honest 3-month update — links to HN for credibility'),
     p('shin','reddit_localllama','draft',
       'After the HN thread — answers to the top technical questions\n\n1. How do you verify inference results without running the model yourself?\n2. What stops a miner from returning garbage and claiming the reward?\n3. How does the reward scale with model size?\n4. What happens when two miners return different results for the same job?\n\n[Full answers]',
       at(3,2,11,0),4,'Post-HN technical follow-up — this builds the deepest credibility'),
     p('natoshi','twitter','draft',
-      'The thing that still surprises me about BTCPC after 3 months:\n\nI don\'t think about it. My machine runs. I check earnings once a week.\n\nThat\'s what good infrastructure feels like. You forget it\'s there.',
+      'The thing that still surprises me about HONE after 3 months:\n\nI don\'t think about it. My machine runs. I check earnings once a week.\n\nThat\'s what good infrastructure feels like. You forget it\'s there.',
       at(3,3,9,30),2,'Casual observation — authentic Natoshi voice, good for engagement'),
     p('shin','twitter','draft',
-      'What comes after genesis:\n\n→ 3-miner consensus per model\n→ Work proof mempool\n→ Cross-chain signatures (ETH/SOL keys as BTCPC auth)\n→ Streaming inference\n→ MPC sharded inference\n→ wBTCPC on Base with LP pools\n→ Governance activation → Genesis Operator handoff\n\nBuilding in sequence. No timeline promises.',
+      'What comes after genesis:\n\n→ 3-miner consensus per model\n→ Work proof mempool\n→ Cross-chain signatures (ETH/SOL keys as HONE auth)\n→ Streaming inference\n→ MPC sharded inference\n→ wHONE on Base with LP pools\n→ Governance activation → Genesis Operator handoff\n\nBuilding in sequence. No timeline promises.',
       at(3,3,10,0),5,'Roadmap post — "no timeline promises" is important credibility'),
     p('shin','substack','draft',
-      'The Handoff Protocol\n\nFrom the beginning, BTCPC was designed to not need me.\n\nThe Genesis Operator NFT is soulbound. It gives me finalization authority and 0.25% of protocol revenue. When governance activates — when enough miners stake enough BTCPC that the chain can secure itself without my participation — the NFT transfers. Not to another person. To the network.\n\nAt that point, I\'m just another node. Two addresses in a sea of thousands. The chain doesn\'t know my name. It doesn\'t need to...',
+      'The Handoff Protocol\n\nFrom the beginning, HONE was designed to not need me.\n\nThe Genesis Operator NFT is soulbound. It gives me finalization authority and 0.25% of protocol revenue. When governance activates — when enough miners stake enough HONE that the chain can secure itself without my participation — the NFT transfers. Not to another person. To the network.\n\nAt that point, I\'m just another node. Two addresses in a sea of thousands. The chain doesn\'t know my name. It doesn\'t need to...',
       at(3,4,12,0),5,'Shin\'s final Substack piece before the handoff — write this one carefully'),
   ];
     // Seed via API

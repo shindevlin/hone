@@ -17,9 +17,9 @@ const path = require("path");
 const os = require("os");
 
 // Must be set before the module is first required.
-const TEST_BLOB_DIR = path.join(os.tmpdir(), "btcpc-test-audio-blobs-" + process.pid);
-process.env.BTCPC_BLOB_DIR = TEST_BLOB_DIR;
-process.env.BTCPC_WHISPER_TIMEOUT_MS = "120000";
+const TEST_BLOB_DIR = path.join(os.tmpdir(), "hone-test-audio-blobs-" + process.pid);
+process.env.HONE_BLOB_DIR = TEST_BLOB_DIR;
+process.env.HONE_WHISPER_TIMEOUT_MS = "120000";
 
 // Mock child_process BEFORE requiring the module under test.
 jest.mock("child_process", () => ({

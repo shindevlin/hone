@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC IoT Sensor + LoRa Gateway HTTP Routes — v2.15-beta
+ * HONE IoT Sensor + LoRa Gateway HTTP Routes — v2.15-beta
  * Shin Devlin
  *
  * REST wrapper around sensorRegistry (v2.15-alpha) and
@@ -331,7 +331,7 @@ sensorsRouter.post('/:id/register-key', authenticateToken, async (req, res) => {
           await ledger.recordSensorKeyRegister(sensorId, publicKey, owner, epoch);
         }
       } catch (chainErr) {
-        console.error('[btcpc] SENSOR_KEY_REGISTER chain error:', chainErr.message);
+        console.error('[hone] SENSOR_KEY_REGISTER chain error:', chainErr.message);
       }
 
       return res.json({ success: true, sensor_id: sensorId, public_key: publicKey, epoch });
@@ -346,7 +346,7 @@ sensorsRouter.post('/:id/register-key', authenticateToken, async (req, res) => {
 /**
  * POST /api/sensors/:id/finalize
  * Finalize epoch readings for a sensor: compute median, persist readings
- * as a blob in BTCPC-FS, and record SENSOR_DATA_COMMIT on chain.
+ * as a blob in HONE-FS, and record SENSOR_DATA_COMMIT on chain.
  * Auth: owner only (or internal).
  */
 sensorsRouter.post('/:id/finalize', authenticateToken, async (req, res) => {
@@ -383,7 +383,7 @@ sensorsRouter.post('/:id/finalize', authenticateToken, async (req, res) => {
         );
       } catch (commitErr) {
         // Blob persisted; chain entry failed — log but don't fail the HTTP response
-        console.error('[btcpc] SENSOR_DATA_COMMIT ledger error:', commitErr.message);
+        console.error('[hone] SENSOR_DATA_COMMIT ledger error:', commitErr.message);
       }
 
       return res.json({
@@ -647,7 +647,7 @@ const devicesRouter = express.Router();
  * The owner authorizes with their posting key (cannot move funds).
  *
  * Body: { owner, device_id, device_pubkey, posting_key_sig }
- *   owner          — BTCPC account name
+ *   owner          — HONE account name
  *   device_id      — "<owner>/<device-name>" (e.g. "josh/flipper-abc123")
  *   device_pubkey  — hex-encoded compressed secp256k1 public key of the device
  *   posting_key_sig — owner's posting-key signature over device_id + device_pubkey
@@ -727,7 +727,7 @@ devicesRouter.post('/register', async (req, res) => {
  *
  * Path param: :id — URL-encoded "<owner>/<device-name>"
  * Body: { owner, new_device_pubkey, posting_key_sig }
- *   owner            — BTCPC account that currently owns the device
+ *   owner            — HONE account that currently owns the device
  *   new_device_pubkey — hex-encoded new compressed secp256k1 public key
  *   posting_key_sig  — owner's posting-key signature over (device_id + new_device_pubkey)
  *
@@ -857,13 +857,13 @@ devicesRouter.post('/:id/stake', async (req, res) => {
 
     // Compute rent floor
     const pool = stateStore.getDeviceStakerPool(deviceId);
-    const rentFloor = computeRentFloor(0); // no earnings data available in HTTP layer; floor = 50 BTCPC/month
+    const rentFloor = computeRentFloor(0); // no earnings data available in HTTP layer; floor = 50 HONE/month
     if (rentBid < rentFloor) {
       return res.status(400).json({ error: 'rent_bid below floor', floor_per_epoch: rentFloor });
     }
 
     // Check balance
-    const stakerBalance = stateStore.getBalance(staker, 'BTCPC');
+    const stakerBalance = stateStore.getBalance(staker, 'HONE');
     if (stakerBalance < stakeAmount) {
       return res.status(422).json({ error: 'insufficient balance', balance: stakerBalance, required: stakeAmount });
     }
@@ -887,7 +887,7 @@ devicesRouter.post('/:id/stake', async (req, res) => {
       from: staker,
       to: owner,
       amount: stakeAmount,
-      token: 'BTCPC',
+      token: 'HONE',
       epoch: epoch,
       timestamp: Date.now(),
       yield_stake_data: {
@@ -960,7 +960,7 @@ devicesRouter.post('/:id/unstake', async (req, res) => {
       from: staker,
       to: staker,
       amount: returnedAmount,
-      token: 'BTCPC',
+      token: 'HONE',
       epoch: epoch,
       timestamp: Date.now(),
       yield_stake_data: { device_id: deviceId, staker: staker },
@@ -1009,7 +1009,7 @@ devicesRouter.post('/:id/rent-mode', async (req, res) => {
       from: staker,
       to: staker,
       amount: 0,
-      token: 'BTCPC',
+      token: 'HONE',
       epoch: epoch,
       timestamp: Date.now(),
       yield_stake_data: { device_id: deviceId, staker: staker, rent_mode: rentMode },
@@ -1055,7 +1055,7 @@ devicesRouter.post('/:id/auto-stake', async (req, res) => {
       from: owner,
       to: owner,
       amount: 0,
-      token: 'BTCPC',
+      token: 'HONE',
       epoch: epoch,
       timestamp: Date.now(),
       yield_stake_data: { device_id: deviceId, owner: owner, pct: pct },

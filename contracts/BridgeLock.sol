@@ -10,11 +10,11 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @notice Source-side lock contract deployed on Base/Ethereum.
  *
  * Users deposit USDT, USDC, DAI, or ETH. The contract emits a
- * `BridgeLockEvent` that the BTCPC node relayer watches; upon
- * confirmation it mints native BTCPC to `btcpcRecipient`.
+ * `BridgeLockEvent` that the HONE node relayer watches; upon
+ * confirmation it mints native HONE to `honeRecipient`.
  *
- * A 4.2 M BTCPC supply cap is enforced via a dreams counter
- * maintained by the owner/oracle (1 BTCPC = 100,000,000 dreams).
+ * A 4.2 M HONE supply cap is enforced via a dreams counter
+ * maintained by the owner/oracle (1 HONE = 100,000,000 dreams).
  *
  * Failed bridges can be refunded by the owner after a 7-day
  * timelock using `unlockFunds`.
@@ -24,7 +24,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 contract BridgeLock is Ownable, ReentrancyGuard {
     // ── Constants ────────────────────────────────────────────────────────────
 
-    /// @dev 4.2 M BTCPC expressed in dreams (1 BTCPC = 100_000_000 dreams).
+    /// @dev 4.2 M HONE expressed in dreams (1 HONE = 100_000_000 dreams).
     uint256 public constant CAP_DREAMS = 4_200_000 * 100_000_000;
 
     /// @dev Minimum delay before owner can refund a locked deposit.
@@ -35,7 +35,7 @@ contract BridgeLock is Ownable, ReentrancyGuard {
     /// @notice Running nonce; included in every BridgeLockEvent.
     uint256 public nonce;
 
-    /// @notice Total wBTCPC-equivalent dreams minted so far (set by oracle).
+    /// @notice Total wHONE-equivalent dreams minted so far (set by oracle).
     uint256 public mintedDreams;
 
     /// @notice Accepted stablecoins (address => true).
@@ -59,14 +59,14 @@ contract BridgeLock is Ownable, ReentrancyGuard {
      * @param user           EVM sender address.
      * @param token          ERC-20 token address, or address(0) for ETH.
      * @param amount         Raw token amount (respects token decimals).
-     * @param btcpcRecipient BTCPC chain username to receive minted BTCPC.
+     * @param honeRecipient HONE chain username to receive minted HONE.
      * @param nonce          Monotonically increasing per-contract nonce.
      */
     event BridgeLockEvent(
         address indexed user,
         address indexed token,
         uint256 amount,
-        string btcpcRecipient,
+        string honeRecipient,
         uint256 nonce
     );
 
@@ -91,19 +91,19 @@ contract BridgeLock is Ownable, ReentrancyGuard {
     // ── User-facing ───────────────────────────────────────────────────────────
 
     /**
-     * @notice Lock ERC-20 tokens (USDT / USDC / DAI) for bridging to BTCPC.
+     * @notice Lock ERC-20 tokens (USDT / USDC / DAI) for bridging to HONE.
      * @param token          Whitelisted ERC-20 contract address.
      * @param amount         Amount to lock (token's native decimals).
-     * @param btcpcRecipient BTCPC chain username that will receive the mint.
+     * @param honeRecipient HONE chain username that will receive the mint.
      */
     function lockTokens(
         address token,
         uint256 amount,
-        string calldata btcpcRecipient
+        string calldata honeRecipient
     ) external nonReentrant {
         require(acceptedTokens[token], "Token not accepted");
         require(amount > 0, "Zero amount");
-        require(bytes(btcpcRecipient).length >= 3, "Invalid BTCPC recipient");
+        require(bytes(honeRecipient).length >= 3, "Invalid HONE recipient");
         require(mintedDreams < CAP_DREAMS, "Bridge cap reached");
 
         IERC20(token).transferFrom(msg.sender, address(this), amount);
@@ -117,16 +117,16 @@ contract BridgeLock is Ownable, ReentrancyGuard {
             refunded: false
         });
 
-        emit BridgeLockEvent(msg.sender, token, amount, btcpcRecipient, nonce);
+        emit BridgeLockEvent(msg.sender, token, amount, honeRecipient, nonce);
     }
 
     /**
-     * @notice Lock ETH for bridging to BTCPC.
-     * @param btcpcRecipient BTCPC chain username that will receive the mint.
+     * @notice Lock ETH for bridging to HONE.
+     * @param honeRecipient HONE chain username that will receive the mint.
      */
-    function lockETH(string calldata btcpcRecipient) external payable nonReentrant {
+    function lockETH(string calldata honeRecipient) external payable nonReentrant {
         require(msg.value > 0, "Zero ETH");
-        require(bytes(btcpcRecipient).length >= 3, "Invalid BTCPC recipient");
+        require(bytes(honeRecipient).length >= 3, "Invalid HONE recipient");
         require(mintedDreams < CAP_DREAMS, "Bridge cap reached");
 
         nonce++;
@@ -138,15 +138,15 @@ contract BridgeLock is Ownable, ReentrancyGuard {
             refunded: false
         });
 
-        emit BridgeLockEvent(msg.sender, address(0), msg.value, btcpcRecipient, nonce);
+        emit BridgeLockEvent(msg.sender, address(0), msg.value, honeRecipient, nonce);
     }
 
     // ── Owner / Oracle ────────────────────────────────────────────────────────
 
     /**
-     * @notice Called by the BTCPC relayer oracle to keep the on-chain
+     * @notice Called by the HONE relayer oracle to keep the on-chain
      *         dreams counter in sync. Reverts if the new value would
-     *         exceed the 4.2 M BTCPC cap.
+     *         exceed the 4.2 M HONE cap.
      * @param newMintedDreams Cumulative dreams minted so far across all bridges.
      */
     function setMintedDreams(uint256 newMintedDreams) external onlyOwner {

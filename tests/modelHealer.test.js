@@ -180,9 +180,9 @@ describe('all fallbacks fail → returns null', () => {
   });
 });
 
-// ─── Test group 6: BTCPC_MODEL unset → picks largest local model ──────────────
+// ─── Test group 6: HONE_MODEL unset → picks largest local model ──────────────
 
-describe('BTCPC_MODEL unset → auto-picks largest verified local model', () => {
+describe('HONE_MODEL unset → auto-picks largest verified local model', () => {
   test('returns the largest verified local model by param count', async () => {
     // Two local models: small-a (1B params) and large-b (27B params)
     axios.get.mockResolvedValue(makeTagsResponse(['small-a:1b', 'large-b:27b']));

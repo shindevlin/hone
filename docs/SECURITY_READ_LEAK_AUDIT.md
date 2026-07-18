@@ -1,5 +1,5 @@
 ---
-title: BTCPC Read-Leak Security Audit (2026-07-04)
+title: HONE Read-Leak Security Audit (2026-07-04)
 description: Swept all data-returning endpoints for the "returns private data without checking who asks" bug class. Findings + fixes.
 author: Shin Devlin
 status: audit complete (2 fixes shipped, follow-ups noted)
@@ -19,7 +19,7 @@ return owner/buyer/private data to a caller who hasn't proven they're allowed?*
 - Discovery `/api/linkgit/repos` + owner list → PUBLIC repos only.
 - Single repo GET → private returns a minimal stub, not the ref list.
 - **`POST /api/linkgit/repo/:owner/:repo/read`** → full private data ONLY when the
-  caller signs the challenge `btcpc:linkgit:read:{repo_id}:{caller}` with their
+  caller signs the challenge `hone:linkgit:read:{repo_id}:{caller}` with their
   HIDE key (verified against on-chain hide pubkey) AND is owner/grantee
   (`linkgit_server::can_read`). 401 not-keyholder, 403 not-authorized. Read API +
   git-serve layer share one access predicate.
@@ -33,7 +33,7 @@ return owner/buyer/private data to a caller who hasn't proven they're allowed?*
 
 ## Audited CLEAN (no change needed)
 
-- **Freeport / btcpc-market orders** — `get_order` already checks
+- **Freeport / hone-market orders** — `get_order` already checks
   `caller == buyer || seller` and requires `AuthUser`; `license_key`/fulfillment
   only go to the parties. Node `/api/commerce/*` routes are public storefront
   listings only.

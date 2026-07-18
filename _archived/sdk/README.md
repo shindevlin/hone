@@ -1,19 +1,19 @@
-# @btcpc/sdk
+# @hone/sdk
 
-Use AI inference powered by Bitcoin Proof of Compute. Every request is backed by verified GPU work on the BTCPC blockchain.
+Use AI inference powered by Bitcoin Proof of Compute. Every request is backed by verified GPU work on the HONE blockchain.
 
 ## Install
 
 ```bash
-npm install @btcpc/sdk
+npm install @hone/sdk
 ```
 
 ## Quick Start
 
 ```javascript
-const BTCPC = require('@btcpc/sdk');
+const HONE = require('@hone/sdk');
 
-const ai = new BTCPC({ apiKey: 'btcpc_your_key_here' });
+const ai = new HONE({ apiKey: 'hone_your_key_here' });
 
 // Simple prompt
 const answer = await ai.ask({ prompt: 'Explain quantum computing in one paragraph' });
@@ -29,7 +29,7 @@ const res = await ai.chat({
   temperature: 0.7
 });
 console.log(res.choices[0].message.content);
-console.log(`Cost: ${res.btcpc.cost} BTCPC`);
+console.log(`Cost: ${res.hone.cost} HONE`);
 ```
 
 ## OpenAI Drop-in
@@ -40,8 +40,8 @@ Already using the OpenAI SDK? Just change the base URL:
 const OpenAI = require('openai');
 
 const client = new OpenAI({
-  baseURL: 'https://api.btcpc.network/v1',
-  apiKey: 'btcpc_your_key_here'
+  baseURL: 'https://api.hone.network/v1',
+  apiKey: 'hone_your_key_here'
 });
 
 const res = await client.chat.completions.create({
@@ -54,32 +54,32 @@ const res = await client.chat.completions.create({
 
 1. Register your GitHub repo:
    ```bash
-   curl -X POST https://api.btcpc.network/api/projects/register \
+   curl -X POST https://api.hone.network/api/projects/register \
      -H "Authorization: Bearer YOUR_JWT" \
      -H "Content-Type: application/json" \
      -d '{"repoUrl": "https://github.com/you/your-repo"}'
    ```
 
-2. Add the `.btcpc` file to your repo root (contains your wallet address)
+2. Add the `.hone` file to your repo root (contains your wallet address)
 
 3. Verify:
    ```bash
-   curl -X POST https://api.btcpc.network/api/projects/verify \
-     -H "Authorization: Bearer btcpc_your_key"
+   curl -X POST https://api.hone.network/api/projects/verify \
+     -H "Authorization: Bearer hone_your_key"
    ```
 
-4. Fund your project wallet with BTCPC tokens
+4. Fund your project wallet with HONE tokens
 
 ## API
 
-### `new BTCPC({ apiKey, baseUrl? })`
-Create a client. `baseUrl` defaults to `https://api.btcpc.network`.
+### `new HONE({ apiKey, baseUrl? })`
+Create a client. `baseUrl` defaults to `https://api.hone.network`.
 
 ### `ai.ask({ prompt, model?, maxTokens?, temperature? })`
 Returns just the response text (string).
 
 ### `ai.chat({ messages, model?, maxTokens?, temperature? })`
-Full OpenAI-compatible chat completion. Returns the complete response object including `btcpc.cost`, `btcpc.proof_hash`, and `usage`.
+Full OpenAI-compatible chat completion. Returns the complete response object including `hone.cost`, `hone.proof_hash`, and `usage`.
 
 ### `ai.models()`
 List available models.
@@ -89,10 +89,10 @@ Check your project balance and usage stats.
 
 ## Pricing
 
-0.001 BTCPC per completion token. Larger models earn more for miners but cost the same for you.
+0.001 HONE per completion token. Larger models earn more for miners but cost the same for you.
 
 ## Links
 
-- GitHub: [shindevlin/btcpc](https://github.com/shindevlin/btcpc)
-- Telegram: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)
+- GitHub: [shindevlin/hone](https://github.com/shindevlin/hone)
+- Telegram: [t.me/honenetwork](https://t.me/honenetwork)
 - Email: shindevlin@proton.me

@@ -4,8 +4,8 @@
  * Inference Marketplace HTTP Routes
  * Shin Devlin
  *
- * REST API for the BTCPC inference marketplace. Buyers post jobs with
- * BTCPC escrow. Miners claim and run inference (one-shot or agentic loop).
+ * REST API for the HONE inference marketplace. Buyers post jobs with
+ * HONE escrow. Miners claim and run inference (one-shot or agentic loop).
  * Protocol takes 10%.
  *
  * Routes:
@@ -37,7 +37,7 @@ const stateStore = require("../chain/stateStore");
 const { sanitizeString, sanitizeAmount } = require("../middlewares/validate");
 const { PROTOCOL_TOOL_SCHEMAS } = require("../services/protocolTools");
 
-const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const BLOB_DIR = process.env.HONE_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
 const memoryService = require("../services/memoryService");
 
 const MAX_PROMPT_LENGTH = 8000;
@@ -564,9 +564,9 @@ router.get("/stats/overview", (req, res) => {
     res.json({
       open_jobs: openCount,
       claimed_jobs: claimedCount,
-      total_escrow_btcpc: parseFloat(totalOpenFees.toFixed(6)),
+      total_escrow_hone: parseFloat(totalOpenFees.toFixed(6)),
       protocol_fee_pct: market.PROTOCOL_FEE_PCT * 100,
-      min_job_fee_btcpc: market.MIN_JOB_FEE,
+      min_job_fee_hone: market.MIN_JOB_FEE,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

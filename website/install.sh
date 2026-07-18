@@ -120,14 +120,14 @@ if [ "$got_binary" != "true" ]; then
   fi
 
   BUILD_DIR="$(mktemp -d)"
-  REPO_URL="${HONE_REPO_URL:-https://github.com/shindevlin/btcpc}"
+  REPO_URL="${HONE_REPO_URL:-https://github.com/shindevlin/hone}"
 
   # Private-repo fallback: if a GITHUB_TOKEN is present, use it for auth.
   # If the clone fails without a token (private repo, no access), degrade
   # gracefully — tell the user where to get a prebuilt binary and exit 0
   # rather than dead-ending the whole install with exit 1.
   if [ -n "${GITHUB_TOKEN:-}" ]; then
-    REPO_URL="https://${GITHUB_TOKEN}@github.com/shindevlin/btcpc"
+    REPO_URL="https://${GITHUB_TOKEN}@github.com/shindevlin/hone"
   fi
 
   if ! git clone --depth=1 "$REPO_URL" "$BUILD_DIR" 2>/dev/null; then

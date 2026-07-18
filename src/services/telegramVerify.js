@@ -9,11 +9,11 @@ const CHALLENGE_EXPIRY_MS = 600000; // 10 minutes
 
 /**
  * Start a telegram link — generates a challenge code.
- * User must sign this challenge with their BTCPC posting key.
+ * User must sign this challenge with their HONE posting key.
  */
 async function startLink(username, telegramId, telegramUsername) {
   const user = await User.findOne({ username: username.toLowerCase() });
-  if (!user) throw new Error('Account not found on BTCPC chain');
+  if (!user) throw new Error('Account not found on HONE chain');
 
   if (user.telegramId && user.telegramId !== telegramId) {
     throw new Error('Account already linked to another Telegram user');
@@ -26,7 +26,7 @@ async function startLink(username, telegramId, telegramUsername) {
     throw new Error('Account has no posting key set. Register via CLI first.');
   }
 
-  const challenge = 'BTCPC-VERIFY-' + crypto.randomBytes(8).toString('hex');
+  const challenge = 'HONE-VERIFY-' + crypto.randomBytes(8).toString('hex');
 
   user.pendingTelegramLink = {
     telegramId,
@@ -45,9 +45,9 @@ async function startLink(username, telegramId, telegramUsername) {
 /**
  * Verify a signed challenge to complete Telegram linking.
  * The signature must be produced by the account's posting private key.
- * This proves the Telegram user controls the BTCPC account.
+ * This proves the Telegram user controls the HONE account.
  *
- * @param {string} username - BTCPC username
+ * @param {string} username - HONE username
  * @param {string} telegramId - Telegram user ID (must match pending link)
  * @param {string} signature - Hex-encoded secp256k1 signature of the challenge
  * @param {number} recovery - Signature recovery ID (0 or 1)
@@ -83,12 +83,12 @@ async function verifySignedChallenge(username, telegramId, signature, recovery) 
   // Signature valid — record on-chain via ledger and link.
   const stateStore = require('../chain/stateStore');
   const acct = stateStore.getAccount(user.username);
-  const btcpcAddress = acct && acct.chain_addresses && acct.chain_addresses.btcpc;
+  const honeAddress = acct && acct.chain_addresses && acct.chain_addresses.hone;
 
   const epoch = await ledger.getCurrentEpoch();
   // Record telegram verification as a ledger transfer with zero amount
   const entry = await ledger.recordTransfer(
-    btcpcAddress || user.username, 'btcpc_system', 0, 'BTCPC', null, epoch,
+    honeAddress || user.username, 'hone_system', 0, 'HONE', null, epoch,
     JSON.stringify({
       action: 'verify-telegram',
       challenge: challenge,

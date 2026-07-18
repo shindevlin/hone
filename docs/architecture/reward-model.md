@@ -1,14 +1,14 @@
 ---
-title: BTCPC Reward Model — Canonical 4-Layer Design
+title: HONE Reward Model — Canonical 4-Layer Design
 description: Authoritative design for emission, reward pools, verification, sensors, and storage
 captured_at: 2026-04-29
 author: Shin Devlin
 ---
 
-# BTCPC Reward Model — Canonical 4-Layer Design
+# HONE Reward Model — Canonical 4-Layer Design
 
 > An epoch can earn LESS than 100% of the available reward. It can NEVER earn more.
-> Unused reward always flows to btcpc_recycle. Tokens are never burned.
+> Unused reward always flows to hone_recycle. Tokens are never burned.
 
 ## Master Formula
 
@@ -27,11 +27,11 @@ Only TRUE infrastructure earns base rewards.
 base = Σ clock_reward_at(epoch)   per active clock node     (era-scaled, tiny)
      + Σ testnet_reward_at(epoch) per registered testnet op  (era-scaled, tinier)
      + 2% mandatory reserve split:
-           1.5% → btcpc_recycle
+           1.5% → hone_recycle
            0.5% → __testnet_fund__
 ```
 
-- clock_reward_at(era 0) = 0.001 BTCPC/node
+- clock_reward_at(era 0) = 0.001 HONE/node
 - Verifiers do NOT get a base reward. They are workers, not infrastructure.
 
 ## Layer B — Per-Pool Activity (fully dynamic)

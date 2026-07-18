@@ -1,18 +1,18 @@
 "use strict";
 
 /**
- * BTCPC Tool Executor
+ * HONE Tool Executor
  * Shin Devlin
  *
- * Shared utility for requester-side tool execution across all BTCPC engines:
+ * Shared utility for requester-side tool execution across all HONE engines:
  *   - Inference / Mining  (enrich prompt context before sending to miner)
  *   - Agent turns         (tool calls within a session)
  *   - Sensor readings     (enrich readings: geocode, unit-convert, validate)
- *   - Storage             (hash/process data before committing to BTCPC-FS)
+ *   - Storage             (hash/process data before committing to HONE-FS)
  *   - Verifier            (re-run deterministic tools to check tool_trace_hash)
  *   - Gateway             (transform/route sensor data)
  *
- * BTCPC builtins are called in-process (no HTTP, no SSRF).
+ * HONE builtins are called in-process (no HTTP, no SSRF).
  * External MCP servers are called via JSON-RPC HTTP (user-hosted only —
  * private/loopback addresses are blocked).
  *
@@ -29,11 +29,11 @@
 
 const axios = require("axios").default;
 const { hashToolTrace } = require("./toolRegistry");
-const mcpServer = require("./btcpcMcpServer");
+const mcpServer = require("./mcpJsonRpcServer");
 const { isPublicHttpUrl } = require("../services/urlSafety");
 
 const BUILTIN_TOOLS = new Set([
-  "calculator", "hash", "btcpc_fs_read", "epoch_info", "web_fetch",
+  "calculator", "hash", "hone_fs_read", "epoch_info", "web_fetch",
 ]);
 
 const SSRF_BLOCKED = [
@@ -69,7 +69,7 @@ async function executeTools({ tools, toolContext, mcpServers, savedMcpServers } 
   const builtinNames = toolNames.filter(t => BUILTIN_TOOLS.has(t));
   const externalNames = toolNames.filter(t => !BUILTIN_TOOLS.has(t));
 
-  // ── 1. BTCPC builtins — in-process, no HTTP ──────────────────────────────
+  // ── 1. HONE builtins — in-process, no HTTP ──────────────────────────────
   const builtinPromises = builtinNames.map(async name => {
     try {
       const output = await mcpServer.callTool(name, ctx);

@@ -2,14 +2,14 @@
 "use strict";
 
 /**
- * BTCPC Project Runner — Intelligent inference for all 12 projects
+ * HONE Project Runner — Intelligent inference for all 12 projects
  * Shin Devlin
  *
  * Each project gets a cron cycle that:
- * 1. Reads past inference results (.btcpc-inference/)
+ * 1. Reads past inference results (.hone-inference/)
  * 2. Analyzes what's been done and what's needed
  * 3. Generates contextual new prompts based on project purpose
- * 4. Submits inference jobs via BTCPC API
+ * 4. Submits inference jobs via HONE API
  * 5. Saves results back to the project
  * 6. Tracks quality metrics
  *
@@ -25,7 +25,7 @@ const crypto = require('crypto');
 // ─── Configuration ───────────────────────────────────────────────
 
 const INTERVAL_MS = parseInt(process.env.JOB_INTERVAL_MS) || 120000;
-const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.HONE_API_URL || 'http://localhost:3000';
 const REPOS_DIR = '/home/ubuntclaw/repos';
 
 // Project definitions with intelligent prompt strategies
@@ -245,7 +245,7 @@ function generatePrompt(projectName, project) {
 // ─── Past Results Analysis ───────────────────────────────────────
 
 function getPastResults(projectDir, limit) {
-  const inferDir = path.join(REPOS_DIR, projectDir, '.btcpc-inference');
+  const inferDir = path.join(REPOS_DIR, projectDir, '.hone-inference');
   if (!fs.existsSync(inferDir)) return [];
 
   return fs.readdirSync(inferDir)
@@ -261,7 +261,7 @@ function getPastResults(projectDir, limit) {
 // ─── Job Submission ──────────────────────────────────────────────
 
 async function submitJob(projectName, project, prompt) {
-  const envPath = path.join(REPOS_DIR, project.dir, '.envbtcpc');
+  const envPath = path.join(REPOS_DIR, project.dir, '.envhone');
   if (!fs.existsSync(envPath)) return null;
 
   const env = {};
@@ -270,7 +270,7 @@ async function submitJob(projectName, project, prompt) {
     if (k && v.length) env[k.trim()] = v.join('=').trim();
   });
 
-  if (!env.BTCPC_PROJECT_KEY) return null;
+  if (!env.HONE_PROJECT_KEY) return null;
 
   try {
     const { data } = await axios.post(`${API_URL}/v1/inference/submit`, {
@@ -279,7 +279,7 @@ async function submitJob(projectName, project, prompt) {
       max_tokens: 1024
     }, {
       timeout: 15000,
-      headers: { 'Authorization': `Bearer ${env.BTCPC_PROJECT_KEY}` }
+      headers: { 'Authorization': `Bearer ${env.HONE_PROJECT_KEY}` }
     });
 
     return data;
@@ -290,7 +290,7 @@ async function submitJob(projectName, project, prompt) {
 }
 
 async function pollResult(projectName, project, jobId) {
-  const envPath = path.join(REPOS_DIR, project.dir, '.envbtcpc');
+  const envPath = path.join(REPOS_DIR, project.dir, '.envhone');
   const env = {};
   fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
     const [k, ...v] = line.split('=');
@@ -303,7 +303,7 @@ async function pollResult(projectName, project, jobId) {
   while (Date.now() - start < maxWait) {
     try {
       const { data } = await axios.get(`${API_URL}/v1/inference/${jobId}`, {
-        headers: { 'Authorization': `Bearer ${env.BTCPC_PROJECT_KEY}` }
+        headers: { 'Authorization': `Bearer ${env.HONE_PROJECT_KEY}` }
       });
       if (data.status === 'completed' || data.status === 'settled') return data;
       if (data.status === 'failed') return null;
@@ -314,7 +314,7 @@ async function pollResult(projectName, project, jobId) {
 }
 
 function saveResult(projectName, project, jobId, prompt, result) {
-  const inferDir = path.join(REPOS_DIR, project.dir, '.btcpc-inference');
+  const inferDir = path.join(REPOS_DIR, project.dir, '.hone-inference');
   if (!fs.existsSync(inferDir)) fs.mkdirSync(inferDir, { recursive: true });
 
   const output = {
@@ -405,8 +405,8 @@ console.log(`[project-runner] ${projectNames.length} projects loaded, interval: 
 console.log(`[project-runner] Projects: ${projectNames.join(', ')}`);
 projectNames.forEach(n => {
   const p = PROJECTS[n];
-  const envPath = path.join(REPOS_DIR, p.dir, '.envbtcpc');
-  const hasKey = fs.existsSync(envPath) && fs.readFileSync(envPath, 'utf8').includes('BTCPC_PROJECT_KEY');
+  const envPath = path.join(REPOS_DIR, p.dir, '.envhone');
+  const hasKey = fs.existsSync(envPath) && fs.readFileSync(envPath, 'utf8').includes('HONE_PROJECT_KEY');
   console.log(`  ${n}: ${hasKey ? 'ready' : 'NO API KEY'} (${p.purpose.slice(0, 50)})`);
 });
 

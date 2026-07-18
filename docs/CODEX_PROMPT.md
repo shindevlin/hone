@@ -1,8 +1,8 @@
-# Codex Work Prompt — BTCPC v3.0.87
+# Codex Work Prompt — HONE v3.0.87
 
-You are working on the BTCPC blockchain codebase at ~/repos/btcpc (GitHub: shindevlin/btcpc, private). Version 3.0.87. Node.js, optional MongoDB, WebSocket P2P.
+You are working on the HONE blockchain codebase at ~/repos/hone (GitHub: shindevlin/hone, private). Version 3.0.87. Node.js, optional MongoDB, WebSocket P2P.
 
-The main Claude engine is building cross-chain claims, wBTCPC contracts, token creation, and tokenomics dashboard. You handle everything else below.
+The main Claude engine is building cross-chain claims, wHONE contracts, token creation, and tokenomics dashboard. You handle everything else below.
 
 ## YOUR TASKS
 
@@ -23,22 +23,22 @@ Follow the EVM pattern in `src/services/chainLink.js`. Add signature verificatio
 **TON:** ed25519 signature
 - Similar to Solana but with TON address derivation
 
-Add each to `chainLink.js` with a new case in `verifyAndLink()`. Add bot commands `/link-sol`, `/link-btc`, `/link-ton` to the bot at `~/repos/btcpcbot/index.js`.
+Add each to `chainLink.js` with a new case in `verifyAndLink()`. Add bot commands `/link-sol`, `/link-btc`, `/link-ton` to the bot at `~/repos/honebot/index.js`.
 
 **IMPORTANT:** Mark these as HIGHLY DISCOURAGED in the UI — warn users that linking non-EVM wallets is experimental and they should prefer EVM linking. The bot message should say: "EVM linking is recommended. Non-EVM chain linking is experimental."
 
-### 2. Public btcpcscan
+### 2. Public honescan
 
 The explorer runs at localhost:4242. Set up a permanent Cloudflare tunnel:
 
 ```bash
-cloudflared tunnel create btcpcscan
-cloudflared tunnel route dns btcpcscan scan.honemesh.network
+cloudflared tunnel create honescan
+cloudflared tunnel route dns honescan scan.honemesh.network
 ```
 
 If `scan.honemesh.network` DNS isn't available, use the auto-generated trycloudflare.com URL and document it.
 
-Create a systemd service: `systemd/btcpcscan-tunnel.service` that keeps the tunnel alive.
+Create a systemd service: `systemd/honescan-tunnel.service` that keeps the tunnel alive.
 
 ### 3. Test Coverage
 
@@ -76,7 +76,7 @@ Create: `src/telegram-webapp/` directory with:
 - Uses Telegram WebApp SDK: `https://telegram.org/js/telegram-web-app.js`
 - Features: balance display, send tokens, transaction history, heartbeat button, linked wallets
 - Calls the existing `/api/bot/*` endpoints
-- Dark theme matching btcpcscan (Bitcoin orange accent)
+- Dark theme matching honescan (Bitcoin orange accent)
 
 Register the Mini App with the bot — add a menu button that opens the webapp URL.
 

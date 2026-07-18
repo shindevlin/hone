@@ -98,7 +98,7 @@ wall-clock (`(now − genesis_ts)/30s`). It advances whether or not anyone seals
    shows the founder clocks; founder balances begin rising from `ClockReward`.
 5. **Then** the GO_LIVE public-surface checklist (`docs/GO_LIVE_CHECKLIST.md`) becomes
    meaningful — it tests serving traffic, which only matters once the chain is state-live.
-   (That checklist is stale — still says "BTCPC" and covers testnet serving, not chain
+   (That checklist is stale — still says "HONE" and covers testnet serving, not chain
    start; it should be refreshed after step 4.)
 
 ---

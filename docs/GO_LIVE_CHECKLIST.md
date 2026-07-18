@@ -1,4 +1,4 @@
-# BTCPC Go-Live Checklist
+# HONE Go-Live Checklist
 
 Use this checklist before expanding the public testnet surface or asking new users to rely on it.
 

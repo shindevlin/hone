@@ -16,8 +16,8 @@ const os = require('os');
 const path = require('path');
 
 // Isolate secretStore per worker before the module loads
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-auth-secretstore-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-auth-secretstore-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 process.env.JWT_SECRET = 'test-secret-for-auth-controller-tests';
 
 // Mock User model — drop-in for mongoose User

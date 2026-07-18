@@ -1,11 +1,11 @@
 "use strict";
 
 /**
- * BTCPC Sensor Registry — v2.15-alpha
+ * HONE Sensor Registry — v2.15-alpha
  * Shin Devlin
  *
  * In-memory registry of IoT sensor devices that report environmental
- * data to the BTCPC chain. A sensor is essentially an oracle feed
+ * data to the HONE chain. A sensor is essentially an oracle feed
  * where readings come from a physical device instead of an API.
  *
  * Median consensus for epoch finalization delegates to oracleFeeds._median()
@@ -53,7 +53,7 @@ var lastEpochBySensor = new Map(); // sensorId → epoch number
 // Same gateway submitting twice for the same epoch is still blocked as spam.
 var witnessedByGateway = new Map(); // sensorId+"|"+epoch → Set<gatewayId>
 
-// Revenue from data purchases: epoch → Map<owner, btcpc_earned>
+// Revenue from data purchases: epoch → Map<owner, hone_earned>
 // Set by ledger.applyEntry when a DATA_BUY entry settles.
 var sensorRevenueByEpoch = new Map();
 var _currentSaleEpoch = -1;
@@ -116,7 +116,7 @@ function parseSensorId(sensorId) {
  * Register a new IoT sensor. Can also update an existing sensor's spec
  * (owner cannot change on update).
  *
- * @param {string} owner — BTCPC account that owns this sensor
+ * @param {string} owner — HONE account that owns this sensor
  * @param {string} sensorId — "<owner>/<device-name>"
  * @param {object} spec
  * @param {string} spec.type — one of VALID_TYPES
@@ -185,14 +185,14 @@ function registerSensor(owner, sensorId, spec, options) {
     if (ownerSensorCount >= dynamicRewards.SYBIL_SENSOR_THRESHOLD - 1) {
       // At or beyond the free threshold. Emit warning; hard-block if enforcement enabled.
       var needed = dynamicRewards.getStakeRequirement(spec.type);
-      console.warn("[BTCPC Sensor] Sybil threshold: " + owner +
+      console.warn("[HONE Sensor] Sybil threshold: " + owner +
         " registering sensor #" + (ownerSensorCount + 1) +
         " (threshold=" + dynamicRewards.SYBIL_SENSOR_THRESHOLD + ")" +
-        " — requires " + needed + " BTCPC staked per sensor.");
-      if (process.env.BTCPC_SYBIL_ENFORCEMENT === 'true') {
+        " — requires " + needed + " HONE staked per sensor.");
+      if (process.env.HONE_SYBIL_ENFORCEMENT === 'true') {
         // Future: verify stake before allowing. For now hard-block is behind flag.
         throw new Error("sybil_stake_required: owner must stake " + needed +
-          " BTCPC to register more than " + (dynamicRewards.SYBIL_SENSOR_THRESHOLD - 1) + " sensors");
+          " HONE to register more than " + (dynamicRewards.SYBIL_SENSOR_THRESHOLD - 1) + " sensors");
       }
     }
 
@@ -382,7 +382,7 @@ function submitReading(sensorId, value, metadata, epoch) {
     var skew = Math.abs(Date.now() - devTs);
     if (skew > MAX_TIMESTAMP_SKEW_MS) {
       sigInvalid = true;
-      console.warn("[BTCPC Sensor] Timestamp skew " + skew + "ms for sensor " + sensorId +
+      console.warn("[HONE Sensor] Timestamp skew " + skew + "ms for sensor " + sensorId +
         " epoch " + ep + " — reading_sig rejected (replay protection)");
     } else {
       sigVerified = sensorKeystore.verifyReading(
@@ -390,7 +390,7 @@ function submitReading(sensorId, value, metadata, epoch) {
       );
       if (!sigVerified) {
         sigInvalid = true;
-        console.warn("[BTCPC Sensor] Invalid reading_sig from sensor " + sensorId +
+        console.warn("[HONE Sensor] Invalid reading_sig from sensor " + sensorId +
           " epoch " + ep);
       }
     }
@@ -407,7 +407,7 @@ function submitReading(sensorId, value, metadata, epoch) {
   } else if (sigInvalid) {
     // Sensor has a key but sig is wrong — heavily penalize
     trustWeight = 0.1;
-    console.warn("[BTCPC Sensor] Low trust: invalid reading_sig for " + sensorId);
+    console.warn("[HONE Sensor] Low trust: invalid reading_sig for " + sensorId);
   } else if (meta.gateway_id) {
     if (record.lora_gateway && meta.gateway_id === record.lora_gateway) {
       gatewayVerified = true;
@@ -422,7 +422,7 @@ function submitReading(sensorId, value, metadata, epoch) {
           }, meta.gateway_sig);
           if (!gatewaySigValid) {
             trustWeight = 0.25;
-            console.warn("[BTCPC Sensor] Bad gateway sig from " + meta.gateway_id +
+            console.warn("[HONE Sensor] Bad gateway sig from " + meta.gateway_id +
               " for sensor " + sensorId + " epoch " + ep);
           }
         } else if (gwRecord) {
@@ -475,12 +475,12 @@ function submitReading(sensorId, value, metadata, epoch) {
 
   // Auto-recover to active from any non-active, non-retired state.
   if (record.status !== "active" && record.status !== "retired") {
-    console.log("[BTCPC Sensor] Auto-recovered " + sensorId +
+    console.log("[HONE Sensor] Auto-recovered " + sensorId +
       " from '" + record.status + "' to 'active' at epoch " + ep);
     record.status = "active";
   } else if (prevLifecycle) {
     // Record was stored as active but epoch-gap said otherwise — recover and log.
-    console.log("[BTCPC Sensor] Auto-recovered " + sensorId +
+    console.log("[HONE Sensor] Auto-recovered " + sensorId +
       " from lifecycle state '" + prevLifecycle + "' to 'active' at epoch " + ep);
     record.status = "active";
   }
@@ -614,8 +614,8 @@ function finalizeEpochReadings(sensorId, epoch) {
         try {
           var slashing = require("./slashing");
           slashing.recordOffense(ownerId, "SENSOR_DIVERGENCE", { sensor_id: sid, epoch: epNum, divergence_type: why })
-            .catch(function (err) { console.error("[BTCPC Sensor] Divergence slash failed:", err.message); });
-          console.warn("[BTCPC Sensor] SENSOR_DIVERGENCE slash for " + ownerId + " sensor=" + sid + " epoch=" + epNum);
+            .catch(function (err) { console.error("[HONE Sensor] Divergence slash failed:", err.message); });
+          console.warn("[HONE Sensor] SENSOR_DIVERGENCE slash for " + ownerId + " sensor=" + sid + " epoch=" + epNum);
         } catch (_) { /* non-fatal */ }
       })(record.owner, sensorId, ep, allOutlier ? "all_outlier" : "unconfirmed_solo");
     }
@@ -773,11 +773,11 @@ function getSensorWorkByEpoch(epochNumber) {
 }
 
 /**
- * Record BTCPC revenue earned by a sensor owner from a data purchase.
+ * Record HONE revenue earned by a sensor owner from a data purchase.
  * Called by the ledger when a DATA_BUY entry settles.
  *
  * @param {string} owner — sensor owner account
- * @param {number} revenueAmount — BTCPC amount paid by buyer
+ * @param {number} revenueAmount — HONE amount paid by buyer
  * @param {number} epoch — epoch the sale was settled in
  */
 function recordSensorSale(owner, revenueAmount, epoch) {
@@ -795,8 +795,8 @@ function recordSensorSale(owner, revenueAmount, epoch) {
 }
 
 /**
- * Get BTCPC revenue earned per sensor owner over a 3-epoch window.
- * Returns { [owner]: btcpc_amount } — primary reward signal.
+ * Get HONE revenue earned per sensor owner over a 3-epoch window.
+ * Returns { [owner]: hone_amount } — primary reward signal.
  */
 function getSensorRevenueByEpoch(epochNumber) {
   var WINDOW = 3;

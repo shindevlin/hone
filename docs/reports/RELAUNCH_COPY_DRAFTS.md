@@ -1,4 +1,4 @@
-# BTCPC Relaunch Copy Drafts and Notes
+# HONE Relaunch Copy Drafts and Notes
 
 Date: 2026-04-28
 
@@ -27,7 +27,7 @@ This is the rule that should be repeated everywhere:
 
 The whitepaper should say:
 
-- BTCPC is relaunching from a new epoch zero
+- HONE is relaunching from a new epoch zero
 - the chain was reset because the prior state could not be trusted for issuance accounting
 - the new launch starts from zero balances for every account
 - old-chain balances are not migrated
@@ -36,24 +36,24 @@ The whitepaper should say:
 
 ### Suggested replacement for the opening framing
 
-> BTCPC relaunched from a clean genesis after validating its issuance and replay logic. All accounts start at zero in the new chain. Invalid or unearned protocol-side state from the prior chain remains retired on the old ledger, preserving the no-burn rule while restoring a clean epoch-zero accounting model.
+> HONE relaunched from a clean genesis after validating its issuance and replay logic. All accounts start at zero in the new chain. Invalid or unearned protocol-side state from the prior chain remains retired on the old ledger, preserving the no-burn rule while restoring a clean epoch-zero accounting model.
 
 ### Suggested replacement for the reset rationale section
 
-> The network reset was necessary because the prior replayed state contained an invalid spendable balance and did not cleanly reconcile with the intended emission schedule. Rather than carry corrupt accounting forward, BTCPC restarted from epoch zero with all balances reset to zero and a verified reward model.
+> The network reset was necessary because the prior replayed state contained an invalid spendable balance and did not cleanly reconcile with the intended emission schedule. Rather than carry corrupt accounting forward, HONE restarted from epoch zero with all balances reset to zero and a verified reward model.
 
 ## README draft notes
 
 The README should explain the relaunch in plain language:
 
-- BTCPC now starts from a clean genesis / epoch zero
+- HONE now starts from a clean genesis / epoch zero
 - balances are not migrated
 - the project keeps no-burn / recycle
 - users can verify issuance by replaying from the new chain root
 
 ### Suggested replacement for the top-level description
 
-> Bitcoin Proof of Compute is a sovereign blockchain for real work. BTCPC relaunched from a clean genesis after fixing its replay and issuance accounting. The new chain starts from zero balances, unearned value remains retired on the old ledger, and the chain now begins at a verifiable epoch zero.
+> Bitcoin Proof of Compute is a sovereign blockchain for real work. HONE relaunched from a clean genesis after fixing its replay and issuance accounting. The new chain starts from zero balances, unearned value remains retired on the old ledger, and the chain now begins at a verifiable epoch zero.
 
 ### Suggested replacement for the “How it works” bullets
 

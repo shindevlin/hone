@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS blob store unit tests — v2.11.0
+ * HONE-FS blob store unit tests — v2.11.0
  * Tests the disk-backed CAS layer in isolation using a temp directory.
  */
 
@@ -10,8 +10,8 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 
-const TEST_ROOT = path.join(os.tmpdir(), 'btcpc-test-blobs-' + process.pid);
-process.env.BTCPC_BLOB_DIR = TEST_ROOT;
+const TEST_ROOT = path.join(os.tmpdir(), 'hone-test-blobs-' + process.pid);
+process.env.HONE_BLOB_DIR = TEST_ROOT;
 
 const blobStore = require('../src/services/blobStore');
 

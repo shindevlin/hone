@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Block Proposal Builder
+ * HONE Block Proposal Builder
  * Shin Devlin
  *
  * Pure aggregator: takes gossiped attestations (work, verifications, clock
@@ -45,9 +45,9 @@ function scarcityScore(count, basePerNode) {
 }
 
 // Staking thresholds
-var _csEnv = parseInt(process.env.BTCPC_MIN_CLOCK_STAKE);
+var _csEnv = parseInt(process.env.HONE_MIN_CLOCK_STAKE);
 var MIN_CLOCK_STAKE = isNaN(_csEnv) ? 10 : _csEnv;
-var _msEnv = parseInt(process.env.BTCPC_MIN_MINER_STAKE);
+var _msEnv = parseInt(process.env.HONE_MIN_MINER_STAKE);
 var MIN_MINER_STAKE = isNaN(_msEnv) ? 10 : _msEnv;
 var BOOTSTRAP_EPOCHS = 1000;
 
@@ -124,7 +124,7 @@ function buildProposal(options) {
   // Desktop/all-in-one bootstrap safety: if heartbeat gossip arrives late but
   // the local proposer account is permissioned, keep the clock pool active.
   // This prevents a healthy solo genesis node from showing "0 clock(s)" while
-  // the separate btcpc-clock role is running and connected.
+  // the separate hone-clock role is running and connected.
   if (activeClocks.indexOf(proposerAccount) === -1) {
     var proposerNode = nodeRegistry.getNode(proposerAccount);
     if (proposerNode && (proposerNode.permissioned || proposerNode.stake >= MIN_CLOCK_STAKE)) {
@@ -176,7 +176,7 @@ function buildProposal(options) {
     activeTestnetNodes = protocol.getActiveTestnetNodes(epochNumber).filter(isValidAccount);
   } catch (_) {}
 
-  // ── Service hosts (BTCPC hosted services) ─────────────────────────────
+  // ── Service hosts (HONE hosted services) ─────────────────────────────
   var activeServiceHosts = [];
   var serviceWork = {};
   try {
@@ -303,10 +303,10 @@ function buildProposal(options) {
   // network is busy; as low as 1% when activity is minimal; 0 if totally
   // idle. Unissued tokens simply aren't minted — no recycle, no inflation.
   //
-  // BTCPC_FULL_ACTIVITY_SCORE: the totalScore that earns 100% emission.
+  // HONE_FULL_ACTIVITY_SCORE: the totalScore that earns 100% emission.
   // Default calibrated so a small but live network earns ~20-30%.
   // Tune upward as the network grows.
-  var FULL_ACTIVITY_SCORE = parseInt(process.env.BTCPC_FULL_ACTIVITY_SCORE) || 70000;
+  var FULL_ACTIVITY_SCORE = parseInt(process.env.HONE_FULL_ACTIVITY_SCORE) || 70000;
   var MIN_EMISSION_RATIO  = 0.01; // 1% floor when ANY activity exists
 
   // Compute scores now (needed for emission gate before testnet split)
@@ -348,12 +348,12 @@ function buildProposal(options) {
       rewards.push({ to: tn, amount: tnShare, type: "testnet" });
     }
   } else {
-    rewards.push({ to: "btcpc_recycle", amount: testnetPool, type: "recycle" });
+    rewards.push({ to: "hone_recycle", amount: testnetPool, type: "recycle" });
   }
 
   // ── 2. Distribute the activity-scaled reward ──────────────────────────
   if (totalScore === 0) {
-    rewards.push({ to: "btcpc_recycle", amount: distributable, type: "recycle" });
+    rewards.push({ to: "hone_recycle", amount: distributable, type: "recycle" });
   } else {
     // ── 3. Pure proportional split ────────────────────────────────────
     var minerPool    = roundAmount(distributable * (minerScore    / totalScore));

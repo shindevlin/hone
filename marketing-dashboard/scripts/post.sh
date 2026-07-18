@@ -1,9 +1,9 @@
 #!/bin/bash
-# Run ZeroClaw poster — posts approved content via Firefox (geckodriver), inference through BTCPC chain
+# Run ZeroClaw poster — posts approved content via Firefox (geckodriver), inference through HONE chain
 set -e
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-BTCPC_REPO="$(cd "$REPO/.." && pwd)"
+HONE_REPO="$(cd "$REPO/.." && pwd)"
 ZEROCLAW_BIN="${ZEROCLAW_BIN:-$HOME/repos/zeroclaw/target/release/zeroclaw}"
 CONFIG_TEMPLATE="$REPO/zeroclaw/poster/config.toml"
 CONFIG_LIVE="$REPO/zeroclaw/poster/.config.live.toml"
@@ -11,12 +11,12 @@ PROMPT_FILE="$REPO/zeroclaw/poster/prompt.md"
 PROFILES_DIR="$REPO/firefox-profiles"
 WEBDRIVER_PORT=4444
 
-# Load BTCPC API key from .env
-if [ -f "$BTCPC_REPO/.env" ]; then
-  BTCPC_API_KEY=$(grep '^BTCPC_RELAY_API_KEY=' "$BTCPC_REPO/.env" | cut -d= -f2- | tr -d '"')
+# Load HONE API key from .env
+if [ -f "$HONE_REPO/.env" ]; then
+  HONE_API_KEY=$(grep '^HONE_RELAY_API_KEY=' "$HONE_REPO/.env" | cut -d= -f2- | tr -d '"')
 fi
-if [ -z "$BTCPC_API_KEY" ]; then
-  echo "ERROR: BTCPC_RELAY_API_KEY not found in $BTCPC_REPO/.env"
+if [ -z "$HONE_API_KEY" ]; then
+  echo "ERROR: HONE_RELAY_API_KEY not found in $HONE_REPO/.env"
   exit 1
 fi
 
@@ -34,7 +34,7 @@ if [ "$APPROVED_COUNT" -eq 0 ]; then
 fi
 
 # Write live config with real API key injected
-sed "s|BTCPC_API_KEY_HERE|$BTCPC_API_KEY|g" "$CONFIG_TEMPLATE" > "$CONFIG_LIVE"
+sed "s|HONE_API_KEY_HERE|$HONE_API_KEY|g" "$CONFIG_TEMPLATE" > "$CONFIG_LIVE"
 
 # Determine which persona's posts need to go out
 # (run once per persona so each gets its own Firefox profile/session)

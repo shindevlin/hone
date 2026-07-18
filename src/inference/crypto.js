@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Inference Crypto — ECDH + AES-256-GCM
+ * HONE Inference Crypto — ECDH + AES-256-GCM
  * Shin Devlin
  *
  * Encrypted inference primitives using the memo key ECDH channel.

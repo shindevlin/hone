@@ -1,4 +1,4 @@
-# BTCPC Consensus — Fork Choice, Finality, Quorum, Slashing
+# HONE Consensus — Fork Choice, Finality, Quorum, Slashing
 
 > Phase 2 reference — implemented in v0.5.0
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-BTCPC uses a clock-based BFT consensus where registered clock nodes collectively
+HONE uses a clock-based BFT consensus where registered clock nodes collectively
 seal epochs. The epoch IS the block. Each sealed epoch advances chain state;
 a finalized epoch is one where reward consensus has been reached.
 
@@ -19,7 +19,7 @@ Clock nodes must register on-chain before their seals count toward quorum.
 **Entry:** `ClockNodeRegister { node_id, stake, epoch, signature }`
 
 - Stake is locked from the node's balance. Must meet the dynamic minimum
-  `chain_param:clock_min_stake` (default 100 BTCPC = 10,000,000,000 dreams).
+  `chain_param:clock_min_stake` (default 100 HONE = 10,000,000,000 dreams).
 - Registration stored in sled at `clock_reg:{node_id}`.
 - Slashed nodes (stake == 0) are excluded from the registered set.
 - The registered set is refreshed in `ClockConsensus` at each epoch seal via

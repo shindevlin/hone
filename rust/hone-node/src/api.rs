@@ -1,4 +1,4 @@
-//! HTTP API server (Axum) — replaces Node.js btcpc-api.
+//! HTTP API server (Axum) — replaces Node.js hone-api.
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -7862,7 +7862,7 @@ async fn post_v1_chat_completions(
             None => {
                 return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
                     "error": {
-                        "message": "Authorization required. Set Authorization: Bearer <hone_account>. Get an account via @btcpcbot on Telegram or POST /api/faucet/claim.",
+                        "message": "Authorization required. Set Authorization: Bearer <hone_account>. Get an account via @honebot on Telegram or POST /api/faucet/claim.",
                         "type": "authentication_error"
                     }
                 }))).into_response();
@@ -7870,7 +7870,7 @@ async fn post_v1_chat_completions(
             Some(a) if a.is_empty() => {
                 return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
                     "error": {
-                        "message": "Authorization required. Set Authorization: Bearer <hone_account>. Get an account via @btcpcbot on Telegram or POST /api/faucet/claim.",
+                        "message": "Authorization required. Set Authorization: Bearer <hone_account>. Get an account via @honebot on Telegram or POST /api/faucet/claim.",
                         "type": "authentication_error"
                     }
                 }))).into_response();
@@ -7888,7 +7888,7 @@ async fn post_v1_chat_completions(
                 _ => {
                     return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
                         "error": {
-                            "message": "Invalid API key. Generate one with `hone wallet api-key-gen` or create an account via @btcpcbot.",
+                            "message": "Invalid API key. Generate one with `hone wallet api-key-gen` or create an account via @honebot.",
                             "type": "authentication_error"
                         }
                     }))).into_response();
@@ -7901,7 +7901,7 @@ async fn post_v1_chat_completions(
                 return (StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({
                     "error": {
                         "message": format!(
-                            "Insufficient balance. Need at least {} hunits, have {}. Get tokens via @btcpcbot or POST /api/faucet/claim.",
+                            "Insufficient balance. Need at least {} hunits, have {}. Get tokens via @honebot or POST /api/faucet/claim.",
                             MIN_INFERENCE_FEE_HUNITS, balance
                         ),
                         "type": "insufficient_quota"

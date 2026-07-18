@@ -1,0 +1,14 @@
+[Unit]
+Description=HONE Flipper Zero Bridge
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntclaw/repos/hone
+ExecStart=/usr/bin/node bin/hone-flipper-listener
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntclaw/repos/hone/.env
+
+[Install]
+WantedBy=default.target

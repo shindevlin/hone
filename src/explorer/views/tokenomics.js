@@ -55,16 +55,16 @@ function tokenomicsView(data) {
       '<td>' + durationLabel + '</td>' +
       '<td>' + epochRange + '</td>' +
       '<td>' + formatNumber(p.epochs) + '</td>' +
-      '<td class="amount">' + formatNumber(p.allotment) + ' BTCPC</td>' +
-      '<td class="amount accent">' + formatNumber(p.reward_per_epoch) + ' BTCPC</td>' +
+      '<td class="amount">' + formatNumber(p.allotment) + ' HONE</td>' +
+      '<td class="amount accent">' + formatNumber(p.reward_per_epoch) + ' HONE</td>' +
       '</tr>';
   }).join("");
 
   // Cross-chain deployment table
-  var wbtcpc = deployments.wBTCPC || {};
-  var bondingCurve = deployments.wBTCPCBondingCurve || {};
-  var sale = deployments.wBTCPCSale || {};
-  var bridge = deployments.wBTCPCBridge || {};
+  var whone = deployments.wHONE || {};
+  var bondingCurve = deployments.wHONEBondingCurve || {};
+  var sale = deployments.wHONESale || {};
+  var bridge = deployments.wHONEBridge || {};
 
   var chainNames = ["base", "arbitrum", "optimism", "ethereum", "polygon", "bsc", "solana", "hive"];
   var explorerUrls = {
@@ -79,7 +79,7 @@ function tokenomicsView(data) {
   };
 
   var chainRows = chainNames.map(function (chain) {
-    var info = wbtcpc[chain] || {};
+    var info = whone[chain] || {};
     var addr = info.contract || info.mint || info.account || "--";
     var status = info.status || (info.contract || info.mint ? "deployed" : "pending");
     var statusClass = status === "deployed" || status === "live" ? "status-active" : "status-committed";
@@ -138,13 +138,13 @@ function tokenomicsView(data) {
   '</div>';
 
   var content = '\
-    <h1 class="page-title">BTCPC <span>Tokenomics</span></h1>\
+    <h1 class="page-title">HONE <span>Tokenomics</span></h1>\
 \
     <div class="stats-grid">\
       <div class="stat-card">\
         <div class="stat-label">Total Supply</div>\
         <div class="stat-value">' + formatNumber(totalSupply) + '</div>\
-        <div class="stat-sub">BTCPC (fixed, never changes)</div>\
+        <div class="stat-sub">HONE (fixed, never changes)</div>\
       </div>\
       <div class="stat-card">\
         <div class="stat-label">Mined So Far</div>\
@@ -175,7 +175,7 @@ function tokenomicsView(data) {
       <div class="stat-card">\
         <div class="stat-label">Block Reward</div>\
         <div class="stat-value accent">' + (currentPeriod ? formatNumber(currentPeriod.reward_per_epoch) : "--") + '</div>\
-        <div class="stat-sub">BTCPC per epoch</div>\
+        <div class="stat-sub">HONE per epoch</div>\
       </div>\
       <div class="stat-card">\
         <div class="stat-label">Network Nodes</div>\
@@ -221,7 +221,7 @@ function tokenomicsView(data) {
     <h2 class="page-title" style="margin-top:32px;">Cross-Chain <span>Deployments</span></h2>\
     <div class="card">\
       <div class="card-header">\
-        <h2>wBTCPC Token Contracts</h2>\
+        <h2>wHONE Token Contracts</h2>\
         <span class="badge">' + chainNames.length + ' chains</span>\
       </div>\
       <table>\

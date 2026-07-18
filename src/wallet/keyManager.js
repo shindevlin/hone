@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * keyManager.js — BIP-39 mnemonic wallet and protocol-level 2FA for BTCPC
+ * keyManager.js — BIP-39 mnemonic wallet and protocol-level 2FA for HONE
  * Shin Devlin
  */
 
@@ -26,8 +26,8 @@ const { bech32 } = require("bech32");
 // Constants
 // ---------------------------------------------------------------------------
 
-// BTCPC coin type for BIP-44 (unregistered; using high range)
-const BTCPC_COIN_TYPE = 0x80000000 + 8888;
+// HONE coin type for BIP-44 (unregistered; using high range)
+const HONE_COIN_TYPE = 0x80000000 + 8888;
 
 // BIP-44 derivation paths for each role key
 const ROLE_PATHS = {
@@ -126,7 +126,7 @@ async function mnemonicToKeys(mnemonic, password) {
  * The password never touches the chain — only the derived public key.
  *
  * @param {string} password - User's 2FA password
- * @param {string} accountName - BTCPC account name (used as salt)
+ * @param {string} accountName - HONE account name (used as salt)
  * @returns {Promise<{ privateKey: string, publicKey: string }>} Hex-encoded keypair
  */
 function deriveSecondFactor(password, accountName) {
@@ -370,23 +370,23 @@ async function deriveChainWallets(mnemonic) {
 }
 
 // ---------------------------------------------------------------------------
-// BTCPC Native Address (btcpc1q...)
+// HONE Native Address (hone1q...)
 // ---------------------------------------------------------------------------
 
 /**
- * Derive a BTCPC native bech32 address from a compressed secp256k1 public key.
- * Format: btcpc1q<bech32(HASH160(pubkey))>
- * Mirrors Bitcoin P2WPKH (witness v0) with HRP "btcpc".
+ * Derive a HONE native bech32 address from a compressed secp256k1 public key.
+ * Format: hone1q<bech32(HASH160(pubkey))>
+ * Mirrors Bitcoin P2WPKH (witness v0) with HRP "hone".
  * @param {string|Buffer} publicKey - Hex string or Buffer (compressed, 33 bytes)
- * @returns {string} btcpc1q... address
+ * @returns {string} hone1q... address
  */
-function deriveBtcpcAddress(publicKey) {
+function deriveHoneAddress(publicKey) {
   const pubBuf = Buffer.isBuffer(publicKey) ? publicKey : Buffer.from(publicKey, "hex");
   const sha = crypto.createHash("sha256").update(pubBuf).digest();
   const hash160 = crypto.createHash("ripemd160").update(sha).digest();
   const words = bech32.toWords(hash160);
   words.unshift(0); // witness version 0
-  return bech32.encode("btcpc", words);
+  return bech32.encode("hone", words);
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +398,7 @@ module.exports = {
   validateMnemonic,
   mnemonicToKeys,
   deriveChainWallets,
-  deriveBtcpcAddress,
+  deriveHoneAddress,
   deriveSecondFactor,
   signTransaction,
   verifySignature,

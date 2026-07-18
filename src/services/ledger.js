@@ -23,7 +23,7 @@ const path = require('path');
 //
 // IMPORTANT: Entries originate in MULTIPLE processes on the same machine —
 // the API server (src/index.js) creates most of them (account creation,
-// transfers, stakes, escrow, commerce, etc.) and the miner (bin/btcpc-mine)
+// transfers, stakes, escrow, commerce, etc.) and the miner (bin/hone-mine)
 // creates MINING_REWARD entries during epoch finalization.
 //
 // Each process has its own in-memory `pendingEntries` array. To get entries
@@ -36,12 +36,12 @@ const path = require('path');
 // accumulated forever in a private array and never reached any block.
 const pendingEntries = [];
 
-// Data directory is overridable via BTCPC_DATA_DIR (used in tests to isolate
+// Data directory is overridable via HONE_DATA_DIR (used in tests to isolate
 // the shared pending-entries file between parallel jest workers, and in Docker
 // to point at /app/data inside the container).
 function _dataDir() {
-  return process.env.BTCPC_DATA_DIR
-    ? path.resolve(process.env.BTCPC_DATA_DIR)
+  return process.env.HONE_DATA_DIR
+    ? path.resolve(process.env.HONE_DATA_DIR)
     : path.resolve(__dirname, '..', '..', 'data');
 }
 function _pendingFile() {
@@ -113,7 +113,7 @@ function _appendPendingToDisk(entry) {
     // The miner will just miss it in the next block. Log once per minute to
     // avoid flooding.
     if (!_appendPendingToDisk._lastWarn || Date.now() - _appendPendingToDisk._lastWarn > 60000) {
-      console.error('[BTCPC ledger] pending-entries.jsonl append failed: ' + err.message);
+      console.error('[HONE ledger] pending-entries.jsonl append failed: ' + err.message);
       _appendPendingToDisk._lastWarn = Date.now();
     }
   }
@@ -141,11 +141,11 @@ function _recoverStaleDrainFiles() {
           try { entries.push(JSON.parse(line)); } catch (_) {}
         });
       } catch (e) {
-        console.warn('[BTCPC ledger] Could not recover stale drain file ' + files[i] + ': ' + e.message);
+        console.warn('[HONE ledger] Could not recover stale drain file ' + files[i] + ': ' + e.message);
       }
     }
   } catch (e) {
-    console.warn('[BTCPC ledger] Stale drain file scan failed: ' + e.message);
+    console.warn('[HONE ledger] Stale drain file scan failed: ' + e.message);
   }
   return entries;
 }
@@ -182,7 +182,7 @@ function _readAndClearPendingFile() {
       }
     }
   } catch (err) {
-    console.error('[BTCPC ledger] pending-entries.jsonl drain failed: ' + err.message);
+    console.error('[HONE ledger] pending-entries.jsonl drain failed: ' + err.message);
   }
   return entries;
 }
@@ -194,7 +194,7 @@ function _entry(data) {
     type: null,
     from: null,
     to: null,
-    token: 'BTCPC',
+    token: 'HONE',
     amount: 0,
     epoch: 0,
     signature: null,
@@ -221,7 +221,7 @@ function _persist(entry) {
     const err = new Error(
       'Insufficient epoch bandwidth — ' +
       Math.floor(ebResult.eb_remaining) + ' EB available, ' +
-      ebResult.cost + ' required. Stake more BTCPC or wait for next epoch.'
+      ebResult.cost + ' required. Stake more HONE or wait for next epoch.'
     );
     err.code = 'INSUFFICIENT_EB';
     err.eb_remaining = ebResult.eb_remaining;
@@ -435,7 +435,7 @@ async function recordAuthorizedTransfer(from, to, amount, token, signature, epoc
     from,
     to,
     amount,
-    token: token || 'BTCPC',
+    token: token || 'HONE',
     nonce: Date.now(),
     timestamp: Date.now(),
     memo: memo || null,
@@ -450,7 +450,7 @@ async function recordAuthorizedTransfer(from, to, amount, token, signature, epoc
     type: 'TRANSFER',
     from,
     to,
-    token: token || 'BTCPC',
+    token: token || 'HONE',
     amount,
     epoch,
     signature,
@@ -469,13 +469,13 @@ async function recordMiningReward(miner, amount, epoch, _token, _memo, rewardSou
   const entry = _entry({
     type: 'MINING_REWARD',
     to: miner,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch,
     reward_source: rewardSource || 'mining',
   });
   return _persist(entry);
-  // Cross-chain credits (0.1 BTCPC per chain) are accrued automatically by
+  // Cross-chain credits (0.1 HONE per chain) are accrued automatically by
   // stateStore.applyEntry on every MINING_REWARD — both for new blocks and
   // when replaying historical blocks, giving all miners retroactive credit.
 }
@@ -492,7 +492,7 @@ async function recordMiningReward(miner, amount, epoch, _token, _memo, rewardSou
 async function recordFinalizationConsensus(epochNumber, winner) {
   const entry = _entry({
     type: 'FINALIZATION_CONSENSUS',
-    token: 'BTCPC',
+    token: 'HONE',
     amount: 0,
     epoch: epochNumber,
     consensus_data: {
@@ -518,7 +518,7 @@ async function recordProjectRevenueSplit(setter, project, splits, epoch) {
   const entry = _entry({
     type: 'PROJECT_REVENUE_SPLIT',
     from: setter,
-    token: 'BTCPC',
+    token: 'HONE',
     amount: 0,
     epoch,
     split_data: { project, splits },
@@ -631,10 +631,10 @@ async function recordFileRevoke(owner, storageId, grantee, epoch) {
  *
  * New faucet grants must be delegated network-use balance, never spendable
  * wallet balance. Kept for compatibility with older callers, but it now emits a
- * DELEGATE entry from btcpc_faucet instead of a FAUCET credit.
+ * DELEGATE entry from hone_faucet instead of a FAUCET credit.
  */
 async function recordFaucet(to, amount, epoch) {
-  return recordDelegate('btcpc_faucet', to, amount, 'faucet', epoch);
+  return recordDelegate('hone_faucet', to, amount, 'faucet', epoch);
 }
 
 /**
@@ -648,7 +648,7 @@ const TOKEN_FEE_TIERS = {
   custom:   { maxSupply: Infinity,      fee: 168, label: 'Custom (any amount)' },
 };
 
-const NFT_CREATION_FEE = 10; // BTCPC per NFT collection
+const NFT_CREATION_FEE = 10; // HONE per NFT collection
 
 function getTokenFee(supply) {
   if (supply <= TOKEN_FEE_TIERS.micro.maxSupply) return TOKEN_FEE_TIERS.micro.fee;
@@ -670,7 +670,7 @@ async function recordTokenCreate(creator, tokenData, fee, epoch) {
 
   // Fee payment — goes to protocol treasury
   if (fee > 0) {
-    await recordTransfer(creator, 'btcpc_treasury', fee, 'BTCPC', null, epoch, 'Token creation fee: ' + tokenData.symbol);
+    await recordTransfer(creator, 'hone_treasury', fee, 'HONE', null, epoch, 'Token creation fee: ' + tokenData.symbol);
   }
 
   const entry = _entry({
@@ -692,7 +692,7 @@ async function recordTokenCreate(creator, tokenData, fee, epoch) {
   if (tokenType !== 'nft') {
     const mintEntry = _entry({
       type: 'FAUCET',
-      from: 'btcpc_mint',
+      from: 'hone_mint',
       to: creator,
       token: tokenData.symbol,
       amount: tokenData.supply,
@@ -712,8 +712,8 @@ async function recordStake(account, amount, purpose, epoch) {
   const entry = _entry({
     type: 'STAKE',
     from: account,
-    to: 'btcpc_staking_pool',
-    token: 'BTCPC',
+    to: 'hone_staking_pool',
+    token: 'HONE',
     amount,
     epoch,
     delegation_data: { purpose },
@@ -727,9 +727,9 @@ async function recordStake(account, amount, purpose, epoch) {
 async function recordUnstake(account, amount, epoch, memo) {
   const entry = _entry({
     type: 'UNSTAKE',
-    from: 'btcpc_staking_pool',
+    from: 'hone_staking_pool',
     to: account,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch,
     memo,
@@ -746,7 +746,7 @@ async function recordSponsorStake(sponsor, beneficiary, amount, sharePercent, ep
     type: 'SPONSOR_STAKE',
     from: sponsor,
     to: beneficiary,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     share_percent: sharePercent,
     epoch,
@@ -775,7 +775,7 @@ async function recordDelegate(from, to, amount, purpose, epoch) {
     type: 'DELEGATE',
     from,
     to,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch,
     delegation_data: { purpose },
@@ -792,7 +792,7 @@ async function recordInferenceCharge(from, to, amount, epoch, requestId) {
     type: 'INFERENCE_CHARGE',
     from,
     to,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch,
     memo: requestId ? 'inference:' + requestId : undefined,
@@ -808,7 +808,7 @@ async function recordUndelegate(from, to, amount, epoch, memo) {
     type: 'UNDELEGATE',
     from,
     to,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch,
     memo,
@@ -823,8 +823,8 @@ async function recordEscrowLock(payer, requestId, amount, epoch) {
   const entry = _entry({
     type: 'ESCROW_LOCK',
     from: payer,
-    to: 'btcpc_escrow',
-    token: 'BTCPC',
+    to: 'hone_escrow',
+    token: 'HONE',
     amount,
     epoch,
     memo: 'escrow:' + requestId,
@@ -838,9 +838,9 @@ async function recordEscrowLock(payer, requestId, amount, epoch) {
 async function recordEscrowRelease(recipient, requestId, amount, epoch, memo) {
   const entry = _entry({
     type: 'ESCROW_RELEASE',
-    from: 'btcpc_escrow',
+    from: 'hone_escrow',
     to: recipient,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch,
     memo: 'escrow:' + requestId,
@@ -856,9 +856,9 @@ async function recordEscrowRelease(recipient, requestId, amount, epoch, memo) {
 async function recordEscrowRefund(payer, requestId, amount, epoch) {
   const entry = _entry({
     type: 'ESCROW_REFUND',
-    from: 'btcpc_escrow',
+    from: 'hone_escrow',
     to: payer,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch,
     memo: 'escrow:' + requestId,
@@ -935,7 +935,7 @@ async function recordNFTCreate(creator, collectionData, epoch) {
   const fee = NFT_CREATION_FEE;
 
   if (fee > 0) {
-    await recordTransfer(creator, 'btcpc_treasury', fee, 'BTCPC', null, epoch, 'NFT collection fee: ' + collectionData.symbol);
+    await recordTransfer(creator, 'hone_treasury', fee, 'HONE', null, epoch, 'NFT collection fee: ' + collectionData.symbol);
   }
 
   const entry = _entry({
@@ -961,7 +961,7 @@ async function recordNFTCreate(creator, collectionData, epoch) {
 async function recordNFTMint(collection, to, tokenId, metadata, epoch) {
   const entry = _entry({
     type: 'FAUCET',
-    from: 'btcpc_mint',
+    from: 'hone_mint',
     to,
     token: collection,
     amount: 1,
@@ -1091,7 +1091,7 @@ async function recordRentalMint(collection, to, tokenId, rentalConfig, metadata,
  */
 async function recordNFTRental(collection, tokenId, renter, ownerUsername, durationEpochs, price, epoch) {
   if (price > 0) {
-    await recordTransfer(renter, ownerUsername, price, 'BTCPC', null, epoch, 'NFT rental: ' + collection + ':' + tokenId);
+    await recordTransfer(renter, ownerUsername, price, 'HONE', null, epoch, 'NFT rental: ' + collection + ':' + tokenId);
   }
 
   const entry = _entry({
@@ -1170,7 +1170,7 @@ async function recordHeartbeat(username, epoch) {
     type: 'HEARTBEAT',
     from: username,
     to: username,
-    token: 'BTCPC',
+    token: 'HONE',
     amount: 0,
     epoch: epoch || 0,
     memo: 'alive',
@@ -1186,12 +1186,12 @@ const bondingCurve = require('./stakeBondingCurve');
 
 /**
  * Open a storefront for `seller`. Caller must have paid the stable fee +
- * locked the BTCPC stake before calling this; those happen via recordTransfer
+ * locked the HONE stake before calling this; those happen via recordTransfer
  * to treasury + recordStake (handled by the route layer).
  *
  * storeData: { name, banner_cid, description_cid, categories }
  * capacity: starting number of product slots (bought via bonding curve)
- * stakeAmount: BTCPC locked as collateral
+ * stakeAmount: HONE locked as collateral
  * stablePaidUsd: USD paid via wrapped stable
  */
 async function recordStoreOpen(seller, storeData, capacity, stakeAmount, stablePaidUsd, epoch) {
@@ -1242,9 +1242,9 @@ async function recordStoreClose(seller, epoch) {
 /**
  * Expand a store's product capacity via the bonding curve. Caller pays in a
  * wrapped stable (wUSDC/wUSDT/wDAI) to the treasury before this is recorded.
- * Additional BTCPC stake is also locked proportional to the new capacity.
+ * Additional HONE stake is also locked proportional to the new capacity.
  */
-async function recordStakePurchase(seller, additionalCapacity, stableToken, stablePaidUsd, additionalStakeBtcpc, epoch) {
+async function recordStakePurchase(seller, additionalCapacity, stableToken, stablePaidUsd, additionalStakeHone, epoch) {
   if (!seller) throw new Error('seller required');
   if (additionalCapacity <= 0) throw new Error('capacity must be positive');
 
@@ -1257,7 +1257,7 @@ async function recordStakePurchase(seller, additionalCapacity, stableToken, stab
     store_data: {
       action: 'stake_purchase',
       capacity_delta: additionalCapacity,
-      stake_amount: additionalStakeBtcpc || 0,
+      stake_amount: additionalStakeHone || 0,
       stake_paid_usd: stablePaidUsd || 0,
       stable_token: stableToken || 'wUSDC',
     },
@@ -1317,7 +1317,7 @@ async function recordOrderPlace(buyer, seller, orderId, productId, quantity, uni
     type: 'ORDER_PLACE',
     from: buyer,
     to: seller,
-    token: token || 'BTCPC',
+    token: token || 'HONE',
     amount: total,
     epoch,
     order_data: {
@@ -1326,7 +1326,7 @@ async function recordOrderPlace(buyer, seller, orderId, productId, quantity, uni
       quantity: quantity,
       unit_price: unitPrice,
       total: total,
-      token: token || 'BTCPC',
+      token: token || 'HONE',
       escrow_id: escrowId || null,
     },
   });
@@ -1413,9 +1413,9 @@ async function recordReputationVote(voter, targetType, targetId, vote, weight, m
 }
 
 /**
- * Record a BTCPC-FS blob storage commitment on chain.
+ * Record a HONE-FS blob storage commitment on chain.
  *
- * v2.11.0 signature: (uploader, cid, size, hosts, durationEpochs, paymentBtcpc, epoch)
+ * v2.11.0 signature: (uploader, cid, size, hosts, durationEpochs, paymentHone, epoch)
  *   - Simple hosts list, single-tier, no region constraints
  *   - Preserved for backward compatibility
  *
@@ -1425,7 +1425,7 @@ async function recordReputationVote(voter, targetType, targetId, vote, weight, m
  *     active_hosts: [...],       // v2.11.2+: hosts committed to active serving
  *     cold_hosts: [...],         // v2.11.2+: hosts committed to durability only
  *     duration_epochs: number,
- *     payment_btcpc: number,
+ *     payment_hone: number,
  *     region_constraints: [...], // v2.11.2+: ISO region codes, empty = any
  *     target_active: number,     // v2.11.2+: uploader-requested active count
  *     target_cold: number,       // v2.11.2+: uploader-requested cold count
@@ -1434,7 +1434,7 @@ async function recordReputationVote(voter, targetType, targetId, vote, weight, m
  * Callers detect the signature by checking if the 4th argument is an
  * array (legacy) or an object (v2.11.2+).
  */
-async function recordBlobStoreCommit(uploader, cid, size, hostsOrOptions, durationEpochsOrEpoch, paymentBtcpc, epoch) {
+async function recordBlobStoreCommit(uploader, cid, size, hostsOrOptions, durationEpochsOrEpoch, paymentHone, epoch) {
   if (!uploader) throw new Error('uploader required');
   if (!cid || !/^[a-f0-9]{64}$/.test(cid)) throw new Error('cid must be 64-char hex sha256');
   if (!Number.isFinite(size) || size <= 0) throw new Error('size must be a positive number');
@@ -1449,7 +1449,7 @@ async function recordBlobStoreCommit(uploader, cid, size, hostsOrOptions, durati
       size: size,
       hosts: hostsOrOptions,
       duration_epochs: durationEpochsOrEpoch || 0,
-      payment_btcpc: paymentBtcpc || 0,
+      payment_hone: paymentHone || 0,
     };
     effectiveEpoch = epoch;
   } else if (hostsOrOptions && typeof hostsOrOptions === 'object') {
@@ -1466,7 +1466,7 @@ async function recordBlobStoreCommit(uploader, cid, size, hostsOrOptions, durati
       active_hosts: active,
       cold_hosts: cold,
       duration_epochs: opts.duration_epochs || 0,
-      payment_btcpc: opts.payment_btcpc || 0,
+      payment_hone: opts.payment_hone || 0,
       region_constraints: Array.isArray(opts.region_constraints) ? opts.region_constraints : [],
       target_active: opts.target_active || active.length,
       target_cold: opts.target_cold || cold.length,
@@ -1634,7 +1634,7 @@ async function recordStorageHeartbeat(host, cids, capacityUsedGb, epoch) {
 }
 
 /**
- * Record a BTCPC-FS blob serve proof on chain (v2.11.1+).
+ * Record a HONE-FS blob serve proof on chain (v2.11.1+).
  *
  * A storage host reports how many bytes of a CID it served in the current
  * epoch. Chain invariants (enforced in stateStore dispatcher):
@@ -1683,7 +1683,7 @@ async function recordBlobServeProof(host, cid, bytesServed, requestCount, access
  * Record a sensor registration on chain.
  * Entry type: SENSOR_REGISTER
  *
- * @param {string} owner    — BTCPC account name
+ * @param {string} owner    — HONE account name
  * @param {string} sensorId — "<owner>/<device-name>"
  * @param {object} spec     — { type, unit, decimals, region, lora_gateway?, hardware_model?, firmware_version? }
  * @param {number} epoch
@@ -1740,14 +1740,14 @@ function recordSensorKeyRegister(sensorId, publicKey, owner, epoch) {
 
 /**
  * Record a sensor/node vouch transaction on chain.
- * natoshi (or any account) vouches for a sensor or miner by staking BTCPC on it.
+ * natoshi (or any account) vouches for a sensor or miner by staking HONE on it.
  * If the target is slashed, the voucher's staked amount is penalized.
  * Entry type: SENSOR_VOUCH
  *
  * @param {string} voucher     — vouching account (e.g. 'natoshisakamoto')
  * @param {string} targetId    — sensor_id or account name being vouched for
  * @param {string} targetType  — 'sensor' | 'account' | 'gateway' | 'miner'
- * @param {number} stakeAmount — BTCPC staked in support of target
+ * @param {number} stakeAmount — HONE staked in support of target
  * @param {number} epoch
  */
 function recordSensorVouch(voucher, targetId, targetType, stakeAmount, epoch) {
@@ -1760,7 +1760,7 @@ function recordSensorVouch(voucher, targetId, targetType, stakeAmount, epoch) {
     from: voucher,
     to: targetId,
     amount: stakeAmount,
-    token: 'BTCPC',
+    token: 'HONE',
     epoch: epoch || 0,
     vouch_data: {
       voucher: voucher,
@@ -1830,7 +1830,7 @@ function recordSensorDataCommit(sensorId, cid, epoch, readingCount, medianValue)
  * Record a gateway registration on chain.
  * Entry type: GATEWAY_REGISTER
  *
- * @param {string} owner     — BTCPC account name
+ * @param {string} owner     — HONE account name
  * @param {string} gatewayId — "<owner>/<gateway-name>"
  * @param {object} spec      — { region, latitude, longitude, antenna_gain_dbi?, hardware_model?, firmware_version?, max_sensors? }
  * @param {number} epoch
@@ -1887,13 +1887,13 @@ function recordGatewayHeartbeat(gatewayId, stats, epoch) {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Record a bridge wrap: user locks BTCPC native, wBTCPC released on dest chain.
+ * Record a bridge wrap: user locks HONE native, wHONE released on dest chain.
  * Entry type: BRIDGE_WRAP
  *
- * @param {string} user    — BTCPC account name
+ * @param {string} user    — HONE account name
  * @param {string} chainId — destination chain id (e.g., "base", "ethereum")
- * @param {number} amount  — BTCPC to wrap
- * @param {number} fee     — wrap fee in BTCPC (routed to btcpc_recycle)
+ * @param {number} amount  — HONE to wrap
+ * @param {number} fee     — wrap fee in HONE (routed to hone_recycle)
  * @param {number} epoch
  */
 async function recordBridgeWrap(user, chainId, amount, fee, epoch) {
@@ -1904,12 +1904,12 @@ async function recordBridgeWrap(user, chainId, amount, fee, epoch) {
   const netAmount = amount;
   const feeAmount = fee || 0;
 
-  // Debit user BTCPC
+  // Debit user HONE
   const entry = _entry({
     type: 'BRIDGE_WRAP',
     from: user,
-    to: 'btcpc_recycle',
-    token: 'BTCPC',
+    to: 'hone_recycle',
+    token: 'HONE',
     amount: netAmount,
     epoch: epoch || 0,
     bridge_data: {
@@ -1923,13 +1923,13 @@ async function recordBridgeWrap(user, chainId, amount, fee, epoch) {
 }
 
 /**
- * Record a bridge unwrap: user returns wBTCPC, BTCPC native released.
+ * Record a bridge unwrap: user returns wHONE, HONE native released.
  * Entry type: BRIDGE_UNWRAP
  *
- * @param {string} user    — BTCPC account name
+ * @param {string} user    — HONE account name
  * @param {string} chainId — source chain id
- * @param {number} amount  — BTCPC to release to user
- * @param {number} fee     — unwrap fee routed to btcpc_recycle
+ * @param {number} amount  — HONE to release to user
+ * @param {number} fee     — unwrap fee routed to hone_recycle
  * @param {number} epoch
  */
 async function recordBridgeUnwrap(user, chainId, amount, fee, epoch) {
@@ -1939,9 +1939,9 @@ async function recordBridgeUnwrap(user, chainId, amount, fee, epoch) {
 
   const entry = _entry({
     type: 'BRIDGE_UNWRAP',
-    from: 'btcpc_recycle',
+    from: 'hone_recycle',
     to: user,
-    token: 'BTCPC',
+    token: 'HONE',
     amount: amount,
     epoch: epoch || 0,
     bridge_data: {
@@ -1955,12 +1955,12 @@ async function recordBridgeUnwrap(user, chainId, amount, fee, epoch) {
 }
 
 /**
- * Record a bridge LP fund: funder deposits BTCPC liquidity with a lock period.
+ * Record a bridge LP fund: funder deposits HONE liquidity with a lock period.
  * Entry type: BRIDGE_FUND
  *
- * @param {string} funder   — BTCPC account name
+ * @param {string} funder   — HONE account name
  * @param {string} chainId  — destination chain being funded
- * @param {number} amount   — BTCPC deposited
+ * @param {number} amount   — HONE deposited
  * @param {number} lockDays — lock duration in days (30-1460)
  * @param {number} epoch
  */
@@ -1972,8 +1972,8 @@ async function recordBridgeFund(funder, chainId, amount, lockDays, epoch) {
   const entry = _entry({
     type: 'BRIDGE_FUND',
     from: funder,
-    to: 'btcpc_recycle',
-    token: 'BTCPC',
+    to: 'hone_recycle',
+    token: 'HONE',
     amount: amount,
     epoch: epoch || 0,
     bridge_data: {
@@ -1990,7 +1990,7 @@ async function recordBridgeFund(funder, chainId, amount, lockDays, epoch) {
  * Record a bridge LP unlock: funder's lock period expired, queued for withdrawal.
  * Entry type: BRIDGE_UNLOCK
  *
- * @param {string} funder  — BTCPC account name
+ * @param {string} funder  — HONE account name
  * @param {string} chainId — chain where the LP was locked
  * @param {number} epoch
  */
@@ -2015,7 +2015,7 @@ async function recordBridgeUnlock(funder, chainId, epoch) {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Record a BTCPC deposit into the FIFO exchange queue.
+ * Record a HONE deposit into the FIFO exchange queue.
  */
 async function recordExchangeDeposit(seller, amount, epoch) {
   if (!seller) throw new Error('seller required');
@@ -2024,8 +2024,8 @@ async function recordExchangeDeposit(seller, amount, epoch) {
   const entry = _entry({
     type: 'EXCHANGE_DEPOSIT',
     from: seller,
-    to: 'btcpc_exchange',
-    token: 'BTCPC',
+    to: 'hone_exchange',
+    token: 'HONE',
     amount: amount,
     epoch: epoch || 0,
   });
@@ -2064,7 +2064,7 @@ async function recordExchangeBuy(buyer, token, amount, epoch) {
  * Record a stateful service deployment on the ledger.
  * Entry type: SERVICE_DEPLOY_STATEFUL
  *
- * @param {string} deployer        — BTCPC account name
+ * @param {string} deployer        — HONE account name
  * @param {string} slug            — "<deployer>/<name>"
  * @param {object} runtimeSpec     — runtime config object
  * @param {object} snapshotConfig  — { snapshot_interval_epochs, replication_factor }
@@ -2155,7 +2155,7 @@ const commerce = {
  * Get balance for an account. Phase C: reads from stateStore.
  */
 async function getBalance(username, token) {
-  return stateStore.getBalance(username, token || 'BTCPC');
+  return stateStore.getBalance(username, token || 'HONE');
 }
 
 /**
@@ -2253,12 +2253,12 @@ async function applyRemoteEntries(entries) {
  * Creates a CROSS_CHAIN_ACTIVITY ledger entry that flows into the next block
  * and is stored in stateStore for read paths.
  *
- * @param {string} username     - BTCPC account that owns the external address
+ * @param {string} username     - HONE account that owns the external address
  * @param {string} chain        - external chain name (base|arbitrum|ethereum|solana|bitcoin)
  * @param {string} address      - external chain address that was monitored
  * @param {string} activityType - activity descriptor (balance_change|transaction)
  * @param {object} data         - chain-specific activity data (old/new balance, etc.)
- * @param {number} epoch        - current BTCPC epoch
+ * @param {number} epoch        - current HONE epoch
  */
 async function recordCrossChainActivity(username, chain, address, activityType, data, epoch) {
   const entry = _entry({
@@ -2308,7 +2308,7 @@ function appendForeignEntry(entry) {
  * geo-pioneer is detected. Creates a permanent, soulbound on-chain record of
  * the first node of a given role to operate in a geographic region.
  *
- * @param {string} account   — pioneer's BTCPC account
+ * @param {string} account   — pioneer's HONE account
  * @param {string} role      — MINER | STORAGE | CLOCK | SENSOR | GATEWAY
  * @param {string} region    — metro-area region code (e.g. "sv-san-salvador")
  * @param {string} nftId     — "amber-pill-<role>-<region>"
@@ -2403,7 +2403,7 @@ async function recordDeviceRevoke(ownerAccount, devicePubkey, epoch) {
  * Register an IoT device key on chain (v3.2).
  * Authorized by the owner's posting key — posting cannot move funds.
  *
- * @param {string} owner               — BTCPC account name
+ * @param {string} owner               — HONE account name
  * @param {string} deviceId            — "<owner>/<device-name>" (e.g. "josh/flipper-abc123")
  * @param {string} devicePubkey        — hex-encoded compressed secp256k1 public key of the device
  * @param {string} postingKeySignature — owner's posting-key signature over deviceId + devicePubkey
@@ -2436,14 +2436,14 @@ function recordDeviceKeyRegister(owner, deviceId, devicePubkey, postingKeySignat
  *
  * Called automatically by the scientific compute engine for open-source jobs.
  * The on-chain entry permanently links requester, model, input hash, result hash,
- * and (for large results) the BTCPC-FS CID.
+ * and (for large results) the HONE-FS CID.
  *
  * @param {string}  jobId
- * @param {string}  requester      — BTCPC account name
+ * @param {string}  requester      — HONE account name
  * @param {string}  model          — Ollama model used
  * @param {string}  inputHash      — SHA-256 of input_data
  * @param {string}  resultHash     — SHA-256 of result bytes
- * @param {string}  resultBlobCid  — BTCPC-FS CID if result was too large for inline (or null)
+ * @param {string}  resultBlobCid  — HONE-FS CID if result was too large for inline (or null)
  * @param {boolean} openSource     — always true when called from completeJob
  * @param {number}  fee            — actual fee paid after discount
  * @param {number}  epoch
@@ -2454,8 +2454,8 @@ async function recordScientificResult(jobId, requester, model, inputHash, result
   const entry = _entry({
     type: 'SCIENTIFIC_RESULT',
     from: requester,
-    to: 'btcpc_science',
-    token: 'BTCPC',
+    to: 'hone_science',
+    token: 'HONE',
     amount: fee || 0,
     epoch: epoch || 0,
     signed_by: requester,
@@ -2491,7 +2491,7 @@ async function recordToolCapabilityRegister(nodeId, tools, epoch) {
 }
 
 /**
- * Commit a tool trace to BTCPC-FS for non-deterministic tool results.
+ * Commit a tool trace to HONE-FS for non-deterministic tool results.
  * Entry type: TOOL_TRACE_COMMIT
  *
  * proof_id:        the compute proof this trace belongs to
@@ -2540,7 +2540,7 @@ async function recordNameAuctionOpen(seller, name, startPriceUsd, minBidIncremen
   }));
 }
 
-async function recordNameAuctionBid(name, bidder, bidUsd, chain, txHash, btcpcAccount, btcpcPubkeys, epoch) {
+async function recordNameAuctionBid(name, bidder, bidUsd, chain, txHash, honeAccount, honePubkeys, epoch) {
   if (!name) throw new Error('name required');
   if (!bidder) throw new Error('bidder required');
   if (typeof bidUsd !== 'number' || bidUsd <= 0) throw new Error('bidUsd must be a positive number');
@@ -2556,8 +2556,8 @@ async function recordNameAuctionBid(name, bidder, bidUsd, chain, txHash, btcpcAc
       bid_usd: bidUsd,
       chain,
       tx_hash: txHash,
-      btcpc_account: btcpcAccount || bidder,
-      btcpc_pubkeys: btcpcPubkeys || {},
+      hone_account: honeAccount || bidder,
+      hone_pubkeys: honePubkeys || {},
     },
   }));
 }
@@ -2588,7 +2588,7 @@ async function recordNameAuctionCancel(name, sellerSig, epoch) {
   }));
 }
 
-// Flat mint fee charged on the BTCPC chain when a claim payload is generated.
+// Flat mint fee charged on the HONE chain when a claim payload is generated.
 // Paid here regardless of destination chain — ETH gas is separate and paid by the claimer.
 const CROSS_CHAIN_CLAIM_FEE = 0.001;
 
@@ -2628,8 +2628,8 @@ async function recordNodeReputationUpdate(account, category, passed, epoch) {
 }
 
 /**
- * Record a cross-chain claim — consumes accumulated wBTCPC credit on a chain.
- * Charges CROSS_CHAIN_CLAIM_FEE BTCPC to btcpc_recycle on the BTCPC side.
+ * Record a cross-chain claim — consumes accumulated wHONE credit on a chain.
+ * Charges CROSS_CHAIN_CLAIM_FEE HONE to hone_recycle on the HONE side.
  */
 async function recordCrossChainClaim(account, chain, amount, claimAddress, signature, epoch) {
   if (!account) throw new Error('account required');
@@ -2637,17 +2637,17 @@ async function recordCrossChainClaim(account, chain, amount, claimAddress, signa
   if (!amount || amount <= 0) throw new Error('amount must be > 0');
   if (!claimAddress) throw new Error('claim address required');
 
-  const bal = stateStore.getBalance ? stateStore.getBalance(account, 'BTCPC') : 0;
+  const bal = stateStore.getBalance ? stateStore.getBalance(account, 'HONE') : 0;
   if (bal < CROSS_CHAIN_CLAIM_FEE) {
-    throw new Error(`Insufficient balance for mint fee — need ${CROSS_CHAIN_CLAIM_FEE} BTCPC`);
+    throw new Error(`Insufficient balance for mint fee — need ${CROSS_CHAIN_CLAIM_FEE} HONE`);
   }
 
   // Deduct mint fee → recycle pool
   _persist(_entry({
     type: 'TRANSFER',
     from: account,
-    to: 'btcpc_recycle',
-    token: 'BTCPC',
+    to: 'hone_recycle',
+    token: 'HONE',
     amount: CROSS_CHAIN_CLAIM_FEE,
     epoch: epoch || 0,
     memo: 'cross-chain mint fee',
@@ -2657,7 +2657,7 @@ async function recordCrossChainClaim(account, chain, amount, claimAddress, signa
     type: 'CROSS_CHAIN_CLAIM',
     from: account,
     to: account,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     chain,
     epoch: epoch || 0,
@@ -2669,11 +2669,11 @@ async function recordCrossChainClaim(account, chain, amount, claimAddress, signa
 
 /**
  * Record a cross-chain identity link on-chain.
- * Creates a permanent, signed attestation that a BTCPC account owns specific
- * addresses on external chains. This is the canonical record btcpcscan and
+ * Creates a permanent, signed attestation that a HONE account owns specific
+ * addresses on external chains. This is the canonical record honescan and
  * oracle watchers use to route cross-chain payments.
  *
- * @param {string} account        — BTCPC account name
+ * @param {string} account        — HONE account name
  * @param {object} chainAddresses — { eth, solana, ton, bitcoin, ... }
  * @param {string} ownerKeySig    — signature from account's owner key
  * @param {number} epoch
@@ -2711,9 +2711,9 @@ async function recordStoragePayoutHold(host, cid, amount, holdEpoch) {
   const holdId = `sph_${host}_${cid}_${holdEpoch}`;
   return _persist(_entry({
     type: 'STORAGE_PAYOUT_HOLD',
-    from: 'btcpc_storage_escrow',
+    from: 'hone_storage_escrow',
     to: host,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch: holdEpoch || 0,
     storage_hold_data: {
@@ -2734,9 +2734,9 @@ async function recordStoragePayoutRelease(holdId, host, amount, epoch) {
   if (!holdId || !host || !amount) return null;
   return _persist(_entry({
     type: 'STORAGE_PAYOUT_RELEASE',
-    from: 'btcpc_storage_escrow',
+    from: 'hone_storage_escrow',
     to: host,
-    token: 'BTCPC',
+    token: 'HONE',
     amount,
     epoch: epoch || 0,
     storage_hold_data: { hold_id: holdId, host, amount },
@@ -2745,15 +2745,15 @@ async function recordStoragePayoutRelease(holdId, host, amount, epoch) {
 
 /**
  * Forfeit a held storage payout — challenge failed during the hold window.
- * The held amount routes to btcpc_recycle (not to the challenger — no slash).
+ * The held amount routes to hone_recycle (not to the challenger — no slash).
  */
 async function recordStoragePayoutForfeit(holdId, host, amount, cid, epoch) {
   if (!holdId || !host || !amount) return null;
   return _persist(_entry({
     type: 'STORAGE_PAYOUT_FORFEIT',
-    from: 'btcpc_storage_escrow',
-    to: 'btcpc_recycle',
-    token: 'BTCPC',
+    from: 'hone_storage_escrow',
+    to: 'hone_recycle',
+    token: 'HONE',
     amount,
     epoch: epoch || 0,
     storage_hold_data: { hold_id: holdId, host, cid, amount },
@@ -2784,13 +2784,13 @@ async function releaseMaturedStorageHolds(currentEpoch) {
   return { released, totalReleased: parseFloat(totalReleased.toFixed(10)) };
 }
 
-// ─── btcpc_recycle redistribution (v3.1.119+) ────────────────────────────────
+// ─── hone_recycle redistribution (v3.1.119+) ────────────────────────────────
 
 const RECYCLE_DISTRIBUTION_INTERVAL_EPOCHS = 240; // ~2 hours
 const RECYCLE_DISTRIBUTION_RATE = 0.05; // distribute 5% of pool per interval
 
 /**
- * Distribute a portion of the btcpc_recycle pool to active stakers,
+ * Distribute a portion of the hone_recycle pool to active stakers,
  * proportional to their stake weight. Called every 240 epochs.
  */
 async function distributeRecyclePool(epoch) {
@@ -2798,15 +2798,15 @@ async function distributeRecyclePool(epoch) {
   // In Phase 1 the recycle pool accumulates fees as future reward endowment.
   if (!stateStore.isPhase2()) return { distributed: 0, recipients: 0, reason: 'phase1' };
 
-  const recycleBalance = stateStore.getBalance('btcpc_recycle', 'BTCPC');
+  const recycleBalance = stateStore.getBalance('hone_recycle', 'HONE');
   if (!recycleBalance || recycleBalance < 0.01) return { distributed: 0, recipients: 0 };
 
   const stakers = stateStore.getAllStakePools().filter(s =>
     s.total_staked > 0 &&
-    s.username !== 'btcpc_recycle' &&
-    s.username !== 'btcpc' &&
-    s.username !== 'btcpc_escrow' &&
-    s.username !== 'btcpc_fees'
+    s.username !== 'hone_recycle' &&
+    s.username !== 'hone' &&
+    s.username !== 'hone_escrow' &&
+    s.username !== 'hone_fees'
   );
   if (stakers.length === 0) return { distributed: 0, recipients: 0 };
 
@@ -2825,9 +2825,9 @@ async function distributeRecyclePool(epoch) {
     if (amount < 0.000001) continue;
     await _persist(_entry({
       type: 'RECYCLE_DISTRIBUTION',
-      from: 'btcpc_recycle',
+      from: 'hone_recycle',
       to: staker.username,
-      token: 'BTCPC',
+      token: 'HONE',
       amount,
       epoch: epoch || 0,
       memo: `recycle:${epoch}:${staker.total_staked.toFixed(2)}stake`,
@@ -3062,8 +3062,8 @@ async function recordSlash(account, amount, epoch, reason, slashData) {
   const entry = _entry({
     type: 'SLASH',
     from: account,
-    to: 'btcpc_recycle',
-    token: 'BTCPC',
+    to: 'hone_recycle',
+    token: 'HONE',
     amount,
     epoch: epoch || 0,
     memo: reason || null,
@@ -3376,11 +3376,11 @@ module.exports = {
   recordFileGrant,
   recordFileRevoke,
   recordFileShard,
-  // BTCPC-FS (v2.11+)
+  // HONE-FS (v2.11+)
   recordBlobStoreCommit,
   recordBlobServeProof,
   recordStorageHeartbeat,
-  // BTCPC-FS challenge-response (v2.11.2+, pay-for-delivery)
+  // HONE-FS challenge-response (v2.11.2+, pay-for-delivery)
   recordBlobChallenge,
   recordBlobChallengeResponse,
   recordBlobChallengeResult,
@@ -3435,7 +3435,7 @@ module.exports = {
   recordStoragePayoutForfeit,
   releaseMaturedStorageHolds,
   STORAGE_HOLD_EPOCHS,
-  // btcpc_recycle redistribution (v3.1.119+)
+  // hone_recycle redistribution (v3.1.119+)
   distributeRecyclePool,
   RECYCLE_DISTRIBUTION_INTERVAL_EPOCHS,
   RECYCLE_DISTRIBUTION_RATE,

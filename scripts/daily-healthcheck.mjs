@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// BTCPC Daily Health Check — exercises every functional area against the LIVE
+// HONE Daily Health Check — exercises every functional area against the LIVE
 // chain and reports where to FIX (broken) vs where to BUILD (empty / missing).
 //
 // Classification per area:
@@ -11,7 +11,7 @@
 // Usage:  node scripts/daily-healthcheck.mjs [--url http://localhost:4242] [--json out.json]
 // No dependencies (uses global fetch, Node 18+). Read-only — never signs/writes.
 
-const BASE = (argVal("--url") || process.env.BTCPC_HEALTHCHECK_URL || "http://localhost:4242").replace(/\/$/, "");
+const BASE = (argVal("--url") || process.env.HONE_HEALTHCHECK_URL || "http://localhost:4242").replace(/\/$/, "");
 const JSON_OUT = argVal("--json");
 const TIMEOUT_MS = 8000;
 
@@ -140,7 +140,7 @@ async function main() {
 
 function renderReport({ started, results, byVerdict, fixNow, fixCritical, buildNext }) {
   const L = [];
-  L.push(`# BTCPC Daily Health Check`);
+  L.push(`# HONE Daily Health Check`);
   L.push(``);
   L.push(`- **When:** ${started}`);
   L.push(`- **Target:** ${BASE}`);

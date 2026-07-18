@@ -1,4 +1,4 @@
-# BTCPC Security Audit — 2026-04-14 Pre-Genesis
+# HONE Security Audit — 2026-04-14 Pre-Genesis
 
 Scope: fast pre-genesis audit of dependency advisories, obvious secret leaks,
 JWT/session handling, genesis timestamp drift, public routes, and website globe
@@ -52,7 +52,7 @@ No non-breaking fix is currently available for that chain. Do not force-downgrad
 - `node --check src/routes/botRoutes.js`
 - `node --check src/middlewares/auth.js`
 - Extracted `website/globe.html` module script and ran `node --check` against it
-- Rendered local preview: `PORT=14243 node website/serve.js`, screenshot to `/tmp/btcpc-website-globe.png`
+- Rendered local preview: `PORT=14243 node website/serve.js`, screenshot to `/tmp/hone-website-globe.png`
 - `git diff --check`
 
 ## Notes For Next LLM
@@ -60,7 +60,7 @@ No non-breaking fix is currently available for that chain. Do not force-downgrad
 - ~~Do not change `src/services/epochManager.js` genesis timestamp. It is correctly set to `1776236400000`.~~ **Superseded:** genesis was moved to `1783191600000` (2026-05-01 noon Ireland, UTC+1). The whole codebase was swept to this value; `1776236400000` is now stale. See CLAUDE.md.
 - Package metadata mismatch was fixed in the working tree: `package.json`, `package-lock.json`, and lock root now report `3.0.87`.
 - Future version bumps must update `package.json` and `package-lock.json` together.
-- `bin/btcpc-chain-monitor` and several timeout constants use `300000` for monitor/backoff/timeouts, not epoch length.
+- `bin/hone-chain-monitor` and several timeout constants use `300000` for monitor/backoff/timeouts, not epoch length.
 - `src/chain/authorityRotation.js` still has a stale comment saying default epoch length is 300000 ms; comment only.
 - Public signup/login rely on password + secretStore and rate limits from `src/index.js`; focused tests passed.
 - `/api/bot/export-mnemonic` is deliberately disabled and returns 403.

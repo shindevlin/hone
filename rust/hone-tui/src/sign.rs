@@ -20,11 +20,11 @@ pub fn load_keypair(path: &Path, role: &str) -> Result<KeyPair> {
         .with_context(|| format!("invalid JSON in {}", path.display()))?;
 
     // wallet.key format — pick the private key for the requested role
-    // btcpc_* fallbacks accept pre-rebrand wallet.key files.
+    // hone_* fallbacks accept pre-rebrand wallet.key files.
     let wallet_fields: &[&str] = match role {
-        "owner"   => &["hone_owner_private_key", "btcpc_owner_private_key"],
-        "posting" => &["hone_private_key", "hone_posting_private_key", "btcpc_private_key"],
-        _         => &["hone_active_private_key", "btcpc_active_private_key"],
+        "owner"   => &["hone_owner_private_key", "hone_owner_private_key"],
+        "posting" => &["hone_private_key", "hone_posting_private_key", "hone_private_key"],
+        _         => &["hone_active_private_key", "hone_active_private_key"],
     };
     for field in wallet_fields {
         if let Some(hex) = v.get(*field).and_then(|h| h.as_str()).filter(|h| !h.is_empty()) {

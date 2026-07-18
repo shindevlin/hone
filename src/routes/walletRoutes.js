@@ -73,7 +73,7 @@ router.post('/private-auth/transfer/request', authenticateToken, async (req, res
     if (!user) return res.status(401).json({ error: 'unauthenticated' });
     const toAddress = req.body && req.body.toAddress;
     const amount = req.body && req.body.amount;
-    const token = req.body && req.body.token ? req.body.token : 'BTCPC';
+    const token = req.body && req.body.token ? req.body.token : 'HONE';
     const memo = req.body && req.body.memo ? req.body.memo : null;
     const approvalChain = req.body && req.body.approval_chain ? req.body.approval_chain : req.body.chain;
     const proofBackend = req.body && req.body.proof_backend ? req.body.proof_backend : null;
@@ -311,8 +311,8 @@ router.get('/:account/parent', (req, res) => {
  * POST /api/wallet/identity-link
  * Body: { chain_addresses: { eth, solana, ton, bitcoin }, signature }
  *
- * Creates a permanent on-chain attestation that this BTCPC account owns the
- * listed addresses on external chains. Visible on btcpcscan under the account.
+ * Creates a permanent on-chain attestation that this HONE account owns the
+ * listed addresses on external chains. Visible on honescan under the account.
  * Requires owner key signature over canonical JSON of { account, chain_addresses }.
  */
 router.post('/identity-link', authenticateToken, async (req, res) => {
@@ -362,7 +362,7 @@ router.get('/:account/identity', (req, res) => {
 
 /**
  * GET /api/wallet/:account/cross-chain-credits
- * Public — returns unclaimed wBTCPC credits per chain for an account.
+ * Public — returns unclaimed wHONE credits per chain for an account.
  */
 router.get('/:account/cross-chain-credits', (req, res) => {
   const account = (req.params.account || '').toLowerCase().trim();
@@ -373,7 +373,7 @@ router.get('/:account/cross-chain-credits', (req, res) => {
   const chain_addresses = acct.chain_addresses || {};
   const chains = Object.entries(credits).map(([chain, amount]) => ({
     chain,
-    unclaimed_btcpc: Math.round(amount * 1e8) / 1e8,
+    unclaimed_hone: Math.round(amount * 1e8) / 1e8,
     claim_address: chain_addresses[chain] || null,
     can_claim: !!chain_addresses[chain] && amount > 0,
   }));
@@ -383,7 +383,7 @@ router.get('/:account/cross-chain-credits', (req, res) => {
 /**
  * POST /api/wallet/claim-cross-chain
  * Body: { chain, amount?, signature }
- * Auth: required — generates a signed claim message for the wBTCPC contract on the target chain.
+ * Auth: required — generates a signed claim message for the wHONE contract on the target chain.
  */
 router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
   try {
@@ -423,19 +423,19 @@ router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
     }
     await ledger.recordCrossChainClaim(account, chain, claimAmount, claimAddress, signature, epoch);
 
-    // The signed claim payload — the wBTCPC oracle verifies this and mints on the target chain
+    // The signed claim payload — the wHONE oracle verifies this and mints on the target chain
     const crypto = require('crypto');
     const nonce = crypto.randomBytes(32).toString('hex');
 
     // Generate EVM-compatible proof if oracle key is configured and chain is EVM
     let claimProof = null;
-    const oracleKey = process.env.BTCPC_ORACLE_PRIVKEY;
+    const oracleKey = process.env.HONE_ORACLE_PRIVKEY;
     const evmChains = ['ethereum', 'base', 'arbitrum', 'optimism', 'bsc', 'polygon'];
     if (oracleKey && evmChains.includes(chain)) {
       try {
         const { generateClaimProof } = require('../claims/claimProofGenerator');
         claimProof = generateClaimProof({
-          btcpcAccount: account,
+          honeAccount: account,
           chain,
           targetWallet: claimAddress,
           amount: claimAmount,
@@ -444,7 +444,7 @@ router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
           oraclePrivKey: oracleKey,
         });
       } catch (e) {
-        console.error('[BTCPC] claim proof generation failed:', e.message);
+        console.error('[HONE] claim proof generation failed:', e.message);
       }
     }
 
@@ -454,13 +454,13 @@ router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
       chain,
       claim_amount: claimAmount,
       claim_address: claimAddress,
-      mint_fee_btcpc: 0.001,
+      mint_fee_hone: 0.001,
       epoch,
       nonce,
       evm_proof: claimProof,
       message: claimProof
-        ? 'Submit evm_proof to the wBTCPC contract on ' + chain + '. Gas paid separately.'
-        : 'Claim recorded. EVM proof requires BTCPC_ORACLE_PRIVKEY to be configured on this node.',
+        ? 'Submit evm_proof to the wHONE contract on ' + chain + '. Gas paid separately.'
+        : 'Claim recorded. EVM proof requires HONE_ORACLE_PRIVKEY to be configured on this node.',
     });
   } catch (err) {
     return res.status(400).json({ error: err.message });

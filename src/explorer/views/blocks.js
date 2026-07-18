@@ -28,7 +28,7 @@ function blocksView(data) {
     return '<tr>' +
       '<td><a href="/block/' + e.epoch_number + '">' + e.epoch_number + '</a></td>' +
       '<td><span class="status status-' + escapeHtml(e.status) + '">' + escapeHtml(e.status) + '</span></td>' +
-      '<td class="amount">' + formatNumber(e.block_reward) + ' BTCPC</td>' +
+      '<td class="amount">' + formatNumber(e.block_reward) + ' HONE</td>' +
       '<td>' + formatNumber(e.total_work) + '</td>' +
       '<td>' + commitCount + '</td>' +
       '<td>' + escapeHtml(e.miner_id || "--") + '</td>' +

@@ -103,7 +103,7 @@ router.post('/session', sessionLimiter, async (req, res) => {
 
     const session = sessionStore.createSession(username, appName, spendingLimit, expiresHours);
 
-    console.log('[session] created token for ' + username + ' (app: ' + appName + ', limit: ' + spendingLimit + ' BTCPC)');
+    console.log('[session] created token for ' + username + ' (app: ' + appName + ', limit: ' + spendingLimit + ' HONE)');
 
     res.json({
       token: session.token,

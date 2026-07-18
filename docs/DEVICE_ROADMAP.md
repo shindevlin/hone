@@ -1,12 +1,12 @@
-# BTCPC Device Roadmap
+# HONE Device Roadmap
 
-This roadmap prioritizes devices that give BTCPC the most useful, trustworthy, and easy-to-integrate real-world data first. It also reflects the current build reality: a Raspberry Pi is already in the network, so the immediate path is to add sensors and receivers that can plug into a Pi over USB, GPIO, I2C, or serial.
+This roadmap prioritizes devices that give HONE the most useful, trustworthy, and easy-to-integrate real-world data first. It also reflects the current build reality: a Raspberry Pi is already in the network, so the immediate path is to add sensors and receivers that can plug into a Pi over USB, GPIO, I2C, or serial.
 
 ## Priority Table
 
 | Priority | Device | Why it matters | Interface | Price | Purchase |
 |---|---|---|---|---|---|
-| 0 | **Meshtastic devices** | **Millions already deployed worldwide.** LoRa mesh radio for off-grid sensor relay. T-Beam, Heltec V3, RAK WisBlock, LilyGo T-Echo, Station G2. One-command BTCPC channel setup. Bridge daemon relays sensor data from mesh to chain. Devices earn relay fees from the IoT pool. | USB serial | $18-80 | [Meshtastic hardware list](https://meshtastic.org/docs/hardware/devices/) |
+| 0 | **Meshtastic devices** | **Millions already deployed worldwide.** LoRa mesh radio for off-grid sensor relay. T-Beam, Heltec V3, RAK WisBlock, LilyGo T-Echo, Station G2. One-command HONE channel setup. Bridge daemon relays sensor data from mesh to chain. Devices earn relay fees from the IoT pool. | USB serial | $18-80 | [Meshtastic hardware list](https://meshtastic.org/docs/hardware/devices/) |
 | 1 | RTL-SDR USB dongle | ADS-B air-traffic capture — public, time-sensitive, high-value data | USB | $20-35 | [RTL-SDR.com](https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/) |
 | 1 | 1090 MHz ADS-B antenna | Improves aircraft reception for useful air-traffic station | RF | $15-30 | [RTL-SDR bundle](https://www.rtl-sdr.com/radarbox-optimized-ads-b-antenna-rtl-sdr-bundle-sale-39-95-shipping/) |
 | 2 | BME280 weather sensor | Temperature, humidity, pressure — core environmental baseline | I2C/SPI | $10-15 | [RobotShop](https://www.robotshop.com/products/waveshare-bme280-environmental-sensor-temperature-humidity-barometric-pressure) |
@@ -29,7 +29,7 @@ This roadmap prioritizes devices that give BTCPC the most useful, trustworthy, a
 
 ## Why each phase matters
 
-- **Phase 0 (Meshtastic)**: Instant network effect — millions of Meshtastic devices already exist in the field. No hardware to design, no firmware to write. `curl | bash` setup adds a BTCPC channel and the bridge daemon relays sensor data from the mesh to the chain. Every Meshtastic node becomes a potential BTCPC sensor relay overnight.
+- **Phase 0 (Meshtastic)**: Instant network effect — millions of Meshtastic devices already exist in the field. No hardware to design, no firmware to write. `curl | bash` setup adds a HONE channel and the bridge daemon relays sensor data from the mesh to the chain. Every Meshtastic node becomes a potential HONE sensor relay overnight.
 - **Phase 1**: Fastest win — ADS-B air traffic is mature, passive, high-value, fits an information blockchain perfectly
 - **Phase 2**: Environmental baseline — minimum context data before adding specialized sensors
 - **Phase 3**: Public health relevance — pollution and air quality data has real commercial buyers
@@ -48,10 +48,10 @@ No redesign needed — plug in and start earning.
 
 ### Meshtastic bridge
 
-The `bin/btcpc-meshtastic` daemon connects to any Meshtastic device over USB serial, joins the "btcpc" mesh channel, and relays BTCPC sensor packets to the chain. The bridge:
+The `bin/hone-meshtastic` daemon connects to any Meshtastic device over USB serial, joins the "hone" mesh channel, and relays HONE sensor packets to the chain. The bridge:
 - Auto-detects Meshtastic devices on `/dev/ttyUSB*` and `/dev/ttyACM*`
-- Ensures the "btcpc" channel exists on the device
-- Parses BTCPC JSON packets from mesh text messages
+- Ensures the "hone" channel exists on the device
+- Parses HONE JSON packets from mesh text messages
 - Submits readings via `POST /api/sensors/:id/readings`
 - Reports its own GPS, battery, and signal strength as sensor data
 - Reconnects automatically on disconnect
@@ -65,4 +65,4 @@ Best first batch (~$60-80 total):
 3. **PMS5003 air quality sensor** — particulate matter
 4. **ADXL345 or Grove D7S** — vibration/motion
 
-Gives BTCPC a strong mix of **air, weather, pollution, and motion** data with minimal integration risk.
+Gives HONE a strong mix of **air, weather, pollution, and motion** data with minimal integration risk.

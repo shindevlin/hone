@@ -23,7 +23,7 @@ function userDashboardView(data) {
       <h1 class="page-title">Account <span>Dashboard</span></h1>\
       <div class="card">\
         <div style="padding:32px 20px;text-align:center;">\
-          <p style="color:var(--text-secondary);margin-bottom:16px;">Enter a BTCPC account name to view their dashboard.</p>\
+          <p style="color:var(--text-secondary);margin-bottom:16px;">Enter a HONE account name to view their dashboard.</p>\
           <div class="search-bar" style="max-width:400px;margin:0 auto;">\
             <input type="text" id="dash-search" placeholder="Enter account name..." />\
             <button onclick="goDash()">View</button>\
@@ -65,7 +65,7 @@ function userDashboardView(data) {
     return '<tr>' +
       '<td style="text-transform:capitalize;font-weight:600;">' + escapeHtml(link.chain || "--") + '</td>' +
       '<td><span class="hash">' + escapeHtml(link.address || "--") + '</span></td>' +
-      '<td class="amount">' + formatNumber(link.balance || 0) + ' wBTCPC</td>' +
+      '<td class="amount">' + formatNumber(link.balance || 0) + ' wHONE</td>' +
       '<td><span class="status ' + (link.verified ? 'status-active' : 'status-committed') + '">' + (link.verified ? 'verified' : 'pending') + '</span></td>' +
       '</tr>';
   }).join("");
@@ -74,7 +74,7 @@ function userDashboardView(data) {
   var claimRows = pendingClaims.map(function (c) {
     return '<tr>' +
       '<td style="text-transform:capitalize;">' + escapeHtml(c.chain || "--") + '</td>' +
-      '<td class="amount">' + formatNumber(c.amount || 0) + ' wBTCPC</td>' +
+      '<td class="amount">' + formatNumber(c.amount || 0) + ' wHONE</td>' +
       '<td>' + (c.epoch ? '<a href="/block/' + c.epoch + '">#' + c.epoch + '</a>' : "--") + '</td>' +
       '<td><span class="status status-committed">pending</span></td>' +
       '</tr>';
@@ -88,7 +88,7 @@ function userDashboardView(data) {
       '<td><span class="type-badge type-' + escapeHtml((t.type || "").replace(/_/g, "-")) + '">' + escapeHtml((t.type || "").replace(/_/g, " ")) + '</span></td>' +
       '<td>' + (t.from === user.username ? '<strong>' + escapeHtml(t.from) + '</strong>' : t.from ? '<a href="/account/' + encodeURIComponent(t.from) + '">' + escapeHtml(t.from) + '</a>' : "--") + '</td>' +
       '<td>' + (t.to === user.username ? '<strong>' + escapeHtml(t.to) + '</strong>' : t.to ? '<a href="/account/' + encodeURIComponent(t.to) + '">' + escapeHtml(t.to) + '</a>' : "--") + '</td>' +
-      '<td class="amount ' + dirClass + '">' + dirSign + formatNumber(t.amount) + ' ' + escapeHtml(t.token || "BTCPC") + '</td>' +
+      '<td class="amount ' + dirClass + '">' + dirSign + formatNumber(t.amount) + ' ' + escapeHtml(t.token || "HONE") + '</td>' +
       '<td>' + formatDate(t.timestamp) + '</td>' +
       '</tr>';
   }).join("");
@@ -98,7 +98,7 @@ function userDashboardView(data) {
 \
     <div class="stats-grid">\
       <div class="stat-card">\
-        <div class="stat-label">BTCPC Balance</div>\
+        <div class="stat-label">HONE Balance</div>\
         <div class="stat-value accent">' + formatNumber(balance) + '</div>\
         <div class="stat-sub">Native chain balance</div>\
       </div>\
@@ -133,7 +133,7 @@ function userDashboardView(data) {
         <dt>VRAM</dt>\
         <dd>' + (node.hardware && node.hardware.vram_gb ? escapeHtml(String(node.hardware.vram_gb)) + " GB" : "--") + '</dd>\
         <dt>Stake</dt>\
-        <dd class="amount">' + formatNumber(node.stake_amount) + ' BTCPC</dd>\
+        <dd class="amount">' + formatNumber(node.stake_amount) + ' HONE</dd>\
         <dt>Reputation</dt>\
         <dd>' + (node.reputation || 0) + '/100</dd>\
         <dt>Models</dt>\
@@ -167,13 +167,13 @@ function userDashboardView(data) {
     <div class="card">\
       <div class="card-header">\
         <h2>Delegation</h2>\
-        <span class="badge">' + formatNumber(delegation.amount || 0) + ' BTCPC</span>\
+        <span class="badge">' + formatNumber(delegation.amount || 0) + ' HONE</span>\
       </div>\
       <dl class="detail-grid">\
         <dt>Delegated To</dt>\
         <dd><a href="/account/' + encodeURIComponent(delegation.delegatee || "--") + '">' + escapeHtml(delegation.delegatee || "--") + '</a></dd>\
         <dt>Amount</dt>\
-        <dd class="amount">' + formatNumber(delegation.amount || 0) + ' BTCPC</dd>\
+        <dd class="amount">' + formatNumber(delegation.amount || 0) + ' HONE</dd>\
         <dt>Status</dt>\
         <dd><span class="status status-active">' + escapeHtml(delegation.status || "active") + '</span></dd>\
       </dl>\
@@ -190,11 +190,11 @@ function userDashboardView(data) {
         <dt>State Root</dt>\
         <dd><span class="hash" style="max-width:none;">' + smtProof.root + '</span></dd>\
         <dt>Balance (SMT)</dt>\
-        <dd class="amount">' + formatNumber(smtProof.state.balance) + ' BTCPC</dd>\
+        <dd class="amount">' + formatNumber(smtProof.state.balance) + ' HONE</dd>\
         <dt>Staked (SMT)</dt>\
-        <dd>' + formatNumber(smtProof.state.staked) + ' BTCPC</dd>\
+        <dd>' + formatNumber(smtProof.state.staked) + ' HONE</dd>\
         <dt>Delegated (SMT)</dt>\
-        <dd>' + formatNumber(smtProof.state.delegated) + ' BTCPC</dd>\
+        <dd>' + formatNumber(smtProof.state.delegated) + ' HONE</dd>\
         <dt>Nonce</dt>\
         <dd>' + smtProof.state.nonce + '</dd>\
       </dl>\
@@ -212,7 +212,7 @@ function userDashboardView(data) {
           <tr>\
             <th>Chain</th>\
             <th>Address</th>\
-            <th>wBTCPC Balance</th>\
+            <th>wHONE Balance</th>\
             <th>Status</th>\
           </tr>\
         </thead>\

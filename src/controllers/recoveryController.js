@@ -4,7 +4,7 @@
  * Recovery Controller
  * Shin Devlin
  *
- * Implements BTCPC account recovery per Whitepaper 2.3.3.
+ * Implements HONE account recovery per Whitepaper 2.3.3.
  * Owner key bypasses 2FA to initiate recovery. A 72-hour time-lock window
  * allows the real owner to contest using valid 2FA before the reset completes.
  *
@@ -69,7 +69,7 @@ async function requestRecovery(req, res) {
     };
     recoveryRequests.set(account, recovery);
 
-    console.log("[BTCPC] Recovery request created for account: " + account +
+    console.log("[HONE] Recovery request created for account: " + account +
       " (expires " + expiresAt.toISOString() + ")");
 
     res.status(201).json({
@@ -127,7 +127,7 @@ async function contestRecovery(req, res) {
     recovery.contested_by_2fa = true;
     recovery.status = 'contested';
 
-    console.log("[BTCPC] Recovery CONTESTED for account: " + account +
+    console.log("[HONE] Recovery CONTESTED for account: " + account +
       " — attacker's recovery attempt blocked");
 
     res.json({
@@ -185,7 +185,7 @@ async function completeRecovery(req, res) {
     await user.save();
 
     recovery.status = 'completed';
-    console.log("[BTCPC] Recovery COMPLETED for account: " + account + " — 2FA has been reset");
+    console.log("[HONE] Recovery COMPLETED for account: " + account + " — 2FA has been reset");
 
     res.json({
       success: true,

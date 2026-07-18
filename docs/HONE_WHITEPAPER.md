@@ -767,8 +767,8 @@ by a founding team.
 ## 6. Links
 
 - **Website:** [honemesh.net](https://honemesh.net)
-- **Telegram:** [@btcpcbot](https://t.me/btcpcbot) (rename pending)
-- **GitHub:** [github.com/shindevlin/btcpc](https://github.com/shindevlin/btcpc)
+- **Telegram:** [@honebot](https://t.me/honebot) (rename pending)
+- **GitHub:** [github.com/shindevlin/hone](https://github.com/shindevlin/hone)
 - **Explorer:** [scan.honemesh.net](https://scan.honemesh.net)
 - **Freeport Whitepaper:** [FREEPORT_PROTOCOL_WHITEPAPER.md](FREEPORT_PROTOCOL_WHITEPAPER.md)
 - **Native Protocols Overview:** [NATIVE_PROTOCOLS.md](NATIVE_PROTOCOLS.md)

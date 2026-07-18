@@ -1,7 +1,7 @@
 # PLAN: Decentralized Runtime Hosting v1
 
 ## Summary
-BTCPC will add a decentralized runtime layer so users can deploy and run services like Deadman Switch across multiple hosts with durable scheduling, failover, and cryptographic accountability. This phase is not fully trustless yet; it is crypto-verifiable and slashable, with a staged path to deterministic trustless execution.
+HONE will add a decentralized runtime layer so users can deploy and run services like Deadman Switch across multiple hosts with durable scheduling, failover, and cryptographic accountability. This phase is not fully trustless yet; it is crypto-verifiable and slashable, with a staged path to deterministic trustless execution.
 
 Defaults selected for v1:
 - Trust model: signed attestations + challenge proofs + slashing

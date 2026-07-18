@@ -230,7 +230,7 @@ do {
     Say ""
     docker ps --filter "name=hone"
     Say ""
-    Say "  Check balance:  @btcpcbot /balance on Telegram" "Cyan"
+    Say "  Check balance:  @honebot /balance on Telegram" "Cyan"
     Say "  View logs:      docker compose logs -f hone" "Cyan"
     Say "  Stop node:      docker compose stop" "Cyan"
     Say ""

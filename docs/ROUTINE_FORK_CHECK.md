@@ -26,7 +26,7 @@ zero peers MUST NOT accept or apply any user-submitted entry" → prevents silen
 1. For each node: `GET /api/node/info` (→ `chain_id`, identity, epoch) and
    `GET /api/latest` (→ latest **sealed** epoch + its `hash`).
 2. **chain_id gate:** assert every node reports the same `chain_id`. If not, the nodes
-   aren't even the same network (e.g. one still on `btcpc-2`, one on `hone`) — reported
+   aren't even the same network (e.g. one still on `hone-2`, one on `hone`) — reported
    as `CHAIN_ID_MISMATCH`, a louder and distinct failure from a hash fork.
 3. **Pick comparison height:** the **minimum** latest-sealed epoch across all nodes
    (the highest block every node is guaranteed to hold), plus always block 0 (genesis).
@@ -68,7 +68,7 @@ node scripts/fork-check.mjs --deep --node ...=... --node ...=...
 > CONVERGED trivially (nothing to disagree with). One unreachable node is a **warning**,
 > not fatal — the reachable nodes are still compared.
 
-## 5. ⭐ Primary use at the BTCPC→HONE re-genesis cutover
+## 5. ⭐ Primary use at the HONE→HONE re-genesis cutover
 
 During the cutover, every founder rebuilds, **wipes its data dir**, and restarts on the
 new `hone` genesis. The one question that decides success: **did every node land on the
@@ -89,7 +89,7 @@ node scripts/fork-check.mjs --epoch 0 \
 - **`FORK` (exit 1)** → nodes booted **different** genesis blocks (wrong `chain_id`, wrong
   proclamation text, or a **stale data dir that wasn't wiped**). **STOP.** Do not let the
   divergent node gossip — it will poison peers. Fix and re-verify before continuing.
-- **`CHAIN_ID_MISMATCH` (exit 2)** → a node is still on `btcpc-2`. It never cut over.
+- **`CHAIN_ID_MISMATCH` (exit 2)** → a node is still on `hone-2`. It never cut over.
 
 This is the **authoritative convergence verifier** for the cutover — do not eyeball
 block-0 hashes by hand during the most fork-prone moment the chain will ever have.

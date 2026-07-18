@@ -8,7 +8,7 @@
  * Economics:
  *   60% → device owner (sensor income)
  *   30% → top staker (sensor income)
- *   10% → btcpc_recycle
+ *   10% → hone_recycle
  *   5% tribute: staker pays owner on entry (non-refundable), unless staker === owner
  */
 
@@ -25,7 +25,7 @@ function makeStakeEntry(deviceId, staker, stakeAmount, owner, epoch) {
     from: staker,
     to: owner,
     amount: stakeAmount,
-    token: "BTCPC",
+    token: "HONE",
     epoch: epoch || 1,
     timestamp: Date.now() + Math.random(), // ensure unique dedupe key
     yield_stake_data: {
@@ -46,7 +46,7 @@ function makeUnstakeEntry(deviceId, staker, returnedAmount, epoch) {
     from: staker,
     to: staker,
     amount: returnedAmount,
-    token: "BTCPC",
+    token: "HONE",
     epoch: epoch || 2,
     timestamp: Date.now() + Math.random(),
     yield_stake_data: {
@@ -62,10 +62,10 @@ describe("Device Yield Staking — stateStore mechanics", () => {
   beforeEach(() => {
     stateStore.resetAll();
     // Fund test accounts
-    stateStore.applyEntry({ type: "MINING_REWARD", to: "alice", amount: 10000, token: "BTCPC", epoch: 0, timestamp: 1 });
-    stateStore.applyEntry({ type: "MINING_REWARD", to: "bob", amount: 10000, token: "BTCPC", epoch: 0, timestamp: 2 });
-    stateStore.applyEntry({ type: "MINING_REWARD", to: "charlie", amount: 10000, token: "BTCPC", epoch: 0, timestamp: 3 });
-    stateStore.applyEntry({ type: "MINING_REWARD", to: "owner1", amount: 10000, token: "BTCPC", epoch: 0, timestamp: 4 });
+    stateStore.applyEntry({ type: "MINING_REWARD", to: "alice", amount: 10000, token: "HONE", epoch: 0, timestamp: 1 });
+    stateStore.applyEntry({ type: "MINING_REWARD", to: "bob", amount: 10000, token: "HONE", epoch: 0, timestamp: 2 });
+    stateStore.applyEntry({ type: "MINING_REWARD", to: "charlie", amount: 10000, token: "HONE", epoch: 0, timestamp: 3 });
+    stateStore.applyEntry({ type: "MINING_REWARD", to: "owner1", amount: 10000, token: "HONE", epoch: 0, timestamp: 4 });
   });
 
   // ── Test 1: Fresh stake on unowned device ──────────────────────────────────
@@ -81,7 +81,7 @@ describe("Device Yield Staking — stateStore mechanics", () => {
 
   // ── Test 2: Owner staking own device — no tribute ─────────────────────────
   test("2. owner staking own device pays no tribute", () => {
-    const balBefore = stateStore.getBalance("owner1", "BTCPC");
+    const balBefore = stateStore.getBalance("owner1", "HONE");
     const entry = makeStakeEntry("owner1/sensor-x", "owner1", 1000, "owner1", 1);
     stateStore.applyEntry(entry);
 
@@ -92,14 +92,14 @@ describe("Device Yield Staking — stateStore mechanics", () => {
     expect(stake.tribute_paid).toBe(0);
 
     // Balance should only decrease by stake amount (no tribute deducted separately)
-    const balAfter = stateStore.getBalance("owner1", "BTCPC");
+    const balAfter = stateStore.getBalance("owner1", "HONE");
     expect(round(balBefore - balAfter)).toBe(1000);
   });
 
   // ── Test 3: Third-party stake — tribute deducted ──────────────────────────
   test("3. third-party stake: 5% tribute paid to device owner", () => {
-    const ownerBalBefore = stateStore.getBalance("owner1", "BTCPC");
-    const aliceBalBefore = stateStore.getBalance("alice", "BTCPC");
+    const ownerBalBefore = stateStore.getBalance("owner1", "HONE");
+    const aliceBalBefore = stateStore.getBalance("alice", "HONE");
 
     const entry = makeStakeEntry("owner1/sensor-x", "alice", 1000, "owner1", 1);
     stateStore.applyEntry(entry);
@@ -109,11 +109,11 @@ describe("Device Yield Staking — stateStore mechanics", () => {
     expect(stake.tribute_paid).toBeCloseTo(50, 8); // 5% of 1000
 
     // Owner received tribute
-    const ownerBalAfter = stateStore.getBalance("owner1", "BTCPC");
+    const ownerBalAfter = stateStore.getBalance("owner1", "HONE");
     expect(round(ownerBalAfter - ownerBalBefore)).toBeCloseTo(50, 8);
 
     // Alice's balance decreased by full 1000 (tribute came out of her stake debit)
-    const aliceBalAfter = stateStore.getBalance("alice", "BTCPC");
+    const aliceBalAfter = stateStore.getBalance("alice", "HONE");
     expect(round(aliceBalBefore - aliceBalAfter)).toBeCloseTo(1000, 8);
   });
 
@@ -123,15 +123,15 @@ describe("Device Yield Staking — stateStore mechanics", () => {
     const aliceEntry = makeStakeEntry("owner1/sensor-x", "alice", 500, "owner1", 1);
     stateStore.applyEntry(aliceEntry);
 
-    const aliceBalAfterFirstStake = stateStore.getBalance("alice", "BTCPC");
+    const aliceBalAfterFirstStake = stateStore.getBalance("alice", "HONE");
 
     // Bob stakes with a higher amount
-    const bobBalBefore = stateStore.getBalance("bob", "BTCPC");
+    const bobBalBefore = stateStore.getBalance("bob", "HONE");
     const bobEntry = makeStakeEntry("owner1/sensor-x", "bob", 800, "owner1", 2);
     stateStore.applyEntry(bobEntry);
 
     // Alice is NOT refunded — she stays in pool at slot 2
-    const aliceBalFinal = stateStore.getBalance("alice", "BTCPC");
+    const aliceBalFinal = stateStore.getBalance("alice", "HONE");
     expect(round(aliceBalFinal - aliceBalAfterFirstStake)).toBeCloseTo(0, 8);
 
     // Bob is now top staker (slot 1)
@@ -143,7 +143,7 @@ describe("Device Yield Staking — stateStore mechanics", () => {
     expect(stake.tribute_paid).toBeCloseTo(40, 8);
 
     // Bob's balance decreased by 800
-    const bobBalAfter = stateStore.getBalance("bob", "BTCPC");
+    const bobBalAfter = stateStore.getBalance("bob", "HONE");
     expect(round(bobBalBefore - bobBalAfter)).toBeCloseTo(800, 8);
   });
 
@@ -152,7 +152,7 @@ describe("Device Yield Staking — stateStore mechanics", () => {
     // Alice stakes 500
     stateStore.applyEntry(makeStakeEntry("owner1/sensor-x", "alice", 500, "owner1", 1));
 
-    const aliceBalBefore = stateStore.getBalance("alice", "BTCPC");
+    const aliceBalBefore = stateStore.getBalance("alice", "HONE");
     // Bob tries to stake exactly 500 (not higher) — the DEVICE_YIELD_STAKE
     // should only be submitted if stake > current top (API layer rejects it).
     // But since stateStore doesn't check this, we verify the API contract by
@@ -189,14 +189,14 @@ describe("Device Yield Staking — stateStore mechanics", () => {
   // ── Test 8: Voluntary unstake returns net stake ───────────────────────────
   test("8. voluntary unstake returns net stake to staker", () => {
     stateStore.applyEntry(makeStakeEntry("owner1/sensor-x", "alice", 1000, "owner1", 1));
-    const aliceBalAfterStake = stateStore.getBalance("alice", "BTCPC");
+    const aliceBalAfterStake = stateStore.getBalance("alice", "HONE");
 
     const netStake = round(1000 * 0.95); // 950
     const unstakeEntry = makeUnstakeEntry("owner1/sensor-x", "alice", netStake, 2);
     stateStore.applyEntry(unstakeEntry);
 
     // Alice's balance should increase by netStake
-    const aliceBalFinal = stateStore.getBalance("alice", "BTCPC");
+    const aliceBalFinal = stateStore.getBalance("alice", "HONE");
     expect(round(aliceBalFinal - aliceBalAfterStake)).toBeCloseTo(netStake, 8);
 
     // Stake should be cleared
@@ -232,14 +232,14 @@ describe("Device Yield Staking — stateStore mechanics", () => {
   // ── Test 11: Unstake with no active stake is a no-op ──────────────────────
   test("11. unstake for wrong staker is a no-op", () => {
     stateStore.applyEntry(makeStakeEntry("owner1/sensor-x", "alice", 500, "owner1", 1));
-    const aliceBalBefore = stateStore.getBalance("alice", "BTCPC");
+    const aliceBalBefore = stateStore.getBalance("alice", "HONE");
 
     // Bob tries to unstake alice's position — should do nothing
     const bobUnstake = makeUnstakeEntry("owner1/sensor-x", "bob", 500, 2);
     stateStore.applyEntry(bobUnstake);
 
     // Alice's balance unchanged, alice still top staker
-    const aliceBalAfter = stateStore.getBalance("alice", "BTCPC");
+    const aliceBalAfter = stateStore.getBalance("alice", "HONE");
     expect(aliceBalAfter).toBe(aliceBalBefore);
     const stake = stateStore.getDeviceYieldStake("owner1/sensor-x");
     expect(stake.staker).toBe("alice");
@@ -261,17 +261,17 @@ describe("Device Yield Staking — stateStore mechanics", () => {
   test("13. multiple stakes — highest stake holds slot 1, all coexist (multi-slot pool)", () => {
     // Alice: 100
     stateStore.applyEntry(makeStakeEntry("owner1/s", "alice", 100, "owner1", 1));
-    const aliceBal1 = stateStore.getBalance("alice", "BTCPC");
+    const aliceBal1 = stateStore.getBalance("alice", "HONE");
 
     // Bob stakes 200 — alice NOT refunded, stays at slot 2
     stateStore.applyEntry(makeStakeEntry("owner1/s", "bob", 200, "owner1", 2));
-    const aliceBal2 = stateStore.getBalance("alice", "BTCPC");
+    const aliceBal2 = stateStore.getBalance("alice", "HONE");
     expect(round(aliceBal2 - aliceBal1)).toBeCloseTo(0, 8); // no refund
 
-    const bobBal1 = stateStore.getBalance("bob", "BTCPC");
+    const bobBal1 = stateStore.getBalance("bob", "HONE");
     // Charlie stakes 400 — bob and alice NOT refunded
     stateStore.applyEntry(makeStakeEntry("owner1/s", "charlie", 400, "owner1", 3));
-    const bobBal2 = stateStore.getBalance("bob", "BTCPC");
+    const bobBal2 = stateStore.getBalance("bob", "HONE");
     expect(round(bobBal2 - bobBal1)).toBeCloseTo(0, 8); // no refund
 
     // Charlie holds slot 1 (highest stake)
@@ -300,8 +300,8 @@ describe("Device Yield Staking — stateStore mechanics", () => {
 describe("Device Yield Staking — reward engine splits", () => {
   beforeEach(() => {
     stateStore.resetAll();
-    stateStore.applyEntry({ type: "MINING_REWARD", to: "owner1", amount: 10000, token: "BTCPC", epoch: 0, timestamp: 1 });
-    stateStore.applyEntry({ type: "MINING_REWARD", to: "alice", amount: 10000, token: "BTCPC", epoch: 0, timestamp: 2 });
+    stateStore.applyEntry({ type: "MINING_REWARD", to: "owner1", amount: 10000, token: "HONE", epoch: 0, timestamp: 1 });
+    stateStore.applyEntry({ type: "MINING_REWARD", to: "alice", amount: 10000, token: "HONE", epoch: 0, timestamp: 2 });
   });
 
   // ── Test 16: 70/20/10 split when active staker ────────────────────────────
@@ -312,7 +312,7 @@ describe("Device Yield Staking — reward engine splits", () => {
       from: "alice",
       to: "owner1",
       amount: 500,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 1,
       timestamp: Date.now(),
       yield_stake_data: { device_id: "owner1/sensor-x", staker: "alice", stake_amount: 500, owner: "owner1", tribute: 25, net_stake: 475 },
@@ -398,7 +398,7 @@ describe("Device Yield Staking — reward engine splits", () => {
       from: "alice",
       to: "owner1",
       amount: 500,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 1,
       timestamp: Date.now(),
       yield_stake_data: { device_id: "owner1/device-a", staker: "alice", stake_amount: 500, owner: "owner1", tribute: 25, net_stake: 475 },
@@ -432,7 +432,7 @@ describe("Device Yield Staking — reward engine splits", () => {
       from: "alice",
       to: "owner1",
       amount: 500,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 1,
       timestamp: Date.now(),
       yield_stake_data: { device_id: "owner1/sensor-x", staker: "alice", stake_amount: 500, owner: "owner1", tribute: 25, net_stake: 475 },
@@ -445,7 +445,7 @@ describe("Device Yield Staking — reward engine splits", () => {
       from: "alice",
       to: "alice",
       amount: 475,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 2,
       timestamp: Date.now() + 1,
       yield_stake_data: { device_id: "owner1/sensor-x", staker: "alice", returned_amount: 475 },

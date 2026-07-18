@@ -17,15 +17,15 @@ But what if the work could be the point?
 
 ---
 
-**What BTCPC is**
+**What HONE is**
 
-BTCPC is a blockchain where mining means doing something useful.
+HONE is a blockchain where mining means doing something useful.
 
 Every 30 seconds, the network evaluates what each connected machine actually did. A GPU that ran AI inference jobs earns from the miner pool. A Raspberry Pi that passively detected Bluetooth trackers earns from the sensor pool. A server that hosted encrypted files earns from the storage pool. A phone that kept the network's epoch timing earns from the clock pool.
 
 No synthetic puzzles. No arbitrary hashes. The work is the product. The token is the receipt.
 
-The supply is fixed at 42,000,000 BTCPC, like Bitcoin. Nothing is burned — all fees recycle back into future epoch rewards and re-emerge as earnings for whoever is doing real work.
+The supply is fixed at 42,000,000 HONE, like Bitcoin. Nothing is burned — all fees recycle back into future epoch rewards and re-emerge as earnings for whoever is doing real work.
 
 ---
 
@@ -37,7 +37,7 @@ The easy answer is "because miners want it to pay operating costs." That's circu
 
 The honest answer requires showing where demand comes from outside the mining community. For Bitcoin, the answer is: people want digital gold. The security properties and scarcity make it worth holding. For Ethereum, the answer is: gas fees for a vast application ecosystem.
 
-For BTCPC, the answer is three native markets that launched with the chain.
+For HONE, the answer is three native markets that launched with the chain.
 
 ---
 
@@ -45,9 +45,9 @@ For BTCPC, the answer is three native markets that launched with the chain.
 
 Your Raspberry Pi sits on your desk and does nothing most of the day.
 
-Install the BTCPC node, enable BLE scanning, and it starts passively detecting AirTags, Android Find My devices, Tile trackers, and Samsung SmartTags that move through your area. No pairing. No interaction with the devices. It just listens.
+Install the HONE node, enable BLE scanning, and it starts passively detecting AirTags, Android Find My devices, Tile trackers, and Samsung SmartTags that move through your area. No pairing. No interaction with the devices. It just listens.
 
-Device owners who want to track their property without going through Apple or Google can pay a subscription fee in BTCPC to receive encrypted sighting data. When their tag passes through your Pi's coverage area, you get a cut of that fee.
+Device owners who want to track their property without going through Apple or Google can pay a subscription fee in HONE to receive encrypted sighting data. When their tag passes through your Pi's coverage area, you get a cut of that fee.
 
 Scale that up. A city with Pis on every block is a city where lost things get found, where logistics companies know where their shipments are, where the data doesn't flow through a single corporation that can sell it, lose it, or shut it off.
 
@@ -73,7 +73,7 @@ GitHub was acquired by Microsoft in 2018. That was fine, mostly. But it won't al
 
 More immediately: GitHub has a terms of service. Projects get removed. Accounts get suspended. Repositories that existed yesterday sometimes don't exist tomorrow.
 
-LinkGit is decentralized, Git-compatible code hosting on BTCPC's distributed filesystem. You push and pull with standard Git tooling. The objects — commits, trees, blobs — are stored content-addressed across storage nodes on the network. Private repos are encrypted to your key at rest; no storage node can read the contents. Dead objects prune automatically; owners pay to retain them beyond the default window.
+LinkGit is decentralized, Git-compatible code hosting on HONE's distributed filesystem. You push and pull with standard Git tooling. The objects — commits, trees, blobs — are stored content-addressed across storage nodes on the network. Private repos are encrypted to your key at rest; no storage node can read the contents. Dead objects prune automatically; owners pay to retain them beyond the default window.
 
 There's no terms of service that changes after you've published. The repo lives as long as someone is paying storage fees and storage nodes are serving it. Which, given the economics of the storage pool, is indefinitely.
 
@@ -101,7 +101,7 @@ The AI compute market is being built right now. The question is who owns the mac
 
 Right now, almost all AI inference routes through AWS, Azure, or Google Cloud. The three companies. The same three companies that own the search engines, the cloud storage, the marketplaces, the code repositories, and the advertising infrastructure.
 
-BTCPC is a bet that those things can run on machines that individuals own. That the GPU in your gaming rig can answer real inference jobs. That the Pi on your desk can report real sensor data. That the storage drive you're not using can host files that people actually need.
+HONE is a bet that those things can run on machines that individuals own. That the GPU in your gaming rig can answer real inference jobs. That the Pi on your desk can report real sensor data. That the storage drive you're not using can host files that people actually need.
 
 It's not a bet on a future state. The chain is live. The work is happening. The rewards are flowing.
 
@@ -109,4 +109,4 @@ Pick your hardware. Start earning.
 
 ---
 
-*honemesh.net — Telegram: @btcpcbot — GitHub: shindevlin/btcpc*
+*honemesh.net — Telegram: @honebot — GitHub: shindevlin/hone*

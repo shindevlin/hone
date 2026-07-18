@@ -22,7 +22,7 @@ const {
 
 afterEach(() => {
   jest.restoreAllMocks();
-  delete process.env.BTCPC_CODE_EXEC_ENABLED;
+  delete process.env.HONE_CODE_EXEC_ENABLED;
 });
 
 // ── Issue 1: execute_code removed from buyer-accessible tool set ───────────────
@@ -43,20 +43,20 @@ describe("execute_code — removed from protocol-native set", () => {
 
 describe("execute_code — opt-in disabled by default", () => {
   test("returns disabled error when env var is not set", async () => {
-    delete process.env.BTCPC_CODE_EXEC_ENABLED;
+    delete process.env.HONE_CODE_EXEC_ENABLED;
     const result = await executeProtocolTool("execute_code", { language: "bash", code: "id" });
     expect(result.error).toBe("disabled");
     expect(result.trusted).toBe(true);
   });
 
   test("returns disabled error when env var is explicitly 'false'", async () => {
-    process.env.BTCPC_CODE_EXEC_ENABLED = "false";
+    process.env.HONE_CODE_EXEC_ENABLED = "false";
     const result = await executeProtocolTool("execute_code", { language: "bash", code: "id" });
     expect(result.error).toBe("disabled");
   });
 
   test("returns disabled error when env var is a non-true value ('1')", async () => {
-    process.env.BTCPC_CODE_EXEC_ENABLED = "1";
+    process.env.HONE_CODE_EXEC_ENABLED = "1";
     const result = await executeProtocolTool("execute_code", { language: "bash", code: "id" });
     expect(result.error).toBe("disabled");
   });

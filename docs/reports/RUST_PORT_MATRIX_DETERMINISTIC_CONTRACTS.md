@@ -2,7 +2,7 @@
 
 ## Scope and intent
 
-This report maps BTCPC modules into:
+This report maps HONE modules into:
 
 - `Port now` (consensus-critical, deterministic state transition logic)
 - `Port next` (execution and settlement logic that must become deterministic for on-chain contracts)
@@ -17,7 +17,7 @@ The goal is one deterministic chain platform in Rust so third parties can deploy
 - `src/p2p` has a Rust sidecar option but JS still owns major protocol logic.
 - Existing Rust in this repo is mostly:
 - `rust/chain-core` (new scaffold)
-- `android/rust/btcpc-miner` (mobile miner path)
+- `android/rust/hone-miner` (mobile miner path)
 
 ## Port now: consensus and state authority
 
@@ -89,19 +89,19 @@ Rule:
 
 ### Required crates
 
-- `btcpc-chain-core`:
+- `hone-chain-core`:
 - ledger state model
 - entry dispatcher
 - canonical serialization and hashing
 - replay validator
 - reward accounting
 
-- `btcpc-vm`:
+- `hone-vm`:
 - WASM contract execution
 - fuel-metered deterministic execution
 - restricted deterministic host API
 
-- `btcpc-state-db`:
+- `hone-state-db`:
 - RocksDB or sled backend
 - deterministic key codec
 - snapshot and proof export
@@ -158,11 +158,11 @@ Keep JS shims only for compatibility during migration windows.
 
 ## Recommended migration order
 
-1. Finish `btcpc-chain-core` transaction dispatcher and state model.
+1. Finish `hone-chain-core` transaction dispatcher and state model.
 2. Port replay and block validation into Rust and make JS use Rust outputs.
 3. Port reward engine and settlement into Rust.
 4. Port mempool ordering and message auth checks into Rust.
-5. Introduce `btcpc-vm` with deterministic WASM policy.
+5. Introduce `hone-vm` with deterministic WASM policy.
 6. Add contract tx types and storage namespace rules.
 7. Switch Node to adapter-only role for chain paths.
 8. Remove deprecated JS authority modules.

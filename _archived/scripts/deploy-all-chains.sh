@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy wBTCPC on all supported chains from a single Base ETH funding
+# Deploy wHONE on all supported chains from a single Base ETH funding
 # Usage: bash scripts/deploy-all-chains.sh
 #
 # Prerequisites:
@@ -17,14 +17,14 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 source "$REPO_DIR/.env"
 
 # Shin's EVM private key (derived from mnemonic)
-EVM_KEY="${BTCPC_SHIN_EVM_KEY:?Set BTCPC_SHIN_EVM_KEY in .env}"
-EVM_ADDRESS="${BTCPC_SHIN_ADDRESS:-0xbde88f2b3a224b242704bd166804e0e12c75e830}"
+EVM_KEY="${HONE_SHIN_EVM_KEY:?Set HONE_SHIN_EVM_KEY in .env}"
+EVM_ADDRESS="${HONE_SHIN_ADDRESS:-0xbde88f2b3a224b242704bd166804e0e12c75e830}"
 
-# Signing authority for the wBTCPC contract (shin's EVM address verifies claim proofs)
+# Signing authority for the wHONE contract (shin's EVM address verifies claim proofs)
 SIGNING_AUTHORITY="$EVM_ADDRESS"
 
 echo "============================================"
-echo "  wBTCPC Deployment — All Chains"
+echo "  wHONE Deployment — All Chains"
 echo "============================================"
 echo ""
 
@@ -53,9 +53,9 @@ deploy_evm() {
   local RPC_URL=$2
   local CHAIN_ID=$3
 
-  echo "[deploy] Deploying wBTCPC on $CHAIN_NAME (chain $CHAIN_ID)..."
+  echo "[deploy] Deploying wHONE on $CHAIN_NAME (chain $CHAIN_ID)..."
 
-  DEPLOY_OUTPUT=$(cd "$REPO_DIR" && forge create contracts/wBTCPC.sol:wBTCPC \
+  DEPLOY_OUTPUT=$(cd "$REPO_DIR" && forge create contracts/wHONE.sol:wHONE \
     --rpc-url "$RPC_URL" \
     --private-key "$EVM_KEY" \
     --constructor-args "$SIGNING_AUTHORITY" \
@@ -64,9 +64,9 @@ deploy_evm() {
   CONTRACT=$(echo "$DEPLOY_OUTPUT" | node -e "var d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).deployedTo)}catch(e){console.log('FAILED: '+d.slice(0,200))}})")
 
   if [[ "$CONTRACT" == 0x* ]]; then
-    echo "  [OK] wBTCPC deployed: $CONTRACT"
-    echo "  Set in .env: WBTCPC_${CHAIN_NAME}_CONTRACT=$CONTRACT"
-    echo "WBTCPC_${CHAIN_NAME}_CONTRACT=$CONTRACT" >> "$REPO_DIR/.env"
+    echo "  [OK] wHONE deployed: $CONTRACT"
+    echo "  Set in .env: WHONE_${CHAIN_NAME}_CONTRACT=$CONTRACT"
+    echo "WHONE_${CHAIN_NAME}_CONTRACT=$CONTRACT" >> "$REPO_DIR/.env"
   else
     echo "  [FAIL] $CONTRACT"
   fi

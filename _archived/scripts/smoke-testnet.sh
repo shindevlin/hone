@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TESTNET_BASE_URL="${TESTNET_BASE_URL:-https://btcpc.net}"
+TESTNET_BASE_URL="${TESTNET_BASE_URL:-https://hone.net}"
 TESTNET_PAGE_PATH="${TESTNET_PAGE_PATH:-/testnet}"
 API_BASE_URL="${API_BASE_URL:-${TESTNET_BASE_URL}}"
-API_KEY="${API_KEY:-${BTCPC_RELAY_API_KEY:-${BTCPC_SMOKE_API_KEY:-}}}"
-MODEL="${MODEL:-${BTCPC_MODEL:-qwen3:4b}}"
+API_KEY="${API_KEY:-${HONE_RELAY_API_KEY:-${HONE_SMOKE_API_KEY:-}}}"
+MODEL="${MODEL:-${HONE_MODEL:-qwen3:4b}}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-20}"
 SMOKE_RETRIES="${SMOKE_RETRIES:-6}"
 SMOKE_BACKOFF_MS="${SMOKE_BACKOFF_MS:-750}"
@@ -119,7 +119,7 @@ retry_body() {
   return 1
 }
 
-echo "BTCPC testnet smoke"
+echo "HONE testnet smoke"
 echo "TESTNET_BASE_URL=${TESTNET_BASE_URL}"
 echo "API_BASE_URL=${API_BASE_URL}"
 echo "MODEL=${MODEL}"
@@ -131,7 +131,7 @@ if [[ -n "${API_KEY}" ]]; then
 fi
 
 page_file="${tmpdir}/testnet.html"
-page_status="$(retry_body "testnet page" "${TESTNET_BASE_URL}${TESTNET_PAGE_PATH}" "${page_file}" "btcpc testnet")"
+page_status="$(retry_body "testnet page" "${TESTNET_BASE_URL}${TESTNET_PAGE_PATH}" "${page_file}" "hone testnet")"
 echo "testnet page: HTTP ${page_status}"
 [[ "${page_status}" == "200" ]]
 
@@ -166,7 +166,7 @@ fi
 
 pricing_file="${tmpdir}/pricing.json"
 if [[ -n "${API_KEY}" ]]; then
-  pricing_status="$(retry_json "pricing" "${API_BASE_URL}/v1/pricing?model=${MODEL}" "${pricing_file}" "typeof data.tokens_per_btcpc === 'number' && data.tokens_per_btcpc > 0" "${auth_args[@]}")"
+  pricing_status="$(retry_json "pricing" "${API_BASE_URL}/v1/pricing?model=${MODEL}" "${pricing_file}" "typeof data.tokens_per_hone === 'number' && data.tokens_per_hone > 0" "${auth_args[@]}")"
   echo "pricing: HTTP ${pricing_status}"
   [[ "${pricing_status}" == "200" ]]
 else
@@ -176,7 +176,7 @@ fi
 if [[ -n "${API_KEY}" ]]; then
   body_file="${tmpdir}/completion.json"
   cat > "${tmpdir}/completion-body.json" <<JSON
-{"model":"${MODEL}","messages":[{"role":"user","content":"Reply with exactly: BTCPC testnet smoke ok"}],"max_tokens":32,"temperature":0}
+{"model":"${MODEL}","messages":[{"role":"user","content":"Reply with exactly: HONE testnet smoke ok"}],"max_tokens":32,"temperature":0}
 JSON
   completion_status="$(retry_json "completion" "${API_BASE_URL}/v1/chat/completions" "${body_file}" "Array.isArray(data.choices) && data.choices.length > 0 && typeof data.choices[0].message?.content === 'string' && data.choices[0].message.content.trim().length > 0" -H "Authorization: Bearer ${API_KEY}" -H "Content-Type: application/json" --data "@${tmpdir}/completion-body.json")"
   echo "completion: HTTP ${completion_status}"

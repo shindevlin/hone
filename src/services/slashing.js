@@ -19,7 +19,7 @@
  *   TIME_DRIFT               — warning → 1% → 5%
  *   CLOCK_OFFLINE            — 0 rewards → 1% → deregistered
  *
- * All slashed tokens go to btcpc_recycle (NEVER burned).
+ * All slashed tokens go to hone_recycle (NEVER burned).
  * Appeals within 100 epochs, adjudicated by fresh random verifier panel.
  *
  * Phase E: SlashRecord Mongoose model removed. Records live in stateStore.
@@ -29,7 +29,7 @@ const stateStore = require('../chain/stateStore');
 const User = require('../models/User');
 const ledger = require('./ledger');
 
-const RECYCLE_ACCOUNT = 'btcpc_recycle';
+const RECYCLE_ACCOUNT = 'hone_recycle';
 const APPEAL_WINDOW_EPOCHS = 100;
 
 /**
@@ -164,11 +164,11 @@ async function calculateSlash(account, offenseType) {
 }
 
 /**
- * Execute a slash — transfer tokens from the account's stake to btcpc_recycle.
+ * Execute a slash — transfer tokens from the account's stake to hone_recycle.
  * Updates stateStore slash tracking.
  *
  * @param {string} account — username
- * @param {number} amount — BTCPC to slash
+ * @param {number} amount — HONE to slash
  * @param {string} reason — human-readable memo
  * @param {number} epoch — current epoch
  * @returns {object} ledger entry (or null if amount is 0)
@@ -178,7 +178,7 @@ async function executeSlash(account, amount, reason, epoch) {
 
   // Record the slash transfer on the permanent ledger
   const entry = await ledger.recordTransfer(
-    account, RECYCLE_ACCOUNT, amount, 'BTCPC', null, epoch,
+    account, RECYCLE_ACCOUNT, amount, 'HONE', null, epoch,
     'slash: ' + reason
   );
 
@@ -208,7 +208,7 @@ async function recordOffense(account, offenseType, evidence) {
   const epoch = await ledger.getCurrentEpoch();
   const calc = await calculateSlash(account, offenseType);
 
-  // Execute the actual slash (transfers tokens to btcpc_recycle)
+  // Execute the actual slash (transfers tokens to hone_recycle)
   let slashTxId = null;
   if (calc.amount > 0) {
     const entry = await executeSlash(account, calc.amount, offenseType, epoch);
@@ -238,7 +238,7 @@ async function recordOffense(account, offenseType, evidence) {
   }
 
   console.log(
-    '[SLASH] %s | %s | tier=%d | amount=%s BTCPC | deregister=%s',
+    '[SLASH] %s | %s | tier=%d | amount=%s HONE | deregister=%s',
     account, offenseType, calc.tier,
     calc.amount > 0 ? calc.amount.toFixed(8) : 'warning',
     calc.deregister
@@ -312,9 +312,9 @@ async function resolveAppeal(slashRecordId, panelVerdicts) {
 
     if (record.amount > 0) {
       const epoch = await ledger.getCurrentEpoch();
-      // Refund from btcpc_recycle back to the account
+      // Refund from hone_recycle back to the account
       await ledger.recordTransfer(
-        RECYCLE_ACCOUNT, record.account, record.amount, 'BTCPC', null, epoch,
+        RECYCLE_ACCOUNT, record.account, record.amount, 'HONE', null, epoch,
         'slash-refund: appeal overturned for ' + record.offenseType
       );
 

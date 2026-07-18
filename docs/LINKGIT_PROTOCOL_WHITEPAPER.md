@@ -7,15 +7,15 @@
 
 ---
 
-> **Note (2026):** LinkGit is a native protocol within BTCPC, deployed at genesis block 0. All entry types described in this whitepaper are natively supported by the BTCPC chain. No separate deployment or smart contract required. See [NATIVE_PROTOCOLS.md](NATIVE_PROTOCOLS.md) for the full native protocol overview.
+> **Note (2026):** LinkGit is a native protocol within HONE, deployed at genesis block 0. All entry types described in this whitepaper are natively supported by the HONE chain. No separate deployment or smart contract required. See [NATIVE_PROTOCOLS.md](NATIVE_PROTOCOLS.md) for the full native protocol overview.
 
 ---
 
 ## Abstract
 
-LinkGit is a decentralized version control protocol built into the BTCPC chain at genesis. Repository objects — commits, trees, blobs — are stored as content-addressed data in btcpc-fs. Branch and tag refs are written as on-chain ledger entries, making every ref change append-only, tamper-evident, and replicated across the entire chain network. Private repositories are encrypted to the owner's hide key; access is granted and revoked on-chain without exposing the symmetric key to any storage node.
+LinkGit is a decentralized version control protocol built into the HONE chain at genesis. Repository objects — commits, trees, blobs — are stored as content-addressed data in hone-fs. Branch and tag refs are written as on-chain ledger entries, making every ref change append-only, tamper-evident, and replicated across the entire chain network. Private repositories are encrypted to the owner's hide key; access is granted and revoked on-chain without exposing the symmetric key to any storage node.
 
-The protocol is designed to coexist with existing git infrastructure. The `git-remote-linkgit` helper translates standard git remote operations into chain entries and btcpc-fs uploads, so users interact with `git push` and `git clone` as normal. A built-in mirror protocol allows simultaneous push to LinkGit and GitHub (or any other git host), so teams do not need to choose between decentralized sovereignty and platform reach.
+The protocol is designed to coexist with existing git infrastructure. The `git-remote-linkgit` helper translates standard git remote operations into chain entries and hone-fs uploads, so users interact with `git push` and `git clone` as normal. A built-in mirror protocol allows simultaneous push to LinkGit and GitHub (or any other git host), so teams do not need to choose between decentralized sovereignty and platform reach.
 
 Protocol ownership is held by the `linkgit` account (controlled by `shindevlin` at genesis) and is transferable via standard key rotation.
 
@@ -43,8 +43,8 @@ The core of git is already decentralized: every clone is a complete, cryptograph
 
 LinkGit replaces that centralized ref pointer with an on-chain ledger entry. When you push to a LinkGit remote, two things happen:
 
-1. Your git objects (commits, trees, blobs) are uploaded to btcpc-fs as content-addressed storage, replicated across the BTCPC storage network.
-2. The updated branch ref (`main` → `abc123`) is written as a `LinkGitRefUpdate` entry to the BTCPC ledger, replicated across every node in the network.
+1. Your git objects (commits, trees, blobs) are uploaded to hone-fs as content-addressed storage, replicated across the HONE storage network.
+2. The updated branch ref (`main` → `abc123`) is written as a `LinkGitRefUpdate` entry to the HONE ledger, replicated across every node in the network.
 
 The result is a repository where:
 - The objects are content-addressed and distributed — no single node holds the authoritative copy
@@ -58,8 +58,8 @@ The result is a repository where:
 1. **Git-compatible.** `git push`, `git clone`, `git fetch` work without modification. The `git-remote-linkgit` helper handles the translation.
 2. **Coexist with GitHub.** The mirror protocol pushes to LinkGit and GitHub simultaneously. Teams can publish to GitHub for discoverability while maintaining sovereign storage on-chain.
 3. **Private by default for encrypted repos.** No storage node can read a private repository without the symmetric key. Access control is enforced cryptographically, not by server-side policy.
-4. **Lean chain footprint.** The chain stores only refs and access control entries — not git objects. Objects live in btcpc-fs. This keeps chain state compact and replication fast.
-5. **Economic sustainability.** Storage nodes earn BTCPC for hosting git objects. Dead objects are pruned by default; retention beyond the default window costs a fee.
+4. **Lean chain footprint.** The chain stores only refs and access control entries — not git objects. Objects live in hone-fs. This keeps chain state compact and replication fast.
+5. **Economic sustainability.** Storage nodes earn HONE for hosting git objects. Dead objects are pruned by default; retention beyond the default window costs a fee.
 
 ---
 
@@ -70,16 +70,16 @@ The result is a repository where:
 ```
 Developer Workstation
      │
-     │  git push linkgit://shindevlin/btcpc
+     │  git push linkgit://shindevlin/hone
      ▼
-git-remote-linkgit  (git remote helper, installed as part of btcpc-node toolchain)
+git-remote-linkgit  (git remote helper, installed as part of hone-node toolchain)
      │
-     ├── Upload git objects → btcpc-fs (content-addressed blob storage)
+     ├── Upload git objects → hone-fs (content-addressed blob storage)
      │
-     └── Write ref update → BTCPC Chain (LinkGitRefUpdate entry)
+     └── Write ref update → HONE Chain (LinkGitRefUpdate entry)
                                   │
                                   ▼
-                       All BTCPC nodes replicate the ref
+                       All HONE nodes replicate the ref
                                   │
                                   ▼
                        Storage nodes serve objects
@@ -92,25 +92,25 @@ git-remote-linkgit  (git remote helper, installed as part of btcpc-node toolchai
 The mirror protocol runs alongside the git-remote-linkgit helper. When configured, a push to a LinkGit remote fans out to all configured mirror remotes in parallel:
 
 ```
-git push linkgit://shindevlin/btcpc main
+git push linkgit://shindevlin/hone main
      │
      ├── git-remote-linkgit: upload objects + write LinkGitRefUpdate
      │
      └── mirror apply:
-          ├── git push github:shindevlin/btcpc main (via standard git)
-          └── git push gitlab:shindevlin/btcpc main (via standard git)
+          ├── git push github:shindevlin/hone main (via standard git)
+          └── git push gitlab:shindevlin/hone main (via standard git)
 ```
 
 Mirror configuration lives in `.linkgit/mirrors` at the repo root:
 
 ```
 [mirror "github"]
-  url = https://github.com/shindevlin/btcpc
+  url = https://github.com/shindevlin/hone
   push = refs/heads/*
   push = refs/tags/*
 
 [mirror "gitlab"]
-  url = https://gitlab.com/shindevlin/btcpc
+  url = https://gitlab.com/shindevlin/hone
   push = refs/heads/*
 ```
 
@@ -122,7 +122,7 @@ Private repos use the owner's hide key, an ed25519 keypair derived from the BIP-
 
 **Write path (owner pushes to private repo):**
 1. Owner generates a repo symmetric key (AES-256-GCM, 32 bytes random).
-2. All git objects are encrypted with the symmetric key before upload to btcpc-fs.
+2. All git objects are encrypted with the symmetric key before upload to hone-fs.
 3. The owner's hide public key is registered on-chain in `LinkGitRepoCreate`.
 4. The symmetric key is encrypted to the owner's hide public key using ECIES (secp256k1) and stored locally.
 
@@ -131,7 +131,7 @@ Private repos use the owner's hide key, an ed25519 keypair derived from the BIP-
 2. Owner fetches grantee's hide public key from the chain.
 3. Owner encrypts the repo symmetric key to grantee's hide public key.
 4. Owner submits `LinkGitAccessGrant` containing the `encrypted_key` field (ciphertext visible on-chain, only decryptable by grantee's hide private key).
-5. Grantee fetches the `LinkGitAccessGrant` entry, decrypts `encrypted_key` with their hide private key, recovers the symmetric key, and can now decrypt all repo objects from btcpc-fs.
+5. Grantee fetches the `LinkGitAccessGrant` entry, decrypts `encrypted_key` with their hide private key, recovers the symmetric key, and can now decrypt all repo objects from hone-fs.
 
 **Revoke access path:**
 1. Owner submits `LinkGitAccessRevoke` for the grantee.
@@ -140,9 +140,9 @@ Private repos use the owner's hide key, an ed25519 keypair derived from the BIP-
 
 ### 2.4 Storage and GC
 
-LinkGit's storage model is designed for efficiency. The chain does not store git objects — only CID references (hashes) in `LinkGitRefUpdate` entries. The objects themselves live in btcpc-fs.
+LinkGit's storage model is designed for efficiency. The chain does not store git objects — only CID references (hashes) in `LinkGitRefUpdate` entries. The objects themselves live in hone-fs.
 
-**Default GC:** After each `LinkGitRefUpdate`, storage nodes compute the set of git objects that are no longer reachable from any live ref in the repo (unreachable commits, trees, blobs). These are garbage collected. The storage node that performs GC submits a `LinkGitPruneProof` entry containing a Merkle root of pruned CIDs and total bytes freed, earning a small BTCPC reward.
+**Default GC:** After each `LinkGitRefUpdate`, storage nodes compute the set of git objects that are no longer reachable from any live ref in the repo (unreachable commits, trees, blobs). These are garbage collected. The storage node that performs GC submits a `LinkGitPruneProof` entry containing a Merkle root of pruned CIDs and total bytes freed, earning a small HONE reward.
 
 **Retaining objects:** Repo owners who need to retain orphaned objects (for example, an abandoned feature branch, or a historical state for compliance purposes) submit a `LinkGitStorageExtend` entry. The entry specifies the CIDs to preserve and `keep_until_epoch`. The fee is proportional to the number of CIDs and the number of epochs of retention. After `keep_until_epoch`, normal GC rules apply.
 
@@ -150,7 +150,7 @@ LinkGit's storage model is designed for efficiency. The chain does not store git
 
 ## 3. Entry Types
 
-All LinkGit operations are expressed as first-class BTCPC ledger entries. No WASM smart contract is required.
+All LinkGit operations are expressed as first-class HONE ledger entries. No WASM smart contract is required.
 
 | Entry Type | Who Signs | What It Does |
 |---|---|---|
@@ -158,7 +158,7 @@ All LinkGit operations are expressed as first-class BTCPC ledger entries. No WAS
 | `LinkGitRefUpdate` | owner (posting key) | Records a new commit hash for a branch or tag ref. Triggers storage nodes to GC unreachable objects. |
 | `LinkGitAccessGrant` | grantor (posting key) | Shares the repo's symmetric key encrypted to the grantee's hide public key. Grants read access to a private repo. |
 | `LinkGitAccessRevoke` | grantor (posting key) | Revokes a previously granted access. Storage nodes stop serving objects to the grantee after this entry is applied. |
-| `LinkGitPruneProof` | storage node (posting key) | Proves that a storage node has GC'd unreachable objects after a ref update. Includes Merkle root of pruned CIDs and bytes freed. Earns a small BTCPC reward. |
+| `LinkGitPruneProof` | storage node (posting key) | Proves that a storage node has GC'd unreachable objects after a ref update. Includes Merkle root of pruned CIDs and bytes freed. Earns a small HONE reward. |
 | `LinkGitStorageExtend` | owner (posting key) | Pays a fee to retain specific CIDs beyond the default prune window. Specifies CIDs to keep and `keep_until_epoch`. |
 
 ### 3.1 Entry Schema Details
@@ -168,7 +168,7 @@ All LinkGit operations are expressed as first-class BTCPC ledger entries. No WAS
 {
   "type": "LinkGitRepoCreate",
   "account": "shindevlin",
-  "repo_id": "shindevlin/btcpc",
+  "repo_id": "shindevlin/hone",
   "visibility": "public",
   "hide_pubkey": null,
   "description": "Bitcoin Proof of Compute",
@@ -196,7 +196,7 @@ Private repo:
 {
   "type": "LinkGitRefUpdate",
   "account": "shindevlin",
-  "repo_id": "shindevlin/btcpc",
+  "repo_id": "shindevlin/hone",
   "ref": "refs/heads/main",
   "old_oid": "0000000000000000000000000000000000000000",
   "new_oid": "a7f4b3c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5",
@@ -223,7 +223,7 @@ Private repo:
 {
   "type": "LinkGitPruneProof",
   "account": "storage-node-1",
-  "repo_id": "shindevlin/btcpc",
+  "repo_id": "shindevlin/hone",
   "pruned_cids_root": "sha256:b94d27b9...",
   "pruned_count": 47,
   "bytes_freed": 1247832,
@@ -265,7 +265,7 @@ git remote add origin linkgit://shindevlin/my-project
 git push origin main
 
 # Clone
-git clone linkgit://shindevlin/btcpc
+git clone linkgit://shindevlin/hone
 
 # Fetch
 git fetch origin
@@ -278,15 +278,15 @@ git fetch origin
 linkgit mirror init
 
 # Add mirrors
-linkgit mirror add github https://github.com/shindevlin/btcpc
-linkgit mirror add gitlab https://gitlab.com/shindevlin/btcpc
+linkgit mirror add github https://github.com/shindevlin/hone
+linkgit mirror add gitlab https://gitlab.com/shindevlin/hone
 
 # Apply mirrors to git config (sets up multi-push)
 linkgit mirror apply
 
 # Now git push fans out to all mirrors automatically
 git push origin main
-# pushes to: linkgit://shindevlin/btcpc, github, gitlab
+# pushes to: linkgit://shindevlin/hone, github, gitlab
 
 # View configured mirrors
 linkgit mirror list
@@ -299,12 +299,12 @@ The `.linkgit/mirrors` config file:
 
 ```ini
 [mirror "github"]
-  url = https://github.com/shindevlin/btcpc
+  url = https://github.com/shindevlin/hone
   push = refs/heads/*
   push = refs/tags/*
 
 [mirror "gitlab"]
-  url = https://gitlab.com/shindevlin/btcpc
+  url = https://gitlab.com/shindevlin/hone
   push = refs/heads/*
 ```
 
@@ -327,13 +327,13 @@ linkgit access list alice/private-project
 
 ```bash
 # View storage usage for a repo
-linkgit storage status shindevlin/btcpc
+linkgit storage status shindevlin/hone
 
 # Extend storage for specific objects
 linkgit storage extend alice/private-project --cid sha256:abc... --until-epoch 10000
 
 # View prune history
-linkgit storage pruned shindevlin/btcpc
+linkgit storage pruned shindevlin/hone
 ```
 
 ---
@@ -342,13 +342,13 @@ linkgit storage pruned shindevlin/btcpc
 
 ### 5.1 Storage Fees
 
-LinkGit storage fees are paid in BTCPC dreams when committing objects to btcpc-fs. The fee is charged by the btcpc-fs storage network, not by the LinkGit protocol layer. Storage nodes earn from the 12% storage reward pool for hosting git objects alongside other btcpc-fs blobs.
+LinkGit storage fees are paid in HONE dreams when committing objects to hone-fs. The fee is charged by the hone-fs storage network, not by the LinkGit protocol layer. Storage nodes earn from the 12% storage reward pool for hosting git objects alongside other hone-fs blobs.
 
-There is no per-push fee for writing on-chain entries. The standard BTCPC transaction fee (denominated in dreams) applies to each ledger entry: `LinkGitRepoCreate`, `LinkGitRefUpdate`, `LinkGitAccessGrant`, etc.
+There is no per-push fee for writing on-chain entries. The standard HONE transaction fee (denominated in dreams) applies to each ledger entry: `LinkGitRepoCreate`, `LinkGitRefUpdate`, `LinkGitAccessGrant`, etc.
 
 ### 5.2 GC Rewards
 
-Storage nodes earn BTCPC for proving garbage collection. When a `LinkGitRefUpdate` moves a branch head, the storage nodes that perform GC submit `LinkGitPruneProof` entries. The proof earns a small reward from the storage pool proportional to the bytes freed. This creates an economic incentive for storage nodes to actively prune dead objects rather than holding them indefinitely.
+Storage nodes earn HONE for proving garbage collection. When a `LinkGitRefUpdate` moves a branch head, the storage nodes that perform GC submit `LinkGitPruneProof` entries. The proof earns a small reward from the storage pool proportional to the bytes freed. This creates an economic incentive for storage nodes to actively prune dead objects rather than holding them indefinitely.
 
 ### 5.3 Protocol Revenue
 
@@ -361,7 +361,7 @@ The `linkgit` protocol account earns a small fee on each `LinkGitStorageExtend` 
 ### 6.1 Threat Model
 
 **What LinkGit protects against:**
-- Platform censorship — objects are replicated across the btcpc-fs storage network; no single node can suppress access
+- Platform censorship — objects are replicated across the hone-fs storage network; no single node can suppress access
 - Silent content modification — all objects are content-addressed; the chain ref anchors a specific hash, not a mutable pointer
 - Unauthorized access to private repos — objects are encrypted before upload; storage nodes cannot read the content
 - Access revocation bypass — revocation is a chain entry; storage nodes enforce it at the serving layer
@@ -369,7 +369,7 @@ The `linkgit` protocol account earns a small fee on each `LinkGitStorageExtend` 
 **What LinkGit does not protect against:**
 - An attacker who compromises both the owner's private key AND the hide private key (full key compromise) — at this point, the attacker has access to both the symmetric key and the ability to write new access grants
 - Traffic analysis — observers can see that a push occurred, the repo ID, and the new commit hash (for public repos); they cannot read the objects for private repos, but the timing and frequency of pushes is visible on-chain
-- Storage network attacks — if the majority of storage nodes holding a specific repo's objects go offline, the objects may become unavailable (the chain ref still exists, but objects cannot be fetched). This is mitigated by replication factor in btcpc-fs.
+- Storage network attacks — if the majority of storage nodes holding a specific repo's objects go offline, the objects may become unavailable (the chain ref still exists, but objects cannot be fetched). This is mitigated by replication factor in hone-fs.
 
 ### 6.2 Hide Key Architecture
 
@@ -400,29 +400,29 @@ The `linkgit` account is controlled by `shindevlin` at genesis. The `linkgit-reg
 
 **What shindevlin controls at genesis:**
 - Protocol fee parameters (percentage of `LinkGitStorageExtend` fees flowing to `linkgit`)
-- GC reward calibration (the BTCPC reward per byte freed in `LinkGitPruneProof`)
+- GC reward calibration (the HONE reward per byte freed in `LinkGitPruneProof`)
 - Future protocol upgrades (new entry types, schema extensions)
-- The `btcpc/btcpc` GitHub repository — the reference implementation of the LinkGit chain layer and the `git-remote-linkgit` helper
+- The `hone/hone` GitHub repository — the reference implementation of the LinkGit chain layer and the `git-remote-linkgit` helper
 
 **What shindevlin does not control:**
 - Individual repositories — once a `LinkGitRepoCreate` entry is written, the repo's ref history is on-chain and immutable
 - Private repo objects — encrypted before upload; not readable by any account without the symmetric key
-- Historical commit history — all git objects are content-addressed in btcpc-fs; no protocol account can modify or delete them outside the GC mechanism
+- Historical commit history — all git objects are content-addressed in hone-fs; no protocol account can modify or delete them outside the GC mechanism
 
 ### 7.2 Transfer Mechanism
 
 Ownership of LinkGit can be transferred from shindevlin to any other party via two steps:
 
 1. **On-chain key rotation**: submit `AccountUpdateKey` for the `linkgit` account, changing the owner key to the new controller's key.
-2. **GitHub repository transfer**: transfer the `btcpc/btcpc` GitHub repository (which contains the LinkGit implementation — `rust/linkgit/`, chain entry types, API endpoints) to the new controller's GitHub account.
+2. **GitHub repository transfer**: transfer the `hone/hone` GitHub repository (which contains the LinkGit implementation — `rust/linkgit/`, chain entry types, API endpoints) to the new controller's GitHub account.
 
-Both steps together constitute a complete transfer of the protocol. The BTCPC genesis block records shindevlin as the original protocol author for historical attribution.
+Both steps together constitute a complete transfer of the protocol. The HONE genesis block records shindevlin as the original protocol author for historical attribution.
 
 ### 7.3 Strategic Value
 
-LinkGit is positioned as the native version control layer for the BTCPC ecosystem. Every BTCPC project — miners, validators, protocol implementations — can be hosted on LinkGit with sovereign ownership and simultaneous GitHub publishing.
+LinkGit is positioned as the native version control layer for the HONE ecosystem. Every HONE project — miners, validators, protocol implementations — can be hosted on LinkGit with sovereign ownership and simultaneous GitHub publishing.
 
-Long-term, as the BTCPC ecosystem grows, LinkGit becomes the default code hosting layer for teams that want cryptographic proof of their codebase's history without platform dependency. The mirror protocol ensures no friction during the transition — teams can mirror to GitHub indefinitely and shift their primary hosting to LinkGit as the storage network matures.
+Long-term, as the HONE ecosystem grows, LinkGit becomes the default code hosting layer for teams that want cryptographic proof of their codebase's history without platform dependency. The mirror protocol ensures no friction during the transition — teams can mirror to GitHub indefinitely and shift their primary hosting to LinkGit as the storage network matures.
 
 ---
 
@@ -433,15 +433,15 @@ Long-term, as the BTCPC ecosystem grows, LinkGit becomes the default code hostin
 `git-remote-linkgit` is a git remote helper — a binary that git invokes when a remote URL uses the `linkgit://` scheme. The helper speaks the git remote helper protocol on stdin/stdout.
 
 **Capabilities:**
-- `fetch` — fetches git objects from btcpc-fs and writes them to the local object store
-- `push` — uploads git objects to btcpc-fs, writes `LinkGitRefUpdate` entries to the chain
+- `fetch` — fetches git objects from hone-fs and writes them to the local object store
+- `push` — uploads git objects to hone-fs, writes `LinkGitRefUpdate` entries to the chain
 - `list` — lists all refs for a repo by querying the chain API
 
-**Installation:** The helper is distributed as part of `btcpc-node`. After `cargo build`, the `git-remote-linkgit` binary is in `target/release/` and must be on PATH for git to find it.
+**Installation:** The helper is distributed as part of `hone-node`. After `cargo build`, the `git-remote-linkgit` binary is in `target/release/` and must be on PATH for git to find it.
 
 ### 8.2 Chain-Side State
 
-The BTCPC node maintains LinkGit state in RocksDB:
+The HONE node maintains LinkGit state in RocksDB:
 
 ```
 linkgit:repo:{repo_id}          → JSON: { owner, visibility, hide_pubkey, description, created_epoch }
@@ -461,11 +461,11 @@ POST /api/linkgit/repos/{repo_id}/access/grant  — grant access (submits LinkGi
 POST /api/linkgit/repos/{repo_id}/access/revoke — revoke access (submits LinkGitAccessRevoke entry)
 ```
 
-### 8.3 btcpc-fs Integration
+### 8.3 hone-fs Integration
 
-Git objects uploaded during a push are chunked and stored in btcpc-fs at their SHA-256 content hash. The btcpc-fs CID for a git object is `sha256:<hex>`. Since git already identifies objects by SHA-1, the btcpc-fs layer adds SHA-256 content addressing on top for storage-layer deduplication and verification.
+Git objects uploaded during a push are chunked and stored in hone-fs at their SHA-256 content hash. The hone-fs CID for a git object is `sha256:<hex>`. Since git already identifies objects by SHA-1, the hone-fs layer adds SHA-256 content addressing on top for storage-layer deduplication and verification.
 
-On fetch, `git-remote-linkgit` queries the chain for the current ref OID, then fetches the required objects from btcpc-fs by CID. The objects are written to the local git object store and git's standard pack negotiation handles delta compression.
+On fetch, `git-remote-linkgit` queries the chain for the current ref OID, then fetches the required objects from hone-fs by CID. The objects are written to the local git object store and git's standard pack negotiation handles delta compression.
 
 ---
 
@@ -500,14 +500,14 @@ On fetch, `git-remote-linkgit` queries the chain for the current ref OID, then f
 - Notifications: subscriber accounts watch repos for `LinkGitRefUpdate` events
 
 ### Phase 3 (Q4 2026)
-- LinkGit web explorer: public repos browsable at a web UI served by any BTCPC node
+- LinkGit web explorer: public repos browsable at a web UI served by any HONE node
 - CI/CD integration: trigger builds on `LinkGitRefUpdate` events via webhooks to off-chain build systems
 - Organization accounts: multi-sig posting key for org-owned repos
 
 ### Phase 4 (2027)
 - On-chain governance for repo forks (fork = `LinkGitRepoCreate` with `forked_from` field)
 - Reputation system: storage nodes rated by uptime and fetch latency
-- Cross-chain repo mirroring: `LinkGitRefUpdate` relayed to Nostr or ActivityPub for discoverability outside the BTCPC ecosystem
+- Cross-chain repo mirroring: `LinkGitRefUpdate` relayed to Nostr or ActivityPub for discoverability outside the HONE ecosystem
 
 ---
 
@@ -516,7 +516,7 @@ On fetch, `git-remote-linkgit` queries the chain for the current ref OID, then f
 ### `LinkGitRepoCreate`
 | Field | Type | Description |
 |---|---|---|
-| `account` | string | Owner's BTCPC account name |
+| `account` | string | Owner's HONE account name |
 | `repo_id` | string | `owner/repo` format, globally unique |
 | `visibility` | string | `"public"` or `"private"` |
 | `hide_pubkey` | string? | Owner's hide public key (required for private repos) |
@@ -527,7 +527,7 @@ On fetch, `git-remote-linkgit` queries the chain for the current ref OID, then f
 ### `LinkGitRefUpdate`
 | Field | Type | Description |
 |---|---|---|
-| `account` | string | Owner's BTCPC account name |
+| `account` | string | Owner's HONE account name |
 | `repo_id` | string | `owner/repo` |
 | `ref` | string | Full ref name (`refs/heads/main`, `refs/tags/v1.0.0`) |
 | `old_oid` | string | Previous commit hash (all zeros for new ref) |
@@ -538,9 +538,9 @@ On fetch, `git-remote-linkgit` queries the chain for the current ref OID, then f
 ### `LinkGitAccessGrant`
 | Field | Type | Description |
 |---|---|---|
-| `account` | string | Grantor's BTCPC account name |
+| `account` | string | Grantor's HONE account name |
 | `repo_id` | string | `owner/repo` |
-| `grantee` | string | Grantee's BTCPC account name |
+| `grantee` | string | Grantee's HONE account name |
 | `encrypted_key` | string | Repo symmetric key encrypted to grantee's hide public key (hex ECIES ciphertext) |
 | `epoch` | u64 | Chain epoch at submission |
 | `sig` | string | Hex-encoded signature (grantor's posting key) |
@@ -548,16 +548,16 @@ On fetch, `git-remote-linkgit` queries the chain for the current ref OID, then f
 ### `LinkGitAccessRevoke`
 | Field | Type | Description |
 |---|---|---|
-| `account` | string | Revoker's BTCPC account name |
+| `account` | string | Revoker's HONE account name |
 | `repo_id` | string | `owner/repo` |
-| `grantee` | string | BTCPC account name being revoked |
+| `grantee` | string | HONE account name being revoked |
 | `epoch` | u64 | Chain epoch at submission |
 | `sig` | string | Hex-encoded signature (revoker's posting key) |
 
 ### `LinkGitPruneProof`
 | Field | Type | Description |
 |---|---|---|
-| `account` | string | Storage node's BTCPC account name |
+| `account` | string | Storage node's HONE account name |
 | `repo_id` | string | `owner/repo` |
 | `pruned_cids_root` | string | Merkle root of pruned CIDs (hex SHA-256) |
 | `pruned_count` | u32 | Number of objects pruned |
@@ -568,7 +568,7 @@ On fetch, `git-remote-linkgit` queries the chain for the current ref OID, then f
 ### `LinkGitStorageExtend`
 | Field | Type | Description |
 |---|---|---|
-| `account` | string | Owner's BTCPC account name |
+| `account` | string | Owner's HONE account name |
 | `repo_id` | string | `owner/repo` |
 | `cids` | string[] | List of CIDs to preserve |
 | `keep_until_epoch` | u64 | Last epoch at which CIDs must be retained |
@@ -605,9 +605,9 @@ Running `linkgit mirror apply` translates this config into git's native multi-pu
 | `linkgit` | Protocol authority account; receives protocol fee share | `shindevlin` at genesis; transferable via key rotation |
 | `linkgit-registry` | On-chain anchor for repository metadata and access control state | Protocol; no user keys at genesis |
 
-Both accounts are seeded at genesis block 0 with zero BTCPC balance. Keys are registered at sidecar startup via `AccountUpdateKey`.
+Both accounts are seeded at genesis block 0 with zero HONE balance. Keys are registered at sidecar startup via `AccountUpdateKey`.
 
 ---
 
 *LinkGit Protocol — Version 1.0 — Shin Devlin — April 2026*
-*Part of the BTCPC native protocol suite. See also: [Freeport Protocol Whitepaper](FREEPORT_PROTOCOL_WHITEPAPER.md), [Verasens Protocol Whitepaper](VERASENS_PROTOCOL_WHITEPAPER.md)*
+*Part of the HONE native protocol suite. See also: [Freeport Protocol Whitepaper](FREEPORT_PROTOCOL_WHITEPAPER.md), [Verasens Protocol Whitepaper](VERASENS_PROTOCOL_WHITEPAPER.md)*

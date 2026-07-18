@@ -1,10 +1,10 @@
 "use strict";
 
 /**
- * hiveClaimManager.js — Submit and track BTCPC cross-chain claims on Hive
+ * hiveClaimManager.js — Submit and track HONE cross-chain claims on Hive
  * Shin Devlin
  *
- * Posts custom_json operations to the Hive blockchain with id "btcpc-claim".
+ * Posts custom_json operations to the Hive blockchain with id "hone-claim".
  * Tracks all submitted claims in MongoDB for audit and duplicate prevention.
  */
 
@@ -116,7 +116,7 @@ async function postClaimToHive(proof, hiveAccount, hivePostingKey) {
   });
 
   if (existing && (existing.status === "broadcast" || existing.status === "confirmed")) {
-    console.log("[BTCPC] Hive claim already submitted for epoch " + proof.epoch);
+    console.log("[HONE] Hive claim already submitted for epoch " + proof.epoch);
     return {
       status: "duplicate",
       tx_id: existing.hive_tx_id,
@@ -145,7 +145,7 @@ async function postClaimToHive(proof, hiveAccount, hivePostingKey) {
 
   // Build the custom_json payload
   const jsonPayload = {
-    type: "btcpc-claim",
+    type: "hone-claim",
     version: 1,
     miner: proof.miner,
     epoch: proof.epoch,
@@ -163,7 +163,7 @@ async function postClaimToHive(proof, hiveAccount, hivePostingKey) {
     const result = await client.broadcast.json({
       required_auths: [],
       required_posting_auths: [hiveAccount],
-      id: "btcpc-claim",
+      id: "hone-claim",
       json: JSON.stringify(jsonPayload)
     }, key);
 
@@ -172,7 +172,7 @@ async function postClaimToHive(proof, hiveAccount, hivePostingKey) {
     claim.broadcast_at = new Date();
     await claim.save();
 
-    console.log("[BTCPC] Hive claim broadcast for epoch " + proof.epoch + " tx: " + result.id);
+    console.log("[HONE] Hive claim broadcast for epoch " + proof.epoch + " tx: " + result.id);
 
     return {
       status: "broadcast",
@@ -184,7 +184,7 @@ async function postClaimToHive(proof, hiveAccount, hivePostingKey) {
     claim.error_message = err.message;
     await claim.save();
 
-    console.error("[BTCPC] Hive claim failed for epoch " + proof.epoch + ": " + err.message);
+    console.error("[HONE] Hive claim failed for epoch " + proof.epoch + ": " + err.message);
 
     return {
       status: "failed",
@@ -196,7 +196,7 @@ async function postClaimToHive(proof, hiveAccount, hivePostingKey) {
 
 /**
  * Get all claims for a specific miner.
- * @param {string} miner - BTCPC miner account name
+ * @param {string} miner - HONE miner account name
  * @returns {Array<Object>} Array of claim records
  */
 async function getClaimsForMiner(miner) {
@@ -205,7 +205,7 @@ async function getClaimsForMiner(miner) {
 
 /**
  * Get pending (unsubmitted) claims for a miner.
- * @param {string} miner - BTCPC miner account name
+ * @param {string} miner - HONE miner account name
  * @returns {Array<Object>} Array of pending claim records
  */
 async function getPendingClaims(miner) {
@@ -214,7 +214,7 @@ async function getPendingClaims(miner) {
 
 /**
  * Get claim status for a specific epoch.
- * @param {string} miner - BTCPC miner account name
+ * @param {string} miner - HONE miner account name
  * @param {number} epoch - Epoch number
  * @returns {Object|null} Claim record or null
  */

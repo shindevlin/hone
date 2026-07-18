@@ -64,36 +64,36 @@ pub struct WalletKeys {
     pub mnemonic: String,
 
     // HONE role keys — SLIP-10 m/44'/6942'/role'/0'
-    // serde aliases accept pre-rebrand wallet.key files (btcpc_* field names).
+    // serde aliases accept pre-rebrand wallet.key files (hone_* field names).
     // Owner: key rotation and governance. Keep this one cold.
-    #[serde(alias = "btcpc_owner_private_key")]
+    #[serde(alias = "hone_owner_private_key")]
     pub hone_owner_private_key:   String,
-    #[serde(alias = "btcpc_owner_public_key")]
+    #[serde(alias = "hone_owner_public_key")]
     pub hone_owner_public_key:    String,
     // Active: transfers and staking.
-    #[serde(alias = "btcpc_active_private_key")]
+    #[serde(alias = "hone_active_private_key")]
     pub hone_active_private_key:  String,
-    #[serde(alias = "btcpc_active_public_key")]
+    #[serde(alias = "hone_active_public_key")]
     pub hone_active_public_key:   String,
     // Posting: daily ops. Safe to keep on device.
-    #[serde(alias = "btcpc_private_key")]
+    #[serde(alias = "hone_private_key")]
     pub hone_private_key: String,  // ← kept as canonical "posting" for back-compat
-    #[serde(alias = "btcpc_public_key")]
+    #[serde(alias = "hone_public_key")]
     pub hone_public_key:  String,
     // Memo: encrypted messages and selective disclosure.
-    #[serde(alias = "btcpc_memo_private_key")]
+    #[serde(alias = "hone_memo_private_key")]
     pub hone_memo_private_key:    String,
-    #[serde(alias = "btcpc_memo_public_key")]
+    #[serde(alias = "hone_memo_public_key")]
     pub hone_memo_public_key:     String,
     // Hide: encrypt private content for your own eyes only.
-    #[serde(alias = "btcpc_hide_private_key")]
+    #[serde(alias = "hone_hide_private_key")]
     pub hone_hide_private_key:    String,
-    #[serde(alias = "btcpc_hide_public_key")]
+    #[serde(alias = "hone_hide_public_key")]
     pub hone_hide_public_key:     String,
     // Seek: encrypted digital delivery to buyers.
-    #[serde(alias = "btcpc_seek_private_key")]
+    #[serde(alias = "hone_seek_private_key")]
     pub hone_seek_private_key:    String,
-    #[serde(alias = "btcpc_seek_public_key")]
+    #[serde(alias = "hone_seek_public_key")]
     pub hone_seek_public_key:     String,
 
     // Bitcoin — secp256k1 BIP44 m/44'/0'/0'/0/0
@@ -272,7 +272,7 @@ pub fn init(data_dir: &Path) -> Result<WalletKeys> {
         struct Legacy {
             #[serde(default)] mnemonic:          String,
             #[serde(default)] private_key:        String,
-            #[serde(default, alias = "btcpc_private_key")] hone_private_key:  String,
+            #[serde(default, alias = "hone_private_key")] hone_private_key:  String,
         }
         if let Ok(leg) = serde_json::from_str::<Legacy>(&json) {
             let input = [&leg.mnemonic, &leg.private_key, &leg.hone_private_key]

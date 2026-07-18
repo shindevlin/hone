@@ -3,7 +3,7 @@
 /**
  * Model Manager — auto-downloads models based on network demand and disk budget.
  *
- * Miners set BTCPC_MAX_MODEL_STORAGE_GB (default 50GB).
+ * Miners set HONE_MAX_MODEL_STORAGE_GB (default 50GB).
  * On each check, pulls the highest-demand model that fits within budget.
  * Prioritizes smaller models first (more variety = more job types = more earnings).
  */
@@ -12,8 +12,8 @@ const axios = require('axios');
 const { execSync } = require('child_process');
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const MAX_STORAGE_GB = parseFloat(process.env.BTCPC_MAX_MODEL_STORAGE_GB) || 50;
-const CHECK_INTERVAL_MS = parseInt(process.env.BTCPC_MODEL_CHECK_MS) || 1800000; // 30 min
+const MAX_STORAGE_GB = parseFloat(process.env.HONE_MAX_MODEL_STORAGE_GB) || 50;
+const CHECK_INTERVAL_MS = parseInt(process.env.HONE_MODEL_CHECK_MS) || 1800000; // 30 min
 
 let checkTimer = null;
 
@@ -145,8 +145,8 @@ async function checkAndPullModels() {
  * Start the model manager loop.
  */
 function startModelManager() {
-  if (process.env.BTCPC_AUTO_MODELS === 'false') {
-    console.log('[model-mgr] Disabled (BTCPC_AUTO_MODELS=false)');
+  if (process.env.HONE_AUTO_MODELS === 'false') {
+    console.log('[model-mgr] Disabled (HONE_AUTO_MODELS=false)');
     return;
   }
 

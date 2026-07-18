@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS bandwidth accumulator tests — v2.11.1
+ * HONE-FS bandwidth accumulator tests — v2.11.1
  *
  * Tests the in-memory byte counter and its flush-to-chain integration.
  * Uses dependency injection to avoid pulling in the full ledger/stateStore

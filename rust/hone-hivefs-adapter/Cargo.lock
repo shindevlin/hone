@@ -101,7 +101,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-hivefs-adapter"
+name = "hone-hivefs-adapter"
 version = "0.1.0"
 dependencies = [
  "anyhow",

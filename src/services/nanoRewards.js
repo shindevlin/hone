@@ -1,18 +1,18 @@
 "use strict";
 
 /**
- * BTCPC Nano Rewards — v2.15-alpha
+ * HONE Nano Rewards — v2.15-alpha
  * Shin Devlin
  *
- * Reward calculation for the BTCPC-nano IoT pool.
+ * Reward calculation for the HONE-nano IoT pool.
  *
- * All BTCPC amounts are percentages of a pool — never fixed quantities.
- * See feedback_conditional_payouts.md: "no fixed BTCPC promises in the
+ * All HONE amounts are percentages of a pool — never fixed quantities.
+ * See feedback_conditional_payouts.md: "no fixed HONE promises in the
  * protocol layer". The caller (miner.js, v2.15-beta) decides what
  * fraction of the block reward constitutes the IoT pool; this module
  * only computes how that pool is split among participants.
  *
- * No burn ever: any fees flow to btcpc_recycle, never to a burn address.
+ * No burn ever: any fees flow to hone_recycle, never to a burn address.
  * See feedback_no_burn_all_recycle.md.
  *
  * No slashing for offline sensors or gateways — paid for delivery only.
@@ -132,7 +132,7 @@ function computeIoTRewards(epochNumber, blockReward, activeGateways, activeSenso
  * The result is expressed as a fraction of the total IoT pool so the
  * caller can multiply by whatever block reward they want to display.
  *
- * Never returns a fixed BTCPC amount — always a fraction.
+ * Never returns a fixed HONE amount — always a fraction.
  *
  * @param {number} readingsPerEpoch — readings this sensor submits per epoch
  * @param {number} uptimePct — sensor uptime as a decimal (0.0 – 1.0)

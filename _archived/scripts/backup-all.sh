@@ -1,6 +1,6 @@
 #!/bin/bash
-# BTCPC ecosystem backup — all repos + chain data
-# Run daily via cron: 0 3 * * * /home/ubuntclaw/repos/btcpc/scripts/backup-all.sh
+# HONE ecosystem backup — all repos + chain data
+# Run daily via cron: 0 3 * * * /home/ubuntclaw/repos/hone/scripts/backup-all.sh
 
 BACKUP_DIR="/home/ubuntclaw/backups"
 DATE=$(date +%Y-%m-%d)
@@ -13,7 +13,7 @@ echo "[$DATE] Backup started" >> "$LOG"
 
 # ── Repos (code only, skip node_modules) ──
 REPOS=(
-  btcpc btcpcbot btcpcwalletbot alertbot
+  hone honebot honewalletbot alertbot
   bullship nsfwotica brutus11 ursOS realfake redaktly
   BusWingSpread betchu_bot counselflow spirit-of-ngu itsurs waitlyfi
 )
@@ -26,17 +26,17 @@ for repo in "${REPOS[@]}"; do
 done
 echo "[$DATE]   Repos backed up: ${#REPOS[@]}" >> "$LOG"
 
-# ── .env and .envbtcpc files (secrets) ──
+# ── .env and .envhone files (secrets) ──
 mkdir -p "$BACKUP_PATH/secrets"
 for repo in "${REPOS[@]}"; do
   src="/home/ubuntclaw/repos/$repo"
   [ -f "$src/.env" ] && cp "$src/.env" "$BACKUP_PATH/secrets/${repo}.env"
-  [ -f "$src/.envbtcpc" ] && cp "$src/.envbtcpc" "$BACKUP_PATH/secrets/${repo}.envbtcpc"
+  [ -f "$src/.envhone" ] && cp "$src/.envhone" "$BACKUP_PATH/secrets/${repo}.envhone"
 done
 echo "[$DATE]   Secrets backed up" >> "$LOG"
 
 # ── MongoDB dump ──
-docker exec urs-node-vault-mongodb mongodump --uri="mongodb://root:example@localhost:27017/btcpc?authSource=admin" --out="/tmp/mongodump-$DATE" 2>/dev/null
+docker exec urs-node-vault-mongodb mongodump --uri="mongodb://root:example@localhost:27017/hone?authSource=admin" --out="/tmp/mongodump-$DATE" 2>/dev/null
 if [ -d "/tmp/mongodump-$DATE" ]; then
   docker cp "urs-node-vault-mongodb:/tmp/mongodump-$DATE" "$BACKUP_PATH/mongodb/"
   docker exec urs-node-vault-mongodb rm -rf "/tmp/mongodump-$DATE"
@@ -45,7 +45,7 @@ fi
 
 # ── Inference results ──
 for repo in "${REPOS[@]}"; do
-  src="/home/ubuntclaw/repos/$repo/.btcpc-inference"
+  src="/home/ubuntclaw/repos/$repo/.hone-inference"
   if [ -d "$src" ]; then
     mkdir -p "$BACKUP_PATH/inference/$repo"
     cp -r "$src/"* "$BACKUP_PATH/inference/$repo/" 2>/dev/null

@@ -6,7 +6,7 @@ the phone is a true miner + clock + sensor node when backgrounded.
 
 See [`docs/ANDROID_WORLDCLASS_PLAN.md`](../../docs/ANDROID_WORLDCLASS_PLAN.md) for
 the full plan and locked decisions. This replaces the old Capacitor webview
-(`clients/btcpc-android`), which stays buildable until this reaches parity.
+(`clients/hone-android`), which stays buildable until this reaches parity.
 
 ## Status
 

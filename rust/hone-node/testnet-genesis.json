@@ -1,6 +1,6 @@
 {
   "genesis_timestamp": 1777633200000,
-  "chain_id": "btcpc-satoshi",
+  "chain_id": "hone-satoshi",
   "accounts": {
     "shindevlin": {
       "balance": 100000000000000,

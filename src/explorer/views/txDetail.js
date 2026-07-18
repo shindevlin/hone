@@ -50,7 +50,7 @@ function txDetailView(data) {
         <dt>To</dt>\
         <dd>' + (tx.to ? '<a href="/account/' + encodeURIComponent(tx.to) + '">' + escapeHtml(tx.to) + '</a>' : "--") + '</dd>\
         <dt>Amount</dt>\
-        <dd class="amount">' + formatNumber(tx.amount) + ' ' + (tx.token || "BTCPC") + '</dd>\
+        <dd class="amount">' + formatNumber(tx.amount) + ' ' + (tx.token || "HONE") + '</dd>\
         <dt>Epoch</dt>\
         <dd>' + (tx.epoch !== undefined && tx.epoch !== null ? '<a href="/block/' + tx.epoch + '">#' + tx.epoch + '</a>' : "--") + '</dd>\
         <dt>Timestamp</dt>\

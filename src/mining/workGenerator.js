@@ -38,7 +38,7 @@ async function verifyModelParams(model) {
     const paramCount = res.data?.model_info?.['general.parameter_count'];
     if (paramCount && paramCount > 0) {
       verifiedParamCache[model] = paramCount;
-      console.log(`[BTCPC] Verified model ${model}: ${paramCount} params`);
+      console.log(`[HONE] Verified model ${model}: ${paramCount} params`);
       return paramCount;
     }
   } catch (_) {
@@ -48,7 +48,7 @@ async function verifyModelParams(model) {
   // Fallback: parse from name, convert to raw count (less secure, logged)
   const fromName = parseModelWeightFromName(model);
   const estimated = Math.round(fromName * 1e9);
-  console.warn(`[BTCPC] WARNING: Using unverified param count for ${model}: ${estimated} (Ollama unreachable)`);
+  console.warn(`[HONE] WARNING: Using unverified param count for ${model}: ${estimated} (Ollama unreachable)`);
   return estimated;
 }
 
@@ -84,16 +84,16 @@ const MODEL_WEIGHTS = {};
  */
 // Metadata tags describing what is being built — inscribed on genesis dreams
 const BUILD_METADATA = [
-  { project: "btcpc", tag: "Proof of Compute consensus engine" },
-  { project: "btcpc", tag: "Cross-chain mining reward system" },
-  { project: "btcpc", tag: "BIP-39 wallet with protocol-level 2FA" },
-  { project: "btcpc", tag: "Decentralized inference API" },
-  { project: "btcpc", tag: "Genesis dream NFT and inscription system" },
-  { project: "btcpc", tag: "Encrypted inference protocol" },
-  { project: "btcpc", tag: "Hierarchical key management" },
-  { project: "btcpc", tag: "Block explorer and network dashboard" },
-  { project: "btcpc", tag: "P2P network layer for sovereign chain" },
-  { project: "btcpc", tag: "Commit-reveal verification for AI compute" },
+  { project: "hone", tag: "Proof of Compute consensus engine" },
+  { project: "hone", tag: "Cross-chain mining reward system" },
+  { project: "hone", tag: "BIP-39 wallet with protocol-level 2FA" },
+  { project: "hone", tag: "Decentralized inference API" },
+  { project: "hone", tag: "Genesis dream NFT and inscription system" },
+  { project: "hone", tag: "Encrypted inference protocol" },
+  { project: "hone", tag: "Hierarchical key management" },
+  { project: "hone", tag: "Block explorer and network dashboard" },
+  { project: "hone", tag: "P2P network layer for sovereign chain" },
+  { project: "hone", tag: "Commit-reveal verification for AI compute" },
 ];
 
 function getEpochMetadata(epochNumber) {
@@ -194,7 +194,7 @@ async function generateWork(model, customPrompt, opts) {
       }
       const backoff = Math.min(1000 * Math.pow(2, attempt), 30000);
       const jitter = Math.floor(Math.random() * 1000);
-      console.log(`[BTCPC] Ollama busy, retrying in ${(backoff + jitter) / 1000}s (attempt ${attempt}/${maxAttempts})`);
+      console.log(`[HONE] Ollama busy, retrying in ${(backoff + jitter) / 1000}s (attempt ${attempt}/${maxAttempts})`);
       await sleep(backoff + jitter);
     }
   }

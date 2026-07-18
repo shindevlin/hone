@@ -1,9 +1,9 @@
-# BTCPC ↔ OpenClaw Compatibility PRD
+# HONE ↔ OpenClaw Compatibility PRD
 
-> **Goal:** make BTCPC and OpenClaw (github.com/openclaw/openclaw — a local-first,
+> **Goal:** make HONE and OpenClaw (github.com/openclaw/openclaw — a local-first,
 > multi-channel personal AI assistant, Node/TS monorepo, Gateway control plane,
 > plugin system, sandboxed tool execution) interoperate, in increasing depth.
-> OpenClaw brings users, channels, and distribution. BTCPC brings mining-backed
+> OpenClaw brings users, channels, and distribution. HONE brings mining-backed
 > inference, a wallet, escrow, and a job marketplace. Neither has to build the
 > other's hard part.
 
@@ -26,52 +26,52 @@ it, test it, commit, and tick the box.
   assumption. (Note: this run did not execute `openclaw onboard`/`gateway` — it
   requires Node ≥22.19 + `pnpm install`; the "read the code" half of this item,
   which is what every downstream phase actually needs, is complete. Actually
-  standing up a live Gateway is folded into Phase 1's "Wire BTCPC as a provider"
+  standing up a live Gateway is folded into Phase 1's "Wire HONE as a provider"
   step, where it's needed for the real round-trip.) Commit on `main`.
-- [ ] **Confirm BTCPC's OpenAI-compatible endpoint works standalone** —
+- [ ] **Confirm HONE's OpenAI-compatible endpoint works standalone** —
   `curl -X POST https://honemesh.net/v1/chat/completions -H "Authorization:
-  Bearer btcpc_..." -d '{"model":"auto","messages":[...]}'`. If this endpoint
+  Bearer hone_..." -d '{"model":"auto","messages":[...]}'`. If this endpoint
   is only documented and not live/tested, get a real API key via the faucet
   flow and prove one request round-trips.
 - [ ] **Confirm `/api/bot/*` surface is stable enough to build on** — this is
-  what `bots/btcpcwalletbot` already uses; an OpenClaw plugin would call the
+  what `bots/honewalletbot` already uses; an OpenClaw plugin would call the
   same routes. Read `src/routes/botRoutes.js` and note which endpoints exist
   today (create, login, balance, transfer, faucet, stake) vs. which would need
   to be added for Phase 2.
 
-## Phase 1 — BTCPC as OpenClaw's inference backend
+## Phase 1 — HONE as OpenClaw's inference backend
 
-The shortest path. Wires OpenClaw's LLM calls through BTCPC's mining-backed
-inference. No new BTCPC code — this is entirely OpenClaw-side configuration
-(and maybe a small BTCPC-side adapter if `model: auto` doesn't map cleanly
+The shortest path. Wires OpenClaw's LLM calls through HONE's mining-backed
+inference. No new HONE code — this is entirely OpenClaw-side configuration
+(and maybe a small HONE-side adapter if `model: auto` doesn't map cleanly
 onto whatever provider interface OpenClaw expects).
 
 - [ ] **Identify OpenClaw's provider/model config surface** — find where
   OpenClaw configures its LLM provider (likely an OpenAI-compatible
   `baseURL`/`apiKey` config, given it's TS). Confirm it accepts an arbitrary
   `baseURL` like the existing honemesh.net `/v1` docs already assume.
-- [ ] **Wire BTCPC as a provider** — point OpenClaw's inference config at
-  `https://honemesh.net/v1` with a `btcpc_...` API key. Get one real
-  conversation turn to complete through BTCPC's mining pipeline.
+- [ ] **Wire HONE as a provider** — point OpenClaw's inference config at
+  `https://honemesh.net/v1` with a `hone_...` API key. Get one real
+  conversation turn to complete through HONE's mining pipeline.
 - [ ] **Verify the round trip on-chain** — confirm the request actually
   produced an `INFERENCE_CHARGE` entry and rewarded a miner (check via
   explorer or `/api/node/info` on a node that served the job). This is the
-  proof that OpenClaw traffic = real BTCPC token demand, not just an API
+  proof that OpenClaw traffic = real HONE token demand, not just an API
   passthrough that happens to work.
 - [ ] **Document the setup** — a short guide (`docs/OPENCLAW_INFERENCE_SETUP.md`
-  or a section here) so any OpenClaw user can point their instance at BTCPC.
+  or a section here) so any OpenClaw user can point their instance at HONE.
 
 ## Phase 2 — Conversational wallet plugin
 
-An OpenClaw plugin that lets a user manage their BTCPC wallet from any
+An OpenClaw plugin that lets a user manage their HONE wallet from any
 channel OpenClaw supports (Telegram, Discord, iMessage, Slack, etc.) by
 talking to the existing `/api/bot/*` HTTP surface — the same API
-`bots/btcpcwalletbot` already uses. No new chain logic; this is a thin
+`bots/honewalletbot` already uses. No new chain logic; this is a thin
 client, same as the existing bots.
 
 - [ ] **Scope the plugin's command surface** — balance, transfer, faucet
   claim, stake/unstake, account creation. Reuse the same request/response
-  shapes as `bots/btcpcwalletbot` so both clients stay consistent.
+  shapes as `bots/honewalletbot` so both clients stay consistent.
 - [ ] **Build the OpenClaw plugin** — following OpenClaw's plugin API
   (confirmed in Phase 0), implement it as HTTP calls to `/api/bot/*`. Tokens/
   JWTs stored per-OpenClaw-user via whatever secret-storage OpenClaw's plugin
@@ -81,21 +81,21 @@ client, same as the existing bots.
   and Discord), since that cross-channel behavior is the actual value OpenClaw
   adds over the existing single-purpose bots.
 - [ ] **Decide fate of the existing Telegram-only bots** — once the OpenClaw
-  plugin covers wallet actions, `bots/btcpcwalletbot` may become redundant for
+  plugin covers wallet actions, `bots/honewalletbot` may become redundant for
   OpenClaw users (but should stay for non-OpenClaw Telegram users). Document
   the decision, don't silently deprecate.
 
-## Phase 3 — OpenClaw device runs a BTCPC node (the flywheel)
+## Phase 3 — OpenClaw device runs a HONE node (the flywheel)
 
-The deep integration: every OpenClaw install becomes a potential BTCPC
+The deep integration: every OpenClaw install becomes a potential HONE
 earning node. If the user's hardware has Ollama/GPU, their assistant mines
 while idle — potentially offsetting/paying for its own inference cost.
 
 - [ ] **Determine supervision model** — can OpenClaw's existing sandbox/
-  plugin backends supervise a long-running child process (a `btcpc-node`
+  plugin backends supervise a long-running child process (a `hone-node`
   binary), or does this need a companion daemon alongside OpenClaw rather
   than inside it? Read OpenClaw's sandbox backend code before deciding.
-- [ ] **Bundle or fetch `btcpc-node`** — decide whether OpenClaw ships the
+- [ ] **Bundle or fetch `hone-node`** — decide whether OpenClaw ships the
   binary, downloads it on first run (reusing `website/install.sh` self-heal
   logic), or only integrates with an already-running node.
 - [ ] **Auto-provision a node identity** — on first run, generate keys /
@@ -111,11 +111,11 @@ while idle — potentially offsetting/paying for its own inference cost.
 
 ## Phase 4 — Agent-to-agent settlement (frontier)
 
-OpenClaw agents pay each other in BTCPC for compute or goods, using
+OpenClaw agents pay each other in HONE for compute or goods, using
 `INFERENCE_CHARGE` and escrow primitives that already exist on-chain.
 
 - [ ] **Design the settlement flow** — write a short spec: when does one
-  OpenClaw agent owe another BTCPC (compute delegation? Freeport purchase
+  OpenClaw agent owe another HONE (compute delegation? Freeport purchase
   made on a user's behalf? LinkGit pull with a paid tier?). This needs a
   design pass before any code — the existing escrow/`INFERENCE_CHARGE` entry
   types were built for human-initiated jobs, not necessarily agent-initiated
@@ -124,7 +124,7 @@ OpenClaw agents pay each other in BTCPC for compute or goods, using
   single most obviously valuable case from the design pass and build only
   that one first.
 - [ ] **Security review before shipping** — agent-initiated payments are a
-  new trust boundary (an agent spending a user's BTCPC without a human
+  new trust boundary (an agent spending a user's HONE without a human
   clicking "confirm" each time). Needs explicit spend limits / confirmation
   policy design, reviewed before this goes live for real users.
 
@@ -171,7 +171,7 @@ wrong.*
     register(api) })` from `openclaw/plugin-sdk/plugin-entry`.
 - The `register(api)` object is `OpenClawPluginApi` (defined in
   `src/plugins/types.ts`, re-exported via `packages/plugin-sdk`). It is **very
-  broad**. The registration methods that matter for BTCPC:
+  broad**. The registration methods that matter for HONE:
   - `registerTool(tool | factory, opts)` — **this is the Phase 2 hook.** A tool is
     `AnyAgentTool`: `{ name, label, description, parameters (a Typebox/JSON schema),
     execute(toolCallId, rawParams) }`. Real template to copy:
@@ -182,7 +182,7 @@ wrong.*
   - `registerCli(...)`, `registerGatewayMethod(...)`, `registerHttpRoute(...)`,
     `registerChannel(...)`, `registerService(...)` — `registerService` is a
     **long-running service** hook, directly relevant to Phase 3 supervising a
-    `btcpc-node` child.
+    `hone-node` child.
   - `api.config` (full `OpenClawConfig`) and `api.pluginConfig` (this plugin's
     config, validated against `configSchema`).
 - **Secret storage (answers the Phase 2 "never in plaintext config" requirement):**
@@ -191,7 +191,7 @@ wrong.*
   `resolveSecretInputString`, `normalizeSecretInput`, `isSecretRef`, `coerceSecretRef`,
   `buildSecretInputSchema`. Config fields declared with `buildOptionalSecretInputSchema()`
   are recognized by redaction and resolved at runtime (e.g. from `$FIRECRAWL_API_KEY`).
-  `firecrawl/src/config.ts` is the reference pattern. **A BTCPC wallet plugin should
+  `firecrawl/src/config.ts` is the reference pattern. **A HONE wallet plugin should
   store its `/api/bot/*` JWT/token as a secret-input ref, not a plaintext string.**
 
 ### Inference provider config (needed by Phase 1) — CONFIRMED, no blockers
@@ -202,9 +202,9 @@ is **correct**, and there are two clean paths:
 1. **Env-var override on the bundled `openai` extension.** `extensions/openai/base-url.ts`
    → `resolveOpenAIDefaultBaseUrl()` returns `OPENAI_BASE_URL` if set, else
    `https://api.openai.com/v1`. So the absolute-shortest wiring is:
-   `OPENAI_BASE_URL=https://btcpc.net/v1` + `OPENAI_API_KEY=btcpc_...`. Caveat:
-   this masquerades BTCPC as "openai" and its model catalog is the hardcoded GPT
-   list, so `model: auto`/BTCPC model ids won't be in the catalog (works for a
+   `OPENAI_BASE_URL=https://hone.net/v1` + `OPENAI_API_KEY=hone_...`. Caveat:
+   this masquerades HONE as "openai" and its model catalog is the hardcoded GPT
+   list, so `model: auto`/HONE model ids won't be in the catalog (works for a
    raw round-trip; not clean for a distinct provider).
 2. **Config-driven per-provider `baseUrl` (the correct path).** `baseUrl` is a
    first-class field on provider catalog entries
@@ -216,19 +216,19 @@ is **correct**, and there are two clean paths:
      `http://localhost:4000`), auth choice has `allowExplicitBaseUrl: true`, and
      non-interactive setup accepts `ctx.opts.customBaseUrl`
      (`extensions/litellm/index.ts`, `extensions/litellm/onboard.ts`).
-   - **This is the model to follow** for a first-class "btcpc" provider: either
-     configure BTCPC under an existing generic provider id, or (cleaner) add a
-     small `extensions/btcpc` provider plugin whose `modelCatalog.providers.btcpc`
-     has `baseUrl: https://btcpc.net/v1`, `api: "openai-*"`, and lists BTCPC's
-     `model: auto`. **No new BTCPC-node code is required for Phase 1 either way** —
+   - **This is the model to follow** for a first-class "hone" provider: either
+     configure HONE under an existing generic provider id, or (cleaner) add a
+     small `extensions/hone` provider plugin whose `modelCatalog.providers.hone`
+     has `baseUrl: https://hone.net/v1`, `api: "openai-*"`, and lists HONE's
+     `model: auto`. **No new HONE-node code is required for Phase 1 either way** —
      it's OpenClaw-side config (path 1) or a small OpenClaw-side provider plugin
-     (path 2). Recommend path 2 for the "Wire BTCPC as a provider" step so on-chain
+     (path 2). Recommend path 2 for the "Wire HONE as a provider" step so on-chain
      attribution and model ids are clean.
 
-- **Net-policy caveat (relevant if a BTCPC node is on localhost/LAN, e.g. Phase 3):**
+- **Net-policy caveat (relevant if a HONE node is on localhost/LAN, e.g. Phase 3):**
   OpenClaw gates private/LAN endpoints. `litellm` shows the escape hatch —
   `resolveAllowPrivateNetwork` / `shouldAutoAllowPrivateLitellmEndpoint`
-  (`extensions/litellm/image-generation-provider.ts`). A public `https://btcpc.net/v1`
+  (`extensions/litellm/image-generation-provider.ts`). A public `https://hone.net/v1`
   is unaffected; a `http://localhost:4242` local node would need the private-network
   allow. `packages/net-policy` is the relevant package.
 
@@ -244,11 +244,11 @@ channel-agnostic — the Gateway routes them to whichever channel the session is
 ### Open flags for later phases
 
 - **Phase 3 supervision:** `registerService(...)` exists as an in-process
-  long-running service hook — Phase 3's "supervise a `btcpc-node` binary" is
+  long-running service hook — Phase 3's "supervise a `hone-node` binary" is
   plausible *inside* OpenClaw via a service that spawns/monitors the child, but the
   sandbox-backend read that item calls for hasn't been done yet. Left for Phase 3.
-- **Model catalog vs. `model: auto`:** BTCPC's `model: auto` won't appear in
-  OpenClaw's model catalog unless BTCPC is added as a catalog provider (path 2
+- **Model catalog vs. `model: auto`:** HONE's `model: auto` won't appear in
+  OpenClaw's model catalog unless HONE is added as a catalog provider (path 2
   above). Path 1 works for a raw round-trip but not for catalog/routing UX.
 
 ---

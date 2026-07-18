@@ -1,6 +1,6 @@
-# BTCPC Chain Truth & P2P Hardening
+# HONE Chain Truth & P2P Hardening
 
-This phase turns the agreed BTCPC chain model into code:
+This phase turns the agreed HONE chain model into code:
 
 - chain truth lives on-chain only
 - replay is a cache/bootstrap step, not the source of truth
@@ -80,7 +80,7 @@ This phase turns the agreed BTCPC chain model into code:
 - `src/controllers/nodeController.js`
 - `src/controllers/publicRoutes.js`
 - `src/mining/miner.js`
-- `bin/btcpc-clock`
+- `bin/hone-clock`
 - `src/p2p/address.js`
 - `src/p2p/protocol.js`
 - `src/p2p/network.js`

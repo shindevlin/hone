@@ -1,7 +1,7 @@
 # Phase 99: Decentralized Runtimes (HTTP + Worker + Stateful)
 
 ## Goal
-Enable BTCPC users to run decentralized services with durable scheduling, multi-host failover, and slashable cryptographic accountability, using OCI and WASM runtime targets.
+Enable HONE users to run decentralized services with durable scheduling, multi-host failover, and slashable cryptographic accountability, using OCI and WASM runtime targets.
 
 ## Success Criteria
 - Runtime lifecycle entries are accepted and deterministically applied.

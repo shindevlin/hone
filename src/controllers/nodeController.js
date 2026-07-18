@@ -10,8 +10,8 @@ const { rejectObjectInputs, sanitizeString, validEndpoint, validModel, validHexS
 const MIN_STAKE = 1000;
 
 /**
- * Register as a BTCPC mining node.
- * Requires authenticated user with >= 1000 BTCPC staked.
+ * Register as a HONE mining node.
+ * Requires authenticated user with >= 1000 HONE staked.
  *
  * Phase E: Node, Epoch, StakingPool Mongoose models removed.
  * Uses nodeRegistry + stateStore.
@@ -54,7 +54,7 @@ async function registerNode(req, res) {
     const stakedAmount = stakePool ? (stakePool.total_staked || 0) : 0;
     if (stakedAmount < MIN_STAKE) {
       return res.status(400).json({
-        error: `Minimum stake of ${MIN_STAKE} BTCPC required to register a node. Current stake: ${stakedAmount}`
+        error: `Minimum stake of ${MIN_STAKE} HONE required to register a node. Current stake: ${stakedAmount}`
       });
     }
 

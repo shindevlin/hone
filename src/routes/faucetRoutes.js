@@ -1,10 +1,10 @@
 "use strict";
 
 /**
- * BTCPC Faucet
+ * HONE Faucet
  * Shin Devlin
  *
- * Faucet issues DELEGATED tokens, not gifted BTCPC.
+ * Faucet issues DELEGATED tokens, not gifted HONE.
  * Delegated tokens can only be spent on direct network services — AI,
  * sensor data, storage, and other on-chain service requests. They are not
  * transferable, sellable, stakeable, or bridgeable.
@@ -23,7 +23,7 @@ const ledger = require("../services/ledger");
 const stateStore = require("../chain/stateStore");
 const { shouldStartBackgroundTimers } = require("../services/backgroundTimers");
 
-const FAUCET_ACCOUNT = "btcpc_faucet";      // holds the faucet reserve
+const FAUCET_ACCOUNT = "hone_faucet";      // holds the faucet reserve
 const DELEGATION_EPOCHS = 720;              // ~6 hours at 30s epochs — expires automatically
 
 // Scales with network maturity — same service utility regardless of epoch
@@ -64,7 +64,7 @@ if (shouldStartBackgroundTimers()) {
 
 /**
  * POST /api/faucet/claim
- * Issues delegated BTCPC to a zero-balance account.
+ * Issues delegated HONE to a zero-balance account.
  * Tokens are spendable on direct network services only — not transferable.
  * Body: { account: "username" }
  */
@@ -79,7 +79,7 @@ router.post("/claim", async (req, res) => {
     const ip = req.ip || req.connection.remoteAddress || "unknown";
     if (!checkIPLimit(ip)) {
       return res.status(429).json({
-        error: "Too many faucet claims from this IP. Max 3 per day. Earn BTCPC by mining, running sensors, or storing data.",
+        error: "Too many faucet claims from this IP. Max 3 per day. Earn HONE by mining, running sensors, or storing data.",
       });
     }
 
@@ -102,21 +102,21 @@ router.post("/claim", async (req, res) => {
     }
 
     // Only claim if wallet balance is zero (delegated balance excluded — can re-claim when used up)
-    const walletBalance = stateStore.getBalance(account, "BTCPC");
+    const walletBalance = stateStore.getBalance(account, "HONE");
     if (walletBalance > 0) {
       return res.status(400).json({
-        error: "You already have " + walletBalance.toFixed(4) + " BTCPC. Use your tokens before claiming more.",
+        error: "You already have " + walletBalance.toFixed(4) + " HONE. Use your tokens before claiming more.",
         balance: walletBalance,
       });
     }
 
     // Block re-claim while delegated balance is still active
     const currentDelegated = stateStore.getDelegatedBalance
-      ? stateStore.getDelegatedBalance(account, "BTCPC")
+      ? stateStore.getDelegatedBalance(account, "HONE")
       : 0;
     if (currentDelegated > 0) {
       return res.status(429).json({
-        error: "You still have " + currentDelegated.toFixed(4) + " delegated BTCPC. Use it for AI, sensor data, storage, or other network services before claiming more.",
+        error: "You still have " + currentDelegated.toFixed(4) + " delegated HONE. Use it for AI, sensor data, storage, or other network services before claiming more.",
         delegated_balance: currentDelegated,
       });
     }
@@ -134,7 +134,7 @@ router.post("/claim", async (req, res) => {
     }
 
     // Faucet reserve must have funds
-    const faucetBalance = stateStore.getBalance(FAUCET_ACCOUNT, "BTCPC");
+    const faucetBalance = stateStore.getBalance(FAUCET_ACCOUNT, "HONE");
     const amount = getFaucetAmount();
     if (faucetBalance < amount) {
       return res.status(503).json({ error: "Faucet reserve is empty. Check back later." });
@@ -146,7 +146,7 @@ router.post("/claim", async (req, res) => {
     claimedAccounts.set(account, currentEpoch);
 
     const delegatedBalance = stateStore.getDelegatedBalance
-      ? stateStore.getDelegatedBalance(account, "BTCPC")
+      ? stateStore.getDelegatedBalance(account, "HONE")
       : amount;
 
     res.json({
@@ -156,7 +156,7 @@ router.post("/claim", async (req, res) => {
       delegated_balance: delegatedBalance,
       expires_epochs: DELEGATION_EPOCHS,
       expires_minutes: Math.ceil(DELEGATION_EPOCHS * 30 / 60),
-      message: `Welcome to BTCPC — ${amount} BTCPC delegated for direct network services. Use it for AI, sensor data, storage, or other on-chain service requests. Earn owned BTCPC by mining, running sensors, or storing data.`,
+      message: `Welcome to HONE — ${amount} HONE delegated for direct network services. Use it for AI, sensor data, storage, or other on-chain service requests. Earn owned HONE by mining, running sensors, or storing data.`,
       note: "Delegated tokens are network-use only. They cannot be transferred, sold, staked, or bridged.",
     });
   } catch (err) {
@@ -169,7 +169,7 @@ router.post("/claim", async (req, res) => {
  * Public — faucet reserve balance and current claim amount.
  */
 router.get("/status", (req, res) => {
-  const faucetBalance = stateStore.getBalance(FAUCET_ACCOUNT, "BTCPC");
+  const faucetBalance = stateStore.getBalance(FAUCET_ACCOUNT, "HONE");
   res.json({
     faucet_account: FAUCET_ACCOUNT,
     reserve_balance: faucetBalance,

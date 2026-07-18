@@ -13,12 +13,12 @@ describe('finalizationConsensus', () => {
 
   beforeEach(() => {
     jest.useRealTimers();
-    delete process.env.BTCPC_PROPOSAL_WINDOW_MS;
-    delete process.env.BTCPC_PROPOSAL_TIMEOUT_MS;
-    delete process.env.BTCPC_MIN_CONSENSUS_PROPOSALS;
-    delete process.env.BTCPC_MIN_CONSENSUS_PEERS;
-    delete process.env.BTCPC_MAX_PROPOSAL_TOTAL;
-    delete process.env.BTCPC_STRICT_PROPOSAL_VALIDATION;
+    delete process.env.HONE_PROPOSAL_WINDOW_MS;
+    delete process.env.HONE_PROPOSAL_TIMEOUT_MS;
+    delete process.env.HONE_MIN_CONSENSUS_PROPOSALS;
+    delete process.env.HONE_MIN_CONSENSUS_PEERS;
+    delete process.env.HONE_MAX_PROPOSAL_TOTAL;
+    delete process.env.HONE_STRICT_PROPOSAL_VALIDATION;
     const stateStore = require('../src/chain/stateStore');
     stateStore.resetAll();
   });
@@ -88,7 +88,7 @@ describe('finalizationConsensus', () => {
 
   test('single proposal wins after timeout window expires', () => {
     jest.useFakeTimers();
-    process.env.BTCPC_PROPOSAL_WINDOW_MS = '100';
+    process.env.HONE_PROPOSAL_WINDOW_MS = '100';
     const consensus = loadConsensus();
 
     const result = consensus.submitProposal(102, {
@@ -247,7 +247,7 @@ describe('finalizationConsensus', () => {
 
   test('resolve picks the highest-stake group even when outnumbered', () => {
     // Min-proposal floor of 4 keeps the swarm from auto-resolving before the whale votes
-    process.env.BTCPC_MIN_CONSENSUS_PROPOSALS = '4';
+    process.env.HONE_MIN_CONSENSUS_PROPOSALS = '4';
     const stakes = { whale: 900, s1: 10, s2: 10, s3: 10 };
     const consensus = loadConsensus({ stake: (p) => stakes[p] || 0 });
     const whaleRewards = [{ miner: 'whale', amount: 100 }];
@@ -262,12 +262,12 @@ describe('finalizationConsensus', () => {
     expect(winner.proposer).toBe('whale');
   });
 
-  // ── BTCPC_MIN_CONSENSUS_PROPOSALS ──────────────────────────────
+  // ── HONE_MIN_CONSENSUS_PROPOSALS ──────────────────────────────
 
   test('window expiry does not auto-resolve below the minimum proposal count', () => {
     jest.useFakeTimers();
-    process.env.BTCPC_PROPOSAL_WINDOW_MS = '100';
-    process.env.BTCPC_MIN_CONSENSUS_PROPOSALS = '2';
+    process.env.HONE_PROPOSAL_WINDOW_MS = '100';
+    process.env.HONE_MIN_CONSENSUS_PROPOSALS = '2';
     const consensus = loadConsensus();
     const rewards = [{ miner: 'solo', amount: 243 }];
 
@@ -308,7 +308,7 @@ describe('finalizationConsensus', () => {
   });
 
   test('strict mode rejects reward recipients with no recorded proof', () => {
-    process.env.BTCPC_STRICT_PROPOSAL_VALIDATION = '1';
+    process.env.HONE_STRICT_PROPOSAL_VALIDATION = '1';
     const consensus = loadConsensus({
       proofs: () => ({ miningProofs: [{ miner: 'honest' }], computeProofs: [] })
     });
@@ -320,14 +320,14 @@ describe('finalizationConsensus', () => {
     expect(bad.reason).toMatch(/no recorded proof/);
 
     const good = consensus.submitProposal(222, {
-      proposer: 'honest', rewards: [{ miner: 'honest', amount: 10 }, { miner: 'btcpc_recycle', amount: 5 }],
+      proposer: 'honest', rewards: [{ miner: 'honest', amount: 10 }, { miner: 'hone_recycle', amount: 5 }],
       total_work: 1, settled_jobs: 1, timestamp: 2
     });
     expect(good.accepted).toBe(true);
   });
 
   test('strict mode is permissive when no local proofs exist for the epoch', () => {
-    process.env.BTCPC_STRICT_PROPOSAL_VALIDATION = '1';
+    process.env.HONE_STRICT_PROPOSAL_VALIDATION = '1';
     const consensus = loadConsensus({
       proofs: () => ({ miningProofs: [], computeProofs: [] })
     });
@@ -439,8 +439,8 @@ describe('finalizationConsensus', () => {
 
   test('minimum distinct source count blocks resolution until met', () => {
     jest.useFakeTimers();
-    process.env.BTCPC_PROPOSAL_WINDOW_MS = '100';
-    process.env.BTCPC_MIN_CONSENSUS_PEERS = '2';
+    process.env.HONE_PROPOSAL_WINDOW_MS = '100';
+    process.env.HONE_MIN_CONSENSUS_PEERS = '2';
     const consensus = loadConsensus();
     const rewards = [{ miner: 'x', amount: 1 }];
 

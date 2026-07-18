@@ -1,10 +1,10 @@
 "use strict";
 
 /**
- * BTCPC Snapshot Replication — v2.14-alpha
+ * HONE Snapshot Replication — v2.14-alpha
  * Shin Devlin
  *
- * Pure data-layer module for snapshot save/load via BTCPC-FS with
+ * Pure data-layer module for snapshot save/load via HONE-FS with
  * N-way replication. No spawn, no service runtime — just snapshot
  * bytes in, CIDs out.
  *
@@ -12,7 +12,7 @@
  * an in-memory Map. Disk-backed metadata (and on-chain SNAPSHOT_COMMIT
  * ledger entries) land in v2.14-beta.
  *
- * The actual snapshot BYTES are stored in BTCPC-FS (blobStore), which
+ * The actual snapshot BYTES are stored in HONE-FS (blobStore), which
  * IS disk-backed via the content-addressed blob layer from v2.11.
  *
  * Architecture — sibling-module pattern:
@@ -120,7 +120,7 @@ function createReplicator(options) {
         ? opts.replication_factor
         : defaultReplicationFactor;
 
-    // Store bytes in BTCPC-FS — throws if empty or too large.
+    // Store bytes in HONE-FS — throws if empty or too large.
     var result = blobStore.putBlob(snapshotBytes);
     var cid = result.cid;
     var size = result.size || snapshotBytes.length;
@@ -153,7 +153,7 @@ function createReplicator(options) {
 
   /**
    * Load the most recent snapshot for the given slug whose bytes are
-   * still retrievable from BTCPC-FS.
+   * still retrievable from HONE-FS.
    *
    * @param {string} slug
    * @returns {{ cid, bytes, created_at, replicas }} or null

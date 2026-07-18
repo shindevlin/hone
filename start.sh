@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# BTCPC Node — Linux / WSL launcher
+# HONE Node — Linux / WSL launcher
 # Usage: ./start.sh
 # Requires: Docker (with Compose v2) + Ollama installed on the host.
 # For hosts without Ollama: docker compose --profile bundled-ollama up -d
@@ -26,8 +26,8 @@ for i in $(seq 1 10); do
     sleep 1
 done
 
-echo "Starting BTCPC node..."
+echo "Starting HONE node..."
 docker compose up -d
 
 echo ""
-echo "Done. Check logs with: docker compose logs -f btcpc-node"
+echo "Done. Check logs with: docker compose logs -f hone-node"

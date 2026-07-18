@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Sensor Rewards
+ * HONE Sensor Rewards
  * Shin Devlin
  *
  * Sensor rewards are NOT epoch-based. They trigger when data is purchased,
@@ -12,12 +12,12 @@
  *      The reading is an immutable fact. No reward yet.
  *
  *   2. Buyer queries sensor data (any epoch, any time later)
- *      Buyer pays BTCPC for the data → purchase recorded on-chain
+ *      Buyer pays HONE for the data → purchase recorded on-chain
  *
  *   3. Purchase triggers reward distribution:
  *      - Look up original reading's sensor_id → find owner account
  *      - Split payment: SENSOR_CUT * witnessFactor to sensor owner,
- *        GATEWAY_CUT to gateway (if any), remainder to btcpc_recycle
+ *        GATEWAY_CUT to gateway (if any), remainder to hone_recycle
  *      - Emit SENSOR_REWARD ledger entries for this purchase epoch
  *
  * The original reading epoch is irrelevant to reward timing.
@@ -31,16 +31,16 @@
  * Reward splits (configurable):
  *   Sensor owner:  SENSOR_CUT * witnessFactor
  *   Gateway:       GATEWAY_CUT  (if routed through a gateway node)
- *   Protocol fee:  remainder    → btcpc_recycle (never burned)
+ *   Protocol fee:  remainder    → hone_recycle (never burned)
  */
 
 const EventEmitter = require("events");
 const { getWitnessFactor } = require("./dynamicSensorRewards");
 
-const SENSOR_CUT    = parseFloat(process.env.BTCPC_SENSOR_CUT)    || 0.80;
-const GATEWAY_CUT   = parseFloat(process.env.BTCPC_GATEWAY_CUT)   || 0.10;
+const SENSOR_CUT    = parseFloat(process.env.HONE_SENSOR_CUT)    || 0.80;
+const GATEWAY_CUT   = parseFloat(process.env.HONE_GATEWAY_CUT)   || 0.10;
 const RECYCLE_CUT   = 1 - SENSOR_CUT - GATEWAY_CUT;                        // remainder
-const RECYCLE_ACCOUNT = "btcpc_recycle";
+const RECYCLE_ACCOUNT = "hone_recycle";
 
 const emitter = new EventEmitter();
 
@@ -110,7 +110,7 @@ function updateWitnessCount(dataHash, witnessCount) {
  * @param {object} purchase
  *   data_hash     — SHA256 of the purchased data
  *   buyer         — account name of buyer
- *   payment_btcpc — amount buyer is paying in BTCPC
+ *   payment_hone — amount buyer is paying in HONE
  *   purchase_epoch — current epoch number
  *   gateway       — optional gateway account that routed the purchase
  *   purchase_id   — unique ID for this purchase (prevents double reward)
@@ -118,9 +118,9 @@ function updateWitnessCount(dataHash, witnessCount) {
  * @returns {{ rewards: LedgerEntry[], reason: string } | null}
  */
 function processPurchase(purchase) {
-  const { data_hash, buyer, payment_btcpc, purchase_epoch, gateway, purchase_id } = purchase;
+  const { data_hash, buyer, payment_hone, purchase_epoch, gateway, purchase_id } = purchase;
 
-  if (!data_hash || !buyer || !payment_btcpc || payment_btcpc <= 0) {
+  if (!data_hash || !buyer || !payment_hone || payment_hone <= 0) {
     return { rewards: [], reason: "invalid_purchase_params" };
   }
 
@@ -134,12 +134,12 @@ function processPurchase(purchase) {
   const record = sensorIndex.get(data_hash);
   if (!record) {
     // Data not indexed — may have been submitted before this node synced.
-    // Log and return a partial reward to btcpc_recycle for now.
-    console.warn("[BTCPC SensorRewards] Data hash " + data_hash.slice(0, 16) +
+    // Log and return a partial reward to hone_recycle for now.
+    console.warn("[HONE SensorRewards] Data hash " + data_hash.slice(0, 16) +
       " not found in sensor index — routing full payment to recycle");
     purchaseHistory.set(pid, { data_hash, buyer, purchase_epoch, rewarded: false });
     return {
-      rewards: [_recycleEntry(payment_btcpc, purchase_epoch, "sensor_owner_unknown")],
+      rewards: [_recycleEntry(payment_hone, purchase_epoch, "sensor_owner_unknown")],
       reason: "sensor_not_indexed",
     };
   }
@@ -150,9 +150,9 @@ function processPurchase(purchase) {
   const witnessFactor = getWitnessFactor(witnessCount);
 
   // Compute reward split — sensor cut is scaled by witness factor to deter fraud
-  const sensorReward  = round(payment_btcpc * SENSOR_CUT * witnessFactor);
-  const gatewayReward = gateway ? round(payment_btcpc * GATEWAY_CUT) : 0;
-  const recycleAmount = round(payment_btcpc - sensorReward - gatewayReward);
+  const sensorReward  = round(payment_hone * SENSOR_CUT * witnessFactor);
+  const gatewayReward = gateway ? round(payment_hone * GATEWAY_CUT) : 0;
+  const recycleAmount = round(payment_hone - sensorReward - gatewayReward);
 
   const rewards = [];
 
@@ -161,7 +161,7 @@ function processPurchase(purchase) {
     type: "SENSOR_REWARD",
     from: buyer,
     to: record.owner,
-    token: "BTCPC",
+    token: "HONE",
     amount: sensorReward,
     epoch: purchase_epoch,
     memo: "sensor_data_purchase",
@@ -178,7 +178,7 @@ function processPurchase(purchase) {
       type: "GATEWAY_REWARD",
       from: buyer,
       to: gateway,
-      token: "BTCPC",
+      token: "HONE",
       amount: gatewayReward,
       epoch: purchase_epoch,
       memo: "sensor_gateway_fee",
@@ -200,18 +200,18 @@ function processPurchase(purchase) {
     purchase_epoch,
     rewarded: true,
     sensor_owner: record.owner,
-    payment: payment_btcpc,
+    payment: payment_hone,
     original_reading_epoch: record.reading_epoch,
     epochs_between: purchase_epoch - record.reading_epoch,
     witness_count: witnessCount,
     witness_factor: witnessFactor,
   });
 
-  console.log("[BTCPC SensorRewards] Purchase processed:" +
+  console.log("[HONE SensorRewards] Purchase processed:" +
     " data=" + data_hash.slice(0, 12) + "..." +
     " | buyer=" + buyer +
     " | owner=" + record.owner +
-    " | payment=" + payment_btcpc + " BTCPC" +
+    " | payment=" + payment_hone + " HONE" +
     " | sensor_reward=" + sensorReward +
     " | witnesses=" + witnessCount + " (factor=" + witnessFactor + ")" +
     (gateway ? " | gateway=" + gateway + ":" + gatewayReward : "") +
@@ -224,7 +224,7 @@ function processPurchase(purchase) {
     buyer,
     sensor_owner: record.owner,
     gateway,
-    payment_btcpc,
+    payment_hone,
     rewards,
     original_reading_epoch: record.reading_epoch,
     purchase_epoch,
@@ -305,7 +305,7 @@ function getStats() {
     unique_owners: owners.size,
     total_purchases: totalPurchases,
     rewarded_purchases: rewarded,
-    total_revenue_btcpc: round(totalRevenue),
+    total_revenue_hone: round(totalRevenue),
     sensor_cut_pct: SENSOR_CUT * 100,
     gateway_cut_pct: GATEWAY_CUT * 100,
     recycle_cut_pct: RECYCLE_CUT * 100,
@@ -321,7 +321,7 @@ function _recycleEntry(amount, epoch, memo) {
     type: "RECYCLE",
     from: null,
     to: RECYCLE_ACCOUNT,
-    token: "BTCPC",
+    token: "HONE",
     amount: round(amount),
     epoch,
     memo,

@@ -69,7 +69,7 @@ async function getCurrentEpoch() {
  * }
  * The caller must have already paid the stable-coin bonding curve
  * fee to the treasury (handled by the bridge route, not here).
- * Stake amount in BTCPC is computed from capacity via the curve.
+ * Stake amount in HONE is computed from capacity via the curve.
  */
 router.post('/stores', authenticateToken, async (req, res) => {
   try {
@@ -101,23 +101,23 @@ router.post('/stores', authenticateToken, async (req, res) => {
 
     // Bonding curve: USD cost for the requested capacity
     const costUsd = bondingCurve.costForCapacity(0, initialCapacity);
-    const stakeBtcpc = bondingCurve.stakeForCapacity(initialCapacity);
+    const stakeHone = bondingCurve.stakeForCapacity(initialCapacity);
 
-    // Balance precheck: seller must have enough BTCPC to cover stake
-    const sellerBalance = stateStore.getBalance(seller, 'BTCPC');
-    if (sellerBalance < stakeBtcpc) {
+    // Balance precheck: seller must have enough HONE to cover stake
+    const sellerBalance = stateStore.getBalance(seller, 'HONE');
+    if (sellerBalance < stakeHone) {
       return res.status(402).json({
-        error: 'insufficient BTCPC balance to cover stake',
-        required_stake_btcpc: stakeBtcpc,
-        current_balance_btcpc: sellerBalance,
+        error: 'insufficient HONE balance to cover stake',
+        required_stake_hone: stakeHone,
+        current_balance_hone: sellerBalance,
         capacity_usd_cost: costUsd,
       });
     }
 
     const epoch = await getCurrentEpoch();
 
-    // Lock the BTCPC stake (transfer seller → staking pool)
-    await ledger.recordStake(seller, stakeBtcpc, 'store:' + seller, epoch);
+    // Lock the HONE stake (transfer seller → staking pool)
+    await ledger.recordStake(seller, stakeHone, 'store:' + seller, epoch);
 
     // Record the store opening (stateStore dispatcher creates the record)
     await ledger.recordStoreOpen(
@@ -129,13 +129,13 @@ router.post('/stores', authenticateToken, async (req, res) => {
         categories,
       },
       initialCapacity,
-      stakeBtcpc,
+      stakeHone,
       costUsd,
       epoch
     );
 
     const store = stateStore.getStore(seller);
-    res.status(201).json({ success: true, store, cost_usd: costUsd, stake_btcpc: stakeBtcpc });
+    res.status(201).json({ success: true, store, cost_usd: costUsd, stake_hone: stakeHone });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -226,21 +226,21 @@ router.post('/stores/:seller/capacity', authenticateToken, async (req, res) => {
 
     const currentCapacity = store.capacity || 0;
     const costUsd = bondingCurve.costForCapacity(currentCapacity, additional);
-    const additionalStakeBtcpc = bondingCurve.stakeForCapacity(additional);
+    const additionalStakeHone = bondingCurve.stakeForCapacity(additional);
 
-    const sellerBalance = stateStore.getBalance(seller, 'BTCPC');
-    if (sellerBalance < additionalStakeBtcpc) {
+    const sellerBalance = stateStore.getBalance(seller, 'HONE');
+    if (sellerBalance < additionalStakeHone) {
       return res.status(402).json({
-        error: 'insufficient BTCPC balance to cover additional stake',
-        required_stake_btcpc: additionalStakeBtcpc,
-        current_balance_btcpc: sellerBalance,
+        error: 'insufficient HONE balance to cover additional stake',
+        required_stake_hone: additionalStakeHone,
+        current_balance_hone: sellerBalance,
       });
     }
 
     const epoch = await getCurrentEpoch();
 
     // Lock the additional stake
-    await ledger.recordStake(seller, additionalStakeBtcpc, 'store:' + seller, epoch);
+    await ledger.recordStake(seller, additionalStakeHone, 'store:' + seller, epoch);
 
     // Record the capacity expansion
     await ledger.recordStakePurchase(
@@ -248,7 +248,7 @@ router.post('/stores/:seller/capacity', authenticateToken, async (req, res) => {
       additional,
       'wUSDC',
       costUsd,
-      additionalStakeBtcpc,
+      additionalStakeHone,
       epoch
     );
 
@@ -257,7 +257,7 @@ router.post('/stores/:seller/capacity', authenticateToken, async (req, res) => {
       store: stateStore.getStore(seller),
       capacity_delta: additional,
       cost_usd: costUsd,
-      stake_btcpc: additionalStakeBtcpc,
+      stake_hone: additionalStakeHone,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -357,7 +357,7 @@ router.post('/products', authenticateToken, async (req, res) => {
         content_cid: contentCid,
         category,
         price,
-        token: 'BTCPC',
+        token: 'HONE',
         stock,
       },
       epoch
@@ -497,13 +497,13 @@ router.post('/orders', authenticateToken, async (req, res) => {
     }
 
     const total = parseFloat((product.price * quantity).toFixed(10));
-    const buyerBalance = stateStore.getBalance(buyer, product.token || 'BTCPC');
+    const buyerBalance = stateStore.getBalance(buyer, product.token || 'HONE');
     if (buyerBalance < total) {
       return res.status(402).json({
         error: 'insufficient balance',
         required: total,
         current: buyerBalance,
-        token: product.token || 'BTCPC',
+        token: product.token || 'HONE',
       });
     }
 
@@ -522,7 +522,7 @@ router.post('/orders', authenticateToken, async (req, res) => {
       productId,
       quantity,
       product.price,
-      product.token || 'BTCPC',
+      product.token || 'HONE',
       escrowId,
       epoch
     );
@@ -756,12 +756,12 @@ router.get('/quote/capacity', (req, res) => {
     return res.status(400).json({ error: 'invalid parameters' });
   }
   const costUsd = bondingCurve.costForCapacity(current, additional);
-  const stakeBtcpc = bondingCurve.stakeForCapacity(additional);
+  const stakeHone = bondingCurve.stakeForCapacity(additional);
   res.json({
     current_capacity: current,
     additional_capacity: additional,
     cost_usd: costUsd,
-    stake_btcpc: stakeBtcpc,
+    stake_hone: stakeHone,
   });
 });
 

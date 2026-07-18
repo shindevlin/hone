@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HONE</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0e17;
+      color: #e2e8f0;
+      font-family: -apple-system, system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #2a3550;
+    }
+    .logo { font-size: 24px; font-weight: 800; color: #f7931a; }
+    .status-pill {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
+    .status-pill.online {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #94a3b8;
+      margin-bottom: 8px;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: #f7931a;
+    }
+    .card-sub {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      background: #f7931a;
+      color: #0a0e17;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary {
+      background: transparent;
+      color: #94a3b8;
+      border: 1px solid #2a3550;
+    }
+    .btn-stop { background: #ef4444; color: white; }
+    .log {
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px;
+      color: #94a3b8;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .log-line { padding: 2px 0; }
+    .log-line .ts { color: #64748b; }
+    .setup-needed {
+      background: #1a2235;
+      border: 2px dashed #f7931a;
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .setup-needed h2 { color: #f7931a; margin-bottom: 8px; }
+    .setup-needed p { color: #94a3b8; margin-bottom: 16px; }
+    .hardware-info {
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.8;
+    }
+    .hardware-info .label { color: #94a3b8; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">⚡ HONE</div>
+    <div class="status-pill" id="status-pill">Idle</div>
+  </div>
+
+  <div id="setup-section" class="setup-needed" style="display:none;">
+    <h2>Welcome to HONE</h2>
+    <p id="setup-message">Setting up your node — this only happens once.</p>
+    <div class="hardware-info" id="hardware-info"></div>
+    <div style="margin-top:20px;">
+      <button class="btn" id="install-btn" onclick="install()">Install HONE</button>
+    </div>
+  </div>
+
+  <div id="main-section" style="display:none;">
+    <div class="grid">
+      <div class="card">
+        <div class="card-label">Account</div>
+        <div class="card-value" id="account">--</div>
+        <div class="card-sub">Your HONE username</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Balance</div>
+        <div class="card-value" id="balance">--</div>
+        <div class="card-sub">HONE earned</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Mode</div>
+        <div class="card-value" id="mode">--</div>
+        <div class="card-sub">Current role</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="start-btn" onclick="startNode()">Start Mining</button>
+      <button class="btn btn-stop" id="stop-btn" onclick="stopNode()" style="display:none;">Stop</button>
+      <button class="btn btn-secondary" onclick="openExplorer()">Open Dashboard</button>
+      <button class="btn btn-secondary" onclick="openSettings()">Settings</button>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    const { open } = window.__TAURI__.shell;
+
+    let state = {
+      installed: false,
+      running: false,
+      username: localStorage.getItem('hone_username') || '',
+      mode: localStorage.getItem('hone_mode') || 'miner',
+    };
+
+    function logMsg(msg) {
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      const ts = new Date().toLocaleTimeString();
+      line.innerHTML = '<span class="ts">' + ts + '</span> ' + msg;
+      const log = document.getElementById('log');
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+      while (log.childElementCount > 50) log.removeChild(log.firstChild);
+    }
+
+    async function refresh() {
+      try {
+        const status = await invoke('get_status');
+        state.installed = status.has_hone;
+        state.running = status.running;
+
+        document.getElementById('status-pill').textContent = state.running ? 'Mining' : 'Idle';
+        document.getElementById('status-pill').className = 'status-pill' + (state.running ? ' online' : '');
+
+        if (!state.installed) {
+          document.getElementById('setup-section').style.display = 'block';
+          document.getElementById('main-section').style.display = 'none';
+          await loadHardware();
+        } else {
+          document.getElementById('setup-section').style.display = 'none';
+          document.getElementById('main-section').style.display = 'block';
+          document.getElementById('account').textContent = state.username || 'not set';
+          document.getElementById('mode').textContent = state.mode;
+
+          document.getElementById('start-btn').style.display = state.running ? 'none' : 'inline-block';
+          document.getElementById('stop-btn').style.display = state.running ? 'inline-block' : 'none';
+
+          if (state.username) {
+            try {
+              const balance = await invoke('fetch_balance', { username: state.username });
+              document.getElementById('balance').textContent = balance.hone || '0';
+            } catch (e) {
+              document.getElementById('balance').textContent = '--';
+            }
+          }
+        }
+      } catch (e) {
+        logMsg('Error: ' + e);
+      }
+    }
+
+    async function loadHardware() {
+      try {
+        const hw = await invoke('detect_hardware');
+        document.getElementById('hardware-info').innerHTML =
+          '<div><span class="label">CPU:</span> ' + hw.cpu_brand + ' (' + hw.cpu_count + ' cores)</div>' +
+          '<div><span class="label">Memory:</span> ' + hw.memory_gb + ' GB</div>' +
+          '<div><span class="label">GPU:</span> ' + (hw.has_nvidia ? 'NVIDIA' : hw.has_amd ? 'AMD' : 'None detected') + '</div>' +
+          '<div><span class="label">Recommended:</span> ' + (hw.recommended_mode === 'miner' ? 'Mine AI inference' : 'Run a clock node') + '</div>';
+      } catch (e) {
+        logMsg('Hardware detection failed: ' + e);
+      }
+    }
+
+    async function install() {
+      document.getElementById('install-btn').disabled = true;
+      document.getElementById('setup-message').textContent = 'Installing... this takes a few minutes.';
+      try {
+        const result = await invoke('install_hone');
+        logMsg(result);
+        // Prompt for username
+        const username = prompt('Pick a HONE username (3-20 chars, lowercase, numbers, hyphens):');
+        if (username && /^[a-z0-9][a-z0-9-]{2,19}$/.test(username)) {
+          state.username = username;
+          localStorage.setItem('hone_username', username);
+        }
+        await refresh();
+      } catch (e) {
+        logMsg('Install failed: ' + e);
+        document.getElementById('install-btn').disabled = false;
+      }
+    }
+
+    async function startNode() {
+      if (!state.username) {
+        const username = prompt('Pick a HONE username:');
+        if (!username) return;
+        state.username = username;
+        localStorage.setItem('hone_username', username);
+      }
+      try {
+        const result = await invoke('start_node', {
+          config: { username: state.username, mode: state.mode },
+        });
+        logMsg(result);
+        await refresh();
+      } catch (e) {
+        logMsg('Start failed: ' + e);
+      }
+    }
+
+    async function stopNode() {
+      try {
+        const result = await invoke('stop_node');
+        logMsg(result);
+        await refresh();
+      } catch (e) {
+        logMsg('Stop failed: ' + e);
+      }
+    }
+
+    function openExplorer() {
+      open('http://localhost:4242/dashboard?account=' + state.username);
+    }
+
+    function openSettings() {
+      open('http://localhost:4242/settings');
+    }
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+
+</body>
+</html>

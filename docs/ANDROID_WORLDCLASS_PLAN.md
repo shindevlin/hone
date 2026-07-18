@@ -6,7 +6,7 @@ _Authored 2026-07-07. Status: PLAN (approve before building). Owner: Shin Devlin
 
 ## TL;DR
 
-The shipping APK is a **Capacitor webview that loads a remote page** (`btcpc.net/app`)
+The shipping APK is a **Capacitor webview that loads a remote page** (`hone.net/app`)
 — a 5,557-line single-file vanilla-JS app running in a browser sandbox. It works, but it
 is architecturally incapable of being world-class **or** of being the "phone is a full
 node" product HONE actually specifies.
@@ -27,13 +27,13 @@ true miner+clock+sensor node even when backgrounded. Retire the webview.
 
 | Signal | Measured | Consequence |
 |---|---|---|
-| App shell | `www/index.html` = **11-line stub**; loads remote `btcpc.net/app` | Offline = blank screen; web latency/jank; server-dependent |
+| App shell | `www/index.html` = **11-line stub**; loads remote `hone.net/app` | Offline = blank screen; web latency/jank; server-dependent |
 | UI | one **5,557-line** `app.html`, vanilla JS, no components | Unmaintainable; neither native nor a real web-app architecture |
 | Accessibility | **0** `aria-*` / `role=` attributes | Fails store a11y review; excludes users |
 | Native depth | only `Share` + `Preferences` wired | No haptics, no notifications, no background — **feels like a website** |
 | Background node | webview is **killed on background** | Phone STOPS mining/clocking when you switch apps — breaks the core product |
 | Icons | emoji as tab icons | Instant "hobby app" tell |
-| Brand | `appName: BTCPC`, `appId: net.btcpc.app`, loads `btcpc.net` | Pre-rename; can't ship half-branded |
+| Brand | `appName: HONE`, `appId: net.hone.app`, loads `hone.net` | Pre-rename; can't ship half-branded |
 | Rust core usage | webview calls server HTTP API remotely | The powerful `hone-android` native engine **isn't even used** |
 
 The bones are strong (real mining, sensors, wallet, clock, epoch tracking). The gap is
@@ -175,7 +175,7 @@ JNI surface is small and the safety/velocity win compounds across the whole rebu
 
 ## 6. What to retire / migrate
 
-- **Retire** `clients/btcpc-android` webview path (Capacitor + remote `btcpc.net/app`)
+- **Retire** `clients/hone-android` webview path (Capacitor + remote `hone.net/app`)
   once Phase 2 reaches parity. Keep it buildable until then so there's always a shippable
   APK.
 - **Salvage** from `website/app.html`: the *information architecture* and copy (which
@@ -188,7 +188,7 @@ JNI surface is small and the safety/velocity win compounds across the whole rebu
 ## 7. Decisions — LOCKED (Shin, 2026-07-07)
 
 1. **Module home:** ✅ **new `clients/hone-android-native/`** (Kotlin/Compose). Keep the
-   old `clients/btcpc-android` webview buildable until the native app reaches parity, then
+   old `clients/hone-android` webview buildable until the native app reaches parity, then
    retire it. No risk to the currently-shipping APK.
 2. **Bridge:** ✅ **migrate to uniffi** — define the interface once in Rust, auto-generate
    typed/null-safe Kotlin bindings. Migrate the ~10 existing JNI fns in `hone-android/lib.rs`.
@@ -208,7 +208,7 @@ JNI surface is small and the safety/velocity win compounds across the whole rebu
 
 Separate from the native Android app: build a **HONE Telegram Mini App** as a
 second distribution channel. Rationale — HONE already runs Telegram bots
-(`btcpcbot`/wallet bot → renaming to hone), so a Mini App meets users where they
+(`honebot`/wallet bot → renaming to hone), so a Mini App meets users where they
 already are, with no install. Distinct codebase (web, inside Telegram); the
 native Kotlin app remains the flagship and does the heavy lifting.
 
@@ -277,7 +277,7 @@ step 1) lands.
 ## 8. Cross-cutting constraints (must hold)
 
 - **Brand:** HONE everywhere (`network.hone.app` already used in the Rust JNI names — good).
-  No BTCPC/btcpc in the new module.
+  No HONE/hone in the new module.
 - **Wallet safety:** NEVER auto-sign a transfer; human confirm + biometric; route founder
   transfers as sign-requests (per standing rule). Secrets never in git/logs.
 - **No divergence:** the phone runs the SAME Rust consensus as the full node — do not

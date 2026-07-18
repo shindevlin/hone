@@ -51,7 +51,7 @@ describe("P2P discovery filtering", () => {
   });
 
   afterEach(() => {
-    delete process.env.BTCPC_PUBLIC_ADDRESS;
+    delete process.env.HONE_PUBLIC_ADDRESS;
     delete process.env.P2P_PORT;
   });
 

@@ -91,7 +91,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-sdk"
+name = "hone-sdk"
 version = "1.0.0"
 dependencies = [
  "anyhow",
@@ -112,11 +112,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-tui"
+name = "hone-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "btcpc-sdk",
+ "hone-sdk",
  "crossterm",
  "ed25519-dalek",
  "hex",

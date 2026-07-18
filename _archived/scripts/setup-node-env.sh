@@ -1,5 +1,5 @@
 #!/bin/bash
-# BTCPC Node Environment Setup
+# HONE Node Environment Setup
 # Usage: bash scripts/setup-node-env.sh [username]
 # Mining nodes only need the posting key. Active/owner keys should stay off-node.
 
@@ -7,9 +7,9 @@ set -euo pipefail
 USERNAME="${1:-}"
 
 if [ -z "$USERNAME" ]; then
-  echo "Do you already have a BTCPC account? [y/N]"
+  echo "Do you already have a HONE account? [y/N]"
   read -r HAS_ACCOUNT
-  echo "Enter BTCPC username for this node:"
+  echo "Enter HONE username for this node:"
   read -r USERNAME
 fi
 
@@ -22,7 +22,7 @@ fi
 
 POSTING_KEY=""
 if [ "${HAS_ACCOUNT:-y}" = "y" ] || [ "${HAS_ACCOUNT:-y}" = "Y" ] || [ "${HAS_ACCOUNT:-yes}" = "yes" ]; then
-  echo "Paste BTCPC posting private key for mining (64 hex chars)."
+  echo "Paste HONE posting private key for mining (64 hex chars)."
   echo "Do not paste owner or active keys on mining nodes."
   read -rs POSTING_KEY
   echo
@@ -40,21 +40,21 @@ fi
 JWT_SECRET=$(openssl rand -hex 32)
 
 cat > "$ENV_FILE" << ENVFILE
-# BTCPC Node Configuration — $USERNAME
+# HONE Node Configuration — $USERNAME
 NODE_ENV=production
 PORT=3000
 
 # Miner identity. Mining uses posting key only.
-BTCPC_MINER=$USERNAME
-BTCPC_POSTING_KEY=$POSTING_KEY
+HONE_MINER=$USERNAME
+HONE_POSTING_KEY=$POSTING_KEY
 
 # Roles (all = miner + clock + storage + api)
-BTCPC_ROLES=all
+HONE_ROLES=all
 
 # P2P Network
 P2P_PORT=6942
-BTCPC_SEED_PEERS=wss://btcpc-relay.shindevlin.workers.dev/ws
-BTCPC_RELAY_URL=wss://btcpc-relay.shindevlin.workers.dev/ws
+HONE_SEED_PEERS=wss://hone-relay.shindevlin.workers.dev/ws
+HONE_RELAY_URL=wss://hone-relay.shindevlin.workers.dev/ws
 
 # Security
 JWT_SECRET=$JWT_SECRET
@@ -64,10 +64,10 @@ JWT_EXPIRES_IN=7d
 OLLAMA_URL=http://localhost:11434
 
 # MongoDB (optional — disabled by default post-Phase F)
-BTCPC_MONGO_MODE=disabled
+HONE_MONGO_MODE=disabled
 
 # Storage
-BTCPC_STORAGE_CAPACITY_GB=10
+HONE_STORAGE_CAPACITY_GB=10
 ENVFILE
 
 # Secure the file
@@ -83,4 +83,4 @@ echo ""
 echo "   No mnemonic, owner key, or active key on this machine."
 echo "   Owner key rotates keys. Active key moves tokens. Posting key mines."
 echo ""
-echo "Next: node bin/btcpc-all"
+echo "Next: node bin/hone-all"

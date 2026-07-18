@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/btcpc_surface"
+    android:background="@color/hone_surface"
     android:orientation="vertical"
     android:padding="24dp">
 
@@ -11,7 +11,7 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="4dp"
         android:text="Sign In"
-        android:textColor="@color/btcpc_text"
+        android:textColor="@color/hone_text"
         android:textSize="22sp"
         android:textStyle="bold" />
 
@@ -19,15 +19,15 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="24dp"
-        android:text="Enter your BTCPC account credentials"
-        android:textColor="@color/btcpc_muted"
+        android:text="Enter your HONE account credentials"
+        android:textColor="@color/hone_muted"
         android:textSize="14sp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Account Name"
-        android:textColor="@color/btcpc_muted"
+        android:textColor="@color/hone_muted"
         android:textSize="13sp" />
 
     <EditText
@@ -36,19 +36,19 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:layout_marginBottom="16dp"
-        android:background="@color/btcpc_bg"
+        android:background="@color/hone_bg"
         android:hint="shindevlin"
         android:inputType="text"
         android:padding="14dp"
-        android:textColor="@color/btcpc_text"
-        android:textColorHint="@color/btcpc_muted"
+        android:textColor="@color/hone_text"
+        android:textColorHint="@color/hone_muted"
         android:textSize="15sp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Password"
-        android:textColor="@color/btcpc_muted"
+        android:textColor="@color/hone_muted"
         android:textSize="13sp" />
 
     <EditText
@@ -57,19 +57,19 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:layout_marginBottom="24dp"
-        android:background="@color/btcpc_bg"
+        android:background="@color/hone_bg"
         android:hint="••••••••"
         android:inputType="textPassword"
         android:padding="14dp"
-        android:textColor="@color/btcpc_text"
-        android:textColorHint="@color/btcpc_muted"
+        android:textColor="@color/hone_text"
+        android:textColorHint="@color/hone_muted"
         android:textSize="15sp" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/login_btn"
         android:layout_width="match_parent"
         android:layout_height="52dp"
-        android:backgroundTint="@color/btcpc_orange"
+        android:backgroundTint="@color/hone_orange"
         android:text="Sign In"
         android:textColor="@android:color/black"
         android:textSize="16sp"
@@ -82,7 +82,7 @@
         android:layout_gravity="center"
         android:layout_marginTop="12dp"
         android:visibility="gone"
-        android:indeterminateTint="@color/btcpc_orange" />
+        android:indeterminateTint="@color/hone_orange" />
 
     <TextView
         android:id="@+id/login_error"

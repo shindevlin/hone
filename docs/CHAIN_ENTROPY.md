@@ -70,7 +70,7 @@ Each epoch's entropy pool is split 50/50:
 | `__recycle_fund__` | 50% | Flows back through the normal block-reward distribution |
 
 The `LivenessProof` entry is a zero-cost (free) signed heartbeat any account can
-submit once per epoch to claim their share of the liveness pool. It costs no BTCPC
+submit once per epoch to claim their share of the liveness pool. It costs no HONE
 — only the posting key signature (free to generate). Wallets will auto-submit
 these in the background.
 
@@ -135,7 +135,7 @@ in Phase 7 (Stage 2 epoch entropy). It is not required for liveness rewards —
 
 Before `LIVENESS_REWARDS_ENABLED` is set to `true` via governance:
 
-- [ ] This document is published on the BTCPC website
+- [ ] This document is published on the HONE website
 - [ ] Whitepaper section "Chain Entropy" is complete and public
 - [ ] Wallet UI shows dormancy countdown for accounts approaching threshold
 - [ ] Explorer shows per-epoch `LivenessProof` participation rate

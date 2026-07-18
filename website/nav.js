@@ -184,7 +184,7 @@
 
   // Telegram icon
   const tg = document.createElement('a');
-  tg.href = 'https://t.me/btcpcbot';
+  tg.href = 'https://t.me/honebot';
   tg.target = '_blank';
   tg.rel = 'noopener';
   tg.title = 'Telegram';

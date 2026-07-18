@@ -12,7 +12,7 @@
  *
  * Disable command buffering globally so any model call without a connection
  * fails fast. Code that genuinely needs Mongo guards on connection state
- * already (BTCPC_MONGO_MODE); code that doesn't will catch the fast rejection
+ * already (HONE_MONGO_MODE); code that doesn't will catch the fast rejection
  * exactly as it would catch a buffer timeout — just in milliseconds, not 30s.
  */
 try {

@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * BTCPC Phone Setup Tool
+ * HONE Phone Setup Tool
  *
- * Configures a connected Android phone for BTCPC Flipper relay:
- *   1. Sets up adb reverse so the phone's localhost:4242 maps to this PC's BTCPC node
+ * Configures a connected Android phone for HONE Flipper relay:
+ *   1. Sets up adb reverse so the phone's localhost:4242 maps to this PC's HONE node
  *   2. Pushes account name, JWT, and API URL to the phone's SharedPreferences
  *   3. Registers the Flipper sensor on the chain if not already registered
  *
  * Requirements:
  *   - Android phone plugged in via USB with USB debugging enabled
  *   - adb on PATH (Android SDK platform-tools)
- *   - BTCPC node running on this PC (port 4242)
+ *   - HONE node running on this PC (port 4242)
  *   - .env file in project root with JWT_SECRET
  *
  * Usage:
@@ -41,15 +41,15 @@ let   jwtToken   = getArg('--jwt') || getArg('-j');
 const sensorName = getArg('--sensor') || getArg('-s') || 'flipper-zero';
 const apiUrl     = getArg('--api')    || 'http://127.0.0.1:4242';
 const PHONE_PORT = 4242;
-const APP_PKG    = 'network.btcpc.app';
-const PREFS_FILE = 'btcpc_native_state';
+const APP_PKG    = 'network.hone.app';
+const PREFS_FILE = 'hone_native_state';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function log(msg)  { process.stdout.write('[btcpc-setup] ' + msg + '\n'); }
-function ok(msg)   { process.stdout.write('[btcpc-setup] ✓ ' + msg + '\n'); }
-function warn(msg) { process.stderr.write('[btcpc-setup] WARN: ' + msg + '\n'); }
-function fail(msg) { process.stderr.write('[btcpc-setup] ERROR: ' + msg + '\n'); process.exit(1); }
+function log(msg)  { process.stdout.write('[hone-setup] ' + msg + '\n'); }
+function ok(msg)   { process.stdout.write('[hone-setup] ✓ ' + msg + '\n'); }
+function warn(msg) { process.stderr.write('[hone-setup] WARN: ' + msg + '\n'); }
+function fail(msg) { process.stderr.write('[hone-setup] ERROR: ' + msg + '\n'); process.exit(1); }
 
 function adb(cmd, opts = {}) {
   try {
@@ -65,7 +65,7 @@ function loadJwtSecret() {
   if (!fs.existsSync(envPath)) return null;
   const lines = fs.readFileSync(envPath, 'utf8').split('\n');
   for (const line of lines) {
-    const m = line.match(/^(?:JWT_SECRET|BTCPC_JWT_SECRET)\s*=\s*(.+)/);
+    const m = line.match(/^(?:JWT_SECRET|HONE_JWT_SECRET)\s*=\s*(.+)/);
     if (m) return m[1].trim();
   }
   return null;
@@ -166,7 +166,7 @@ async function ensureJwt() {
   }
 
   // Try to load user ID from secretStore data if accessible
-  const secretsPath = path.join(process.env.HOME || '', '.btcpc', 'secrets.json');
+  const secretsPath = path.join(process.env.HOME || '', '.hone', 'secrets.json');
   let userId = '00000000-0000-0000-0000-000000000001';
   if (fs.existsSync(secretsPath)) {
     try {
@@ -223,7 +223,7 @@ async function pushPreferences() {
 
   // Write via run-as
   // Escape for shell: write to a temp file first, then copy
-  const tmpPath = `/data/local/tmp/btcpc_prefs_${Date.now()}.xml`;
+  const tmpPath = `/data/local/tmp/hone_prefs_${Date.now()}.xml`;
   const encoded = Buffer.from(xml).toString('base64');
 
   // Write via base64 decode (avoids shell escaping issues with the XML content)
@@ -243,7 +243,7 @@ async function pushPreferences() {
   }
 
   ok(`Pushed: account=${account}, apiUrl=${apiUrl}, jwt=<set>`);
-  log('  Restart the BTCPC app on your phone for settings to take effect.');
+  log('  Restart the HONE app on your phone for settings to take effect.');
 }
 
 async function registerSensor() {
@@ -280,14 +280,14 @@ async function registerSensor() {
     }
   } catch (e) {
     warn(`Sensor registration failed: ${e.message}`);
-    warn('  Make sure the BTCPC node is running on port 4242 (systemctl --user status btcpc-miner)');
+    warn('  Make sure the HONE node is running on port 4242 (systemctl --user status hone-miner)');
   }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  log('BTCPC Phone Setup Tool');
+  log('HONE Phone Setup Tool');
   log(`Account: ${account} | Sensor: ${account}/${sensorName}`);
   log('');
 
@@ -301,8 +301,8 @@ async function main() {
   log('Setup complete!');
   log('');
   log('Next steps:');
-  log('  1. Force-stop and restart the BTCPC app on your phone');
-  log(`  2. On the Flipper, run BTCPC > BTCPC BLE Relay`);
+  log('  1. Force-stop and restart the HONE app on your phone');
+  log(`  2. On the Flipper, run HONE > HONE BLE Relay`);
   log('  3. Phone will auto-connect to Flipper via BLE and relay sensor data');
   log(`  4. Check readings: curl http://127.0.0.1:4242/api/sensors/${encodeURIComponent(account + '/' + sensorName)}`);
 }

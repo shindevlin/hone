@@ -1,0 +1,15 @@
+[Unit]
+Description=HONE Storage Host
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntclaw/repos/hone
+ExecStart=/usr/bin/node bin/hone-storage
+Restart=on-failure
+RestartSec=30
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntclaw/repos/hone/.env
+
+[Install]
+WantedBy=default.target

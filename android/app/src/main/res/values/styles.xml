@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- Base application theme — Material3 dark, BTCPC orange accent -->
+    <!-- Base application theme — Material3 dark, HONE orange accent -->
     <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/btcpc_orange</item>
-        <item name="colorPrimaryVariant">@color/btcpc_surface_alt</item>
+        <item name="colorPrimary">@color/hone_orange</item>
+        <item name="colorPrimaryVariant">@color/hone_surface_alt</item>
         <item name="colorOnPrimary">@android:color/black</item>
-        <item name="colorSecondary">@color/btcpc_green</item>
+        <item name="colorSecondary">@color/hone_green</item>
         <item name="colorOnSecondary">@android:color/black</item>
-        <item name="colorSurface">@color/btcpc_surface</item>
-        <item name="colorOnSurface">@color/btcpc_text</item>
-        <item name="android:colorBackground">@color/btcpc_bg</item>
-        <item name="colorOnBackground">@color/btcpc_text</item>
-        <item name="android:windowBackground">@color/btcpc_bg</item>
-        <item name="android:statusBarColor">@color/btcpc_bg</item>
-        <item name="android:navigationBarColor">@color/btcpc_surface</item>
-        <item name="materialThemeOverlay">@style/ThemeOverlay.BtcpcDark</item>
+        <item name="colorSurface">@color/hone_surface</item>
+        <item name="colorOnSurface">@color/hone_text</item>
+        <item name="android:colorBackground">@color/hone_bg</item>
+        <item name="colorOnBackground">@color/hone_text</item>
+        <item name="android:windowBackground">@color/hone_bg</item>
+        <item name="android:statusBarColor">@color/hone_bg</item>
+        <item name="android:navigationBarColor">@color/hone_surface</item>
+        <item name="materialThemeOverlay">@style/ThemeOverlay.HoneDark</item>
     </style>
 
-    <style name="ThemeOverlay.BtcpcDark" parent="">
+    <style name="ThemeOverlay.HoneDark" parent="">
         <item name="colorControlHighlight">#33F7931A</item>
-        <item name="colorControlActivated">@color/btcpc_orange</item>
+        <item name="colorControlActivated">@color/hone_orange</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="AppTheme">
@@ -30,13 +30,13 @@
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
-        <item name="windowSplashScreenBackground">@color/btcpc_bg</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/btcpc_logo</item>
+        <item name="windowSplashScreenBackground">@color/hone_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/hone_logo</item>
     </style>
 
     <!-- Card style used in Earn fragment -->
-    <style name="BtcpcCard" parent="Widget.MaterialComponents.CardView">
-        <item name="cardBackgroundColor">@color/btcpc_surface</item>
+    <style name="HoneCard" parent="Widget.MaterialComponents.CardView">
+        <item name="cardBackgroundColor">@color/hone_surface</item>
         <item name="cardCornerRadius">12dp</item>
         <item name="cardElevation">4dp</item>
         <item name="contentPaddingLeft">16dp</item>
@@ -46,8 +46,8 @@
     </style>
 
     <!-- Bottom nav dark background -->
-    <style name="BtcpcBottomNav" parent="Widget.MaterialComponents.BottomNavigationView">
-        <item name="android:background">@color/btcpc_surface</item>
+    <style name="HoneBottomNav" parent="Widget.MaterialComponents.BottomNavigationView">
+        <item name="android:background">@color/hone_surface</item>
         <item name="itemIconTint">@color/nav_item_color</item>
         <item name="itemTextColor">@color/nav_item_color</item>
     </style>

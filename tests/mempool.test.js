@@ -11,7 +11,7 @@ describe('mempool', () => {
       from: 'alice',
       to: 'bob',
       amount: 3,
-      token: 'BTCPC',
+      token: 'HONE',
       nonce: 1,
       timestamp: 100
     });

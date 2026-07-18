@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Writes the BTCPC posting key to Flipper internal storage (/int/.btcpc/posting.key).
+ * Writes the HONE posting key to Flipper internal storage (/int/.hone/posting.key).
  * Internal storage is NOT accessible via USB mass storage or the Flipper file browser —
  * only apps running on the Flipper can read it.
  *
@@ -30,7 +30,7 @@ if (!/^[0-9a-fA-F]{64}$/.test(key)) {
 }
 key = key.toLowerCase();
 
-const KEY_PATH = '/int/.btcpc/posting.key';
+const KEY_PATH = '/int/.hone/posting.key';
 
 async function findPort() {
   try {
@@ -108,7 +108,7 @@ async function main() {
   await new Promise((res, rej) => port.open(e => e ? rej(e) : res()));
 
   await sendCli(port, [
-    { cmd: 'storage mkdir /int/.btcpc', wait: true },
+    { cmd: 'storage mkdir /int/.hone', wait: true },
     // storage write reads one line then closes — send key then ctrl+C
     { cmd: `storage write ${KEY_PATH}`, wait: false, after: 500 },
     { cmd: key + '\x03',               wait: true },
@@ -121,7 +121,7 @@ async function main() {
 
   await new Promise(res => setTimeout(res, 500));
   port.close();
-  process.stdout.write('✓ Posting key written to /int/.btcpc/posting.key\n');
+  process.stdout.write('✓ Posting key written to /int/.hone/posting.key\n');
   process.stdout.write('  Key is stored in Flipper internal flash — not visible via USB or file browser.\n');
 }
 

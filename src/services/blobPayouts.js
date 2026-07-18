@@ -1,22 +1,22 @@
 "use strict";
 
 /**
- * BTCPC-FS Blob Payouts — v2.11.1
+ * HONE-FS Blob Payouts — v2.11.1
  * Shin Devlin
  *
  * Computes pro-rata payouts for storage hosts based on bytes served,
- * routes the protocol fee share to btcpc_recycle (No Burn, All Recycle),
- * and hands the results to ledger.recordTransfer to actually move BTCPC
+ * routes the protocol fee share to hone_recycle (No Burn, All Recycle),
+ * and hands the results to ledger.recordTransfer to actually move HONE
  * from the uploader's escrow to the hosts.
  *
  * Called at epoch boundaries (or on-demand via a settlement route) to
- * distribute the accumulated payment_btcpc pool for a given CID across
+ * distribute the accumulated payment_hone pool for a given CID across
  * its hosts according to bytes_served_by_host.
  *
  * Split (from docs/TOKENOMICS.md §5):
  *   90% → serving hosts (pro-rata by bytes_served_by_host)
- *    9% → btcpc_recycle
- *    1% → btcpc_reputation_pool
+ *    9% → hone_recycle
+ *    1% → hone_reputation_pool
  *
  * If no bytes have been served, the payment stays in escrow — hosts
  * can only claim what they've actually delivered.
@@ -33,13 +33,13 @@ var REPUTATION_SHARE = 0.01;
  *
  * Returns {
  *   cid,
- *   total_pool: number,          // unchanged from commit.payment_btcpc
+ *   total_pool: number,          // unchanged from commit.payment_hone
  *   host_pool: number,           // 90% of total
  *   recycle_pool: number,        // 9% of total
  *   reputation_pool: number,     // 1% of total
  *   total_bytes_served: number,  // sum of bytes_served_by_host
  *   host_payouts: [              // pro-rata slice of host_pool
- *     { host, bytes_served, amount_btcpc }
+ *     { host, bytes_served, amount_hone }
  *   ]
  * }
  *
@@ -52,7 +52,7 @@ function computePayouts(blobCommit) {
   if (!blobCommit) {
     return null;
   }
-  var totalPool = Number(blobCommit.payment_btcpc) || 0;
+  var totalPool = Number(blobCommit.payment_hone) || 0;
   var hostPool = _round(totalPool * HOST_SHARE);
   var recyclePool = _round(totalPool * RECYCLE_SHARE);
   var reputationPool = _round(totalPool * REPUTATION_SHARE);
@@ -67,7 +67,7 @@ function computePayouts(blobCommit) {
   var hostPayouts = hostKeys.map(function (host) {
     var bytes = Number(servedByHost[host]) || 0;
     var amount = totalBytes > 0 ? _round(hostPool * (bytes / totalBytes)) : 0;
-    return { host: host, bytes_served: bytes, amount_btcpc: amount };
+    return { host: host, bytes_served: bytes, amount_hone: amount };
   });
 
   return {
@@ -82,7 +82,7 @@ function computePayouts(blobCommit) {
 }
 
 /**
- * Settle a blob's payout by actually recording the BTCPC transfers on
+ * Settle a blob's payout by actually recording the HONE transfers on
  * chain. Debits the uploader (from an escrow lock or direct balance —
  * caller decides where the pool lives), credits each host pro-rata,
  * routes recycle + reputation shares.
@@ -91,7 +91,7 @@ function computePayouts(blobCommit) {
  * as computePayouts, enriched with a `transfers` array of recorded
  * ledger entries.
  *
- * NOTE: v2.11.1 does NOT modify blobCommit.payment_btcpc itself on
+ * NOTE: v2.11.1 does NOT modify blobCommit.payment_hone itself on
  * settlement — that's a downstream responsibility. Callers should
  * track "settled so far" separately or commit an empty BLOB_STORE_COMMIT
  * with negative delta to zero it out. A cleaner approach lands in
@@ -119,17 +119,17 @@ async function settlePayouts(blobCommit, options) {
   // Host payouts
   for (var i = 0; i < calc.host_payouts.length; i++) {
     var p = calc.host_payouts[i];
-    if (p.amount_btcpc > 0) {
+    if (p.amount_hone > 0) {
       await ledger.recordTransfer(
         uploader,
         p.host,
-        p.amount_btcpc,
-        "BTCPC",
+        p.amount_hone,
+        "HONE",
         null,
         epoch,
         "Blob payout (bandwidth): " + calc.cid
       );
-      transfers.push({ to: p.host, amount: p.amount_btcpc, kind: "host_pro_rata" });
+      transfers.push({ to: p.host, amount: p.amount_hone, kind: "host_pro_rata" });
     }
   }
 
@@ -137,29 +137,29 @@ async function settlePayouts(blobCommit, options) {
   if (calc.recycle_pool > 0) {
     await ledger.recordTransfer(
       uploader,
-      "btcpc_recycle",
+      "hone_recycle",
       calc.recycle_pool,
-      "BTCPC",
+      "HONE",
       null,
       epoch,
       "Blob payout (recycle): " + calc.cid
     );
-    transfers.push({ to: "btcpc_recycle", amount: calc.recycle_pool, kind: "recycle" });
+    transfers.push({ to: "hone_recycle", amount: calc.recycle_pool, kind: "recycle" });
   }
 
   // Reputation pool share
   if (calc.reputation_pool > 0) {
     await ledger.recordTransfer(
       uploader,
-      "btcpc_reputation_pool",
+      "hone_reputation_pool",
       calc.reputation_pool,
-      "BTCPC",
+      "HONE",
       null,
       epoch,
       "Blob payout (reputation): " + calc.cid
     );
     transfers.push({
-      to: "btcpc_reputation_pool",
+      to: "hone_reputation_pool",
       amount: calc.reputation_pool,
       kind: "reputation",
     });

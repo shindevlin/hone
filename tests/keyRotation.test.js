@@ -29,9 +29,9 @@ const express = require('express');
 const crypto  = require('crypto');
 
 // ── Isolate secretStore ──────────────────────────────────────────────────────
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-keyrotation-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
-process.env.BTCPC_DATA_DIR     = path.join(ISOLATED_DIR, 'data');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-keyrotation-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+process.env.HONE_DATA_DIR     = path.join(ISOLATED_DIR, 'data');
 process.env.JWT_SECRET         = 'test-jwt-kr';
 process.env.BOT_API_KEY        = 'test-bot-key-kr';
 

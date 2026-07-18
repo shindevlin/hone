@@ -1,5 +1,5 @@
 /**
- * BTCPC Silicon Fingerprint Probe
+ * HONE Silicon Fingerprint Probe
  * Shin Devlin
  *
  * Derives a unique 256-bit Silicon Identity Key (SIK) from the physical
@@ -16,12 +16,12 @@
  *   - Unclonable without possessing the exact silicon
  *
  * Build:
- *   nvcc -O2 -o btcpc-sik fingerprint.cu -lcrypto
+ *   nvcc -O2 -o hone-sik fingerprint.cu -lcrypto
  *
  * Usage:
- *   ./btcpc-sik              # Print SIK hex + hash
- *   ./btcpc-sik --json       # Output JSON for node registration
- *   ./btcpc-sik --verify <hash>  # Verify SIK matches a registered hash
+ *   ./hone-sik              # Print SIK hex + hash
+ *   ./hone-sik --json       # Output JSON for node registration
+ *   ./hone-sik --verify <hash>  # Verify SIK matches a registered hash
  */
 
 #include <cuda_runtime.h>
@@ -177,9 +177,9 @@ int main(int argc, char **argv) {
     cudaGetDeviceProperties(&prop, 0);
 
     if (!json_mode && !verify_mode) {
-        fprintf(stderr, "[BTCPC SIK] GPU: %s\n", prop.name);
-        fprintf(stderr, "[BTCPC SIK] VRAM: %lu MB\n", prop.totalGlobalMem / (1024*1024));
-        fprintf(stderr, "[BTCPC SIK] Running silicon fingerprint probe...\n");
+        fprintf(stderr, "[HONE SIK] GPU: %s\n", prop.name);
+        fprintf(stderr, "[HONE SIK] VRAM: %lu MB\n", prop.totalGlobalMem / (1024*1024));
+        fprintf(stderr, "[HONE SIK] Running silicon fingerprint probe...\n");
     }
 
     // ── Allocate device memory ──
@@ -261,8 +261,8 @@ int main(int argc, char **argv) {
     }
 
     if (!json_mode && !verify_mode) {
-        fprintf(stderr, "[BTCPC SIK] Timing stable bits: %d / %d\n", stable_count, TIMING_PROBE_CELLS);
-        fprintf(stderr, "[BTCPC SIK] FP stable bits: %d / %d\n", fp_stable, FP_PROBE_OPS);
+        fprintf(stderr, "[HONE SIK] Timing stable bits: %d / %d\n", stable_count, TIMING_PROBE_CELLS);
+        fprintf(stderr, "[HONE SIK] FP stable bits: %d / %d\n", fp_stable, FP_PROBE_OPS);
     }
 
     // ── Derive SIK from stable bits ──
@@ -321,7 +321,7 @@ int main(int argc, char **argv) {
     } else {
         printf("SIK:      %s\n", sik_hex);
         printf("SIK_HASH: %s\n", hash_hex);
-        fprintf(stderr, "[BTCPC SIK] Done. SIK hash is what goes on-chain.\n");
+        fprintf(stderr, "[HONE SIK] Done. SIK hash is what goes on-chain.\n");
     }
 
     // ── Cleanup ──

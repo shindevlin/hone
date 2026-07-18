@@ -1,6 +1,6 @@
 # Install: Inference Miner Node
 
-Mine BTCPC by providing GPU compute to the network.
+Mine HONE by providing GPU compute to the network.
 
 ## Requirements
 
@@ -26,12 +26,12 @@ ollama pull qwen3.5:27b    # or any supported model
 
 ```bash
 docker run -d \
-  --name btcpc-mongo \
+  --name hone-mongo \
   --restart on-failure:5 \
   -p 27017:27017 \
   -e MONGO_INITDB_ROOT_USERNAME=root \
   -e MONGO_INITDB_ROOT_PASSWORD=example \
-  -v btcpc_mongo_data:/data/db \
+  -v hone_mongo_data:/data/db \
   mongo:7
 ```
 
@@ -39,8 +39,8 @@ docker run -d \
 
 ```bash
 cd ~/repos  # or your preferred directory
-git clone https://github.com/shindevlin/btcpc.git
-cd btcpc
+git clone https://github.com/shindevlin/hone.git
+cd hone
 npm install
 ```
 
@@ -52,7 +52,7 @@ cp .env.example .env
 
 Edit `.env`:
 ```
-MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin
+MONGODB_URI=mongodb://root:example@localhost:27017/hone?authSource=admin
 OLLAMA_URL=http://localhost:11434
 HONE_MODEL=qwen3.5:27b
 HONE_WORK_PER_EPOCH=3
@@ -72,35 +72,35 @@ This creates the GPU fingerprint binary for Proof of Silicon encryption.
 ## Step 6: Start Mining
 
 ```bash
-node bin/btcpc-mine
+node bin/hone-mine
 ```
 
 Expected output:
 ```
-[BTCPC] BTCPC Mining Daemon Starting
-[BTCPC] MongoDB connected
-[BTCPC] Silicon ID: a3f8e2c1d7b3...
-[BTCPC] GPU: NVIDIA GeForce RTX 3090 (24576 MB)
-[BTCPC] P2P network started on port 6942
-[BTCPC] Epoch 1 mining started
+[HONE] HONE Mining Daemon Starting
+[HONE] MongoDB connected
+[HONE] Silicon ID: a3f8e2c1d7b3...
+[HONE] GPU: NVIDIA GeForce RTX 3090 (24576 MB)
+[HONE] P2P network started on port 6942
+[HONE] Epoch 1 mining started
 ```
 
 ## Step 7: Make Permanent (systemd)
 
-Create `/etc/systemd/system/btcpc-mine.service`:
+Create `/etc/systemd/system/hone-mine.service`:
 ```ini
 [Unit]
-Description=BTCPC Mining Daemon
+Description=HONE Mining Daemon
 After=network.target docker.service
 
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/repos/btcpc
-ExecStart=/usr/bin/node bin/btcpc-mine
+WorkingDirectory=/home/YOUR_USERNAME/repos/hone
+ExecStart=/usr/bin/node bin/hone-mine
 Restart=on-failure
 RestartSec=10
-EnvironmentFile=/home/YOUR_USERNAME/repos/btcpc/.env
+EnvironmentFile=/home/YOUR_USERNAME/repos/hone/.env
 
 [Install]
 WantedBy=multi-user.target
@@ -108,8 +108,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable btcpc-mine
-sudo systemctl start btcpc-mine
+sudo systemctl enable hone-mine
+sudo systemctl start hone-mine
 ```
 
 ## Step 8: Connect to Peers
@@ -125,13 +125,13 @@ Restart the miner to connect.
 
 ```bash
 # Check mining logs
-journalctl -u btcpc-mine -f
+journalctl -u hone-mine -f
 
 # Check via CLI
-node bin/btcpc-cli status
+node bin/hone-cli status
 
 # Check via Telegram
-# Message @btcpcbot: /link <username> then /mining
+# Message @honebot: /link <username> then /mining
 ```
 
 ## Choosing a Model

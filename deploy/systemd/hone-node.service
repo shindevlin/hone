@@ -1,0 +1,17 @@
+[Unit]
+Description=HONE Node — Bitcoin Proof of Compute
+Documentation=https://hone.network
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/btcpc-storage/repos/hone
+ExecStart=/usr/bin/node bin/hone-all
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=%h/.hone.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

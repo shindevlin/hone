@@ -28,13 +28,13 @@
 
 | Old call | New call | Notes |
 |----------|----------|-------|
-| `GET /status` | `GET /api/explorer/status` | Shape adapted: `chain_height`, `epoch_ms`, `active_nodes_last_100`, `circulating_btcpc` |
+| `GET /status` | `GET /api/explorer/status` | Shape adapted: `chain_height`, `epoch_ms`, `active_nodes_last_100`, `circulating_hone` |
 | `GET /blocks?limit=N` | `GET /api/explorer/blocks?limit=N` | Shape adapted: `timestamp_ms` (not `timestamp`), no `reward` field |
 | `GET /activity?limit=N` | `GET /api/explorer/activity?limit=N` | Shape compatible: `entries[]` array |
 | `GET /block/:n` | `GET /api/block/:n` | Shape adapted: entries in `payload.ledger_entries` |
 | `GET /account/:name` | `GET /api/account/:name` | Shape differs significantly — adapted rendering |
 | `GET /account/:name/history` | `GET /api/account/:name/history` | Returns `entries` not `history`; uses `_epoch` field |
-| `GET /accounts` | `GET /api/accounts` | Returns `balances.BTCPC` as integer dreams, not float |
+| `GET /accounts` | `GET /api/accounts` | Returns `balances.HONE` as integer dreams, not float |
 | `GET /api/sensors` | No equivalent | Graceful empty state already present |
 | `GET /api/sensors/:id` | `GET /api/sensor/:id` | URL fixed (no plural) |
 
@@ -42,11 +42,11 @@
 - `chain_height` instead of `chain_height` (same)
 - `epoch_ms` instead of `epoch_time_ms`
 - `active_nodes_last_100` instead of `active_nodes`
-- `circulating_btcpc` (float) instead of `circulating_supply`
-- `max_supply_btcpc` instead of `max_supply`
+- `circulating_hone` (float) instead of `circulating_supply`
+- `max_supply_hone` instead of `max_supply`
 - No `current_reward_per_epoch` field exists in Rust node — removed from stats
 - Account history uses `_epoch` field (set by scanner) not `epoch`
-- `get_all_accounts` returns `balances.BTCPC` as raw integer dreams (divide by 10,000,000,000 for BTCPC)
+- `get_all_accounts` returns `balances.HONE` as raw integer dreams (divide by 10,000,000,000 for HONE)
 
 ---
 
@@ -83,7 +83,7 @@ Uses `GET /health` at `http://localhost:4242/health` and `http://localhost:4243/
 | `GET /node/epoch/current` | `GET /api/latest` | Lines 1789, 2507 |
 | `GET /node/epoch/:n` (loop) | `GET /api/explorer/blocks?limit=8` | Line 2557 |
 
-**Shape note on balance**: The old `/api/wallet/balance` returned `{ success, balance: { BTCPC: float }, address, delegated_balance }`. The Rust `/api/balance/:account` returns `{ account, balance: float, dreams: int, token: "BTCPC" }`. All rendering code adapted accordingly. No JWT required for balance reads.
+**Shape note on balance**: The old `/api/wallet/balance` returned `{ success, balance: { HONE: float }, address, delegated_balance }`. The Rust `/api/balance/:account` returns `{ account, balance: float, dreams: int, token: "HONE" }`. All rendering code adapted accordingly. No JWT required for balance reads.
 
 **Shape note on history**: The old `/api/wallet/transactions` returned `{ transactions: [{type: "receive"/"send", counterpart, amount}] }`. The Rust `/api/account/:account/history` returns `{ account, count, entries: [{type (LedgerEntry variant), from, to, account, amount, memo, _epoch, _role}] }`. The receive/send detection was rewritten to use `to === acct` logic.
 
@@ -93,7 +93,7 @@ Uses `GET /health` at `http://localhost:4242/health` and `http://localhost:4243/
 |------|--------|
 | `POST /api/wallet/transfer` (lines 1865, 5455) | Old API accepted `{ toAddress, amount, memo, password }` with JWT. Rust `POST /api/transfer` requires `{ from, to, amount, token, signed_by, nonce, signature }` where signature is an ed25519 signature over the entry. The password/JWT approach is incompatible. This is blocked until a client-side ed25519 signing flow is implemented. |
 | `POST /api/staking/stake` / `POST /api/staking/unstake` (via `/api/staking/:action`) | Same signing requirement — Rust `POST /api/stake` and `POST /api/unstake` need ed25519 signature. |
-| `GET /api/staking/info` (line 5519) | No `/api/staking/info` endpoint in Rust node. Per-account stake is at `GET /api/stake/:account`. Field names differ (`staked_amount` → `stake` as float BTCPC). |
+| `GET /api/staking/info` (line 5519) | No `/api/staking/info` endpoint in Rust node. Per-account stake is at `GET /api/stake/:account`. Field names differ (`staked_amount` → `stake` as float HONE). |
 
 #### Out-of-scope (no equivalent in Rust node — noted but not fixed)
 
@@ -126,7 +126,7 @@ Uses `GET /health` at `http://localhost:4242/health` and `http://localhost:4243/
    - Block detail: `/block/:n` → `/api/block/:n` (adapted to read `payload.ledger_entries`)
    - Account detail: `/account/:name` → `/api/account/:name` (adapted to Rust account shape)
    - Account history: `/account/:name/history` → `/api/account/:name/history` (adapted field names)
-   - All accounts: `/accounts` → `/api/accounts` (adapted dreams→BTCPC conversion)
+   - All accounts: `/accounts` → `/api/accounts` (adapted dreams→HONE conversion)
    - Search: `/account/:name` → `/api/account/:name`
    - Sensor detail: `/api/sensors/:id` → `/api/sensor/:id` (removed plural)
 

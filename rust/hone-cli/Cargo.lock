@@ -135,12 +135,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-cli"
+name = "hone-cli"
 version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",
- "btcpc-sdk",
+ "hone-sdk",
  "clap",
  "colored",
  "hex",
@@ -154,7 +154,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-sdk"
+name = "hone-sdk"
 version = "1.0.0"
 dependencies = [
  "anyhow",

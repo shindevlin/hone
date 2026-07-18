@@ -1,24 +1,24 @@
-# BTCPC Tokenomics
+# HONE Tokenomics
 
 Author: Shin Devlin
 Last updated: 2026-04-10 (v2.10.0 baseline, v2.10.1+ decisions included)
 Status: canonical
 
-This document is the source of truth for BTCPC's economic model. Code should reference constants defined here. Marketing should quote positioning from here. Changes to this document require a version bump and a clear reason.
+This document is the source of truth for HONE's economic model. Code should reference constants defined here. Marketing should quote positioning from here. Changes to this document require a version bump and a clear reason.
 
 ---
 
 ## 1. One-paragraph summary
 
-BTCPC is a sovereign blockchain where value is captured from verifiable economic activity — inference, storage, compute hosting, commerce, sensor data — and recycled back to the people doing real work. Fixed supply of 42,000,000 BTCPC. **No burn, ever.** Every token that leaves circulation via fees or slashing flows to a recycle wallet that is steadily drained back into block rewards over time. One token, many capabilities, perpetual circulation. Earned by work, not destroyed by code.
+HONE is a sovereign blockchain where value is captured from verifiable economic activity — inference, storage, compute hosting, commerce, sensor data — and recycled back to the people doing real work. Fixed supply of 42,000,000 HONE. **No burn, ever.** Every token that leaves circulation via fees or slashing flows to a recycle wallet that is steadily drained back into block rewards over time. One token, many capabilities, perpetual circulation. Earned by work, not destroyed by code.
 
 ---
 
 ## 2. The positioning: "No Burn, All Recycle"
 
-> *"Bitcoin is the 'digital gold' chain. Ethereum is the 'burn fees for scarcity' chain. BTCPC is the 'no burn, all recycle' chain — 42 million tokens, forever, in perpetual circulation, earned by doing real work."*
+> *"Bitcoin is the 'digital gold' chain. Ethereum is the 'burn fees for scarcity' chain. HONE is the 'no burn, all recycle' chain — 42 million tokens, forever, in perpetual circulation, earned by doing real work."*
 
-BTCPC does not destroy tokens as a monetary policy tool. Every fee, every slashed bond, every unclaimed escrow flows to the `btcpc_recycle` system account, and from there back into the active block reward pool. This is the central economic commitment of the project and it cannot be changed without a hard fork.
+HONE does not destroy tokens as a monetary policy tool. Every fee, every slashed bond, every unclaimed escrow flows to the `hone_recycle` system account, and from there back into the active block reward pool. This is the central economic commitment of the project and it cannot be changed without a hard fork.
 
 ### Why not burn?
 
@@ -39,20 +39,20 @@ Recycling fees:
 
 ### How the recycle wallet works
 
-- **Address**: `btcpc_recycle` (system account, already exists in `stateStore._isSystemAccount`)
-- **Multi-token**: accepts BTCPC, wrapped stables, arbitrary TOKEN_CREATE tokens — anything paid as a fee flows here
+- **Address**: `hone_recycle` (system account, already exists in `stateStore._isSystemAccount`)
+- **Multi-token**: accepts HONE, wrapped stables, arbitrary TOKEN_CREATE tokens — anything paid as a fee flows here
 - **Drain rule**: at each epoch, if `recycle.balance > next_block_reward`, a portion of the next block reward is paid *from* the recycle wallet instead of being emitted fresh. This reduces fresh emission pressure proportional to recycle flow.
 - **Emission precedence**: fresh emission runs first (from the fixed schedule). Recycle drain is supplemental, on top of scheduled emission, up to a cap of 100% of the block reward.
-- **Cross-token recycling**: recycled non-BTCPC tokens (wrapped stables, project tokens, etc.) are held in the recycle wallet and gradually redistributed via special entries. Their eventual path back to circulation is configurable per token but always on chain.
+- **Cross-token recycling**: recycled non-HONE tokens (wrapped stables, project tokens, etc.) are held in the recycle wallet and gradually redistributed via special entries. Their eventual path back to circulation is configurable per token but always on chain.
 - **Smart-contract-paid tokens**: if a smart contract pays into the recycle wallet, those tokens stay recoverable — any chain participant can eventually earn them back via block rewards, dispute resolution payouts, or bounty claims. Nothing is ever permanently locked.
 
 ### The NO BURN commitment
 
-This is a hard architectural promise: **BTCPC will never implement a burn mechanism, ever, under any circumstances.** Any proposal to add burning to BTCPC is a proposal to fork BTCPC into a different chain. The No Burn commitment is as foundational as the 42M supply cap.
+This is a hard architectural promise: **HONE will never implement a burn mechanism, ever, under any circumstances.** Any proposal to add burning to HONE is a proposal to fork HONE into a different chain. The No Burn commitment is as foundational as the 42M supply cap.
 
 ## 2.5 The conditional payout rule
 
-**BTCPC cannot make fixed-amount promises it might not be able to cash.** Any BTCPC-denominated reward in the protocol must be one of:
+**HONE cannot make fixed-amount promises it might not be able to cash.** Any HONE-denominated reward in the protocol must be one of:
 
 **(a)** a **percentage of a specific known revenue stream** (e.g., "10% of this order's platform fee")
 
@@ -60,7 +60,7 @@ This is a hard architectural promise: **BTCPC will never implement a burn mechan
 
 **(c)** a **share of block rewards within a defined role allocation** (e.g., "pro-rata within the storage_hosts 10% of block rewards")
 
-Fixed-amount promises ("you earn 50 BTCPC for X") are **prohibited in the protocol layer**. They can only exist in the application layer where the funding source is explicitly known and bounded. This rule protects the chain from over-committing and keeps all economics honest about current state, not aspirational future state.
+Fixed-amount promises ("you earn 50 HONE for X") are **prohibited in the protocol layer**. They can only exist in the application layer where the funding source is explicitly known and bounded. This rule protects the chain from over-committing and keeps all economics honest about current state, not aspirational future state.
 
 The emission schedule is exempt from this rule because it has a known funded source: the 42M supply cap. Emission is a fixed schedule against a bounded reserve, not an open-ended promise.
 
@@ -68,7 +68,7 @@ The emission schedule is exempt from this rule because it has a known funded sou
 
 ## 3. Supply
 
-### Total supply: 42,000,000 BTCPC
+### Total supply: 42,000,000 HONE
 
 - **Fixed forever.** No inflation beyond the emission schedule. No governance-adjustable issuance.
 - **No pre-mine.** Genesis block held zero tokens allocated to founders; the project started at zero and earns forward.
@@ -76,18 +76,18 @@ The emission schedule is exempt from this rule because it has a known funded sou
 
 ### Denomination
 
-- **1 BTCPC = 10,000,000,000 dreams** (10^10, higher precision than Bitcoin's 10^8 satoshis)
-- Dreams are the base unit for internal calculations; BTCPC is the display unit.
+- **1 HONE = 10,000,000,000 dreams** (10^10, higher precision than Bitcoin's 10^8 satoshis)
+- Dreams are the base unit for internal calculations; HONE is the display unit.
 - All on-chain amounts are rounded to 10 decimal places via `stateStore._round()`.
-- **All tokens on BTCPC — native and user-created — use 10 decimals.** See Section 15 (Token standards) for the full rule.
-- 10 decimals future-proofs the chain: even at $100,000 per BTCPC, the smallest unit (1 dream) is worth $0.00001, still fine for sub-penny microtransactions in commerce and sensor markets.
+- **All tokens on HONE — native and user-created — use 10 decimals.** See Section 15 (Token standards) for the full rule.
+- 10 decimals future-proofs the chain: even at $100,000 per HONE, the smallest unit (1 dream) is worth $0.00001, still fine for sub-penny microtransactions in commerce and sensor markets.
 
 ### Emission schedule
 
 - **Epoch duration**: 5 minutes
 - **Epochs per day**: 288
 - **Epochs per year**: ~105,120
-- **Genesis reward**: 243.06 BTCPC/epoch (year 1 baseline)
+- **Genesis reward**: 243.06 HONE/epoch (year 1 baseline)
 - **Halving schedule**: reward roughly halves every 4 years, following the existing `src/services/emissionSchedule.js`
 - **Total emission timeline**: ~30 years to exhaust the 42M cap
 - **Post-emission**: rewards come entirely from the recycle wallet + fee market. Since recycling maintains velocity, block rewards remain meaningful long after emission ends.
@@ -96,7 +96,7 @@ The emission schedule is exempt from this rule because it has a known funded sou
 
 | Year | Reward/epoch | Yearly emission | Cumulative |
 |---|---|---|---|
-| 1 | 243.06 BTCPC | 25,560,000 | 25,560,000 |
+| 1 | 243.06 HONE | 25,560,000 | 25,560,000 |
 | 2 | 121.53 | 12,780,000 | 38,340,000 |
 | 3 | 60.77 | 6,390,000 | 44,730,000 *(capped at 42M)* |
 
@@ -106,7 +106,7 @@ Emission halts when cumulative reaches 42M. After that, block rewards come from 
 
 ## 4. Block rewards: how they flow to people doing work
 
-BTCPC has role-based reward splits. The split evolves as new capabilities launch:
+HONE has role-based reward splits. The split evolves as new capabilities launch:
 
 ### Current split (v2.10 and earlier)
 
@@ -116,16 +116,16 @@ BTCPC has role-based reward splits. The split evolves as new capabilities launch
  5% → clocks        (maintain chain heartbeat, coordinate block proposals)
 ```
 
-### Proposed split from v2.11 onward (when BTCPC-FS launches)
+### Proposed split from v2.11 onward (when HONE-FS launches)
 
 ```
 75% → miners
 10% → verifiers
  5% → clocks
-10% → storage_hosts (serve BTCPC-FS blobs, respond to challenges)
+10% → storage_hosts (serve HONE-FS blobs, respond to challenges)
 ```
 
-The 10-point shift from miners to storage_hosts reflects the reality that storage is the bootstrap role for the entire commerce + compute stack. Without storage hosts, v2.11-v2.14 do not work. Without BTCPC-FS, there is no BTCPC commerce at scale. Storage is a peer role, not a second-class one.
+The 10-point shift from miners to storage_hosts reflects the reality that storage is the bootstrap role for the entire commerce + compute stack. Without storage hosts, v2.11-v2.14 do not work. Without HONE-FS, there is no HONE commerce at scale. Storage is a peer role, not a second-class one.
 
 ### Proposed split from v2.13 onward (when SERVICE_DEPLOY launches)
 
@@ -178,7 +178,7 @@ Reputation gating is real: a role participant below a minimum reputation thresho
 
 ## 5. Fees: how value flows into the recycle pool
 
-Every capability has its own fee structure. All fees flow to `btcpc_recycle` or directly to work-performing nodes (never burned). Fee percentages are conservative by design — we win on volume and alignment, not on taking a large cut of each transaction.
+Every capability has its own fee structure. All fees flow to `hone_recycle` or directly to work-performing nodes (never burned). Fee percentages are conservative by design — we win on volume and alignment, not on taking a large cut of each transaction.
 
 ### Commerce fees (v2.10+)
 
@@ -186,28 +186,28 @@ Every capability has its own fee structure. All fees flow to `btcpc_recycle` or 
 - Paid in wrapped stables (wUSDC/wUSDT/wDAI)
 - Formula: `cost = 1.00 + 0.05 × capacity_slots` (linear bonding curve, defined in `src/services/stakeBondingCurve.js`)
 - **Split**:
-  - 50% → `btcpc_recycle` (recycled back to block rewards)
+  - 50% → `hone_recycle` (recycled back to block rewards)
   - 50% → protocol treasury (funds development, audits, bounties — managed by genesis operator initially, transitions to stake-weighted governance later)
-- Stake: 1 BTCPC collateral locked per capacity slot (refundable on store close minus any slashing)
+- Stake: 1 HONE collateral locked per capacity slot (refundable on store close minus any slashing)
 
 #### Platform fee on orders (v2.10.1+)
 - 1% of order total, deducted from seller payout
 - **Split**:
-  - 0.5% → `btcpc_recycle`
+  - 0.5% → `hone_recycle`
   - 0.4% → store stakers (pro-rata by stake — includes the seller's own stake plus any delegated stakes)
   - 0.1% → reputation bonus pool (paid to buyers whose reviews match final dispute outcomes)
 - Deliberately undercuts Stripe (2.9% + $0.30), Shopify (2%), Amazon (8-15%)
 
 #### Token creation fees (v2.10, existing)
-- Micro (≤1M supply): 21 BTCPC
-- Standard (≤42M): 42 BTCPC
-- Mega (≤1B): 84 BTCPC
-- Custom (unbounded): 168 BTCPC
-- **Split**: 100% → `btcpc_recycle`
+- Micro (≤1M supply): 21 HONE
+- Standard (≤42M): 42 HONE
+- Mega (≤1B): 84 HONE
+- Custom (unbounded): 168 HONE
+- **Split**: 100% → `hone_recycle`
 
 #### NFT collection creation fee (v2.10, existing)
-- 10 BTCPC per collection
-- **Split**: 100% → `btcpc_recycle`
+- 10 HONE per collection
+- **Split**: 100% → `hone_recycle`
 
 #### Project registration fees (v2.10, existing — for API integrations)
 - Current: free (covered by inference-consumption fees)
@@ -216,23 +216,23 @@ Every capability has its own fee structure. All fees flow to `btcpc_recycle` or 
 ### Storage fees (v2.11+)
 
 #### Blob storage commitment
-- Seller pays `payment_btcpc` per BLOB_STORE_COMMIT to storage hosts over the commitment period
+- Seller pays `payment_hone` per BLOB_STORE_COMMIT to storage hosts over the commitment period
 - **Split**:
   - 90% → storage hosts (pro-rata by commitment share, released over time via escrow)
-  - 9% → `btcpc_recycle`
+  - 9% → `hone_recycle`
   - 1% → reputation bonus pool (paid to hosts with highest challenge success rate)
 
 #### Bandwidth fees (per-GB served)
 - Seller pays per BLOB_SERVE_PROOF recording actual bytes served
 - **Split**:
   - 95% → the serving host (direct payment)
-  - 5% → `btcpc_recycle`
+  - 5% → `hone_recycle`
 
 #### Slashing on failed challenges
 - Storage host fails a verifier spot-check → their stake is slashed
 - **Split**: 
   - 50% → honest hosts who passed the same challenge (redistributes the failure)
-  - 50% → `btcpc_recycle`
+  - 50% → `hone_recycle`
 
 ### Compute fees (v2.13+)
 
@@ -240,7 +240,7 @@ Every capability has its own fee structure. All fees flow to `btcpc_recycle` or 
 - Buyer pays per session, released pro-rata over session duration
 - **Split**:
   - 90% → service host
-  - 9% → `btcpc_recycle`
+  - 9% → `hone_recycle`
   - 1% → reputation bonus pool
 
 #### Slashing on uptime failure
@@ -248,7 +248,7 @@ Every capability has its own fee structure. All fees flow to `btcpc_recycle` or 
 - Session escrow fully refunded to buyer; host stake slashed proportional to session remaining
 - **Split**:
   - 50% → refund to session buyer
-  - 50% → `btcpc_recycle`
+  - 50% → `hone_recycle`
 
 ### Sensor fees (v2.15+)
 
@@ -258,18 +258,18 @@ Every capability has its own fee structure. All fees flow to `btcpc_recycle` or 
 - **Split**:
   - 70% → gateway operator (LoRa bridge)
   - 25% → sensor owner (registered SENSOR_REGISTER)
-  - 5% → `btcpc_recycle`
+  - 5% → `hone_recycle`
 
 #### Sensor registration fee
-- 0.1 BTCPC per sensor
-- **Split**: 100% → `btcpc_recycle`
+- 0.1 HONE per sensor
+- **Split**: 100% → `hone_recycle`
 
 ### Universal fee routing principle
 
 Every fee, across every capability, follows this pattern:
 
 1. The work-doer gets the largest share (typically 70-95%)
-2. `btcpc_recycle` gets the next-largest share (typically 5-10%)
+2. `hone_recycle` gets the next-largest share (typically 5-10%)
 3. Reputation bonus pool gets a small residual (typically 1%)
 
 **Nothing is ever burned.** Every token is recoverable somehow, either immediately (to the work-doer) or eventually (via block rewards drawn from recycle).
@@ -278,32 +278,32 @@ Every fee, across every capability, follows this pattern:
 
 ## 6. Stake requirements by capability
 
-Stakes are collateral — locked BTCPC that is refundable on clean exit and slashable on failure. They are NOT consumed. This creates persistent demand that scales with network participation without requiring perpetual fee extraction.
+Stakes are collateral — locked HONE that is refundable on clean exit and slashable on failure. They are NOT consumed. This creates persistent demand that scales with network participation without requiring perpetual fee extraction.
 
 | Capability | Stake formula | Typical value | Slashing conditions |
 |---|---|---|---|
-| Mining node | Fixed | 100 BTCPC | Forged inference results, failed verifier challenges |
-| Verifier | Fixed | 100 BTCPC | Voting against consensus, idle verifier panels |
-| Clock node | Fixed | 10 BTCPC | Missing heartbeats for extended periods |
-| Store operator | Bonding curve | 1 BTCPC / product slot | Fraud, non-fulfillment, failed dispute resolution |
-| Storage host (v2.11) | Proportional | 1 BTCPC / GB committed | Failed blob challenges, dropped blobs |
-| Service host (v2.13) | Proportional | 10 BTCPC / CPU-epoch committed | Uptime failure, failed challenges, bad state commits |
-| Sensor bridge (v2.15) | Fixed | 1 BTCPC / gateway | Relaying fraudulent readings, dropped packets |
-| Sensor registration (v2.15) | Fixed | 0.1 BTCPC / sensor | Malformed data, fraudulent readings |
+| Mining node | Fixed | 100 HONE | Forged inference results, failed verifier challenges |
+| Verifier | Fixed | 100 HONE | Voting against consensus, idle verifier panels |
+| Clock node | Fixed | 10 HONE | Missing heartbeats for extended periods |
+| Store operator | Bonding curve | 1 HONE / product slot | Fraud, non-fulfillment, failed dispute resolution |
+| Storage host (v2.11) | Proportional | 1 HONE / GB committed | Failed blob challenges, dropped blobs |
+| Service host (v2.13) | Proportional | 10 HONE / CPU-epoch committed | Uptime failure, failed challenges, bad state commits |
+| Sensor bridge (v2.15) | Fixed | 1 HONE / gateway | Relaying fraudulent readings, dropped packets |
+| Sensor registration (v2.15) | Fixed | 0.1 HONE / sensor | Malformed data, fraudulent readings |
 
 ### Stake can be cross-allocated
 
-A single account can stake once and allocate that stake across multiple capabilities. `shindevlin` with a 1,000 BTCPC stake pool might allocate:
+A single account can stake once and allocate that stake across multiple capabilities. `shindevlin` with a 1,000 HONE stake pool might allocate:
 
 ```
-Mining:       100 BTCPC (one mining node)
-Verifier:     100 BTCPC
-Store:         50 BTCPC (50 product slots)
-Storage:      500 BTCPC (500 GB committed)
-Service:      200 BTCPC (20 CPU-epochs)
-Sensor bridge: 10 BTCPC
-                = 960 BTCPC allocated
-Free:          40 BTCPC (can allocate to new capabilities)
+Mining:       100 HONE (one mining node)
+Verifier:     100 HONE
+Store:         50 HONE (50 product slots)
+Storage:      500 HONE (500 GB committed)
+Service:      200 HONE (20 CPU-epochs)
+Sensor bridge: 10 HONE
+                = 960 HONE allocated
+Free:          40 HONE (can allocate to new capabilities)
 ```
 
 Slashing one capability does NOT automatically slash the others — each capability has its own slashable portion. But a sufficiently severe offense can cascade (e.g., confirmed identity fraud affects all roles of that account).
@@ -316,11 +316,11 @@ All stakes have a 14-epoch unbonding period (roughly 70 minutes) after requestin
 
 ## 7. The Helium miner reuse story (v2.15 hardware angle)
 
-BTCPC can absorb the dormant Helium miner fleet (400,000+ devices) as storage hosts + LoRa sensor bridges. This is a distribution opportunity, not a dependency — the project works without it, but it makes adoption dramatically cheaper and faster.
+HONE can absorb the dormant Helium miner fleet (400,000+ devices) as storage hosts + LoRa sensor bridges. This is a distribution opportunity, not a dependency — the project works without it, but it makes adoption dramatically cheaper and faster.
 
-### What Helium operators earn on BTCPC
+### What Helium operators earn on HONE
 
-A repurposed Helium gateway running BTCPC-nano can simultaneously be:
+A repurposed Helium gateway running HONE-nano can simultaneously be:
 
 1. **Clock node** (trivial, day one) — earns from the 5% clock reward pool
 2. **Storage host** (v2.11) — earns from the 10% storage_hosts reward pool + direct blob storage/bandwidth fees
@@ -332,19 +332,19 @@ A repurposed Helium gateway running BTCPC-nano can simultaneously be:
 
 ### Economic example (conservative numbers)
 
-Assume block reward averages 121 BTCPC/epoch (year 2 baseline), 288 epochs/day, BTCPC priced at $1:
+Assume block reward averages 121 HONE/epoch (year 2 baseline), 288 epochs/day, HONE priced at $1:
 
 ```
-Storage hosts share (10%):    12.1 BTCPC/epoch = 3,484/day total pool
-Suppose 1,000 active storage hosts sharing equally: 3.48 BTCPC/day per host = $3.48/day
+Storage hosts share (10%):    12.1 HONE/epoch = 3,484/day total pool
+Suppose 1,000 active storage hosts sharing equally: 3.48 HONE/day per host = $3.48/day
 Typical Helium gateway power draw: ~10W = ~7.2 kWh/month at $0.15/kWh = $1.08/month
-Net profit at $1 BTCPC: ~$104/month per gateway
+Net profit at $1 HONE: ~$104/month per gateway
 
 At 10,000 active storage hosts: ~$10.50/month per gateway (still profitable)
 At 100,000 active storage hosts: ~$1.05/month per gateway (still covers electricity)
 ```
 
-These numbers scale naturally — more hosts reduce per-host earnings but also prove the network is working, which drives BTCPC price, which increases real-dollar earnings.
+These numbers scale naturally — more hosts reduce per-host earnings but also prove the network is working, which drives HONE price, which increases real-dollar earnings.
 
 ### Why this doesn't require sub-tokens (locked decision)
 
@@ -354,7 +354,7 @@ Every sub-token would:
 3. Repeat Helium's exact failure (HNT/MOBILE/IOT split was widely criticized and contributed to HNT's collapse)
 4. Break the unified stake + escrow + reputation model
 
-**The Helium community is specifically traumatized by sub-tokens.** Offering them a native-BTCPC-only story is a feature, not a limitation. It's a differentiator.
+**The Helium community is specifically traumatized by sub-tokens.** Offering them a native-HONE-only story is a feature, not a limitation. It's a differentiator.
 
 ---
 
@@ -376,7 +376,7 @@ A small portion of certain fees flows to a "protocol treasury" account (currentl
 
 ### Treasury accountability
 
-The treasury address is public (`btcpc_treasury`). All inflows and outflows are visible on chain. Spending decisions during genesis phase are made by the genesis operator (shindevlin); a transition to governance-weighted spending is planned for a later phase, with specific governance mechanism TBD.
+The treasury address is public (`hone_treasury`). All inflows and outflows are visible on chain. Spending decisions during genesis phase are made by the genesis operator (shindevlin); a transition to governance-weighted spending is planned for a later phase, with specific governance mechanism TBD.
 
 The treasury is NOT a monetary policy tool. It does not affect token supply, emission, or the recycle mechanism. It is simply a publicly-visible fund used for ecosystem development.
 
@@ -404,12 +404,12 @@ Reputation naturally decays over time if a node stops participating:
 When voters cast `REPUTATION_VOTE` entries, their vote weight is:
 
 ```
-weight = min(100, 1 + sqrt(voter_stake_btcpc))
+weight = min(100, 1 + sqrt(voter_stake_hone))
 ```
 
 - A voter with 0 stake has weight 1
-- A voter with 100 BTCPC stake has weight 11
-- A voter with 10,000 BTCPC stake has weight 101 (capped at 100)
+- A voter with 100 HONE stake has weight 11
+- A voter with 10,000 HONE stake has weight 101 (capped at 100)
 - Diminishing returns prevents whale dominance
 
 ### Reputation cannot be bought
@@ -428,7 +428,7 @@ total_reward = emission_schedule(epoch) + recycle_drain(epoch)
 
 // where recycle_drain is capped so that total_reward never exceeds 2x emission_schedule
 recycle_drain = min(
-  recycle_wallet.balance(BTCPC),
+  recycle_wallet.balance(HONE),
   emission_schedule(epoch)
 )
 
@@ -460,10 +460,10 @@ for node in all_rewarded_nodes:
 
 ```
 // src/services/emissionSchedule.js
-TOTAL_SUPPLY_BTCPC = 42_000_000
+TOTAL_SUPPLY_HONE = 42_000_000
 HUNITS_PER_HONE = 100_000_000
 EPOCH_DURATION_MS = 5 * 60 * 1000
-GENESIS_REWARD_BTCPC_PER_EPOCH = 243.06
+GENESIS_REWARD_HONE_PER_EPOCH = 243.06
 
 // src/services/rewardSplits.js (new)
 REWARD_SPLIT_v2_10 = {
@@ -557,9 +557,9 @@ To keep the tokenomics focused, these ideas are explicitly OUT of scope and will
 2. **Founder / team / VC allocation** — there are none and will never be any. 100% of tokens are earned through work.
 3. **Pre-sale or ICO** — never happened, never will.
 4. **Reserve fund / insurance fund / safety module** — the recycle wallet serves this function. Slashed tokens don't go to a separate insurance pool; they go to honest participants + recycle.
-5. **Governance token** — BTCPC is both the utility token and (eventually) the governance token. Stake-weighted voting when governance launches.
-6. **Stablecoin issuance** — BTCPC does not issue its own stablecoin. Wrapped stables (wUSDC, wUSDT, wDAI) handle stable-denominated transactions.
-7. **Lending / staking-as-a-service / DeFi primitives** — can be built ON BTCPC by third parties, but not part of the core protocol.
+5. **Governance token** — HONE is both the utility token and (eventually) the governance token. Stake-weighted voting when governance launches.
+6. **Stablecoin issuance** — HONE does not issue its own stablecoin. Wrapped stables (wUSDC, wUSDT, wDAI) handle stable-denominated transactions.
+7. **Lending / staking-as-a-service / DeFi primitives** — can be built ON HONE by third parties, but not part of the core protocol.
 8. **Sub-tokens for specific capabilities** — one chain, one token. See Section 7 for the specific reasoning.
 9. **Adjustable supply** — the 42M cap is hard. Governance can change fee splits, role allocations, and bonding curve parameters, but cannot increase the supply cap.
 
@@ -574,7 +574,7 @@ To keep the tokenomics focused, these ideas are explicitly OUT of scope and will
   - Added service_hosts role to v2.13+ block reward split
   - Added sensor_bridges role to v2.15+ block reward split
   - Locked the 42M supply cap
-  - Confirmed native BTCPC only — no sub-tokens for any capability track
+  - Confirmed native HONE only — no sub-tokens for any capability track
   - Documented stake requirements for all capabilities
   - Established treasury funding model (50% of bonding curve stake purchases)
 
@@ -582,13 +582,13 @@ To keep the tokenomics focused, these ideas are explicitly OUT of scope and will
 
 ## 14. Location verification and trust levels
 
-Location claims on BTCPC (for Area Pioneer NFTs, `SERVICE_AREA_REQUEST` bids, RF witness attestations, sensor bridge earnings) are verified through a **six-layer defensive stack** that combines multiple imperfect signals. No single layer is sufficient alone; the combination makes fraud economically irrational.
+Location claims on HONE (for Area Pioneer NFTs, `SERVICE_AREA_REQUEST` bids, RF witness attestations, sensor bridge earnings) are verified through a **six-layer defensive stack** that combines multiple imperfect signals. No single layer is sufficient alone; the combination makes fraud economically irrational.
 
 ### The six layers
 
 **Layer 1 — Time-of-flight (ToF) challenges.** The chain issues random challenges: *"Gateway A, transmit the hash of block B at epoch T. Gateway B, record exact receive time."* ToF (receive - transmit time) is measured with ~10 microsecond precision (achievable via NTP+PPS), giving distance upper bounds of ~3 km. This replaces RSSI as the primary distance signal — because ToF is independent of antenna gain, directional-antenna attacks (Helium's #1 fraud vector) stop working.
 
-**Layer 2 — Multi-witness consensus with stake-weighted attestation.** A gateway's claimed location is only "verified" after N independent witnesses (different accounts, different funding sources, different uptime patterns, geographically distributed) co-sign attestations over M epochs. Each witness stakes BTCPC proportional to the value being claimed. If the location is later proven fraudulent, all co-signing witnesses lose their stake. This breaks single-operator sybil attacks.
+**Layer 2 — Multi-witness consensus with stake-weighted attestation.** A gateway's claimed location is only "verified" after N independent witnesses (different accounts, different funding sources, different uptime patterns, geographically distributed) co-sign attestations over M epochs. Each witness stakes HONE proportional to the value being claimed. If the location is later proven fraudulent, all co-signing witnesses lose their stake. This breaks single-operator sybil attacks.
 
 **Layer 3 — Progressive trust with delayed rewards.** New gateways start at `verification_level: 0` and earn zero from block reward pools until they accumulate enough evidence. Verification is achieved by ToF + witnesses + 50+ epochs continuous operation + behavioral consistency. Probationary period is ~8 hours before a gateway can claim high-value privileges. This specifically kills the Area Pioneer NFT fraud vector — you can't mint a Pioneer claim on day one.
 
@@ -652,27 +652,27 @@ Reputation is recoverable through honest work. This is intentional — permanent
 - Eliminate false positives entirely (honest operators may occasionally need to re-verify)
 - Provide instant verification (inherent delay between joining and full trust)
 
-This honesty matters. BTCPC does not claim to have solved decentralized location verification — it claims to have made fraud **economically irrational for realistic attacker profiles**, which is a weaker but achievable guarantee.
+This honesty matters. HONE does not claim to have solved decentralized location verification — it claims to have made fraud **economically irrational for realistic attacker profiles**, which is a weaker but achievable guarantee.
 
 ---
 
 ## 15. Token standards — the 42M chain, for every token
 
-**Every token on BTCPC has the same supply cap and precision.**
+**Every token on HONE has the same supply cap and precision.**
 
 ### The standard (locked in v2.10.1)
 
 - **Supply**: exactly 42,000,000 (the chain's namesake number)
-- **Decimals**: exactly 10 (same as BTCPC, future-proof precision)
+- **Decimals**: exactly 10 (same as HONE, future-proof precision)
 - **Applies to**: all fungible user-created tokens via `TOKEN_CREATE`
 - **Exception**: NFT collections (where "supply" is a max-mint counter and "decimals" is always 0 for indivisible tokens)
 
 ### Why
 
-1. **Brand coherence.** "The 42M chain" becomes literal. Every asset on BTCPC is bounded by the same number. One mental model, applied universally.
+1. **Brand coherence.** "The 42M chain" becomes literal. Every asset on HONE is bounded by the same number. One mental model, applied universally.
 2. **Anti-spam / anti-memecoin.** Fixed 42M prevents the "1 quadrillion supply with X% token burn" meme-hype pattern. Every token must earn its value from utility, not from fake scarcity games.
 3. **UX simplification.** A balance of "1,000 / 42,000,000" is interpretable across every token on the chain. No one has to wonder "is 1M TOKEN a lot or nothing?" — the answer is always "compared to 42M."
-4. **Aligned with No Burn, All Recycle.** Both BTCPC and every user token are fixed-supply, non-inflatable assets. Consistent monetary philosophy across the entire chain. No "well this memecoin has a 5% burn but the native token doesn't" weirdness.
+4. **Aligned with No Burn, All Recycle.** Both HONE and every user token are fixed-supply, non-inflatable assets. Consistent monetary philosophy across the entire chain. No "well this memecoin has a 5% burn but the native token doesn't" weirdness.
 5. **Prevents token inflation gaming.** Creators cannot mint arbitrary amounts after launch. Fixed 42M at creation = no post-launch supply surprises.
 
 ### Enforcement
@@ -686,9 +686,9 @@ The token standard is enforced at two levels:
 
 A single flat fee replaces the old tiered system:
 
-- **Fungible token creation**: 42 BTCPC (matching the supply for memorability)
-- **NFT collection creation**: 10 BTCPC
-- **Both fees**: 100% routed to `btcpc_recycle` — not burned, not sent to treasury, recycled back to block rewards over time.
+- **Fungible token creation**: 42 HONE (matching the supply for memorability)
+- **NFT collection creation**: 10 HONE
+- **Both fees**: 100% routed to `hone_recycle` — not burned, not sent to treasury, recycled back to block rewards over time.
 
 ### Existing tokens
 
@@ -707,13 +707,13 @@ The 42M/10 rule applies only to fungible `TOKEN_CREATE` with `type: "fungible"`.
 
 ## 16. Area Pioneer NFTs — the full four-layer structure (v2.15)
 
-Area Pioneer NFTs reward operators who deploy LoRa gateways in previously-unserved regions. The rewards are structured in four layers, each of which respects the Conditional Payout Rule (no fixed BTCPC promises).
+Area Pioneer NFTs reward operators who deploy LoRa gateways in previously-unserved regions. The rewards are structured in four layers, each of which respects the Conditional Payout Rule (no fixed HONE promises).
 
 ### Qualification
 
 A gateway qualifies for an Area Pioneer NFT when:
 1. It operates continuously from a claimed location for 30+ epochs
-2. No other BTCPC gateway has operated within 10km of its location in the last 30 days
+2. No other HONE gateway has operated within 10km of its location in the last 30 days
 3. It passes `verification_level >= 3` (Layer 1 ToF + Layer 2 witnesses + Layer 5 behavioral)
 4. Its reputation score is `>= 0`
 
@@ -722,13 +722,13 @@ A gateway qualifies for an Area Pioneer NFT when:
 Zero-cost-to-protocol benefits granted at the moment of qualification:
 
 - **Soulbound Area Pioneer NFT** — minted via `recordSoulboundMint`, permanent, non-transferable, **non-revokable** (survives any future fraud events on the same account)
-- **Public map marker** — gold "Pioneer of [region]" marker on BTCPC coverage map
+- **Public map marker** — gold "Pioneer of [region]" marker on HONE coverage map
 - **Geographic reputation boost** — `+10` to reputation score within the region's coordinates
 - **First-right-of-refusal** — for 100 epochs (~8 hours) after any new `SERVICE_AREA_REQUEST` in the region, the Pioneer has bid priority if they submit a competitive bid
 
 ### Layer 2 — Activity-triggered fee share
 
-When the **first** fee-bearing transaction happens in a Pioneered area, the Pioneer receives the protocol's share of that transaction instead of `btcpc_recycle`. Applies to: SERVICE_AREA_REQUEST settlement, BLOB_STORE_COMMIT payment, ORDER_PLACE escrow release, etc.
+When the **first** fee-bearing transaction happens in a Pioneered area, the Pioneer receives the protocol's share of that transaction instead of `hone_recycle`. Applies to: SERVICE_AREA_REQUEST settlement, BLOB_STORE_COMMIT payment, ORDER_PLACE escrow release, etc.
 
 Under the standard storage fee split (90% host / 9% recycle / 1% reputation pool), the 9% that normally goes to recycle is routed to the Pioneer **for the first fee-bearing transaction only**. After that, normal splits apply forever.
 
@@ -742,12 +742,12 @@ Under the standard storage fee split (90% host / 9% recycle / 1% reputation pool
 
 ### Layer 3 — Ongoing recycle drip
 
-When the recycle wallet has BTCPC balance, Pioneers share in a tiny ongoing drip:
+When the recycle wallet has HONE balance, Pioneers share in a tiny ongoing drip:
 
 - At each epoch, **0.1% of current recycle wallet balance** is distributed pro-rata among active Pioneers (heartbeated in the last 100 epochs)
 - Rule (b) compliance: fraction of measurable pool at moment of payout
 - If recycle wallet is empty: distribution is zero
-- If recycle wallet has 10,000 BTCPC and 100 active Pioneers: each gets 0.1 BTCPC/epoch ≈ 29/day
+- If recycle wallet has 10,000 HONE and 100 active Pioneers: each gets 0.1 HONE/epoch ≈ 29/day
 - If 10,000 active Pioneers: each gets 0.001/epoch — effectively nothing
 - **Self-caps mathematically** — impossible to over-commit
 
@@ -788,11 +788,11 @@ Helium operators who upload their gateway's historical packet data (asserted loc
 
 ### Conditional rewards (only when data proves valuable)
 
-- **Dataset access royalty** — when subscribers pay to query historical BTCPC data that includes this operator's contributions, the operator receives a pro-rata share of the subscription fee based on how much of the query result came from their contributed data
+- **Dataset access royalty** — when subscribers pay to query historical HONE data that includes this operator's contributions, the operator receives a pro-rata share of the subscription fee based on how much of the query result came from their contributed data
 - Rule (a) compliance: percentage of known revenue stream
 - Pays only when real demand materializes; no fixed promise
 
-### No fixed BTCPC payment for upload
+### No fixed HONE payment for upload
 
 Consistent with the Conditional Payout Rule. The upload itself creates no debt to the uploader — the value comes from ongoing royalties when the data is consumed, plus the permanent badge and reputation uplift.
 
@@ -801,14 +801,14 @@ Consistent with the Conditional Payout Rule. The upload itself creates no debt t
 Uploaded data is validated via:
 - Cross-reference with Helium public records (where available)
 - Consistency checks against current LoRa physics (signal propagation, timing)
-- Reputation stake: uploader stakes BTCPC on the validity of their upload, slashable if the data is proven fraudulent
+- Reputation stake: uploader stakes HONE on the validity of their upload, slashable if the data is proven fraudulent
 
 ---
 
 ## 18. Change log update (v2.10.1 decisions)
 
 - Added Section 2.5: Conditional payout rule
-- Updated Section 3: BTCPC is 10 decimals (unified with user tokens)
+- Updated Section 3: HONE is 10 decimals (unified with user tokens)
 - Added Section 14: Location verification and trust levels (six-layer stack)
 - Added Section 15: Token standards (42M/10 decimals for all user tokens)
 - Added Section 16: Area Pioneer NFT four-layer reward structure
@@ -816,6 +816,6 @@ Uploaded data is validated via:
 - Locked fraud cascade mechanics: total slashing across all operator gateways, clawback, reputation to -100
 - Locked reputation rebuild mechanics: +0.1 per verified work event, +5/epoch cap, -0.01/epoch idle decay, earning floor at rep >= 0
 - Locked Area Pioneer NFT as soulbound and non-revokable even on fraud
-- Token creation fees now route to `btcpc_recycle` (was `btcpc_treasury`)
-- NFT collection fees now route to `btcpc_recycle` (was `btcpc_treasury`)
-- Removed TOKEN_FEE_TIERS multi-tier system, replaced with flat 42 BTCPC fee for the single standard
+- Token creation fees now route to `hone_recycle` (was `hone_treasury`)
+- NFT collection fees now route to `hone_recycle` (was `hone_treasury`)
+- Removed TOKEN_FEE_TIERS multi-tier system, replaced with flat 42 HONE fee for the single standard

@@ -1,6 +1,6 @@
 # Code Wiki
 
-This page is the generated index for the BTCPC code wiki.
+This page is the generated index for the HONE code wiki.
 
 Use the landing page in `README.md` if you want the shortest path into the codebase. Use this page if you already know the community name you want.
 
@@ -12,7 +12,7 @@ Use the landing page in `README.md` if you want the shortest path into the codeb
 |-----------|------|------|
 | bin-connect | 7 | [bin-connect.md](bin-connect.md) |
 | bin-ws | 14 | [bin-ws.md](bin-ws.md) |
-| btcpc-fn | 4 | [btcpc-fn.md](btcpc-fn.md) |
+| hone-fn | 4 | [hone-fn.md](hone-fn.md) |
 | chain-anchor | 13 | [chain-anchor.md](chain-anchor.md) |
 | chain-blob | 77 | [chain-blob.md](chain-blob.md) |
 | chain-block | 22 | [chain-block.md](chain-block.md) |

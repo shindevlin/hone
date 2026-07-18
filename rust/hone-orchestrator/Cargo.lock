@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-api-catalog"
+name = "hone-api-catalog"
 version = "0.1.0"
 dependencies = [
  "hex",
@@ -44,10 +44,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-orchestrator"
+name = "hone-orchestrator"
 version = "0.1.0"
 dependencies = [
- "btcpc-api-catalog",
+ "hone-api-catalog",
  "hex",
  "reqwest",
  "serde",

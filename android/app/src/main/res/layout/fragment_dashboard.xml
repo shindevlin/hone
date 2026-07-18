@@ -3,7 +3,7 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/btcpc_bg"
+    android:background="@color/hone_bg"
     android:fillViewport="true">
 
     <LinearLayout
@@ -17,7 +17,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="THIS DEVICE"
-            android:textColor="@color/btcpc_muted"
+            android:textColor="@color/hone_muted"
             android:textSize="11sp"
             android:letterSpacing="0.12"
             android:layout_marginBottom="10dp" />
@@ -36,7 +36,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="14dp">
                 <LinearLayout
@@ -58,7 +58,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Clock"
-                        android:textColor="@color/btcpc_text"
+                        android:textColor="@color/hone_text"
                         android:textSize="13sp"
                         android:textStyle="bold"/>
                 </LinearLayout>
@@ -67,7 +67,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Stopped"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:maxLines="2"
                     android:ellipsize="end"/>
@@ -80,7 +80,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="14dp">
                 <LinearLayout
@@ -102,7 +102,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Miner"
-                        android:textColor="@color/btcpc_text"
+                        android:textColor="@color/hone_text"
                         android:textSize="13sp"
                         android:textStyle="bold"/>
                 </LinearLayout>
@@ -111,7 +111,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Stopped"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:maxLines="2"
                     android:ellipsize="end"/>
@@ -132,7 +132,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="14dp">
                 <LinearLayout
@@ -154,7 +154,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Sensors"
-                        android:textColor="@color/btcpc_text"
+                        android:textColor="@color/hone_text"
                         android:textSize="13sp"
                         android:textStyle="bold"/>
                 </LinearLayout>
@@ -163,7 +163,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Stopped"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:maxLines="2"
                     android:ellipsize="end"/>
@@ -176,7 +176,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="14dp">
                 <LinearLayout
@@ -198,7 +198,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Storage"
-                        android:textColor="@color/btcpc_text"
+                        android:textColor="@color/hone_text"
                         android:textSize="13sp"
                         android:textStyle="bold"/>
                 </LinearLayout>
@@ -207,7 +207,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Stopped"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:maxLines="2"
                     android:ellipsize="end"/>
@@ -226,8 +226,8 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="BTCPC NETWORK"
-                android:textColor="@color/btcpc_muted"
+                android:text="HONE NETWORK"
+                android:textColor="@color/hone_muted"
                 android:textSize="11sp"
                 android:letterSpacing="0.12"/>
             <TextView
@@ -235,7 +235,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="—"
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="11sp"/>
         </LinearLayout>
 
@@ -244,7 +244,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@color/btcpc_surface"
+            android:background="@color/hone_surface"
             android:padding="14dp"
             android:layout_marginBottom="8dp">
 
@@ -259,14 +259,14 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="Epoch"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="12sp"/>
                 <TextView
                     android:id="@+id/stat_epoch"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—"
-                    android:textColor="@color/btcpc_orange"
+                    android:textColor="@color/hone_orange"
                     android:textSize="20sp"
                     android:textStyle="bold"/>
             </LinearLayout>
@@ -278,7 +278,7 @@
                 android:layout_height="6dp"
                 android:max="100"
                 android:progress="0"
-                android:progressTint="@color/btcpc_orange"
+                android:progressTint="@color/hone_orange"
                 android:layout_marginBottom="4dp"/>
 
             <TextView
@@ -286,7 +286,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="—"
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="11sp"
                 android:gravity="end"/>
         </LinearLayout>
@@ -303,7 +303,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginEnd="4dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="12dp"
                 android:gravity="center">
@@ -312,7 +312,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—"
-                    android:textColor="@color/btcpc_text"
+                    android:textColor="@color/hone_text"
                     android:textSize="22sp"
                     android:textStyle="bold"
                     android:gravity="center"/>
@@ -320,7 +320,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Peers"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:gravity="center"/>
             </LinearLayout>
@@ -331,7 +331,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="4dp"
                 android:layout_marginEnd="4dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="12dp"
                 android:gravity="center">
@@ -340,7 +340,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—"
-                    android:textColor="@color/btcpc_text"
+                    android:textColor="@color/hone_text"
                     android:textSize="22sp"
                     android:textStyle="bold"
                     android:gravity="center"/>
@@ -348,7 +348,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Miners"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:gravity="center"/>
             </LinearLayout>
@@ -358,7 +358,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginStart="4dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="12dp"
                 android:gravity="center">
@@ -367,7 +367,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—"
-                    android:textColor="@color/btcpc_text"
+                    android:textColor="@color/hone_text"
                     android:textSize="22sp"
                     android:textStyle="bold"
                     android:gravity="center"/>
@@ -375,7 +375,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Clocks"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:gravity="center"/>
             </LinearLayout>
@@ -392,7 +392,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginEnd="4dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="12dp"
                 android:gravity="center">
@@ -401,7 +401,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—"
-                    android:textColor="@color/btcpc_text"
+                    android:textColor="@color/hone_text"
                     android:textSize="22sp"
                     android:textStyle="bold"
                     android:gravity="center"/>
@@ -409,7 +409,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Nodes"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:gravity="center"/>
             </LinearLayout>
@@ -419,7 +419,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="2"
                 android:layout_marginStart="4dp"
-                android:background="@color/btcpc_surface"
+                android:background="@color/hone_surface"
                 android:orientation="vertical"
                 android:padding="12dp"
                 android:gravity="center">
@@ -436,7 +436,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Chain Status"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp"
                     android:gravity="center"/>
             </LinearLayout>

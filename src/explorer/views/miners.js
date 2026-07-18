@@ -58,7 +58,7 @@ function minersView(data) {
       <div class="stat-card">
         <div class="stat-label">Total Staked</div>
         <div class="stat-value">${formatNumber(totalStaked)}</div>
-        <div class="stat-sub">BTCPC</div>
+        <div class="stat-sub">HONE</div>
       </div>
     </div>
 

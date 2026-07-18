@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * accountManager.js — Account creation, recovery, and 2FA management for BTCPC
+ * accountManager.js — Account creation, recovery, and 2FA management for HONE
  * Shin Devlin
  */
 
@@ -26,13 +26,13 @@ const USERNAME_RE = /^[a-z0-9][a-z0-9\-]{1,18}[a-z0-9]$|^[a-z0-9]{3}$/;
 
 // Reserved system usernames that cannot be registered
 const RESERVED_USERNAMES = [
-  "wallet", "admin", "system", "root", "btcpc", "miner", "node",
+  "wallet", "admin", "system", "root", "hone", "miner", "node",
   "relay", "oracle", "bridge", "genesis", "epoch", "block", "chain",
   "stake", "vote", "recycle", "fee", "reward", "treasury", "protocol"
 ];
 
 /**
- * Validate a BTCPC username.
+ * Validate a HONE username.
  * Rules: 3-20 chars, lowercase letters/numbers/hyphens only,
  *        no leading or trailing hyphen, no reserved system names.
  * @param {string} username
@@ -56,7 +56,7 @@ function validateUsername(username) {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a new BTCPC account.
+ * Create a new HONE account.
  *
  * 1. Generate a 12-word BIP-39 mnemonic
  * 2. Derive all four role keypairs (owner, active, posting, memo) via BIP-44
@@ -102,12 +102,12 @@ async function createAccount(username, mnemonic, password) {
 
   // Compute wallet address from owner public key (first 20 bytes of SHA-256)
   const addrHash = crypto.createHash("sha256").update(Buffer.from(keys.owner.publicKey, "hex")).digest();
-  const address = "BTCPC" + addrHash.subarray(0, 20).toString("hex");
+  const address = "HONE" + addrHash.subarray(0, 20).toString("hex");
 
   // Store user record
   const user = await User().create({
     username: username,
-    email: username + "@btcpc.local", // placeholder — real email set later
+    email: username + "@hone.local", // placeholder — real email set later
     password: bcrypt.hashSync(password || crypto.randomBytes(32).toString("hex"), 10),
     twoFactorEnabled: !!password,
     authProfile: authProfile,
@@ -133,7 +133,7 @@ async function createAccount(username, mnemonic, password) {
       memo: keys.memo.publicKey
     },
     chainWallets: {
-      btcpc: address,
+      hone: address,
       evm: chainWallets.evm.address,
       solana: chainWallets.solana.address,
       ton: chainWallets.ton.address,
@@ -166,7 +166,7 @@ async function recoverAccount(mnemonic) {
 
   // Compute the address from owner public key
   const addrHash = crypto.createHash("sha256").update(Buffer.from(keys.owner.publicKey, "hex")).digest();
-  const address = "BTCPC" + addrHash.subarray(0, 20).toString("hex");
+  const address = "HONE" + addrHash.subarray(0, 20).toString("hex");
 
   // Find the account by owner public key — stateStore is the source of truth.
   // Mongo is not consulted (may not be running; blockchain is canonical).

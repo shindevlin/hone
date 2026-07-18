@@ -1,15 +1,15 @@
-# BTCPC Node Operator Guide
+# HONE Node Operator Guide
 
-This guide is for technically literate operators who want to run a BTCPC node
+This guide is for technically literate operators who want to run a HONE node
 and earn rewards. It covers the Rust implementation only. The Node.js code in
 `src/`, `bin/`, and `package.json` is a deprecated prototype — do not use it.
 
 ---
 
-## What BTCPC Is
+## What HONE Is
 
-BTCPC is a sovereign proof-of-compute chain with a fixed supply of 42,000,000
-BTCPC (each divisible into 10,000,000,000 dreams). Epochs seal every 30 seconds.
+HONE is a sovereign proof-of-compute chain with a fixed supply of 42,000,000
+HONE (each divisible into 10,000,000,000 dreams). Epochs seal every 30 seconds.
 Rewards flow to nodes that do real, verifiable work each epoch: sealing the
 clock, submitting hardware and sensor data, running inference jobs, relaying
 traffic, and storing data. There is no proof-of-work puzzle. Earning requires
@@ -58,7 +58,7 @@ endpoint: `GET /api/staking/requirements`.
 - 1 GB RAM minimum
 - 8 GB disk
 - Sensor input: at minimum, CPU temperature and uptime are read automatically.
-  GNSS data is submitted automatically if `btcpc-gnss-capture` is running and
+  GNSS data is submitted automatically if `hone-gnss-capture` is running and
   a GNSS receiver is connected.
 
 ### Worker node (inference marketplace)
@@ -79,58 +79,58 @@ endpoint: `GET /api/staking/requirements`.
 **x86\_64 Linux:**
 
 ```bash
-curl -L https://github.com/shindevlin/btcpc/releases/latest/download/btcpc-node-x86_64-linux \
-  -o btcpc-node
-chmod +x btcpc-node
-sudo mv btcpc-node /usr/local/bin/
+curl -L https://github.com/shindevlin/hone/releases/latest/download/hone-node-x86_64-linux \
+  -o hone-node
+chmod +x hone-node
+sudo mv hone-node /usr/local/bin/
 ```
 
 **aarch64 Linux (Raspberry Pi 4+, Nebra Pi, other ARM boards):**
 
 ```bash
-curl -L https://github.com/shindevlin/btcpc/releases/latest/download/btcpc-node-aarch64-linux \
-  -o btcpc-node
-chmod +x btcpc-node
-sudo mv btcpc-node /usr/local/bin/
+curl -L https://github.com/shindevlin/hone/releases/latest/download/hone-node-aarch64-linux \
+  -o hone-node
+chmod +x hone-node
+sudo mv hone-node /usr/local/bin/
 ```
 
 Verify the binary starts:
 
 ```bash
-btcpc-node --version
+hone-node --version
 ```
 
 ### Step 2: Create a data directory
 
 ```bash
-mkdir -p ~/.btcpc
+mkdir -p ~/.hone
 ```
 
-The node defaults to `~/.btcpc` for chain state. Override with `HONE_DATA_DIR`.
+The node defaults to `~/.hone` for chain state. Override with `HONE_DATA_DIR`.
 
 ### Step 3: Get a posting key
 
 On first start, the node generates a fresh wallet and writes it to two files:
 
 - `$HONE_DATA_DIR/wallet.key` — full key material as JSON
-- `~/.btcpc/{account}.txt` — human-readable backup including all role keys
+- `~/.hone/{account}.txt` — human-readable backup including all role keys
 
 Run the node once to generate the wallet:
 
 ```bash
-HONE_ACCOUNT=mynode btcpc-node
+HONE_ACCOUNT=mynode hone-node
 ```
 
 Wait for the line:
 
 ```
-wallet: backed up to /home/user/.btcpc/mynode.txt
+wallet: backed up to /home/user/.hone/mynode.txt
 ```
 
 Then stop the node (Ctrl+C) and read the posting key from the backup:
 
 ```bash
-cat ~/.btcpc/mynode.txt
+cat ~/.hone/mynode.txt
 ```
 
 Find the `posting` section:
@@ -147,13 +147,13 @@ ed25519 seed for signing clock seals. Keep it private.
 To extract it without reading the full file:
 
 ```bash
-cat ~/.btcpc/mynode.wallet.key | python3 -c \
-  "import sys,json; k=json.load(sys.stdin); print(k['btcpc_private_key'])"
+cat ~/.hone/mynode.wallet.key | python3 -c \
+  "import sys,json; k=json.load(sys.stdin); print(k['hone_private_key'])"
 ```
 
 ### Step 4: Write an environment file
 
-Create `~/.btcpc/mynode.env`:
+Create `~/.hone/mynode.env`:
 
 ```bash
 # Required
@@ -187,31 +187,31 @@ HONE_P2P_PORT=6942
 **Test run (foreground):**
 
 ```bash
-env $(cat ~/.btcpc/mynode.env | grep -v '^#' | xargs) btcpc-node
+env $(cat ~/.hone/mynode.env | grep -v '^#' | xargs) hone-node
 ```
 
 Expected startup output:
 
 ```
-btcpc-node starting — account=mynode chain=hone data="/home/user/.btcpc"
+hone-node starting — account=mynode chain=hone data="/home/user/.hone"
 chain state ready — latest epoch=1234
 roles — miner=false clock=true storage=true service=false sensor=true worker=false mempool=false
 ```
 
 **Permanent service (systemd user service):**
 
-Create `~/.config/systemd/user/btcpc-node.service`:
+Create `~/.config/systemd/user/hone-node.service`:
 
 ```ini
 [Unit]
-Description=BTCPC Node
+Description=HONE Node
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=%h/.btcpc/mynode.env
-ExecStart=/usr/local/bin/btcpc-node
+EnvironmentFile=%h/.hone/mynode.env
+ExecStart=/usr/local/bin/hone-node
 Restart=on-failure
 RestartSec=10
 
@@ -223,14 +223,14 @@ Enable and start:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now btcpc-node
-systemctl --user status btcpc-node
+systemctl --user enable --now hone-node
+systemctl --user status hone-node
 ```
 
 View logs:
 
 ```bash
-journalctl --user -u btcpc-node -f
+journalctl --user -u hone-node -f
 ```
 
 ---
@@ -242,7 +242,7 @@ journalctl --user -u btcpc-node -f
 | `HONE_ACCOUNT` | `genesis` | Account name for this node. All rewards route here. |
 | `HONE_POSTING_KEY` | (none) | Hex 32-byte ed25519 seed. Required for clock seals. Auto-generated on first start if absent. |
 | `HONE_CHAIN_ID` | `hone` | `hone` = mainnet, `hone-testnet` = testnet |
-| `HONE_DATA_DIR` | `~/.btcpc` | RocksDB chain state directory |
+| `HONE_DATA_DIR` | `~/.hone` | RocksDB chain state directory |
 | `HONE_API_PORT` | `4242` | HTTP API port |
 | `HONE_P2P_PORT` | `6942` | libp2p listen port |
 | `HONE_BOOTSTRAP_PEERS` | DNS seeds | Comma-separated multiaddrs. Leave unset to use `bootstrap1.honemesh.net` and `bootstrap2.honemesh.net`. If set, values must be valid multiaddrs starting with `/`. |
@@ -255,7 +255,7 @@ journalctl --user -u btcpc-node -f
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint. Required when `HONE_WORKER=true`. |
 | `HONE_MODEL` | `qwen2.5:0.5b` | Model hint for worker and verifier |
 | `HONE_GENESIS_TIMESTAMP` | `1783191600000` | Unix ms genesis timestamp. Do not change. Must match on all nodes. |
-| `HONE_LOG_LEVEL` | `btcpc_node=info` | Tracing filter. `btcpc_node=debug` for verbose output. |
+| `HONE_LOG_LEVEL` | `hone_node=info` | Tracing filter. `hone_node=debug` for verbose output. |
 | `HONE_AUTO_UPDATE` | `0` | Set to `1` to enable automatic binary updates |
 | `HONE_UPDATE_URL` | (none) | URL to poll for binary updates. Requires `HONE_AUTO_UPDATE=1`. |
 | `HONE_TOR` | (disabled) | `true` to activate Tor hidden service. Also: `HONE_TOR_CONTROL_PORT` (default 9051), `HONE_TOR_CONTROL_PASSWORD`. |
@@ -380,7 +380,7 @@ chain integrity requirement, not a bug. Do not look for a way to bypass it.
 ss -tlnp | grep 6942
 
 # Check logs for bootstrap connection attempts
-journalctl --user -u btcpc-node --since "5 minutes ago" | grep -i "peer\|bootstrap\|connect"
+journalctl --user -u hone-node --since "5 minutes ago" | grep -i "peer\|bootstrap\|connect"
 ```
 
 **Fix:**
@@ -393,7 +393,7 @@ journalctl --user -u btcpc-node --since "5 minutes ago" | grep -i "peer\|bootstr
 
 ---
 
-### 2. is\_sensor shows false despite BTCPC\_SENSOR=true
+### 2. is\_sensor shows false despite HONE\_SENSOR=true
 
 **Symptom:** The node is running with `HONE_SENSOR=true` but
 `/api/node/info` returns `"is_sensor": false`.
@@ -408,7 +408,7 @@ the role is enabled.
 
 ```bash
 # Look for sensor commit log lines
-journalctl --user -u btcpc-node -f | grep -i sensor
+journalctl --user -u hone-node -f | grep -i sensor
 
 # Check that peer_count > 0 (sensor commits are dropped without peers)
 curl -s http://localhost:4242/api/node/info | grep peer_count
@@ -436,7 +436,7 @@ curl -s http://localhost:11434/api/tags
 curl -s http://localhost:4242/api/node/models
 
 # Check logs for worker activity
-journalctl --user -u btcpc-node -f | grep -i "worker\|bid\|job"
+journalctl --user -u hone-node -f | grep -i "worker\|bid\|job"
 
 # Check posted jobs on the chain
 curl -s http://localhost:4242/api/task/jobs
@@ -465,7 +465,7 @@ registered clock list. No `ClockReward` entries are appearing in account history
 curl -s http://localhost:4242/api/clock/registered
 
 # Check logs for clock registration messages
-journalctl --user -u btcpc-node --since "10 minutes ago" | grep -i "clock\|register\|stake"
+journalctl --user -u hone-node --since "10 minutes ago" | grep -i "clock\|register\|stake"
 ```
 
 **Likely causes and fixes:**
@@ -487,12 +487,12 @@ journalctl --user -u btcpc-node --since "10 minutes ago" | grep -i "clock\|regis
 
 **Symptom:** The node exits immediately with:
 ```
-btcpc-node: port 4242 is already in use — another instance may be running
+hone-node: port 4242 is already in use — another instance may be running
 ```
 
 Or:
 ```
-btcpc-node: another instance is already running (lock: /home/user/.btcpc/node.lock)
+hone-node: another instance is already running (lock: /home/user/.hone/node.lock)
 ```
 
 **Fix:**
@@ -502,10 +502,10 @@ btcpc-node: another instance is already running (lock: /home/user/.btcpc/node.lo
 ss -tlnp | grep 4242
 
 # If a stale lock file remains after an unclean shutdown
-rm ~/.btcpc/node.lock
+rm ~/.hone/node.lock
 
 # If you need two nodes on the same machine, use different ports and data dirs:
-HONE_API_PORT=4243 HONE_P2P_PORT=6943 HONE_DATA_DIR=~/.hone btcpc-node
+HONE_API_PORT=4243 HONE_P2P_PORT=6943 HONE_DATA_DIR=~/.hone hone-node
 ```
 
 ---
@@ -516,17 +516,17 @@ The node binary is a single static file. To update:
 
 ```bash
 # Stop the service
-systemctl --user stop btcpc-node
+systemctl --user stop hone-node
 
 # Download the new binary (same command as installation)
-curl -L https://github.com/shindevlin/btcpc/releases/latest/download/btcpc-node-x86_64-linux \
-  -o /tmp/btcpc-node-new
-chmod +x /tmp/btcpc-node-new
-sudo mv /tmp/btcpc-node-new /usr/local/bin/btcpc-node
+curl -L https://github.com/shindevlin/hone/releases/latest/download/hone-node-x86_64-linux \
+  -o /tmp/hone-node-new
+chmod +x /tmp/hone-node-new
+sudo mv /tmp/hone-node-new /usr/local/bin/hone-node
 
 # Start again
-systemctl --user start btcpc-node
-systemctl --user status btcpc-node
+systemctl --user start hone-node
+systemctl --user status hone-node
 ```
 
 For automatic updates, set `HONE_AUTO_UPDATE=1` and `HONE_UPDATE_URL` in

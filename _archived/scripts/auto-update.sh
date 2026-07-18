@@ -1,16 +1,16 @@
 #!/bin/bash
-# BTCPC Miner Auto-Update
+# HONE Miner Auto-Update
 # Checks for new commits, pulls, restarts miner if changed.
 # Run via cron every 5 minutes:
-#   */5 * * * * /home/$USER/repos/btcpc/scripts/auto-update.sh >> /tmp/btcpc-update.log 2>&1
+#   */5 * * * * /home/$USER/repos/hone/scripts/auto-update.sh >> /tmp/hone-update.log 2>&1
 
 set -euo pipefail
 
-BTCPC_DIR="${BTCPC_DIR:-$HOME/repos/btcpc}"
-SERVICE_NAME="${BTCPC_SERVICE:-btcpc-mine}"
-BRANCH="${BTCPC_BRANCH:-main}"
+HONE_DIR="${HONE_DIR:-$HOME/repos/hone}"
+SERVICE_NAME="${HONE_SERVICE:-hone-mine}"
+BRANCH="${HONE_BRANCH:-main}"
 
-cd "$BTCPC_DIR"
+cd "$HONE_DIR"
 
 # Fetch remote
 git fetch origin "$BRANCH" --quiet

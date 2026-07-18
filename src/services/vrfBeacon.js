@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC VRF Beacon — v2.12-gamma
+ * HONE VRF Beacon — v2.12-gamma
  * Shin Devlin
  *
  * Provably fair randomness for games, lotteries, NFT mints, and any
@@ -203,7 +203,7 @@ function shuffleArray(beacon, array, salt) {
  */
 function deriveFromSeed(seed, domain) {
   if (!seed || !domain) return crypto.randomBytes(32).toString("hex");
-  var input = "btcpc:vrf:" + seed + ":" + domain;
+  var input = "hone:vrf:" + seed + ":" + domain;
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 

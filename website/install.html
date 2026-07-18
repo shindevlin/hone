@@ -213,7 +213,7 @@
   <div class="install-grid">
 
     <!-- Native Desktop App -->
-    <a href="https://github.com/shindevlin/btcpc-desktop/releases" class="install-card recommended" id="card-desktop" target="_blank">
+    <a href="https://github.com/shindevlin/hone-desktop/releases" class="install-card recommended" id="card-desktop" target="_blank">
       <span class="recommended-badge">BUILDING NOW</span>
       <span class="card-icon">🖥️</span>
       <div class="card-title">Desktop App</div>
@@ -268,9 +268,9 @@
       <div class="card-code"><button type="button" class="copy-btn" data-copy='$env:HONE_MINER="YOUR_USERNAME"; docker compose up -d'>copy</button><pre>$env:HONE_MINER="YOUR_USERNAME"; docker compose up -d</pre></div>
       <p class="card-description" style="margin-bottom:8px;"><strong>Step 4 — Verify it's working</strong></p>
       <div class="card-code"><button type="button" class="copy-btn" data-copy="docker logs -f hone-node">copy</button><pre>docker logs -f hone-node</pre></div>
-      <p class="card-description" style="margin-top:8px;">You should see "Connected to wss://btcpc-relay..." and "Block request..." within a minute. After 5-10 minutes, check your Telegram <code>/balance</code> — new rewards will appear.</p>
+      <p class="card-description" style="margin-top:8px;">You should see "Connected to wss://hone-relay..." and "Block request..." within a minute. After 5-10 minutes, check your Telegram <code>/balance</code> — new rewards will appear.</p>
       <p class="card-description" style="margin-top:8px;"><strong>No username yet?</strong> Message <a href="/app" style="color:#c8ccd4;text-decoration:none;">Start</a>
-  <a href="https://t.me/btcpcbot" target="_blank" style="color:#f7931a;">@btcpcbot</a> on Telegram first and run <code>/create your_name</code>. Save the 12-word phrase it gives you — that's your backup key.</p>
+  <a href="https://t.me/honebot" target="_blank" style="color:#f7931a;">@honebot</a> on Telegram first and run <code>/create your_name</code>. Save the 12-word phrase it gives you — that's your backup key.</p>
       <p class="card-description" style="margin-top:12px;font-size:12px;color:#64748b;">Note: you do NOT need to enter your 12-word phrase on this machine. The docker node just declares your username and mining rewards credit to your on-chain account. Spending still happens through Telegram.</p>
     </div>
 
@@ -301,7 +301,7 @@
         <li>Persistent foreground service, survives screen-off</li>
         <li>Enable "Install from unknown sources" in settings once</li>
       </ul>
-      <a href="https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC-android-release.apk" download="HONE-android-release.apk" style="display:inline-block;background:#f7931a;color:#000;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;margin-top:12px;">&#8659; Download HONE-android-release.apk</a>
+      <a href="https://github.com/shindevlin/hone/releases/latest/download/HONE-android-release.apk" download="HONE-android-release.apk" style="display:inline-block;background:#f7931a;color:#000;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;margin-top:12px;">&#8659; Download HONE-android-release.apk</a>
     </div>
 
     <!-- Android (Termux) -->
@@ -333,17 +333,17 @@
 
     <!-- Telegram -->
     <a href="/app" style="color:#c8ccd4;text-decoration:none;">Start</a>
-  <a href="https://t.me/btcpcbot" class="install-card">
+  <a href="https://t.me/honebot" class="install-card">
       <span class="card-icon">💬</span>
       <div class="card-title">Telegram Wallet</div>
       <div class="card-subtitle">No installation needed</div>
-      <p class="card-description">Just want a wallet? Message @btcpcbot on Telegram. Send commands like <code>/create</code>, <code>/balance</code>, <code>/transfer</code>. No mining, just holding and sending HONE.</p>
+      <p class="card-description">Just want a wallet? Message @honebot on Telegram. Send commands like <code>/create</code>, <code>/balance</code>, <code>/transfer</code>. No mining, just holding and sending HONE.</p>
       <ul class="card-features">
         <li>Wallet only — no mining</li>
         <li>Receive cross-chain claims</li>
-        <li>Buy via @btcpcwalletbot</li>
+        <li>Buy via @honewalletbot</li>
       </ul>
-      <span class="card-action">Open @btcpcbot →</span>
+      <span class="card-action">Open @honebot →</span>
     </a>
 
   </div>
@@ -370,7 +370,7 @@ which docker 2>/dev/null &amp;&amp; echo DOCKER_AVAILABLE
 # macOS or Linux (server/CI/desktop) → use Terminal one-liner (STEP 3A)
 # Windows (PowerShell available) → use Docker (STEP 3B)
 # Android + Termux shell → see /android-install page
-# No shell at all → use Telegram bot @btcpcbot for wallet only
+# No shell at all → use Telegram bot @honebot for wallet only
 
 ## STEP 3A — Terminal install (macOS / Linux / WSL)
 curl https://honemesh.net/install.sh | bash
@@ -415,7 +415,7 @@ docker logs hone-node 2&gt;&amp;1 | tail -5   # if using Docker
             <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Windows</td><td style="padding:6px 4px;color:#22c55e;">Docker Desktop</td></tr>
             <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Server / CI</td><td style="padding:6px 4px;color:#22c55e;">Terminal one-liner</td></tr>
             <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Android</td><td style="padding:6px 4px;color:#22c55e;">APK or Termux</td></tr>
-            <tr><td style="padding:6px 4px;color:#e2e8f0;">Wallet only</td><td style="padding:6px 4px;color:#22c55e;">Telegram @btcpcbot</td></tr>
+            <tr><td style="padding:6px 4px;color:#e2e8f0;">Wallet only</td><td style="padding:6px 4px;color:#22c55e;">Telegram @honebot</td></tr>
           </table>
         </div>
       </div>
@@ -423,7 +423,7 @@ docker logs hone-node 2&gt;&amp;1 | tail -5   # if using Docker
   </div>
 
   <div class="footer">
-    <p>Need help? <a href="https://reddit.com/r/btcpc">r/btcpc</a> · <a href="https://btcpc.substack.com">Substack</a> · <a href="https://github.com/shindevlin/btcpc">GitHub</a></p>
+    <p>Need help? <a href="https://reddit.com/r/hone">r/hone</a> · <a href="https://hone.substack.com">Substack</a> · <a href="https://github.com/shindevlin/hone">GitHub</a></p>
     <p style="margin-top:8px;">Bitcoin Proof of Compute — every token earned, every machine welcome.</p>
   </div>
 

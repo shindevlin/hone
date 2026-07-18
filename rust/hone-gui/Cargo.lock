@@ -221,11 +221,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-gui"
+name = "hone-gui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "btcpc-sdk",
+ "hone-sdk",
  "chrono",
  "eframe",
  "egui",
@@ -239,7 +239,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-sdk"
+name = "hone-sdk"
 version = "1.0.0"
 dependencies = [
  "anyhow",

@@ -61,7 +61,7 @@ describe('walletController', () => {
     User.findById.mockResolvedValue({ _id: 'user-1', username: 'alice' });
     stateStore.getBalance.mockReturnValue(5);
 
-    const req = { user: { id: 'user-1' }, body: { chain: 'btcpc' } };
+    const req = { user: { id: 'user-1' }, body: { chain: 'hone' } };
     const res = createRes();
 
     await createWallet(req, res);
@@ -69,7 +69,7 @@ describe('walletController', () => {
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
-      wallet: expect.objectContaining({ chain: 'btcpc' })
+      wallet: expect.objectContaining({ chain: 'hone' })
     }));
   });
 
@@ -88,21 +88,21 @@ describe('walletController', () => {
   test('getBalance returns balance from stateStore', async () => {
     User.findById.mockResolvedValue({ _id: 'user-1', username: 'alice' });
     stateStore.getBalance.mockReturnValue(42);
-    stateStore.getTokenBalances.mockReturnValue({ BTCPC: 42 });
+    stateStore.getTokenBalances.mockReturnValue({ HONE: 42 });
 
     const req = { user: { id: 'user-1' } };
     const res = createRes();
 
     await getBalance(req, res);
 
-    expect(stateStore.getBalance).toHaveBeenCalledWith('alice', 'BTCPC');
+    expect(stateStore.getBalance).toHaveBeenCalledWith('alice', 'HONE');
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
-      balance: expect.objectContaining({ BTCPC: 42 })
+      balance: expect.objectContaining({ HONE: 42 })
     }));
   });
 
-  test('transfer rejects insufficient BTCPC balance', async () => {
+  test('transfer rejects insufficient HONE balance', async () => {
     User.findById.mockResolvedValue({ username: 'alice' });
     stateStore.getBalance.mockReturnValue(5);
 
@@ -115,7 +115,7 @@ describe('walletController', () => {
     await transfer(req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Insufficient BTCPC balance' });
+    expect(res.json).toHaveBeenCalledWith({ error: 'Insufficient HONE balance' });
   });
 
   test('transfer records a ledger-backed transaction on success', async () => {
@@ -136,7 +136,7 @@ describe('walletController', () => {
 
     await transfer(req, res);
 
-    expect(ledger.recordTransfer).toHaveBeenCalledWith('alice', 'bobaccount', 10, 'BTCPC', null, 42, 'payment');
+    expect(ledger.recordTransfer).toHaveBeenCalledWith('alice', 'bobaccount', 10, 'HONE', null, 42, 'payment');
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       txHash: 'tx-hash-123'
@@ -177,14 +177,14 @@ describe('walletController', () => {
 
     expect(privateAuthorization.verifyTransferAuthorization).toHaveBeenCalledWith(
       'alice',
-      { from: 'alice', to: 'bobaccount', amount: 10, token: 'BTCPC', memo: 'payment' },
+      { from: 'alice', to: 'bobaccount', amount: 10, token: 'HONE', memo: 'payment' },
       req.body.private_auth
     );
     expect(ledger.recordAuthorizedTransfer).toHaveBeenCalledWith(
       'alice',
       'bobaccount',
       10,
-      'BTCPC',
+      'HONE',
       null,
       42,
       'payment',

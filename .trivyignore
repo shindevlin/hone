@@ -13,8 +13,8 @@ CVE-2026-32314
 CVE-2025-7783
 CVE-2026-4800
 
-# btcpc/ web dashboard — not yet deployed; bump deps before deploy.
-# Suppressed here to keep signal clean; must be removed when btcpc/ goes live.
+# hone/ web dashboard — not yet deployed; bump deps before deploy.
+# Suppressed here to keep signal clean; must be removed when hone/ goes live.
 CVE-2026-41242
 CVE-2026-23745
 CVE-2026-23950

@@ -38,7 +38,7 @@ var BONUS_DURATION_EPOCHS = 1051200;
  * Returns the new pill object if minted, or null if the slot is already
  * taken.
  *
- * @param {string} account   — BTCPC account name (e.g. "shindevlin")
+ * @param {string} account   — HONE account name (e.g. "shindevlin")
  * @param {string} role      — one of MINER, STORAGE, CLOCK, SENSOR, GATEWAY
  * @param {string} region    — metro-area region code (e.g. "sv-san-salvador")
  * @param {number} epoch     — current chain epoch

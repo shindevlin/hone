@@ -29,7 +29,7 @@
         android:id="@+id/wifi_ssid_label"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="@color/btcpc_text"
+        android:textColor="@color/hone_text"
         android:textSize="15sp" />
 
 </LinearLayout>

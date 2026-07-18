@@ -1,9 +1,9 @@
--- BTCPC Mac Menu Bar Tray
+-- HONE Mac Menu Bar Tray
 -- Uses native NSStatusItem via AppleScript/JXA
 -- Shows mining status in the menu bar, click to open settings
 --
 -- Run: osascript bin/tray/mac-tray.applescript &
--- Or: ./bin/btcpc-tray &
+-- Or: ./bin/hone-tray &
 
 use framework "Foundation"
 use framework "AppKit"
@@ -17,7 +17,7 @@ on run
 	-- Create status bar item
 	set statusBar to current application's NSStatusBar's systemStatusBar()
 	set statusItem to statusBar's statusItemWithLength:(current application's NSVariableStatusItemLength)
-	statusItem's setTitle:"BTCPC"
+	statusItem's setTitle:"HONE"
 
 	-- Create menu
 	set theMenu to current application's NSMenu's alloc()'s init()
@@ -52,10 +52,10 @@ end openExplorer:
 
 on pauseMining:sender
 	do shell script "curl -s -X POST " & settingsURL & " -d action=pause"
-	display notification "Mining paused" with title "BTCPC"
+	display notification "Mining paused" with title "HONE"
 end pauseMining:
 
 on resumeMining:sender
 	do shell script "curl -s -X POST " & settingsURL & " -d action=auto"
-	display notification "Mining resumed (auto mode)" with title "BTCPC"
+	display notification "Mining resumed (auto mode)" with title "HONE"
 end resumeMining:

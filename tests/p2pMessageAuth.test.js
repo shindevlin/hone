@@ -250,7 +250,7 @@ describe("ACCOUNT_ANNOUNCE proof verification", () => {
 
   test("REQUIRE_SIGNATURES defaults to true (strict mode)", () => {
     // REQUIRE_SIGNATURES is true by default — unsigned messages are rejected.
-    // Set BTCPC_REQUIRE_SIGNATURES=false in the environment to opt out.
+    // Set HONE_REQUIRE_SIGNATURES=false in the environment to opt out.
     expect(messageAuth.REQUIRE_SIGNATURES).toBe(true);
   });
 });
@@ -318,7 +318,7 @@ describe("BLOCK_PROPOSAL proposer consistency", () => {
 
 describe("stateStore _debit balance floor", () => {
   const regularUser = "debit-test-regular-" + Date.now();
-  const systemUser = "btcpc_genesis";
+  const systemUser = "hone_genesis";
 
   beforeAll(() => {
     stateStore.applyEntry({
@@ -328,12 +328,12 @@ describe("stateStore _debit balance floor", () => {
       account_data: { username: regularUser, public_keys: {}, chain_addresses: {} },
       timestamp: Date.now(),
     });
-    // Give the regular user 10 BTCPC
+    // Give the regular user 10 HONE
     stateStore.applyEntry({
       type: "MINING_REWARD",
       to: regularUser,
       amount: 10,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 1,
       timestamp: Date.now(),
     });
@@ -342,58 +342,58 @@ describe("stateStore _debit balance floor", () => {
       type: "MINING_REWARD",
       to: systemUser,
       amount: 1000,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 1,
       timestamp: Date.now(),
     });
   });
 
   test("regular user cannot go below zero", () => {
-    const before = stateStore.getBalance(regularUser, "BTCPC");
+    const before = stateStore.getBalance(regularUser, "HONE");
     // Attempt to debit more than balance via TRANSFER entry
     stateStore.applyEntry({
       type: "TRANSFER",
       from: regularUser,
       to: "nobody",
       amount: before + 9999, // Way more than balance
-      token: "BTCPC",
+      token: "HONE",
       epoch: 2,
       timestamp: Date.now() + 1,
     });
-    const after = stateStore.getBalance(regularUser, "BTCPC");
+    const after = stateStore.getBalance(regularUser, "HONE");
     // Balance must not have gone negative (should be unchanged)
     expect(after).toBeGreaterThanOrEqual(0);
     expect(after).toBe(before); // debit was rejected
   });
 
   test("regular user CAN debit when balance is sufficient", () => {
-    const before = stateStore.getBalance(regularUser, "BTCPC");
+    const before = stateStore.getBalance(regularUser, "HONE");
     stateStore.applyEntry({
       type: "TRANSFER",
       from: regularUser,
       to: "nobody2",
       amount: 1,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 3,
       timestamp: Date.now() + 2,
     });
-    const after = stateStore.getBalance(regularUser, "BTCPC");
+    const after = stateStore.getBalance(regularUser, "HONE");
     expect(after).toBe(before - 1);
   });
 
-  test("system account (btcpc_genesis) may go negative", () => {
-    const before = stateStore.getBalance(systemUser, "BTCPC");
+  test("system account (hone_genesis) may go negative", () => {
+    const before = stateStore.getBalance(systemUser, "HONE");
     const bigAmount = before + 50000;
     stateStore.applyEntry({
       type: "TRANSFER",
       from: systemUser,
       to: regularUser,
       amount: bigAmount,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 4,
       timestamp: Date.now() + 3,
     });
-    const after = stateStore.getBalance(systemUser, "BTCPC");
+    const after = stateStore.getBalance(systemUser, "HONE");
     expect(after).toBeLessThan(0);
   });
 });

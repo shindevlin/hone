@@ -142,7 +142,7 @@
       ]
     },
     {
-      "Target": "android/rust/btcpc-miner/Cargo.lock",
+      "Target": "android/rust/hone-miner/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo"
     },
@@ -350,7 +350,7 @@
       ]
     },
     {
-      "Target": "btcpc/package-lock.json",
+      "Target": "hone/package-lock.json",
       "Class": "lang-pkgs",
       "Type": "npm",
       "Vulnerabilities": [
@@ -1020,7 +1020,7 @@
       "Type": "cargo"
     },
     {
-      "Target": "rust/btcpc-android/Cargo.lock",
+      "Target": "rust/hone-android/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo",
       "Vulnerabilities": [
@@ -1172,32 +1172,32 @@
       ]
     },
     {
-      "Target": "rust/btcpc-ble-tracker/Cargo.lock",
+      "Target": "rust/hone-ble-tracker/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo"
     },
     {
-      "Target": "rust/btcpc-bot/Cargo.lock",
+      "Target": "rust/hone-bot/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo"
     },
     {
-      "Target": "rust/btcpc-cli/Cargo.lock",
+      "Target": "rust/hone-cli/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo"
     },
     {
-      "Target": "rust/btcpc-contract-runtime/Cargo.lock",
+      "Target": "rust/hone-contract-runtime/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo"
     },
     {
-      "Target": "rust/btcpc-contract-sdk/Cargo.lock",
+      "Target": "rust/hone-contract-sdk/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo"
     },
     {
-      "Target": "rust/btcpc-node/Cargo.lock",
+      "Target": "rust/hone-node/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo",
       "Vulnerabilities": [
@@ -1251,7 +1251,7 @@
       ]
     },
     {
-      "Target": "rust/btcpc-sdk/Cargo.lock",
+      "Target": "rust/hone-sdk/Cargo.lock",
       "Class": "lang-pkgs",
       "Type": "cargo"
     },

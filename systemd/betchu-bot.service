@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=%i
 WorkingDirectory=%h/repos/betchu_bot
-ExecStart=%h/repos/btcpc/rust/betchu-bot/target/release/betchu-bot
+ExecStart=%h/repos/hone/rust/betchu-bot/target/release/betchu-bot
 Restart=always
 RestartSec=10
 

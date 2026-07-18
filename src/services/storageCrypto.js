@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS Storage Crypto — ECIES key wrapping + AES-256-GCM manifest encryption
+ * HONE-FS Storage Crypto — ECIES key wrapping + AES-256-GCM manifest encryption
  * Shin Devlin
  *
  * Two storage modes:

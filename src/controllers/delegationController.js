@@ -11,7 +11,7 @@ const UNLOCK_PERIOD_DAYS = 7;
 const undelegateRequests = new Map();
 
 /**
- * Delegate BTCPC to a miner. Moves tokens from wallet balance to delegation.
+ * Delegate HONE to a miner. Moves tokens from wallet balance to delegation.
  *
  * Phase E: Wallet, Delegation, Transaction, Node Mongoose models removed.
  * Uses stateStore for balance + nodeRegistry for miner verification.
@@ -35,7 +35,7 @@ async function delegate(req, res) {
 
     // Resolve miner — stateStore is source of truth
     const minerName = miner.match(/^[0-9a-fA-F]{24}$/) ? null : miner;
-    if (!minerName) return res.status(400).json({ error: 'Miner must be a BTCPC account name' });
+    if (!minerName) return res.status(400).json({ error: 'Miner must be a HONE account name' });
     if (!nodeRegistry.isRegistered(minerName)) {
       return res.status(400).json({ error: 'Target account is not a registered miner' });
     }
@@ -44,9 +44,9 @@ async function delegate(req, res) {
       return res.status(400).json({ error: 'Cannot delegate to yourself' });
     }
 
-    const btcpcBalance = stateStore.getBalance(delegatorName, 'BTCPC');
-    if (btcpcBalance < amount) {
-      return res.status(400).json({ error: 'Insufficient BTCPC balance' });
+    const honeBalance = stateStore.getBalance(delegatorName, 'HONE');
+    if (honeBalance < amount) {
+      return res.status(400).json({ error: 'Insufficient HONE balance' });
     }
 
     // Record on permanent ledger
@@ -74,7 +74,7 @@ async function delegate(req, res) {
 }
 
 /**
- * Undelegate BTCPC — starts 7-day unlock period.
+ * Undelegate HONE — starts 7-day unlock period.
  */
 async function undelegate(req, res) {
   try {
@@ -88,7 +88,7 @@ async function undelegate(req, res) {
     const delegatorName2 = req.user.username;
     if (!delegatorName2) return res.status(401).json({ error: 'Account not resolved from token' });
     const minerName2 = miner.match(/^[0-9a-fA-F]{24}$/) ? null : miner;
-    if (!minerName2) return res.status(400).json({ error: 'Miner must be a BTCPC account name' });
+    if (!minerName2) return res.status(400).json({ error: 'Miner must be a HONE account name' });
 
     const delegKey = delegatorName2 + '|' + minerName2;
     const existingDel = stateStore.getDelegation ? stateStore.getDelegation(delegKey) : null;
@@ -98,7 +98,7 @@ async function undelegate(req, res) {
 
     if (amount > existingDel.amount) {
       return res.status(400).json({
-        error: `Amount exceeds delegated balance (${existingDel.amount} BTCPC)`
+        error: `Amount exceeds delegated balance (${existingDel.amount} HONE)`
       });
     }
 
@@ -124,7 +124,7 @@ async function undelegate(req, res) {
 }
 
 /**
- * Withdraw delegation — after unlock period, return BTCPC to wallet.
+ * Withdraw delegation — after unlock period, return HONE to wallet.
  */
 async function withdrawDelegation(req, res) {
   try {
@@ -162,7 +162,7 @@ async function withdrawDelegation(req, res) {
       total_withdrawn: totalWithdrawn,
       withdrawn,
       pending,
-      wallet_balance: stateStore.getBalance(delegatorName, 'BTCPC')
+      wallet_balance: stateStore.getBalance(delegatorName, 'HONE')
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -211,7 +211,7 @@ async function getMinerDelegations(req, res) {
     const miner = req.params.miner.slice(0, 24);
 
     const minerTarget = miner.match(/^[0-9a-fA-F]{24}$/) ? null : miner;
-    if (!minerTarget) return res.status(400).json({ error: 'Miner must be a BTCPC account name' });
+    if (!minerTarget) return res.status(400).json({ error: 'Miner must be a HONE account name' });
 
     const allDelegations = stateStore.getAllDelegations ? stateStore.getAllDelegations() : {};
     const minerDelegations = [];

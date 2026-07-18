@@ -1,14 +1,14 @@
 "use strict";
 
 /**
- * BTCPC Epoch Bandwidth — novel resource credit system (v3.1.113)
+ * HONE Epoch Bandwidth — novel resource credit system (v3.1.113)
  * Shin Devlin
  *
  * Unlike gas (price-based) or Hive RCs (5-day regeneration, opaque formula),
- * BTCPC Epoch Bandwidth (EB) is:
+ * HONE Epoch Bandwidth (EB) is:
  *
  *   - Epoch-aligned: regenerates every 30 seconds, not over days
- *   - Stake-proportional: 1 EB per staked BTCPC per epoch
+ *   - Stake-proportional: 1 EB per staked HONE per epoch
  *   - Device-keyed: each registered device key has its own EB pool —
  *     Sybil spam requires staked device registrations, not just accounts
  *   - Non-transferable and non-speculative: EB cannot be sold or hoarded
@@ -16,7 +16,7 @@
  *   - Predictable: every actor knows exactly what they can do and when
  *
  * Operation costs are fixed per type. No bidding, no price spikes.
- * Minimum stake of 1 BTCPC gives 1 EB/epoch → enough for ~8 transfers/day
+ * Minimum stake of 1 HONE gives 1 EB/epoch → enough for ~8 transfers/day
  * at the default rate. Storage, model uploads, and token creation cost more,
  * naturally rate-limiting heavy chain use without penalizing light users.
  */

@@ -1,4 +1,4 @@
-# BTCPC System Tray
+# HONE System Tray
 
 Native system tray icon for each OS. Shows mining status, notifies on updates, and provides quick access to settings.
 
@@ -6,7 +6,7 @@ Native system tray icon for each OS. Shows mining status, notifies on updates, a
 
 ```bash
 # Start the tray icon (auto-detects your OS)
-./bin/btcpc-tray &
+./bin/hone-tray &
 ```
 
 ## Per-OS Details
@@ -29,7 +29,7 @@ sudo apt install yad
 
 **Autostart on login:**
 ```bash
-cp bin/tray/btcpc-tray.desktop ~/.config/autostart/
+cp bin/tray/hone-tray.desktop ~/.config/autostart/
 ```
 
 ### Mac (macOS)
@@ -37,7 +37,7 @@ cp bin/tray/btcpc-tray.desktop ~/.config/autostart/
 **Requires:** Nothing — uses built-in `osascript` (AppleScript)
 
 **What it does:**
-- Menu bar item showing "BTCPC"
+- Menu bar item showing "HONE"
 - Click menu: Settings, Explorer, Pause, Resume, Quit
 - Native macOS notifications when updates are available
 

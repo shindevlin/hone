@@ -5,7 +5,7 @@
  * Shin Devlin
  *
  * Polls EVM chains (Base, Arbitrum, Ethereum), Solana, and Bitcoin for
- * balance/activity changes on addresses registered to BTCPC accounts.
+ * balance/activity changes on addresses registered to HONE accounts.
  * When a change is detected, emits a CROSS_CHAIN_ACTIVITY ledger entry.
  *
  * Design goals:
@@ -21,7 +21,7 @@
  *   monitor.resetForTests(); // clears all cached state
  */
 
-var POLL_INTERVAL_MS = parseInt(process.env.BTCPC_MONITOR_INTERVAL_MS || "60000", 10);
+var POLL_INTERVAL_MS = parseInt(process.env.HONE_MONITOR_INTERVAL_MS || "60000", 10);
 var shouldStartBackgroundTimers = require("./backgroundTimers").shouldStartBackgroundTimers;
 
 var EVM_CHAINS = [
@@ -269,7 +269,7 @@ function createChainMonitor(options) {
 
   // Allow tests to inject a custom fetch
   if (options.fetch) {
-    global._btcpcMonitorFetch = options.fetch;
+    global._honeMonitorFetch = options.fetch;
   }
 
   // Allow tests to override chain endpoints

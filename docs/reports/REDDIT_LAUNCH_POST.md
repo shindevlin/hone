@@ -1,10 +1,10 @@
 # Reddit Launch Post
-# Target: r/btcpc, cross-post to r/selfhosted, r/homelab, r/raspberry_pi, r/MachineLearning
+# Target: r/hone, cross-post to r/selfhosted, r/homelab, r/raspberry_pi, r/MachineLearning
 
 ---
 
 **Title:**
-BTCPC is live — mine with your GPU, Raspberry Pi, or phone (the work is actual AI inference, not pointless hashes)
+HONE is live — mine with your GPU, Raspberry Pi, or phone (the work is actual AI inference, not pointless hashes)
 
 ---
 
@@ -22,17 +22,17 @@ Every 30 seconds, the network looks at what each machine did that epoch and pays
 - Spare SSD → hosts encrypted files → earns from the storage pool
 - Laptop → runs the browser clock → earns from the clock pool, no install needed
 
-Nothing is burned. All fees recycle back into future epoch rewards. 42,000,000 BTCPC total supply, fixed.
+Nothing is burned. All fees recycle back into future epoch rewards. 42,000,000 HONE total supply, fixed.
 
 **Where the demand comes from (this is the important part):**
 
 Most crypto token pitches are circular — miners earn tokens that are valuable because miners want them. That's a circle.
 
-BTCPC has three native markets that create real demand:
+HONE has three native markets that create real demand:
 
-- **Verasens** — sensor data marketplace. If you run a Pi that reports BLE tracker sightings, telecoms and logistics companies can pay BTCPC to query that data. You earn from query fees.
+- **Verasens** — sensor data marketplace. If you run a Pi that reports BLE tracker sightings, telecoms and logistics companies can pay HONE to query that data. You earn from query fees.
 - **Freeport** — peer-to-peer commerce without Amazon or Stripe in the middle. Sellers pay storage and settlement fees. Storage nodes earn.
-- **LinkGit** — decentralized Git. Push your repos to BTCPC-FS instead of GitHub. Developers pay storage per object. Permanent, encrypted, no terms of service that can change.
+- **LinkGit** — decentralized Git. Push your repos to HONE-FS instead of GitHub. Developers pay storage per object. Permanent, encrypted, no terms of service that can change.
 
 These three are why the token has a reason to exist beyond speculation.
 
@@ -51,13 +51,13 @@ These three are why the token has a reason to exist beyond speculation.
 ```bash
 # GPU mining (install Ollama first)
 curl -fsSL https://honemesh.net/install.sh | sudo bash
-HONE_ACCOUNT=yourname btcpc-node
+HONE_ACCOUNT=yourname hone-node
 
 # Or just open the browser clock right now
 # honemesh.net/clock
 ```
 
-Telegram wallet (no install): message @btcpcbot `/create yourname`
+Telegram wallet (no install): message @honebot `/create yourname`
 
 Android APK direct download on the site.
 
@@ -68,7 +68,7 @@ Happy to answer questions about the architecture. The Rust node source is on Git
 **Comments to prep:**
 
 Q: How is this different from Helium?
-A: Helium pays for LoRa gateway coverage. BTCPC pays for a broader set of work — AI inference, BLE tracker coverage (passive, no LoRa required), storage, service hosting, and clock timing. The three native markets (Verasens, Freeport, LinkGit) mean the token has buyers beyond just other node operators. Also no Helium-style governance drama — no separate hotspot token, no company in the middle.
+A: Helium pays for LoRa gateway coverage. HONE pays for a broader set of work — AI inference, BLE tracker coverage (passive, no LoRa required), storage, service hosting, and clock timing. The three native markets (Verasens, Freeport, LinkGit) mean the token has buyers beyond just other node operators. Also no Helium-style governance drama — no separate hotspot token, no company in the middle.
 
 Q: What prevents the miner pool from being gamed?
 A: Inference results are verified by randomly selected verifier nodes using the same model and input. Verifiers submit approved/rejected verdicts. Only approved work earns. Unverified or rejected outputs earn nothing.

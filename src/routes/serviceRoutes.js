@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Service Hosting HTTP Routes — v2.13-gamma
+ * HONE Service Hosting HTTP Routes — v2.13-gamma
  * Shin Devlin
  *
  * REST wrapper around serviceRegistry (v2.13-alpha). Sellers deploy
@@ -186,7 +186,7 @@ router.post('/', authenticateToken, async (req, res) => {
       options.price_per_hour = pph;
     }
     if (req.body.price_token !== undefined) {
-      options.price_token = sanitizeString(req.body.price_token, 16) || 'BTCPC';
+      options.price_token = sanitizeString(req.body.price_token, 16) || 'HONE';
     }
 
     try {

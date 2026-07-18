@@ -1,0 +1,2510 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * hone-cli — Command line interface for the HONE network
+ * Shin Devlin
+ */
+
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+const { program } = require("commander");
+const mongoose = require("mongoose");
+
+// Phase E: chain-state models removed — use stateStore/nodeRegistry/ledger
+const User = require("../src/models/User");
+const stateStore = require("../src/chain/stateStore");
+const nodeRegistry = require("../src/chain/nodeRegistry");
+const ledger = require("../src/services/ledger");
+const {
+  getBlockReward,
+  getCurrentPeriod,
+  getPeriodTable,
+  TOTAL_SUPPLY,
+  EPOCHS_PER_MONTH
+} = require("../src/services/emissionSchedule");
+const { EPOCH_DURATION_MS, DIFFICULTY_ADJUSTMENT_INTERVAL } = require("../src/services/epochManager");
+const keyManager = require("../src/wallet/keyManager");
+const accountManager = require("../src/wallet/accountManager");
+const { getProvider, listProviders, DEFAULT_MODEL, CODING_MODEL_PREFERENCE } = require("../src/inference/providers");
+const axios = require("axios");
+const readline = require("readline");
+const fs = require("fs");
+const crypto = require("crypto");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatHONE(n) {
+  return Number(n).toLocaleString("en-US", {
+    minimumFractionDigits: 8,
+    maximumFractionDigits: 8
+  });
+}
+
+function formatNumber(n) {
+  return Number(n).toLocaleString("en-US");
+}
+
+function pad(str, len, alignRight) {
+  str = String(str);
+  if (alignRight) return str.padStart(len);
+  return str.padEnd(len);
+}
+
+function printRow(cols, widths, alignments) {
+  const cells = cols.map((c, i) => pad(c, widths[i], alignments && alignments[i]));
+  console.log("  " + cells.join("  "));
+}
+
+function printSep(widths) {
+  console.log("  " + widths.map(w => "-".repeat(w)).join("  "));
+}
+
+function ts(date) {
+  if (!date) return "-";
+  return new Date(date).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+}
+
+function pct(n, total) {
+  if (!total) return "0.00%";
+  return (n / total * 100).toFixed(2) + "%";
+}
+
+function durationStr(ms) {
+  if (ms <= 0) return "-";
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return d + "d " + (h % 24) + "h " + (m % 60) + "m";
+  if (h > 0) return h + "h " + (m % 60) + "m " + (s % 60) + "s";
+  return m + "m " + (s % 60) + "s";
+}
+
+const blockStore = require("../src/chain/blockStore");
+
+let _stateLoaded = false;
+function _loadStateFromDisk() {
+  if (_stateLoaded) return;
+  _stateLoaded = true;
+  try {
+    const latestFin = blockStore.getLatestFinalityNumber();
+    if (latestFin >= 0) {
+      const fin = blockStore.readFinality(latestFin);
+      if (fin && fin.snapshot) stateStore.hydrateFromFinality(fin.snapshot);
+    }
+  } catch (_) {}
+}
+
+async function connect() {
+  _loadStateFromDisk();
+  const uri = process.env.MONGODB_URI;
+  if (uri && process.env.HONE_MONGO_MODE === "enabled") {
+    try { await mongoose.connect(uri); } catch (_) {}
+  }
+}
+
+async function disconnect() {
+  try { await mongoose.disconnect(); } catch (_) {}
+}
+
+async function getLatestEpoch() {
+  const chainHeight = stateStore.getChainHeight();
+  if (chainHeight < 0) return null;
+  const ep = stateStore.getEpoch(chainHeight);
+  if (ep) return Object.assign({ epoch_number: chainHeight }, ep);
+  return null;
+}
+
+async function getGenesisTimestamp() {
+  if (process.env.HONE_GENESIS_TIMESTAMP) {
+    return parseInt(process.env.HONE_GENESIS_TIMESTAMP);
+  }
+  const genesis = stateStore.getEpoch ? stateStore.getEpoch(0) : null;
+  if (genesis && genesis.started_at) return new Date(genesis.started_at).getTime();
+  return null;
+}
+
+async function calcCurrentEpochNumber() {
+  const genesis = await getGenesisTimestamp();
+  if (!genesis) return 0;
+  return Math.floor((Date.now() - genesis) / EPOCH_DURATION_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+program
+  .name("hone-cli")
+  .description("HONE network command line interface")
+  .version("0.1.0");
+
+// --- status ----------------------------------------------------------------
+
+program
+  .command("status")
+  .description("Show current network status")
+  .action(async () => {
+    try {
+      await connect();
+
+      const currentEpochNum = await calcCurrentEpochNumber();
+      const period = getCurrentPeriod(currentEpochNum);
+      const reward = getBlockReward(currentEpochNum);
+
+      // Time until next epoch
+      const genesis = await getGenesisTimestamp();
+      let timeToNext = "-";
+      if (genesis) {
+        const nextEpochStart = genesis + (currentEpochNum + 1) * EPOCH_DURATION_MS;
+        const msLeft = nextEpochStart - Date.now();
+        timeToNext = msLeft > 0 ? durationStr(msLeft) : "imminent";
+      }
+
+      // Total mined from stateStore epochs
+      let totalMined = 0;
+      for (let mi = 0; mi <= currentEpochNum; mi++) {
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(mi) : null;
+        if (ep) totalMined += ep.block_reward || 0;
+      }
+
+      // Active miners
+      const activeMiners = nodeRegistry.getRegisteredNodes().length;
+
+      // Network work from stateStore
+      let totalWork = 0;
+      for (let wi = 0; wi <= currentEpochNum; wi++) {
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(wi) : null;
+        if (ep) totalWork += ep.total_work || 0;
+      }
+
+      // Current difficulty from latest epoch
+      const latestEpoch = await getLatestEpoch();
+      const difficulty = latestEpoch && latestEpoch.difficulty ? latestEpoch.difficulty : 1.0;
+      const nextAdjustmentEpoch = Math.ceil((currentEpochNum + 1) / DIFFICULTY_ADJUSTMENT_INTERVAL) * DIFFICULTY_ADJUSTMENT_INTERVAL;
+      const epochsUntilAdjustment = nextAdjustmentEpoch - currentEpochNum;
+
+      console.log("");
+      console.log("HONE Network Status");
+      console.log("====================");
+      console.log("");
+      console.log("  Current epoch:       " + formatNumber(currentEpochNum));
+      console.log("  Period:              " + (period ? period.period + " (" + period.duration_months + " months)" : "-"));
+      console.log("  Block reward:        " + formatHONE(reward) + " HONE");
+      console.log("  Next epoch in:       " + timeToNext);
+      console.log("  Total mined:         " + formatHONE(totalMined) + " HONE");
+      console.log("  Active miners:       " + formatNumber(activeMiners));
+      console.log("  Network work:        " + formatNumber(totalWork));
+      console.log("  Difficulty:          " + difficulty.toFixed(8));
+      console.log("  Next adjustment:     epoch " + formatNumber(nextAdjustmentEpoch) + " (" + formatNumber(epochsUntilAdjustment) + " epochs)");
+      console.log("");
+
+      // Agentic engine status
+      try {
+        const engineMonitor = require("../src/installer/engine-monitor");
+        const engines = engineMonitor.summary();
+        if (engines.length > 0) {
+          console.log("  AI Agent Engines");
+          console.log("  ----------------");
+          for (const e of engines) {
+            const skill = e.skill_registered ? "skill ✓" : "skill not registered (run hone-install)";
+            const inv = e.invocations > 0
+              ? `${e.invocations} calls, ${e.success_rate}% ok`
+              : "no calls yet";
+            console.log("  " + e.label.padEnd(22) + skill + "  |  " + inv);
+          }
+          console.log("");
+        }
+      } catch (_) {}
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- balance ---------------------------------------------------------------
+
+program
+  .command("balance [account]")
+  .description("Show HONE balance for an account")
+  .action(async (account) => {
+    try {
+      await connect();
+
+      const username = account || process.env.HONE_MINER || "shindevlin";
+      const balance = stateStore.getBalance(username, "HONE");
+      const stakePool = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
+      const stakedTotal = stakePool ? (stakePool.staked_amount || 0) : 0;
+      let totalEarned = 0;
+      let epochsMined = 0;
+      // Compute proofs from stateStore
+      if (stateStore.getAllComputeProofs) {
+        for (const proofs of Object.values(stateStore.getAllComputeProofs())) {
+          for (const p of (proofs || [])) {
+            if (p && p.node_id === username) {
+              epochsMined++;
+              totalEarned += p.reward || 0;
+            }
+          }
+        }
+      }
+
+      console.log("");
+      console.log("HONE Balance: " + username);
+      console.log("=".repeat(20 + username.length));
+      console.log("");
+      console.log("  Balance:             " + formatHONE(balance) + " HONE");
+      console.log("  Staked:              " + formatHONE(stakedTotal) + " HONE");
+      console.log("  Total earned:        " + formatHONE(totalEarned) + " HONE");
+      console.log("  Epochs mined:        " + formatNumber(epochsMined));
+      console.log("");
+
+      // Mining proofs from stateStore compute proofs
+      const allProofsForBalance = stateStore.getAllComputeProofs ? stateStore.getAllComputeProofs() : {};
+      const userProofsForBalance = [];
+      for (const [epochNum, proofs] of Object.entries(allProofsForBalance)) {
+        for (const p of (proofs || [])) {
+          if (p && p.node_id === username) userProofsForBalance.push({ ...p, epoch: epochNum });
+        }
+      }
+      if (userProofsForBalance.length > 0) {
+        console.log("  Mining Proofs (soulbound): " + userProofsForBalance.length);
+        for (const p of userProofsForBalance) {
+          const date = p.timestamp ? new Date(p.timestamp).toISOString().split("T")[0] : "-";
+          const rewardStr = (p.reward || 0).toFixed(2);
+          console.log("    Epoch " + pad(String(p.epoch), 6) + pad(rewardStr, 12, true) + " HONE    " + pad(p.model || "-", 18) + date);
+        }
+        console.log("");
+      }
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- epoch -----------------------------------------------------------------
+
+program
+  .command("epoch [number]")
+  .description("Show details for a specific epoch")
+  .action(async (number) => {
+    try {
+      await connect();
+
+      let epoch;
+      if (number !== undefined) {
+        const epochNum = parseInt(number);
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(epochNum) : null;
+        epoch = ep ? Object.assign({ epoch_number: epochNum }, ep) : null;
+      } else {
+        epoch = await getLatestEpoch();
+      }
+
+      if (!epoch) {
+        console.error("error: epoch not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const period = getCurrentPeriod(epoch.epoch_number);
+      const minerCount = epoch.commitments ? epoch.commitments.length : 0;
+
+      console.log("");
+      console.log("Epoch " + epoch.epoch_number);
+      console.log("=".repeat(10 + String(epoch.epoch_number).length));
+      console.log("");
+      console.log("  Status:              " + epoch.status);
+      console.log("  Period:              " + (period ? period.period : "-"));
+      console.log("  Block reward:        " + formatHONE(epoch.block_reward) + " HONE");
+      console.log("  Total work:          " + formatNumber(epoch.total_work));
+      console.log("  Miners:              " + formatNumber(minerCount));
+      console.log("  Consensus hash:      " + (epoch.consensus_hash || "-"));
+      console.log("  Started:             " + ts(epoch.started_at));
+      console.log("  Ended:               " + ts(epoch.ended_at));
+      console.log("");
+
+      if (epoch.rewards_distributed && epoch.rewards_distributed.length > 0) {
+        console.log("  Rewards Distributed");
+        console.log("  -------------------");
+        const hdr = ["Node", "Amount"];
+        const w = [26, 24];
+        const a = [false, true];
+        printRow(hdr, w, a);
+        printSep(w);
+        for (const r of epoch.rewards_distributed) {
+          printRow([String(r.node_id), formatHONE(r.amount) + " HONE"], w, a);
+        }
+        console.log("");
+      }
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- blocks ----------------------------------------------------------------
+
+program
+  .command("blocks [count]")
+  .description("List recent epochs")
+  .action(async (count) => {
+    try {
+      await connect();
+
+      const n = parseInt(count) || 10;
+      const chainHeight = stateStore.getChainHeight();
+      const epochs = [];
+      for (let bi = chainHeight; bi >= 0 && epochs.length < n; bi--) {
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(bi) : null;
+        if (ep) epochs.push(Object.assign({ epoch_number: bi }, ep));
+      }
+
+      if (epochs.length === 0) {
+        console.log("\n  No epochs found.\n");
+        await disconnect();
+        return;
+      }
+
+      console.log("");
+      console.log("Recent Epochs (last " + epochs.length + ")");
+      console.log("=".repeat(30));
+      console.log("");
+
+      const hdr = ["Epoch", "Reward", "Work", "Miners", "Status", "Timestamp"];
+      const w = [8, 24, 10, 7, 10, 24];
+      const a = [true, true, true, true, false, false];
+
+      printRow(hdr, w, a);
+      printSep(w);
+
+      for (const e of epochs) {
+        printRow([
+          String(e.epoch_number),
+          formatHONE(e.block_reward),
+          formatNumber(e.total_work),
+          String(e.commitments ? e.commitments.length : 0),
+          e.status,
+          ts(e.started_at)
+        ], w, a);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- supply ----------------------------------------------------------------
+
+program
+  .command("supply")
+  .description("Show HONE supply information")
+  .action(async () => {
+    try {
+      await connect();
+
+      const currentEpochNum = await calcCurrentEpochNumber();
+      const period = getCurrentPeriod(currentEpochNum);
+
+      // Total mined from stateStore
+      let totalMined = 0;
+      for (let mi = 0; mi <= currentEpochNum; mi++) {
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(mi) : null;
+        if (ep) totalMined += ep.block_reward || 0;
+      }
+      const remaining = TOTAL_SUPPLY - totalMined;
+
+      // Next halving estimate
+      let nextHalvingStr = "-";
+      if (period && period.period < 11) {
+        const epochsLeft = period.end_epoch - currentEpochNum;
+        const msLeft = epochsLeft * EPOCH_DURATION_MS;
+        const nextDate = new Date(Date.now() + msLeft);
+        nextHalvingStr = nextDate.toISOString().split("T")[0] + " (~" + durationStr(msLeft) + ")";
+      }
+
+      console.log("");
+      console.log("HONE Supply");
+      console.log("============");
+      console.log("");
+      console.log("  Total supply:        " + formatNumber(TOTAL_SUPPLY) + ".00000000 HONE");
+      console.log("  Mined:               " + formatHONE(totalMined) + " HONE");
+      console.log("  Remaining:           " + formatHONE(remaining) + " HONE");
+      console.log("  Percentage mined:    " + pct(totalMined, TOTAL_SUPPLY));
+      console.log("  Current period:      " + (period ? period.period + " of 11" : "-"));
+      console.log("  Next halving:        " + nextHalvingStr);
+      console.log("");
+
+      // Period table
+      console.log("  Emission Schedule");
+      console.log("  -----------------");
+      const hdr = ["Period", "Duration", "Allotment", "Reward/Epoch", "Cumulative"];
+      const w = [7, 12, 20, 20, 20];
+      const a = [true, true, true, true, true];
+      printRow(hdr, w, a);
+      printSep(w);
+
+      const periods = getPeriodTable();
+      let cum = 0;
+      for (const p of periods) {
+        cum += p.allotment;
+        const durLabel = p.duration_months >= 12
+          ? (p.duration_months / 12).toFixed(1) + " years"
+          : p.duration_months + " months";
+        const marker = period && p.period === period.period ? " <" : "";
+        printRow([
+          String(p.period),
+          durLabel,
+          formatNumber(Math.round(p.allotment)),
+          formatHONE(p.reward_per_epoch),
+          formatNumber(Math.round(cum)) + marker
+        ], w, a);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- work ------------------------------------------------------------------
+
+program
+  .command("work [count]")
+  .description("List recent work proofs (epoch commitments)")
+  .action(async (count) => {
+    try {
+      await connect();
+
+      const n = parseInt(count) || 10;
+
+      // Collect work proofs from stateStore compute proofs
+      const allComputeProofs = stateStore.getAllComputeProofs ? stateStore.getAllComputeProofs() : {};
+      const rows = [];
+      const epochNums = Object.keys(allComputeProofs).map(Number).sort((a, b) => b - a);
+      for (const epochNum of epochNums) {
+        if (rows.length >= n) break;
+        for (const p of (allComputeProofs[epochNum] || [])) {
+          if (!p) continue;
+          const nodeInfo = nodeRegistry.getNode(p.node_id);
+          const models = nodeInfo && nodeInfo.models && nodeInfo.models.length > 0
+            ? nodeInfo.models.join(", ")
+            : (p.model || "-");
+          rows.push({
+            epoch: epochNum,
+            model: models,
+            tokens: p.tokens_generated || 0,
+            work: p.tokens_generated || 0,
+            timestamp: p.timestamp
+          });
+        }
+      }
+
+      if (rows.length === 0) {
+        console.log("\n  No work proofs found.\n");
+        await disconnect();
+        return;
+      }
+
+      // Trim to requested count
+      const display = rows.slice(0, parseInt(count) || 10);
+
+      console.log("");
+      console.log("Recent Work Proofs (last " + display.length + ")");
+      console.log("=".repeat(35));
+      console.log("");
+
+      const hdr = ["Epoch", "Model", "Tokens", "Work", "Timestamp"];
+      const w = [8, 30, 10, 10, 24];
+      const al = [true, false, true, true, false];
+
+      printRow(hdr, w, al);
+      printSep(w);
+
+      for (const r of display) {
+        printRow([
+          String(r.epoch),
+          r.model.length > 30 ? r.model.substring(0, 27) + "..." : r.model,
+          formatNumber(r.tokens),
+          formatNumber(r.work),
+          ts(r.timestamp)
+        ], w, al);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet ----------------------------------------------------------------
+
+function prompt(question, hidden) {
+  return new Promise(function (resolve) {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    if (hidden) {
+      // Mute output for password entry
+      const origWrite = process.stdout.write;
+      rl.question(question, function (answer) {
+        process.stdout.write = origWrite;
+        rl.close();
+        console.log("");
+        resolve(answer);
+      });
+      process.stdout.write = function () { return true; };
+    } else {
+      rl.question(question, function (answer) {
+        rl.close();
+        resolve(answer);
+      });
+    }
+  });
+}
+
+const walletCmd = program
+  .command("wallet")
+  .description("Wallet management commands");
+
+// --- wallet create ---------------------------------------------------------
+
+walletCmd
+  .command("create <username>")
+  .description("Create a new HONE account with BIP-39 mnemonic and 2FA")
+  .action(async (username) => {
+    try {
+      // Validate username before prompting for password
+      const check = accountManager.validateUsername(username);
+      if (!check.valid) {
+        console.error("error: " + check.reason);
+        process.exit(1);
+      }
+
+      console.log("");
+      console.log("Creating HONE account: " + username);
+      console.log("=".repeat(30 + username.length));
+      console.log("");
+
+      const password = await prompt("  Set 2FA password: ", true);
+      if (!password || password.length < 8) {
+        console.error("error: password must be at least 8 characters");
+        process.exit(1);
+      }
+      const confirm = await prompt("  Confirm password:  ", true);
+      if (password !== confirm) {
+        console.error("error: passwords do not match");
+        process.exit(1);
+      }
+
+      await connect();
+
+      const result = await accountManager.createAccount(username, null, password);
+
+      console.log("");
+      console.log("  Account created successfully.");
+      console.log("");
+      console.log("  *** WRITE DOWN YOUR RECOVERY PHRASE ***");
+      console.log("  *** This is the ONLY way to recover your account ***");
+      console.log("");
+      console.log("  Mnemonic: " + result.mnemonic);
+      console.log("");
+      console.log("  Wallets (all derived from your mnemonic):");
+      console.log("    HONE:    " + result.chainWallets.hone);
+      console.log("    EVM:      " + result.chainWallets.evm + "  (Base, Arbitrum, Optimism)");
+      console.log("    Solana:   " + result.chainWallets.solana);
+      console.log("    Bitcoin:  " + result.chainWallets.bitcoin);
+      console.log("    TON:      " + result.chainWallets.ton);
+      console.log("    Hive:     @" + result.chainWallets.hive);
+      console.log("");
+      console.log("  Import your mnemonic into MetaMask, Phantom, or Electrum");
+      console.log("  to manage funds on those chains.");
+      console.log("");
+      console.log("  HONE Keys:");
+      console.log("    Owner:   " + result.publicKeys.owner);
+      console.log("    Active:  " + result.publicKeys.active);
+      console.log("    Posting: " + result.publicKeys.posting);
+      console.log("    Memo:    " + result.publicKeys.memo);
+      console.log("");
+      console.log("  2FA Public Key: " + (result.twoFactorPublicKey || "none"));
+      console.log("  Auth Profile:   " + result.authProfile);
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet recover --------------------------------------------------------
+
+walletCmd
+  .command("recover")
+  .description("Recover a HONE account from a 12-word mnemonic")
+  .action(async () => {
+    try {
+      console.log("");
+      console.log("HONE Account Recovery");
+      console.log("======================");
+      console.log("");
+
+      const mnemonic = await prompt("  Enter 12-word mnemonic: ");
+      if (!mnemonic) {
+        console.error("error: mnemonic is required");
+        process.exit(1);
+      }
+
+      const words = mnemonic.trim().split(/\s+/);
+      if (words.length !== 12) {
+        console.error("error: mnemonic must be exactly 12 words (got " + words.length + ")");
+        process.exit(1);
+      }
+
+      if (!keyManager.validateMnemonic(mnemonic.trim())) {
+        console.error("error: invalid BIP-39 mnemonic");
+        process.exit(1);
+      }
+
+      await connect();
+
+      const result = await accountManager.recoverAccount(mnemonic.trim());
+
+      console.log("");
+      if (result.found) {
+        console.log("  Account found: " + result.username);
+      } else {
+        console.log("  No on-chain account found for this mnemonic.");
+        console.log("  Keys derived successfully — you can create a new account.");
+      }
+      console.log("");
+      console.log("  Address:  " + result.address);
+      console.log("");
+      console.log("  Public Keys:");
+      console.log("    Owner:   " + result.publicKeys.owner);
+      console.log("    Active:  " + result.publicKeys.active);
+      console.log("    Posting: " + result.publicKeys.posting);
+      console.log("    Memo:    " + result.publicKeys.memo);
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet set-password ---------------------------------------------------
+
+walletCmd
+  .command("set-password <username>")
+  .description("Set or change the password for a HONE account (stored in secretStore)")
+  .action(async (username) => {
+    try {
+      console.log("");
+      console.log("Set Password for '" + username + "'");
+      console.log("=".repeat(40));
+
+      // Check if the account has an existing password
+      var secretStore;
+      try {
+        secretStore = require("../src/services/secretStore");
+        await secretStore.load();
+      } catch (e) {
+        console.error("error: secretStore unavailable: " + e.message);
+        process.exit(1);
+      }
+
+      var existingUser = secretStore.getUser(username);
+      var hasExistingPassword = existingUser && existingUser.password_hash;
+
+      if (hasExistingPassword) {
+        // Verify old password first
+        console.log("  This account already has a password.");
+        var oldPass = await prompt("  Enter current password: ", true);
+        var verified = await secretStore.verifyPassword(username, oldPass);
+        if (!verified) {
+          console.error("  error: incorrect current password");
+          process.exit(1);
+        }
+        console.log("  Current password verified ✓");
+      } else {
+        console.log("  No password set yet for this account.");
+      }
+
+      // Set new password
+      console.log("");
+      var newPass = await prompt("  New password (min 8 chars): ", true);
+      if (!newPass || newPass.length < 8) {
+        console.error("  error: password must be at least 8 characters");
+        process.exit(1);
+      }
+      var confirmPass = await prompt("  Confirm new password:       ", true);
+      if (newPass !== confirmPass) {
+        console.error("  error: passwords don't match");
+        process.exit(1);
+      }
+
+      if (existingUser) {
+        await secretStore.updateUser(username, { password: newPass });
+      } else {
+        await secretStore.createUser(username, { password: newPass });
+      }
+
+      console.log("");
+      console.log("  ✅ Password set for '" + username + "'");
+      console.log("  This password works for:");
+      console.log("    - Telegram bot login (/start → Username + Password)");
+      console.log("    - API authentication");
+      console.log("    - Node .env (HONE_PASSWORD=)");
+      console.log("");
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet reset-password (via active key) --------------------------------
+
+walletCmd
+  .command("reset-password <username>")
+  .description("Reset a forgotten password by proving ownership with the active key (from mnemonic)")
+  .action(async (username) => {
+    try {
+      console.log("");
+      console.log("Reset Password for '" + username + "'");
+      console.log("=".repeat(40));
+      console.log("");
+      console.log("  This requires your 12-word mnemonic to prove you own the account.");
+      console.log("  The mnemonic will NOT be stored — only used to derive the active key,");
+      console.log("  verify it matches the on-chain key, and then forgotten.");
+      console.log("");
+
+      var mnemonic = await prompt("  Enter 12-word mnemonic: ");
+      if (!mnemonic) {
+        console.error("  error: mnemonic required");
+        process.exit(1);
+      }
+      mnemonic = mnemonic.trim();
+
+      if (!keyManager.validateMnemonic(mnemonic)) {
+        console.error("  error: invalid BIP-39 mnemonic");
+        process.exit(1);
+      }
+
+      // Derive the active key from the mnemonic
+      var keys = await keyManager.mnemonicToKeys(mnemonic);
+      var derivedActivePub = keys.active.publicKey;
+
+      // Check against on-chain active key
+      var onChainAccount = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      if (onChainAccount && onChainAccount.public_keys && onChainAccount.public_keys.active) {
+        if (onChainAccount.public_keys.active !== derivedActivePub) {
+          console.error("  error: mnemonic does not match on-chain active key for '" + username + "'");
+          console.error("  On-chain:  " + onChainAccount.public_keys.active.slice(0, 20) + "...");
+          console.error("  Derived:   " + derivedActivePub.slice(0, 20) + "...");
+          process.exit(1);
+        }
+        console.log("  Active key verified against on-chain key ✓");
+      } else {
+        console.log("  ⚠️  No active key on chain for '" + username + "' — proceeding on mnemonic validity alone");
+      }
+
+      // Wipe mnemonic from memory
+      mnemonic = null;
+
+      // Set new password
+      console.log("");
+      var newPass = await prompt("  New password (min 8 chars): ", true);
+      if (!newPass || newPass.length < 8) {
+        console.error("  error: password must be at least 8 characters");
+        process.exit(1);
+      }
+      var confirmPass = await prompt("  Confirm new password:       ", true);
+      if (newPass !== confirmPass) {
+        console.error("  error: passwords don't match");
+        process.exit(1);
+      }
+
+      var secretStore;
+      try {
+        secretStore = require("../src/services/secretStore");
+        await secretStore.load();
+      } catch (e) {
+        console.error("error: secretStore unavailable: " + e.message);
+        process.exit(1);
+      }
+
+      var existingUser = secretStore.getUser(username);
+      if (existingUser) {
+        await secretStore.updateUser(username, { password: newPass });
+      } else {
+        await secretStore.createUser(username, { password: newPass });
+      }
+
+      console.log("");
+      console.log("  ✅ Password reset for '" + username + "'");
+      console.log("  The old password no longer works.");
+      console.log("  Mnemonic discarded — not stored anywhere.");
+      console.log("");
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet keys -----------------------------------------------------------
+
+walletCmd
+  .command("keys <username>")
+  .description("Show public keys for a HONE account (never displays private keys)")
+  .action(async (username) => {
+    try {
+      // Keys come from stateStore (blockchain) — no Mongo needed
+      const accountState = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      if (!accountState) {
+        console.error("error: account '" + username + "' not found on chain");
+        process.exit(1);
+      }
+
+      const walletAddress = accountState?.chain_addresses?.hone || null;
+      const pubkeys = accountState?.public_keys || {};
+
+      console.log("");
+      console.log("HONE Keys: " + username);
+      console.log("=".repeat(16 + username.length));
+      console.log("");
+      if (walletAddress) {
+        console.log("  Address:          " + walletAddress);
+      }
+      console.log("  Owner (public):   " + (pubkeys.owner || "not set"));
+      console.log("  Active (public):  " + (pubkeys.active || "not set"));
+      console.log("  Posting (public): " + (pubkeys.posting || "not set"));
+      console.log("  Memo (public):    " + (pubkeys.memo || "not set"));
+      console.log("");
+      console.log("  2FA Enabled:      " + (user.twoFactorEnabled ? "yes" : "no"));
+      console.log("  2FA Public Key:   " + (user.twoFactorPublicKey || "none"));
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet rotate-keys ----------------------------------------------------
+
+walletCmd
+  .command("rotate-keys <username>")
+  .description("Rotate active, posting, and memo keys — authenticated by password")
+  .action(async (username) => {
+    try {
+      console.log("");
+      console.log("Key Rotation for '" + username + "'");
+      console.log("=".repeat(20 + username.length));
+      console.log("");
+      console.log("  This will replace your active, posting, and memo keys with newly");
+      console.log("  generated random keys. Your owner key is NOT touched.");
+      console.log("  You must save the new private keys shown below — they are shown ONCE.");
+      console.log("");
+
+      const password = await prompt("  Enter password: ", true);
+      if (!password) {
+        console.error("  error: password required");
+        process.exit(1);
+      }
+
+      const secretStoreLocal = require("../src/services/secretStore");
+      await secretStoreLocal.load();
+
+      // Verify password locally
+      const valid = await secretStoreLocal.verifyPassword(username, password);
+      if (!valid) {
+        console.error("  error: invalid password");
+        process.exit(1);
+      }
+
+      // Verify account exists on chain
+      const onChainAccount = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      if (!onChainAccount) {
+        console.error("  error: account '" + username + "' not found on chain");
+        process.exit(1);
+      }
+
+      console.log("");
+      console.log("  Generating new active, posting, and memo keys...");
+      console.log("");
+
+      // Generate 3 new random secp256k1 keypairs
+      const secp256k1 = require("secp256k1");
+      function generateRandomKeypair() {
+        let privKey;
+        do { privKey = crypto.randomBytes(32); } while (!secp256k1.privateKeyVerify(privKey));
+        const pubKey = Buffer.from(secp256k1.publicKeyCreate(privKey, true));
+        return { privateKey: privKey.toString("hex"), publicKey: pubKey.toString("hex") };
+      }
+
+      const activeKp  = generateRandomKeypair();
+      const postingKp = generateRandomKeypair();
+      const memoKp    = generateRandomKeypair();
+
+      const newPublicKeys = {
+        active:  activeKp.publicKey,
+        posting: postingKp.publicKey,
+        memo:    memoKp.publicKey,
+      };
+
+      // Record on chain
+      const epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
+      await ledger.recordKeyRotate(username, newPublicKeys, "password", epoch);
+
+      console.log("  New Private Keys (SAVE THESE NOW — shown only once):");
+      console.log("");
+      console.log("    Active:  " + activeKp.privateKey);
+      console.log("    Posting: " + postingKp.privateKey);
+      console.log("    Memo:    " + memoKp.privateKey);
+      console.log("");
+      console.log("  New Public Keys (recorded on chain):");
+      console.log("");
+      console.log("    Active:  " + activeKp.publicKey);
+      console.log("    Posting: " + postingKp.publicKey);
+      console.log("    Memo:    " + memoKp.publicKey);
+      console.log("");
+      console.log("  Rotation recorded on chain. Old keys are now invalid.");
+      console.log("");
+
+      const keep = await prompt("  Keep old keys in Telegram chat history? (yes to keep, no to warn): ");
+      if (!keep || keep.trim().toLowerCase().startsWith("n")) {
+        console.log("");
+        console.log("  WARNING: If you stored old keys in Telegram or any cloud chat,");
+        console.log("  those messages still exist on Telegram's servers even if deleted");
+        console.log("  from your view. Consider this when assessing risk.");
+        console.log("");
+      }
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet rotate-owner ---------------------------------------------------
+
+walletCmd
+  .command("rotate-owner <username>")
+  .description("Rotate the owner key — requires current owner private key (signs locally)")
+  .action(async (username) => {
+    try {
+      console.log("");
+      console.log("OWNER KEY ROTATION for '" + username + "'");
+      console.log("=".repeat(24 + username.length));
+      console.log("");
+      console.log("  WARNING: This is the nuclear option. The owner key controls");
+      console.log("  everything. If you lose the new owner key, account recovery");
+      console.log("  is extremely difficult.");
+      console.log("");
+      console.log("  Your current owner PRIVATE key is used to sign the rotation");
+      console.log("  locally. It never leaves this machine.");
+      console.log("");
+
+      const ownerPrivHex = await prompt("  Enter your CURRENT owner private key (hex): ", true);
+      if (!ownerPrivHex || ownerPrivHex.trim().length < 64) {
+        console.error("  error: owner private key required (64+ hex chars)");
+        process.exit(1);
+      }
+
+      // Derive the public key from the entered private key
+      const secp256k1 = require("secp256k1");
+      let currentOwnerPrivBuf;
+      try {
+        currentOwnerPrivBuf = Buffer.from(ownerPrivHex.trim(), "hex");
+        if (!secp256k1.privateKeyVerify(currentOwnerPrivBuf)) {
+          throw new Error("invalid secp256k1 private key");
+        }
+      } catch (e) {
+        console.error("  error: " + e.message);
+        process.exit(1);
+      }
+      const derivedOwnerPub = Buffer.from(secp256k1.publicKeyCreate(currentOwnerPrivBuf, true)).toString("hex");
+
+      // Compare against on-chain owner key
+      const onChainAccount = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      if (!onChainAccount || !onChainAccount.public_keys || !onChainAccount.public_keys.owner) {
+        console.error("  error: account '" + username + "' not found or has no owner key on chain");
+        process.exit(1);
+      }
+
+      if (onChainAccount.public_keys.owner !== derivedOwnerPub) {
+        console.error("  error: entered private key does NOT match on-chain owner key");
+        console.error("  On-chain:  " + onChainAccount.public_keys.owner.slice(0, 20) + "...");
+        console.error("  Derived:   " + derivedOwnerPub.slice(0, 20) + "...");
+        process.exit(1);
+      }
+      console.log("");
+      console.log("  Current owner key verified against on-chain key.");
+      console.log("");
+      console.log("  Generating new owner keypair...");
+      console.log("");
+
+      // Generate new owner keypair
+      let newOwnerPrivBuf;
+      do { newOwnerPrivBuf = crypto.randomBytes(32); } while (!secp256k1.privateKeyVerify(newOwnerPrivBuf));
+      const newOwnerPubHex  = Buffer.from(secp256k1.publicKeyCreate(newOwnerPrivBuf, true)).toString("hex");
+      const newOwnerPrivHex = newOwnerPrivBuf.toString("hex");
+
+      // Build challenge and sign with CURRENT owner key
+      const timestamp = Date.now().toString();
+      const challengeInput = username + newOwnerPubHex + timestamp;
+      const challenge = crypto.createHash("sha256").update(challengeInput).digest("hex");
+      const challengeHashBuf = crypto.createHash("sha256").update(challenge).digest();
+
+      const sigObj = secp256k1.ecdsaSign(challengeHashBuf, currentOwnerPrivBuf);
+      const signature = Buffer.from(sigObj.signature).toString("hex");
+
+      // Record on chain
+      const epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
+      await ledger.recordKeyRotate(username, { owner: newOwnerPubHex }, "owner_signature", epoch);
+
+      console.log("  New Owner Private Key (SAVE THIS NOW — shown only once):");
+      console.log("");
+      console.log("    " + newOwnerPrivHex);
+      console.log("");
+      console.log("  New Owner Public Key (recorded on chain):");
+      console.log("");
+      console.log("    " + newOwnerPubHex);
+      console.log("");
+      console.log("  DONE. Old owner key is now invalid.");
+      console.log("  SAVE YOUR NEW OWNER KEY IMMEDIATELY.");
+      console.log("");
+
+      // Wipe old private key from memory
+      currentOwnerPrivBuf.fill(0);
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet export ---------------------------------------------------------
+
+walletCmd
+  .command("export <username>")
+  .description("Export encrypted wallet file for a HONE account")
+  .action(async (username) => {
+    try {
+      await connect();
+
+      const user = await User.findOne({ username: username });
+      if (!user) {
+        console.error("error: account '" + username + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const exportAccountState = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      const exportAddress = exportAccountState?.chain_addresses?.hone || null;
+
+      console.log("");
+      const password = await prompt("  Enter encryption password: ", true);
+      if (!password || password.length < 8) {
+        console.error("error: password must be at least 8 characters");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Build wallet export payload (public keys only — private keys are NEVER stored)
+      const exportData = {
+        version: 1,
+        chain: "hone",
+        username: username,
+        address: exportAddress,
+        publicKeys: {
+          owner: user.ownerPublicKey,
+          active: user.activePublicKey,
+          posting: user.postingPublicKey,
+          memo: user.memoPublicKey
+        },
+        authProfile: user.authProfile || "none",
+        twoFactorPublicKey: user.twoFactorPublicKey || null,
+        exportedAt: new Date().toISOString()
+      };
+
+      // Encrypt the export payload
+      const plaintext = JSON.stringify(exportData);
+      const encrypted = await keyManager.encryptKey(
+        Buffer.from(plaintext).toString("hex"),
+        password
+      );
+
+      const filename = username + "-hone-wallet.enc";
+      const filepath = path.resolve(process.cwd(), filename);
+      fs.writeFileSync(filepath, encrypted, "utf8");
+
+      console.log("");
+      console.log("  Wallet exported to: " + filepath);
+      console.log("  Encrypted with AES-256-GCM (PBKDF2 key derivation)");
+      console.log("  Keep this file and your password safe.");
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet send -----------------------------------------------------------
+
+walletCmd
+  .command("send <to> <amount>")
+  .description("Send HONE to another account (requires active key)")
+  .action(async (to, amount) => {
+    try {
+      amount = parseFloat(amount);
+      if (isNaN(amount) || amount <= 0) {
+        console.error("error: amount must be a positive number");
+        process.exit(1);
+      }
+
+      // Get sender from env or prompt
+      const senderName = process.env.HONE_MINER || process.env.HONE_USERNAME;
+      if (!senderName) {
+        console.error("error: set HONE_MINER or HONE_USERNAME env var");
+        process.exit(1);
+      }
+
+      const activeKey = process.env.HONE_ACTIVE_KEY;
+      if (!activeKey) {
+        console.error("error: set HONE_ACTIVE_KEY env var (64-char hex private key)");
+        process.exit(1);
+      }
+
+      // Verify sender exists on chain (stateStore is source of truth — no Mongo)
+      await stateStore.replayIfNeeded ? stateStore.replayIfNeeded() : null;
+      const senderAcct = stateStore.getAccount ? stateStore.getAccount(senderName) : null;
+      if (!senderAcct) {
+        console.error("error: sender account '" + senderName + "' not found on chain");
+        process.exit(1);
+      }
+
+      // Verify active key matches chain-registered key
+      const secp256k1 = require("secp256k1");
+      const activePub = Buffer.from(secp256k1.publicKeyCreate(Buffer.from(activeKey, "hex"), true)).toString("hex");
+      const chainActiveKey = senderAcct.public_keys && senderAcct.public_keys.active;
+      if (chainActiveKey && activePub !== chainActiveKey) {
+        console.error("error: active key does not match chain-registered key for '" + senderName + "'");
+        process.exit(1);
+      }
+
+      // Balance from stateStore (chain)
+      const balance = stateStore.getBalance(senderName, "HONE");
+      if (balance < amount) {
+        console.error("error: insufficient balance. Have " + balance.toFixed(10) + ", need " + amount.toFixed(10));
+        process.exit(1);
+      }
+
+      // Recipient existence check from chain — forward-send allowed if unregistered
+      const recipientAcct = stateStore.getAccount ? stateStore.getAccount(to) : null;
+      if (!recipientAcct) {
+        console.log("  '" + to + "' is not yet registered on chain. Tokens will be held at this username.");
+        console.log("  When '" + to + "' registers, they will own these tokens.");
+      }
+
+      // Sign the transaction with active key
+      const txTimestamp = Date.now();
+      const txData = {
+        from: senderName,
+        to: to,
+        amount: amount,
+        type: "transfer",
+        timestamp: txTimestamp
+      };
+      const sig = keyManager.signTransaction(txData, activeKey);
+
+      // Submit to mempool — validates balance, prevents double-spend
+      const mempool = require("../src/p2p/mempool");
+      const ledger = require("../src/services/ledger");
+      const epoch = await ledger.getCurrentEpoch();
+
+      const mempoolTx = {
+        type: "TRANSFER",
+        from: senderName,
+        to: to,
+        amount: amount,
+        token: "HONE",
+        epoch: epoch,
+        nonce: txTimestamp,
+        timestamp: txTimestamp,
+        memo: null,
+        signature: sig.signature
+      };
+
+      const mResult = mempool.submit(mempoolTx);
+      if (!mResult.accepted) {
+        console.error("error: transaction rejected by mempool: " + mResult.reason);
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Record on permanent ledger — source of truth
+      await ledger.recordTransfer(senderName, to, amount, "HONE", sig.signature, epoch, null);
+
+      // Phase E: wallet cache updates removed — ledger is source of truth
+
+      // Broadcast to P2P if network is available
+      try {
+        const p2p = require("../src/p2p/network");
+        const { createTransactionMessage } = require("../src/p2p/protocol");
+        if (p2p.NODE_ID) {
+          const txMsg = createTransactionMessage(mempoolTx, p2p.NODE_ID);
+          p2p.broadcast(txMsg);
+          console.log("  Broadcast to P2P network.");
+        }
+      } catch (_) {
+        console.log("  P2P not available — will propagate at next epoch finalization.");
+      }
+
+      console.log("");
+      console.log("  Transfer complete.");
+      console.log("");
+      console.log("  From:    " + senderName);
+      console.log("  To:      " + to);
+      console.log("  Amount:  " + amount.toFixed(10) + " HONE");
+      console.log("  TxHash:  " + mResult.txHash);
+      console.log("  Sig:     " + sig.signature.slice(0, 20) + "...");
+      console.log("  Epoch:   " + epoch);
+      console.log("");
+      console.log("  " + senderName + " balance: " + (balance - amount).toFixed(10) + " HONE");
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet balance --------------------------------------------------------
+
+walletCmd
+  .command("balance [username]")
+  .description("Check HONE balance for an account")
+  .action(async (username) => {
+    try {
+      const name = username || process.env.HONE_MINER || process.env.HONE_USERNAME;
+      if (!name) {
+        console.error("error: provide username or set HONE_MINER env var");
+        process.exit(1);
+      }
+
+      // Chain is source of truth — no Mongo
+      const walletAccountState = stateStore.getAccount ? stateStore.getAccount(name) : null;
+      if (!walletAccountState) {
+        console.error("error: account '" + name + "' not found on chain");
+        process.exit(1);
+      }
+      const chainAddresses = walletAccountState?.chain_addresses || {};
+      const honeBal = stateStore.getBalance(name, "HONE");
+
+      console.log("");
+      console.log("  " + name + " wallets:");
+      console.log("");
+      for (const [chain, addr] of Object.entries(chainAddresses)) {
+        console.log("  " + chain.padEnd(10) + " " + addr);
+      }
+      if (honeBal > 0) console.log("             " + honeBal.toFixed(10) + " HONE");
+      console.log("");
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- sign-challenge --------------------------------------------------------
+
+program
+  .command("sign-challenge <challenge>")
+  .description("Sign a Telegram verification challenge with your posting key")
+  .action(async (challenge) => {
+    try {
+      if (!challenge.startsWith("HONE-VERIFY-")) {
+        console.error("error: challenge must start with HONE-VERIFY-");
+        process.exit(1);
+      }
+
+      const postingKey = await prompt("  Enter your posting private key (hex): ");
+      if (!postingKey || postingKey.trim().length !== 64) {
+        console.error("error: posting key must be a 64-character hex string");
+        process.exit(1);
+      }
+
+      const { signTransaction } = keyManager;
+      const result = signTransaction(challenge, postingKey.trim());
+
+      console.log("");
+      console.log("  Challenge signed successfully.");
+      console.log("");
+      console.log("  Send this to the bot:");
+      console.log("  /verify " + result.signature + ":" + result.recovery);
+      console.log("");
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- dreams ----------------------------------------------------------------
+
+const {
+  getDreams: fetchDreams,
+  getDream: fetchDream,
+  inscribeDream,
+  transferDream
+} = require("../src/controllers/dreamController");
+
+program
+  .command("dreams [account]")
+  .description("List all genesis dreams owned by an account")
+  .action(async (account) => {
+    try {
+      await connect();
+
+      const username = account || "shindevlin";
+      const dreams = await fetchDreams(username);
+
+      if (dreams.length === 0) {
+        console.log("\n  No genesis dreams found for '" + username + "'.\n");
+        await disconnect();
+        return;
+      }
+
+      console.log("");
+      console.log("Genesis Dreams: " + username + " (" + dreams.length + ")");
+      console.log("=".repeat(25 + username.length));
+      console.log("");
+
+      const hdr = ["Block", "Inscription", "Status", "Original Miner", "Transferred"];
+      const w = [7, 36, 12, 16, 12];
+      const a = [true, false, false, false, false];
+
+      printRow(hdr, w, a);
+      printSep(w);
+
+      for (const d of dreams) {
+        const hasInscription = d.inscription && d.inscription.project && d.inscription.tag;
+        const inscriptionTag = hasInscription
+          ? d.inscription.tag.length > 34
+            ? d.inscription.tag.substring(0, 31) + "..."
+            : d.inscription.tag
+          : "[uninscribed]";
+        const status = hasInscription ? "inscribed" : "uninscribed";
+
+        printRow([
+          String(d.block_number),
+          inscriptionTag,
+          status,
+          d.original_miner,
+          d.transferred ? "yes" : "no"
+        ], w, a);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- dream (single) -------------------------------------------------------
+
+program
+  .command("dream <block_number>")
+  .description("View details of a specific genesis dream")
+  .action(async (blockNumber) => {
+    try {
+      await connect();
+
+      const num = parseInt(blockNumber);
+      if (isNaN(num)) {
+        console.error("error: invalid block number");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const dream = await fetchDream(num);
+      if (!dream) {
+        console.error("error: Genesis Dream #" + num + " not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const hasInscription = dream.inscription && dream.inscription.project && dream.inscription.tag;
+
+      console.log("");
+      console.log("Genesis Dream #" + dream.block_number);
+      console.log("=".repeat(18 + String(dream.block_number).length));
+      console.log("");
+      console.log("  Block:             " + dream.block_number);
+      console.log("  Original miner:    " + dream.original_miner);
+      console.log("  Current owner:     " + dream.current_owner);
+      console.log("  Transferred:       " + (dream.transferred ? "yes" : "no"));
+      console.log("  Inscribed at:      " + ts(dream.inscribed_at));
+      console.log("");
+
+      // Proof
+      if (dream.proof) {
+        console.log("  Proof");
+        console.log("  -----");
+        console.log("  State hash:        " + (dream.proof.state_hash || "-"));
+        console.log("  Work hash:         " + (dream.proof.work_hash || "-"));
+        console.log("  Tokens computed:   " + formatNumber(dream.proof.tokens_computed || 0));
+        console.log("  Model:             " + (dream.proof.model || "-"));
+        console.log("");
+      }
+
+      // Inscription
+      console.log("  Inscription");
+      console.log("  -----------");
+      if (hasInscription) {
+        console.log("  Project:           " + dream.inscription.project);
+        console.log("  Tag:               " + dream.inscription.tag);
+        if (dream.inscription.custom_data) {
+          console.log("  Custom data:       " + JSON.stringify(dream.inscription.custom_data));
+        }
+      } else {
+        console.log("  [uninscribed]");
+      }
+      console.log("");
+
+      // Transfer history
+      if (dream.transfer_history && dream.transfer_history.length > 0) {
+        console.log("  Transfer History");
+        console.log("  ----------------");
+        const thdr = ["From", "To", "Timestamp"];
+        const tw = [16, 16, 26];
+        printRow(thdr, tw);
+        printSep(tw);
+        for (const t of dream.transfer_history) {
+          printRow([t.from, t.to, ts(t.timestamp)], tw);
+        }
+        console.log("");
+      }
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- inscribe --------------------------------------------------------------
+
+program
+  .command("inscribe <block_number>")
+  .description("Inscribe a genesis dream (once, permanently)")
+  .requiredOption("--project <name>", "Project name for the inscription")
+  .requiredOption("--tag <description>", "Tag / description for the inscription")
+  .option("--data <json>", "Optional custom data (JSON string)")
+  .option("--account <username>", "Account performing the inscription", "shindevlin")
+  .action(async (blockNumber, opts) => {
+    try {
+      await connect();
+
+      const num = parseInt(blockNumber);
+      if (isNaN(num)) {
+        console.error("error: invalid block number");
+        await disconnect();
+        process.exit(1);
+      }
+
+      let customData = null;
+      if (opts.data) {
+        try {
+          customData = JSON.parse(opts.data);
+        } catch (e) {
+          console.error("error: invalid JSON in --data");
+          await disconnect();
+          process.exit(1);
+        }
+      }
+
+      const inscription = {
+        project: opts.project,
+        tag: opts.tag,
+        custom_data: customData
+      };
+
+      const dream = await inscribeDream(num, opts.account, inscription);
+
+      console.log("");
+      console.log("Genesis Dream #" + num + " inscribed");
+      console.log("=".repeat(22 + String(num).length));
+      console.log("");
+      console.log("  Block:             " + dream.block_number);
+      console.log("  Owner:             " + dream.current_owner);
+      console.log("  Project:           " + dream.inscription.project);
+      console.log("  Tag:               " + dream.inscription.tag);
+      console.log("  Inscribed at:      " + ts(dream.inscribed_at));
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- transfer-dream --------------------------------------------------------
+
+program
+  .command("transfer-dream <block_number>")
+  .description("Transfer a genesis dream to another account")
+  .requiredOption("--to <account>", "Recipient account")
+  .option("--from <account>", "Sender account", "shindevlin")
+  .action(async (blockNumber, opts) => {
+    try {
+      await connect();
+
+      const num = parseInt(blockNumber);
+      if (isNaN(num)) {
+        console.error("error: invalid block number");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const dream = await transferDream(num, opts.from, opts.to);
+
+      console.log("");
+      console.log("Transferred Genesis Dream #" + num + " to " + opts.to);
+      console.log("=".repeat(32 + String(num).length + opts.to.length));
+      console.log("");
+      console.log("  Block:             " + dream.block_number);
+      console.log("  Original miner:    " + dream.original_miner + " (permanently recorded)");
+      console.log("  New owner:         " + dream.current_owner);
+      console.log("  Transferred:       yes");
+      if (dream.inscription && dream.inscription.project) {
+        console.log("  Inscription:       " + dream.inscription.tag);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- peers -----------------------------------------------------------------
+
+program
+  .command("peers")
+  .description("List connected P2P peers")
+  .action(async () => {
+    try {
+      // Read P2P state from the running node via a status file or direct import
+      // For CLI usage, we connect to the node's HTTP API or read shared state.
+      // In standalone mode, show configuration.
+      const p2pPort = process.env.P2P_PORT || 6942;
+      const seedPeers = process.env.HONE_SEED_PEERS || "";
+      const nodeId = process.env.HONE_NODE_ID || "(auto-generated)";
+
+      console.log("");
+      console.log("HONE P2P Peers");
+      console.log("===============");
+      console.log("");
+      console.log("  Node ID:         " + nodeId);
+      console.log("  P2P Port:        " + p2pPort);
+      console.log("");
+
+      if (seedPeers) {
+        const seeds = seedPeers.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+        console.log("  Seed Peers (" + seeds.length + ")");
+        console.log("  ----------");
+        for (const s of seeds) {
+          console.log("    " + s);
+        }
+      } else {
+        console.log("  No seed peers configured (genesis node mode).");
+        console.log("  Set HONE_SEED_PEERS in .env to connect to the network.");
+      }
+      console.log("");
+      console.log("  Tip: run the full node (npm start) to see live peer connections.");
+      console.log("");
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- network ---------------------------------------------------------------
+
+program
+  .command("network")
+  .description("Show P2P network stats (peers, chain height, sync status)")
+  .action(async () => {
+    try {
+      await connect();
+
+      const currentEpochNum = await calcCurrentEpochNumber();
+
+      // Chain height from stateStore
+      const chainHeight = stateStore.getChainHeight();
+      const finalizedCount = chainHeight >= 0 ? chainHeight + 1 : 0;
+      const activeCount = 1; // current epoch is always "active"
+      const latestFinalizedNum = chainHeight;
+
+      // P2P config
+      const p2pPort = process.env.P2P_PORT || 6942;
+      const seedPeers = process.env.HONE_SEED_PEERS || "";
+      const seedCount = seedPeers ? seedPeers.split(",").filter(Boolean).length : 0;
+      const nodeId = process.env.HONE_NODE_ID || "(auto-generated)";
+
+      // Sync status
+      const isSynced = latestFinalizedNum >= currentEpochNum - 1;
+      const syncStatus = isSynced ? "synced" : "behind (" + (currentEpochNum - latestFinalizedNum - 1) + " epochs)";
+
+      console.log("");
+      console.log("HONE Network");
+      console.log("=============");
+      console.log("");
+      console.log("  Node ID:             " + nodeId);
+      console.log("  P2P Port:            " + p2pPort);
+      console.log("  Seed Peers:          " + seedCount);
+      console.log("");
+      console.log("  Chain Height:        " + formatNumber(latestFinalizedNum));
+      console.log("  Current Epoch:       " + formatNumber(currentEpochNum));
+      console.log("  Finalized Epochs:    " + formatNumber(finalizedCount));
+      console.log("  Active Epochs:       " + formatNumber(activeCount));
+      console.log("  Sync Status:         " + syncStatus);
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- inference -------------------------------------------------------------
+
+program
+  .command("inference <prompt>")
+  .description("Run inference through any supported provider (42% rule for external)")
+  .option("--provider <name>", "inference provider", "hone")
+  .option("--model <model>", "model name (provider-specific)")
+  .option("--temperature <n>", "sampling temperature", parseFloat)
+  .option("--max-tokens <n>", "max tokens to generate", parseInt)
+  .action(async (prompt, opts) => {
+    try {
+      const providerName = opts.provider;
+      const provider = getProvider(providerName);
+      const isExternal = providerName !== "hone";
+
+      // For the native hone provider, auto-select the best coding model available
+      // on the network unless the user explicitly chose one.
+      let model = opts.model;
+      if (!model && providerName === "hone") {
+        try {
+          const apiPort = process.env.HONE_API_PORT || 4242;
+          const netResp = await axios.get(
+            `http://localhost:${apiPort}/v1/network/models`,
+            { timeout: 5000 }
+          );
+          const available = (netResp.data.available || []).map(m => m.model);
+          model = CODING_MODEL_PREFERENCE.find(m => available.includes(m)) || DEFAULT_MODEL;
+        } catch (_) {
+          model = DEFAULT_MODEL;
+        }
+      }
+
+      const options = {
+        temperature: opts.temperature,
+        maxTokens: opts.maxTokens
+      };
+
+      const headers = provider.getHeaders();
+      const body = provider.formatRequest(prompt, model, options);
+
+      console.log("");
+      console.log("HONE Inference");
+      console.log("===============");
+      console.log("");
+      console.log("  Provider:  " + providerName);
+      console.log("  Model:     " + (model || body.model || "(provider default)"));
+      console.log("  Prompt:    " + (prompt.length > 60 ? prompt.substring(0, 57) + "..." : prompt));
+      console.log("");
+      console.log("  Sending request...");
+
+      const startTime = Date.now();
+
+      const response = await axios.post(provider.baseUrl, body, {
+        headers: headers,
+        timeout: 180000
+      });
+
+      const elapsed = Date.now() - startTime;
+      const parsed = provider.parseResponse(response.data);
+
+      // -- Compute HONE reward (42% rule for external providers) -----------
+      const userRate = isExternal ? 0.42 : 1.0;
+      const honeEarned = (parsed.completion_tokens / 100 * 0.001 * userRate);
+
+      // -- Build provider receipt for on-chain logging ----------------------
+      const promptHash = crypto
+        .createHash("sha256")
+        .update(prompt)
+        .digest("hex");
+      const resultHash = crypto
+        .createHash("sha256")
+        .update(parsed.content)
+        .digest("hex");
+
+      // -- Log WorkProof on-chain (best-effort) via stateStore -------------
+      let proofId = null;
+      let onChain = false;
+      try {
+        await connect();
+        const { getCurrentEpoch } = require("../src/services/epochManager");
+        const { getModelWeight } = require("../src/mining/workGenerator");
+
+        const epochNumber = await getCurrentEpoch();
+        const weightFactor = getModelWeight(parsed.model);
+        const workValue = parsed.completion_tokens * weightFactor;
+
+        const proof = {
+          node_id: isExternal ? "external-" + providerName : "inference-cli",
+          prompt_hash: promptHash,
+          result_hash: resultHash,
+          model: parsed.model,
+          tokens_generated: parsed.completion_tokens,
+          model_weight_factor: weightFactor,
+          work_value: workValue,
+          timestamp: new Date().toISOString()
+        };
+        stateStore.addComputeProof(epochNumber, proof);
+        proofId = crypto.createHash("sha256").update(promptHash + resultHash + Date.now().toString()).digest("hex");
+        onChain = true;
+        await disconnect();
+      } catch (_dbErr) {
+        proofId = crypto
+          .createHash("sha256")
+          .update(promptHash + resultHash + Date.now().toString())
+          .digest("hex");
+      }
+
+      // -- Display results --------------------------------------------------
+      console.log("");
+      console.log("  Response");
+      console.log("  --------");
+      console.log("");
+
+      // Word-wrap the content at ~78 cols, indented 4 spaces
+      const lines = parsed.content.split("\n");
+      for (const line of lines) {
+        if (line.length <= 74) {
+          console.log("    " + line);
+        } else {
+          const words = line.split(" ");
+          let cur = "";
+          for (const w of words) {
+            if (cur.length + w.length + 1 > 74) {
+              console.log("    " + cur);
+              cur = w;
+            } else {
+              cur = cur ? cur + " " + w : w;
+            }
+          }
+          if (cur) console.log("    " + cur);
+        }
+      }
+
+      console.log("");
+      console.log("  Receipt");
+      console.log("  -------");
+      console.log("  Provider:            " + providerName);
+      console.log("  Model:               " + parsed.model);
+      console.log("  Request ID:          " + (parsed.request_id || "(none)"));
+      console.log("  Tokens used:         " + formatNumber(parsed.tokens_used));
+      console.log("    Prompt tokens:     " + formatNumber(parsed.prompt_tokens));
+      console.log("    Completion tokens: " + formatNumber(parsed.completion_tokens));
+      console.log("  Elapsed:             " + elapsed + "ms");
+      console.log("");
+      console.log("  On-Chain");
+      console.log("  --------");
+      console.log("  Proof ID:            " + (proofId || "-"));
+      console.log("  Logged on-chain:     " + (onChain ? "yes" : "no (chain unavailable)"));
+      console.log("  Reward rate:         " + (isExternal ? "42% (external provider)" : "100% (native compute)"));
+      console.log("  HONE earned:        " + honeEarned.toFixed(8) + " HONE");
+      console.log("");
+    } catch (err) {
+      if (err.response && err.response.data) {
+        const errData = err.response.data;
+        const msg = errData.error
+          ? (errData.error.message || JSON.stringify(errData.error))
+          : JSON.stringify(errData);
+        console.error("error: " + opts.provider + " API returned: " + msg);
+      } else {
+        console.error("error: " + err.message);
+      }
+      process.exit(1);
+    }
+  });
+
+// --- delegate --------------------------------------------------------------
+
+program
+  .command("delegate <amount>")
+  .description("Delegate HONE to a miner")
+  .requiredOption("--to <miner>", "Miner username to delegate to")
+  .action(async (amount, opts) => {
+    try {
+      await connect();
+
+      const delegateAmount = parseFloat(amount);
+      if (isNaN(delegateAmount) || delegateAmount <= 0) {
+        console.error("error: invalid amount");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const minerUsername = opts.to;
+      const minerUser = await User.findOne({ username: minerUsername });
+      if (!minerUser) {
+        console.error("error: miner '" + minerUsername + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Verify miner has a registered node
+      if (!nodeRegistry.isRegistered(minerUsername)) {
+        console.error("error: '" + minerUsername + "' is not a registered miner");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Delegator from HONE_MINER env or default — chain is source of truth
+      const delegatorAccount = process.env.HONE_MINER || "shindevlin";
+      if (!stateStore.hasAccount || !stateStore.hasAccount(delegatorAccount)) {
+        console.error("error: account '" + delegatorAccount + "' not found on chain");
+        process.exit(1);
+      }
+
+      if (delegatorAccount === minerUsername) {
+        console.error("error: cannot delegate to yourself");
+        process.exit(1);
+      }
+
+      const honeBalance = stateStore.getBalance(delegatorAccount, "HONE");
+      if (honeBalance < delegateAmount) {
+        console.error("error: insufficient HONE balance (" + formatHONE(honeBalance) + " available)");
+        process.exit(1);
+      }
+
+      const epoch = await ledger.getCurrentEpoch();
+      await ledger.recordDelegate(delegatorAccount, minerUsername, delegateAmount, "mining", epoch);
+
+      const existingDel = stateStore.getDelegation ? stateStore.getDelegation(delegatorAccount + '|' + minerUsername) : null;
+      const totalDelegated = existingDel ? (existingDel.amount || 0) + delegateAmount : delegateAmount;
+
+      console.log("");
+      console.log("Delegation Successful");
+      console.log("=====================");
+      console.log("");
+      console.log("  Delegated:           " + formatHONE(delegateAmount) + " HONE");
+      console.log("  From:                " + delegatorAccount);
+      console.log("  To miner:            " + minerUsername);
+      console.log("  Total delegated:     " + formatHONE(totalDelegated) + " HONE");
+      console.log("  Wallet balance:      " + formatHONE(honeBalance - delegateAmount) + " HONE");
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- undelegate ------------------------------------------------------------
+
+program
+  .command("undelegate <amount>")
+  .description("Start undelegation (7-day unlock period)")
+  .requiredOption("--from <miner>", "Miner username to undelegate from")
+  .action(async (amount, opts) => {
+    try {
+      await connect();
+
+      const undelegateAmount = parseFloat(amount);
+      if (isNaN(undelegateAmount) || undelegateAmount <= 0) {
+        console.error("error: invalid amount");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const minerUsername = opts.from;
+      const undelegatorAccount = process.env.HONE_MINER || "shindevlin";
+
+      const delegKey = undelegatorAccount + '|' + minerUsername;
+      const delegation = stateStore.getDelegation ? stateStore.getDelegation(delegKey) : null;
+
+      if (!delegation || (delegation.amount || 0) <= 0) {
+        console.error("error: no active delegation to '" + minerUsername + "'");
+        await disconnect();
+        process.exit(1);
+      }
+
+      if (undelegateAmount > delegation.amount) {
+        console.error("error: amount exceeds delegated balance (" + formatHONE(delegation.amount) + " HONE)");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const now = new Date();
+      const unlockDate = new Date(now);
+      unlockDate.setDate(unlockDate.getDate() + 7);
+
+      const undelegateEpoch = await ledger.getCurrentEpoch();
+      await ledger.recordUndelegate(minerUsername, undelegatorAccount, undelegateAmount, undelegateEpoch, 'CLI undelegate');
+
+      console.log("");
+      console.log("Undelegation Started");
+      console.log("====================");
+      console.log("");
+      console.log("  Amount:              " + formatHONE(undelegateAmount) + " HONE");
+      console.log("  From miner:          " + minerUsername);
+      console.log("  Unlock requested:    " + ts(now));
+      console.log("  Available at:        " + ts(unlockDate));
+      console.log("  Unlock period:       7 days");
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- delegations -----------------------------------------------------------
+
+program
+  .command("delegations [account]")
+  .description("List delegations for an account")
+  .action(async (account) => {
+    try {
+      await connect();
+
+      const username = account || "shindevlin";
+      const user = await User.findOne({ username });
+      if (!user) {
+        console.error("error: account '" + username + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Delegations from stateStore
+      const allDels = stateStore.getAllDelegations ? stateStore.getAllDelegations() : {};
+      const outgoing = [];
+      const incoming = [];
+      for (const [key, del] of Object.entries(allDels)) {
+        const [delegatorName, minerName] = key.split('|');
+        if (delegatorName === username && (del.amount || 0) > 0) {
+          outgoing.push({ miner: { username: minerName }, amount: del.amount, status: 'active', delegated_at: del.epoch });
+        }
+        if (minerName === username && (del.amount || 0) > 0) {
+          incoming.push({ delegator: { username: delegatorName }, amount: del.amount, delegated_at: del.epoch });
+        }
+      }
+      const totalOutgoing = outgoing.reduce(function (sum, d) { return sum + d.amount; }, 0);
+      const totalIncoming = incoming.reduce(function (sum, d) { return sum + d.amount; }, 0);
+
+      console.log("");
+      console.log("Delegations: " + username);
+      console.log("=".repeat(17 + username.length));
+      console.log("");
+
+      if (outgoing.length > 0) {
+        console.log("  Outgoing Delegations (delegated to miners)");
+        console.log("  ------------------------------------------");
+        var hdr = ["Miner", "Amount", "Status", "Delegated"];
+        var w = [16, 24, 14, 24];
+        var a = [false, true, false, false];
+        printRow(hdr, w, a);
+        printSep(w);
+        for (var i = 0; i < outgoing.length; i++) {
+          var d = outgoing[i];
+          var minerName = d.miner ? d.miner.username : String(d.miner);
+          var statusStr = d.status;
+          if (d.status === "undelegating" && d.undelegate_available_at) {
+            var remaining = Math.ceil((d.undelegate_available_at - new Date()) / (1000 * 60 * 60 * 24));
+            statusStr = "unlock " + remaining + "d";
+          }
+          printRow([minerName, formatHONE(d.amount) + " HONE", statusStr, ts(d.delegated_at)], w, a);
+        }
+        console.log("");
+        console.log("  Total delegated:     " + formatHONE(totalOutgoing) + " HONE");
+        console.log("");
+      } else {
+        console.log("  No outgoing delegations.");
+        console.log("");
+      }
+
+      if (incoming.length > 0) {
+        console.log("  Incoming Delegations (received from delegators)");
+        console.log("  -----------------------------------------------");
+        var hdr2 = ["Delegator", "Amount", "Delegated"];
+        var w2 = [16, 24, 24];
+        var a2 = [false, true, false];
+        printRow(hdr2, w2, a2);
+        printSep(w2);
+        for (var j = 0; j < incoming.length; j++) {
+          var del = incoming[j];
+          var delegatorName = del.delegator ? del.delegator.username : String(del.delegator);
+          printRow([delegatorName, formatHONE(del.amount) + " HONE", ts(del.delegated_at)], w2, a2);
+        }
+        console.log("");
+        console.log("  Total received:      " + formatHONE(totalIncoming) + " HONE");
+        console.log("");
+      } else {
+        console.log("  No incoming delegations.");
+        console.log("");
+      }
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- claims ----------------------------------------------------------------
+
+const { generateClaimProof, getCrossChainRatio } = require("../src/claims/claimProofGenerator");
+const { getClaimStatus: _getClaimStatus } = require("../src/claims/evmClaimSubmitter");
+
+program
+  .command("claims [account]")
+  .description("Show pending and submitted cross-chain claims")
+  .action(async (account) => {
+    try {
+      await connect();
+
+      const username = account || "shindevlin";
+      const latestClaimEpoch = await ledger.getCurrentEpoch();
+      const claims = await _getClaimStatus(username, latestClaimEpoch);
+
+      if (claims.length === 0) {
+        console.log("\n  No cross-chain claims found for " + username + ".\n");
+        await disconnect();
+        return;
+      }
+
+      // Separate by status
+      const generated = claims.filter(function (c) { return c.status === "generated"; });
+      const submitted = claims.filter(function (c) { return c.status === "submitted" || c.status === "confirmed"; });
+      const failed = claims.filter(function (c) { return c.status === "failed"; });
+
+      console.log("");
+      console.log("Cross-Chain Claims: " + username);
+      console.log("=".repeat(25 + username.length));
+      console.log("");
+      console.log("  Total claims:    " + formatNumber(claims.length));
+      console.log("  Pending:         " + formatNumber(generated.length));
+      console.log("  Submitted:       " + formatNumber(submitted.length));
+      console.log("  Failed:          " + formatNumber(failed.length));
+      console.log("");
+
+      // Show pending claims grouped by chain
+      if (generated.length > 0) {
+        console.log("  Pending Claims");
+        console.log("  --------------");
+
+        var hdr = ["Epoch", "Chain", "Amount", "Period", "Ratio", "Created"];
+        var w = [8, 8, 22, 7, 10, 24];
+        var a = [true, false, true, true, true, false];
+        printRow(hdr, w, a);
+        printSep(w);
+
+        var display = generated.slice(0, 20);
+        for (var ci = 0; ci < display.length; ci++) {
+          var c = display[ci];
+          printRow([
+            String(c.epoch),
+            c.chain,
+            c.claim_amount + " wHONE",
+            String(c.period),
+            c.cross_chain_ratio,
+            ts(c.created_at)
+          ], w, a);
+        }
+
+        if (generated.length > 20) {
+          console.log("  ... and " + (generated.length - 20) + " more");
+        }
+        console.log("");
+      }
+
+      // Show submitted claims
+      if (submitted.length > 0) {
+        console.log("  Submitted Claims");
+        console.log("  ----------------");
+
+        var hdr2 = ["Epoch", "Chain", "Amount", "TX Hash", "Submitted"];
+        var w2 = [8, 8, 22, 20, 24];
+        var a2 = [true, false, true, false, false];
+        printRow(hdr2, w2, a2);
+        printSep(w2);
+
+        var display2 = submitted.slice(0, 20);
+        for (var si = 0; si < display2.length; si++) {
+          var s = display2[si];
+          var txDisplay = s.tx_hash ? s.tx_hash.slice(0, 18) + ".." : "-";
+          printRow([
+            String(s.epoch),
+            s.chain,
+            s.claim_amount + " wHONE",
+            txDisplay,
+            ts(s.submitted_at)
+          ], w2, a2);
+        }
+        console.log("");
+      }
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- claim -----------------------------------------------------------------
+
+program
+  .command("claim")
+  .description("Submit a cross-chain claim for a specific epoch")
+  .requiredOption("--chain <chain>", "Target chain (base, hive)")
+  .requiredOption("--epoch <epoch>", "Epoch number to claim")
+  .action(async (opts) => {
+    try {
+      await connect();
+
+      var chain = opts.chain.toLowerCase();
+      var epochNum = parseInt(opts.epoch);
+
+      if (isNaN(epochNum) || epochNum < 0) {
+        console.error("error: invalid epoch number");
+        await disconnect();
+        process.exit(1);
+      }
+
+      var supportedChains = ["base", "hive"];
+      if (supportedChains.indexOf(chain) === -1) {
+        console.error("error: unsupported chain '" + chain + "'. Supported: " + supportedChains.join(", "));
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Find the claim proof from in-memory claim store
+      var allClaims = await _getClaimStatus(null, epochNum);
+      var claim = allClaims.find(function (c) { return c.chain === chain && c.epoch === epochNum; });
+
+      if (!claim) {
+        // Check if the epoch exists and was finalized
+        var epochData = stateStore.getEpoch ? stateStore.getEpoch(epochNum) : null;
+        if (!epochData) {
+          console.error("error: epoch " + epochNum + " not found");
+        } else {
+          console.error("error: no cross-chain claim proof found for epoch " + epochNum + " on " + chain);
+          console.error("       ensure a wallet is linked for this chain on the mining node");
+        }
+        await disconnect();
+        process.exit(1);
+      }
+
+      if (claim.status === "submitted" || claim.status === "confirmed") {
+        console.log("");
+        console.log("  Claim already submitted for epoch " + epochNum + " on " + chain);
+        console.log("  TX: " + (claim.tx_hash || "-"));
+        console.log("  Status: " + claim.status);
+        console.log("");
+        await disconnect();
+        return;
+      }
+
+      console.log("");
+      console.log("Cross-Chain Claim");
+      console.log("=================");
+      console.log("");
+      console.log("  Chain:           " + chain);
+      console.log("  Epoch:           " + epochNum);
+      console.log("  Amount:          " + claim.claim_amount + " wHONE");
+      console.log("  Period:          " + claim.period);
+      console.log("  Ratio:           " + claim.cross_chain_ratio);
+      console.log("  Target wallet:   " + claim.target_wallet);
+      console.log("  Proof signature: " + claim.proof_signature.slice(0, 32) + "...");
+      console.log("");
+
+      if (chain === "hive") {
+        var hiveKey = process.env.HIVE_POSTING_KEY;
+        var hiveAccount = process.env.HIVE_ACCOUNT;
+        if (!hiveKey || !hiveAccount) {
+          console.error("  error: HIVE_POSTING_KEY and HIVE_ACCOUNT must be set in .env");
+          console.log("  Claim proof is ready. Set env vars and re-run to submit.");
+          console.log("");
+          await disconnect();
+          process.exit(1);
+        }
+
+        var hiveClaimManager = require("../src/claims/hiveClaimManager");
+        console.log("  Submitting to Hive...");
+        var result = await hiveClaimManager.postClaimToHive(
+          {
+            miner: claim.miner,
+            epoch: claim.epoch,
+            amount: claim.claim_amount,
+            period: claim.period,
+            cross_chain_ratio: claim.cross_chain_ratio,
+            proof_signature: claim.proof_signature,
+            timestamp: claim.created_at.toISOString()
+          },
+          hiveAccount,
+          hiveKey
+        );
+
+        if (result.status === "broadcast") {
+          claim.status = "submitted";
+          claim.tx_hash = result.tx_id;
+          claim.submitted_at = new Date();
+          // Phase E: claim saved in-memory only (no Mongoose save)
+          console.log("  Hive TX: " + result.tx_id);
+          console.log("  Status: submitted");
+        } else {
+          console.error("  Submission failed: " + (result.error || "unknown error"));
+        }
+      } else if (chain === "base") {
+        console.log("  EVM claim submission requires a web3 wallet.");
+        console.log("  Use the proof data below with the wHONE contract:");
+        console.log("");
+        console.log("  Contract call: claim(" + epochNum + ", " + claim.claim_amount + ", miner, signature)");
+        console.log("  Proof signature: " + claim.proof_signature);
+        console.log("");
+        console.log("  To submit via CLI, set BASE_RPC_URL and BASE_PRIVATE_KEY in .env");
+      }
+
+      console.log("");
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- recover ---------------------------------------------------------------
+
+program
+  .command("recover <account>")
+  .description("Submit an account recovery request using the Owner key (bypasses 2FA, 72h time-lock)")
+  .option("--new-2fa-key <key>", "New 2FA public key to set after recovery completes")
+  .action(async (account, opts) => {
+    try {
+      var baseUrl = process.env.API_URL || ("http://localhost:" + (process.env.PORT || 3000));
+      var body = {
+        account: account,
+        owner_signature: "cli-owner-sig-" + Date.now()
+      };
+      if (opts.new2faKey) {
+        body.new_2fa_public_key = opts.new2faKey;
+      }
+
+      var resp = await axios.post(baseUrl + "/api/recovery/request", body);
+      var data = resp.data;
+
+      console.log("");
+      console.log("  HONE Account Recovery");
+      console.log("  =====================");
+      console.log("");
+      console.log("  Account:       " + data.account);
+      console.log("  Status:        " + data.status);
+      console.log("  Requested:     " + ts(data.requested_at));
+      console.log("  Expires:       " + ts(data.expires_at));
+      console.log("  Recovery ID:   " + data.recovery_id);
+      console.log("");
+      console.log("  " + data.message);
+      console.log("");
+    } catch (err) {
+      if (err.response && err.response.data) {
+        console.error("error:", err.response.data.error || err.response.data);
+      } else {
+        console.error("error:", err.message);
+      }
+      process.exit(1);
+    }
+  });
+
+// --- contest-recovery ------------------------------------------------------
+
+program
+  .command("contest-recovery <account>")
+  .description("Contest a pending recovery request using valid 2FA (blocks the attacker)")
+  .requiredOption("--2fa-token <token>", "Valid 2FA token to prove account ownership")
+  .action(async (account, opts) => {
+    try {
+      var baseUrl = process.env.API_URL || ("http://localhost:" + (process.env.PORT || 3000));
+      var body = {
+        account: account,
+        twofa_token: opts["2faToken"]
+      };
+
+      var resp = await axios.post(baseUrl + "/api/recovery/contest", body);
+      var data = resp.data;
+
+      console.log("");
+      console.log("  HONE Recovery Contest");
+      console.log("  =====================");
+      console.log("");
+      console.log("  Account:  " + data.account);
+      console.log("  Status:   " + data.status);
+      console.log("");
+      console.log("  " + data.message);
+      console.log("");
+    } catch (err) {
+      if (err.response && err.response.data) {
+        console.error("error:", err.response.data.error || err.response.data);
+      } else {
+        console.error("error:", err.message);
+      }
+      process.exit(1);
+    }
+  });
+
+// --- recovery-status -------------------------------------------------------
+
+program
+  .command("recovery-status <account>")
+  .description("Check if an account has a pending recovery request")
+  .action(async (account) => {
+    try {
+      var baseUrl = process.env.API_URL || ("http://localhost:" + (process.env.PORT || 3000));
+      var resp = await axios.get(baseUrl + "/api/recovery/status/" + encodeURIComponent(account));
+      var data = resp.data;
+
+      console.log("");
+      console.log("  HONE Recovery Status: " + data.account);
+      console.log("  " + "=".repeat(30));
+      console.log("");
+      if (data.pending) {
+        console.log("  Pending:         YES");
+        console.log("  Recovery ID:     " + data.recovery_id);
+        console.log("  Requested:       " + ts(data.requested_at));
+        console.log("  Expires:         " + ts(data.expires_at));
+        console.log("  Hours remaining: " + data.hours_remaining);
+        console.log("  Contested:       " + (data.contested ? "YES" : "no"));
+      } else {
+        console.log("  Pending:  no");
+        console.log("  " + data.message);
+      }
+      console.log("");
+    } catch (err) {
+      if (err.response && err.response.data) {
+        console.error("error:", err.response.data.error || err.response.data);
+      } else {
+        console.error("error:", err.message);
+      }
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Engine commands — all route through commandRouter
+// Usage: hone-cli <engine> [action] [args...]
+// ---------------------------------------------------------------------------
+
+const { route: routeCommand } = require("../src/commands/commandRouter");
+
+function engineCmd(engine) {
+  return async (...rawArgs) => {
+    // commander passes (arg1, arg2, ..., commandObject) — drop the last one
+    const parts = rawArgs.slice(0, -1);
+    const apiBase = process.env.API_URL || ("http://localhost:" + (process.env.HONE_API_PORT || process.env.PORT || 4242));
+    const account = process.env.HONE_MINER || process.env.HONE_ACCOUNT || "";
+    const input = "/hone " + engine + " " + parts.join(" ");
+    try {
+      const result = await routeCommand(input, { account, apiBase });
+      // Strip markdown bold markers for terminal output
+      console.log(result.text.replace(/\*\*/g, ""));
+    } catch (e) {
+      console.error("error:", e.message);
+      process.exit(1);
+    }
+  };
+}
+
+program
+  .command("mine [action] [args...]")
+  .description("Mining engine — mine status|model|start|stop|proof|proofs|earnings")
+  .action(engineCmd("mine"));
+
+program
+  .command("verify [action] [args...]")
+  .description("Verifier engine — verify proof|challenge|proposals|status")
+  .action(engineCmd("verify"));
+
+program
+  .command("clock [action] [args...]")
+  .description("Clock consensus — clock status|seal|peers")
+  .action(engineCmd("clock"));
+
+program
+  .command("store [action] [args...]")
+  .description("HONE-FS storage — store put|get|list|pin|info")
+  .action(engineCmd("store"));
+
+program
+  .command("sensor [action] [args...]")
+  .description("Sensor data market — sensor list|register|submit|purchase|earnings|readings")
+  .action(engineCmd("sensor"));
+
+program
+  .command("tool [action] [args...]")
+  .description("MCP / CLI tools — tool list|register|mcp|test|nodes")
+  .action(engineCmd("tool"));
+
+program
+  .command("infer [args...]")
+  .description("Tool-augmented inference — infer <prompt> [--model name] [--tools t1,t2]")
+  .action(engineCmd("infer"));
+
+program
+  .command("node-info [action] [args...]")
+  .description("Node registration — node register|status|heartbeat|capabilities")
+  .action(engineCmd("node"));
+
+program
+  .command("chain [action] [args...]")
+  .description("Chain info — chain status|blocks|epoch|supply|peers|fork")
+  .action(engineCmd("chain"));
+
+// ---------------------------------------------------------------------------
+
+program.parse(process.argv);
+
+if (!process.argv.slice(2).length) {
+  program.outputHelp();
+}

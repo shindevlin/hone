@@ -10,7 +10,7 @@ let pendingTransfers = new Map();
 let policyCache = new Map();
 
 // Chains where address derivation is meaningful for custody
-const WALLET_CHAINS = new Set(['evm', 'solana', 'ton', 'bitcoin', 'btcpc']);
+const WALLET_CHAINS = new Set(['evm', 'solana', 'ton', 'bitcoin', 'hone']);
 
 function resetState() {
   pendingChallenges.clear();
@@ -52,9 +52,9 @@ async function _loadUser(username) {
 
 async function requestEnrollment(username, chain, label) {
   if (chain === 'lightning') {
-    const providerUrl = process.env.BTCPC_LIGHTNING_PROVIDER_URL;
+    const providerUrl = process.env.HONE_LIGHTNING_PROVIDER_URL;
     if (!providerUrl) throw new Error('Lightning provider not configured');
-    const resp = await axios.post(providerUrl + '/invoice', { amount_sats: 1, memo: 'btcpc-auth-enroll' });
+    const resp = await axios.post(providerUrl + '/invoice', { amount_sats: 1, memo: 'hone-auth-enroll' });
     const challengeId = crypto.randomBytes(16).toString('hex');
     const factorId = crypto.randomBytes(16).toString('hex');
     pendingChallenges.set(challengeId, { username, chain, label, factorId, payment_hash: resp.data.payment_hash });
@@ -63,7 +63,7 @@ async function requestEnrollment(username, chain, label) {
 
   const challengeId = crypto.randomBytes(16).toString('hex');
   const factorId = crypto.randomBytes(16).toString('hex');
-  const message = 'btcpc-auth-enroll:' + challengeId;
+  const message = 'hone-auth-enroll:' + challengeId;
   pendingChallenges.set(challengeId, { username, chain, label, factorId, message });
   return { challengeId, factorId, username, chain, label, message };
 }
@@ -77,13 +77,13 @@ async function verifyEnrollment(challengeId, signatureOrReceipt) {
   let commitment;
 
   if (challenge.chain === 'lightning') {
-    const providerUrl = process.env.BTCPC_LIGHTNING_PROVIDER_URL;
+    const providerUrl = process.env.HONE_LIGHTNING_PROVIDER_URL;
     const receipt = (signatureOrReceipt && signatureOrReceipt.receipt) || signatureOrReceipt;
     const resp = await axios.get(providerUrl + '/invoice/' + receipt.payment_hash);
     if (!resp.data.settled) throw new Error('Lightning payment not settled');
     commitment = _sha256('lightning:' + receipt.payment_hash);
   } else if (challenge.chain === 'zkvm') {
-    const verifierUrl = process.env.BTCPC_ZK_VERIFIER_URL;
+    const verifierUrl = process.env.HONE_ZK_VERIFIER_URL;
     const proof = (signatureOrReceipt && signatureOrReceipt.proof) || signatureOrReceipt;
     const resp = await axios.post(verifierUrl + '/verify', { proof, challenge_id: challengeId });
     if (!resp.data.valid) throw new Error('zkvm proof invalid');
@@ -113,7 +113,7 @@ async function setPolicy(username, { threshold, enabled, controller }) {
 
   if (controller) {
     const normalized = Object.assign({}, controller);
-    normalized.walletSource = 'btcpc_mnemonic';
+    normalized.walletSource = 'hone_mnemonic';
     if (normalized.approvalChain && !WALLET_CHAINS.has(normalized.approvalChain)) {
       normalized.approvalChain = 'evm';
     }
@@ -158,21 +158,21 @@ async function requestTransferAuthorization(username, transferDetails) {
   let paymentHash = null;
 
   if (transferDetails.approval_chain === 'lightning') {
-    const providerUrl = process.env.BTCPC_LIGHTNING_PROVIDER_URL;
+    const providerUrl = process.env.HONE_LIGHTNING_PROVIDER_URL;
     if (!providerUrl) throw new Error('Lightning provider not configured');
     const resp = await axios.post(providerUrl + '/invoice', {
       amount_sats: 1,
-      memo: 'btcpc-auth-transfer-' + requestId
+      memo: 'hone-auth-transfer-' + requestId
     });
     invoice = resp.data.invoice;
     paymentHash = resp.data.payment_hash;
   }
 
-  const message = 'btcpc-transfer-auth:' + requestId + ':' + JSON.stringify({
+  const message = 'hone-transfer-auth:' + requestId + ':' + JSON.stringify({
     from: transferDetails.from,
     to: transferDetails.to,
     amount: transferDetails.amount,
-    token: transferDetails.token || 'BTCPC',
+    token: transferDetails.token || 'HONE',
     memo: transferDetails.memo || ''
   });
 
@@ -206,12 +206,12 @@ async function verifyTransferAuthorization(username, transferData, privateAuth) 
       const commitment = _sha256('evm:' + recoveredAddress.toLowerCase());
       if (commitment === factor.commitment) approvalCount++;
     } else if (approval.chain === 'lightning') {
-      const providerUrl = process.env.BTCPC_LIGHTNING_PROVIDER_URL;
+      const providerUrl = process.env.HONE_LIGHTNING_PROVIDER_URL;
       const receipt = approval.receipt || {};
       const resp = await axios.get(providerUrl + '/invoice/' + receipt.payment_hash);
       if (resp.data.settled) approvalCount++;
     } else if (approval.chain === 'zkvm') {
-      const verifierUrl = process.env.BTCPC_ZK_VERIFIER_URL;
+      const verifierUrl = process.env.HONE_ZK_VERIFIER_URL;
       const resp = await axios.post(verifierUrl + '/verify', {
         proof: approval.proof,
         proof_backend: approval.proof_backend,

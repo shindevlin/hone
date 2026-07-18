@@ -1,4 +1,4 @@
-# BTCPC Content Inconsistencies — Handoff for Resolution
+# HONE Content Inconsistencies — Handoff for Resolution
 
 These items conflict across public-facing files. Each one needs a canonical decision
 before the content can be finalized. Do not guess — flag to the operator.
@@ -50,12 +50,12 @@ targets with plain-language explanation.
 | Source | Claim |
 |--------|-------|
 | `README.md` (top) | "⚠ Node.js layer deprecated — canonical chain is now `rust/hone-node`" |
-| `website/index.html` Get Started | Shows `node bin/btcpc-all` commands |
-| `website/index.html` Clock Node card | Shows `node bin/btcpc-all` |
+| `website/index.html` Get Started | Shows `node bin/hone-all` commands |
+| `website/index.html` Clock Node card | Shows `node bin/hone-all` |
 | `README.md` install section | Shows `curl ... install.sh | sudo bash` (installs Rust binary) |
 
 **Resolution needed:** The homepage install commands still show Node.js. These must be
-replaced with the Rust install path. Confirm that `btcpc-node` (Rust) is the only
+replaced with the Rust install path. Confirm that `hone-node` (Rust) is the only
 supported path for new installs.
 
 ---
@@ -66,10 +66,10 @@ supported path for new installs.
 
 | Source | Claim |
 |--------|-------|
-| `README.md` | Shows `require('@btcpc/sdk')` and OpenAI-compatible `baseURL: 'https://honemesh.net/v1'` |
+| `README.md` | Shows `require('@hone/sdk')` and OpenAI-compatible `baseURL: 'https://honemesh.net/v1'` |
 | `rust/hone-node/src/api.rs` | Rust Axum API — no `/v1/` route visible |
 
-**Resolution needed:** Is `@btcpc/sdk` published on npm? Does `/v1/chat/completions`
+**Resolution needed:** Is `@hone/sdk` published on npm? Does `/v1/chat/completions`
 exist on the live node? If not, remove from README until implemented.
 
 ---

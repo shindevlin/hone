@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Shard Registry
+ * HONE Shard Registry
  * Shin Devlin
  *
  * Mode B inference sharding: each shard node holds a contiguous range of

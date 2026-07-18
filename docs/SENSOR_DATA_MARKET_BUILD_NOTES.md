@@ -5,7 +5,7 @@ Branch: `feature/sensor-data-market-apps`
 Started from a dirty `main` worktree containing:
 
 - v3.0.96 live-log fixes.
-- BTCPC logo integration.
+- HONE logo integration.
 - Local Android Capacitor scaffold.
 - Local Electron desktop wrapper.
 - Sensor data monetization plan at `docs/SENSOR_DATA_MONETIZATION_PLAN.md`.
@@ -19,7 +19,7 @@ Started from a dirty `main` worktree containing:
    - escrow/payment settlement
    - per-sensor-owner payout distribution
    - protocol treasury split to `shindevlin` and `natoshisakamoto`
-   - recycle split to `btcpc_recycle`
+   - recycle split to `hone_recycle`
 3. Expose paid sensor data API routes.
 4. Add AI-integrated sensor-data + inference endpoint after the billing path is safe.
 5. Keep notes detailed enough that another LLM can resume without conversation context.
@@ -28,7 +28,7 @@ Started from a dirty `main` worktree containing:
 
 - MongoDB remains disabled.
 - State source of truth is block files plus ledger entries; `stateStore` is cache.
-- No burn. All remainder routes to `btcpc_recycle`.
+- No burn. All remainder routes to `hone_recycle`.
 - Always bump `package.json` and `package-lock.json` together before commit.
 - Do not rely on local-only generated build outputs as source.
 - Fail paths should self-heal or refund automatically.

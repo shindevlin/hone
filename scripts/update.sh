@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-GITHUB_REPO="shindevlin/btcpc"
+GITHUB_REPO="shindevlin/hone"
 ASSET="hone-node-x86_64-linux"
 BINARY="/usr/local/bin/hone-node"
 SERVICE="hone-node"

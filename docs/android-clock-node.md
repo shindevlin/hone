@@ -1,6 +1,6 @@
-# BTCPC Clock Node on Android (Termux)
+# HONE Clock Node on Android (Termux)
 
-Run a BTCPC clock node on any Android phone or tablet. Earn 2% of block rewards for keeping the chain alive. No GPU required.
+Run a HONE clock node on any Android phone or tablet. Earn 2% of block rewards for keeping the chain alive. No GPU required.
 
 ## Install
 
@@ -19,9 +19,9 @@ pkg install nodejs git
 # Prevent Android from killing Termux
 termux-wake-lock
 
-# Clone BTCPC
-git clone https://github.com/shindevlin/btcpc.git
-cd btcpc
+# Clone HONE
+git clone https://github.com/shindevlin/hone.git
+cd hone
 
 # Install dependencies
 npm install --production
@@ -31,28 +31,28 @@ npm run setup
 ```
 
 3. Setup will detect no GPU/Ollama and run as **clock node only**
-4. It will ask you to choose a username — this is your BTCPC identity
+4. It will ask you to choose a username — this is your HONE identity
 5. Save your mnemonic phrase somewhere safe
 
 ## Manual Start (after first setup)
 
 ```bash
-cd ~/btcpc
+cd ~/hone
 termux-wake-lock
-HONE_CLOCK_ACCOUNT=yourusername node bin/btcpc-clock
+HONE_CLOCK_ACCOUNT=yourusername node bin/hone-clock
 ```
 
 Or use the zero-dependency lite version:
 
 ```bash
-node bin/btcpc-clock-lite.js
+node bin/hone-clock-lite.js
 ```
 
 ## Keep Running in Background
 
 ```bash
 # Start in background
-HONE_CLOCK_ACCOUNT=yourusername nohup node bin/btcpc-clock > clock.log 2>&1 &
+HONE_CLOCK_ACCOUNT=yourusername nohup node bin/hone-clock > clock.log 2>&1 &
 
 # Check it's running
 tail -f clock.log
@@ -70,14 +70,14 @@ Create the startup script:
 
 ```bash
 mkdir -p ~/.termux/boot
-cat > ~/.termux/boot/btcpc-clock.sh << 'EOF'
+cat > ~/.termux/boot/hone-clock.sh << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 termux-wake-lock
-cd ~/btcpc
+cd ~/hone
 git pull origin main 2>/dev/null
-HONE_CLOCK_ACCOUNT=yourusername node bin/btcpc-clock > ~/btcpc-clock.log 2>&1 &
+HONE_CLOCK_ACCOUNT=yourusername node bin/hone-clock > ~/hone-clock.log 2>&1 &
 EOF
-chmod +x ~/.termux/boot/btcpc-clock.sh
+chmod +x ~/.termux/boot/hone-clock.sh
 ```
 
 ## Battery Optimization
@@ -91,14 +91,14 @@ Android aggressively kills background apps. To keep the clock node running:
 ## Earnings
 
 Clock nodes earn **2% of each block reward**, split among all active clocks:
-- 2 clock nodes: ~2.43 BTCPC per epoch each
-- 10 clock nodes: ~0.49 BTCPC per epoch each
+- 2 clock nodes: ~2.43 HONE per epoch each
+- 10 clock nodes: ~0.49 HONE per epoch each
 - Epochs are every 5 minutes
 
 ## Requirements
 
 - Android 7+ (most phones from 2017+)
-- ~100MB storage for BTCPC
+- ~100MB storage for HONE
 - WiFi or mobile data (low bandwidth — just P2P messages)
 - No GPU needed
 - No root needed

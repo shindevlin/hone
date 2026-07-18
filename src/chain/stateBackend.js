@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC State Backend — v3.0
+ * HONE State Backend — v3.0
  * Shin Devlin
  *
  * Pluggable storage backend for stateStore. Abstracts the difference
@@ -9,8 +9,8 @@
  * and LevelDB (persistent, scalable — for production nodes).
  *
  * Selection via environment variable:
- *   BTCPC_STATE_BACKEND=memory  (default) — plain Maps, zero I/O
- *   BTCPC_STATE_BACKEND=leveldb           — LevelDB at BTCPC_DATA_DIR/statedb/
+ *   HONE_STATE_BACKEND=memory  (default) — plain Maps, zero I/O
+ *   HONE_STATE_BACKEND=leveldb           — LevelDB at HONE_DATA_DIR/statedb/
  *
  * Both backends implement the same synchronous-like interface. The
  * MemoryBackend is synchronous. The LevelDBBackend wraps async LevelDB
@@ -29,7 +29,7 @@
  *
  * IMPORTANT: stateStore.js itself is 100% synchronous and uses the
  * MemoryBackend by default. The LevelDB backend is wired in for
- * production use when BTCPC_STATE_BACKEND=leveldb. The architecture
+ * production use when HONE_STATE_BACKEND=leveldb. The architecture
  * is designed so stateStore can adopt async LevelDB calls in a future
  * pass without changing any other module's interface.
  */

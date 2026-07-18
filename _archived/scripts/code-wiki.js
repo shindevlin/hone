@@ -55,7 +55,7 @@ function generateLandingPage() {
   lines.push("## Quick Start");
   lines.push("");
   lines.push("- [Full generated index](index.md) - all community pages in one place.");
-  lines.push("- [BTCPC docs index](../INDEX.md) - product and architecture docs that are hand-curated.");
+  lines.push("- [HONE docs index](../INDEX.md) - product and architecture docs that are hand-curated.");
   lines.push("");
   lines.push("## Most Useful Pages");
   lines.push("");

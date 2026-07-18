@@ -23,8 +23,8 @@ describe('pricing service', () => {
   beforeEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
-    process.env.BTCPC_BASE_TOKENS = '1000';
-    process.env.BTCPC_LOAD_WINDOW = '12';
+    process.env.HONE_BASE_TOKENS = '1000';
+    process.env.HONE_LOAD_WINDOW = '12';
     // Re-require mocks after resetModules
     stateStore = require('../src/chain/stateStore');
     nodeRegistry = require('../src/chain/nodeRegistry');
@@ -48,13 +48,13 @@ describe('pricing service', () => {
 
     const result = await pricing.getCurrentPricing('qwen3.5:27b');
 
-    expect(result).toHaveProperty('tokensPerBtcpc');
+    expect(result).toHaveProperty('tokensPerHone');
     expect(result).toHaveProperty('load');
     expect(result).toHaveProperty('modelWeight');
-    expect(typeof result.tokensPerBtcpc).toBe('number');
+    expect(typeof result.tokensPerHone).toBe('number');
   });
 
-  test('calculateCost returns deterministic BTCPC cost from pricing', async () => {
+  test('calculateCost returns deterministic HONE cost from pricing', async () => {
     const { getModelWeight } = require('../src/mining/workGenerator');
     getModelWeight.mockReturnValue(2);
     stateStore.getAllComputeProofs.mockReturnValue({});
@@ -63,7 +63,7 @@ describe('pricing service', () => {
 
     expect(typeof cost).toBe('number');
     expect(cost).toBeGreaterThan(0);
-    expect(current).toHaveProperty('tokensPerBtcpc');
+    expect(current).toHaveProperty('tokensPerHone');
   });
 
   test('getAutoBid factors in block reward coverage and miner count', async () => {

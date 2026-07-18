@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Content Filter
+ * HONE Content Filter
  * Applies automated redaction to public dream inscriptions.
  * Inference is NEVER filtered — only public inscription text.
  */
@@ -26,7 +26,7 @@ const PROHIBITED_PATTERNS = [
 // URL detection pattern
 const URL_PATTERN = /https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9-]+\.(com|org|net|io|co|xyz|dev|app|ai|me|info|biz|us|uk|de|fr|jp|cn|ru|br|in|au)\b(\/[^\s]*)?/gi;
 
-const BASE_FEE = 0.01; // BTCPC
+const BASE_FEE = 0.01; // HONE
 const URL_FEE_MULTIPLIER = 10;
 
 /**
@@ -82,7 +82,7 @@ function containsURL(text) {
 /**
  * Calculate inscription fee based on content.
  * @param {string} text - inscription text
- * @returns {number} fee in BTCPC
+ * @returns {number} fee in HONE
  */
 function getInscriptionFee(text) {
   const hasUrl = containsURL(text);

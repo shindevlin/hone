@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 // ── hone wallet import ───────────────────────────────────────────────────────
 
 /// Import a plaintext key export (a `.keys.txt` / `.txt` file containing a
-/// `mnemonic: <phrase>` line, e.g. produced by the legacy `btcpc wallet
+/// `mnemonic: <phrase>` line, e.g. produced by the legacy `hone wallet
 /// export-all`) into an encrypted keystore. The plaintext file is never
 /// modified or deleted by this command — the operator decides what to do with
 /// it afterward (move it off-machine, shred it, etc.).
@@ -327,7 +327,7 @@ mod tests {
         let dir = tmp_dir("extract");
         let path = dir.join("acct.keys.txt");
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(f, "# BTCPC full key record — account: acct").unwrap();
+        writeln!(f, "# HONE full key record — account: acct").unwrap();
         writeln!(f, "# comment line").unwrap();
         writeln!(f, "mnemonic: {TEST_MNEMONIC}").unwrap();
         writeln!(f, "owner    pub: deadbeef").unwrap();

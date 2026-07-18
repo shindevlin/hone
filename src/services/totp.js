@@ -4,7 +4,7 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const User = require('../models/User');
 
-const ISSUER = 'BTCPC';
+const ISSUER = 'HONE';
 const BACKUP_CODE_COUNT = 8;
 
 // D.5-delta: secretStore-first, Mongo fallback (same pattern as authController).

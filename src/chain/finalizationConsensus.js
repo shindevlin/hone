@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Finalization Consensus
+ * HONE Finalization Consensus
  * Shin Devlin
  *
  * Manages the consensus process for epoch finalization.
@@ -28,34 +28,34 @@
 
 var crypto = require("crypto");
 
-var PROPOSAL_WINDOW_MS = parseInt(process.env.BTCPC_PROPOSAL_WINDOW_MS) || 30000; // 30s
+var PROPOSAL_WINDOW_MS = parseInt(process.env.HONE_PROPOSAL_WINDOW_MS) || 30000; // 30s
 
 // Minimum distinct machine sources required before an epoch can be finalized.
 // "self" counts as one source; each distinct external peer IP counts as another.
-// Set BTCPC_MIN_CONSENSUS_PEERS=2 to require at least one external machine.
+// Set HONE_MIN_CONSENSUS_PEERS=2 to require at least one external machine.
 // Default 1 allows solo operation during bootstrap.
-var MIN_CONSENSUS_SOURCES = parseInt(process.env.BTCPC_MIN_CONSENSUS_PEERS) || 1;
+var MIN_CONSENSUS_SOURCES = parseInt(process.env.HONE_MIN_CONSENSUS_PEERS) || 1;
 
 // Minimum number of proposals required before an epoch auto-resolves after
 // the proposal window expires. Default 1 keeps solo bootstrap working;
-// operators can set BTCPC_MIN_CONSENSUS_PROPOSALS=2+ so a single proposal
+// operators can set HONE_MIN_CONSENSUS_PROPOSALS=2+ so a single proposal
 // can never auto-win.
-var MIN_CONSENSUS_PROPOSALS = parseInt(process.env.BTCPC_MIN_CONSENSUS_PROPOSALS) || 1;
+var MIN_CONSENSUS_PROPOSALS = parseInt(process.env.HONE_MIN_CONSENSUS_PROPOSALS) || 1;
 
-// Hard ceiling on the total BTCPC a single proposal may distribute.
+// Hard ceiling on the total HONE a single proposal may distribute.
 // Genesis reward is 243.06/epoch; 500 leaves margin for storage/clock/iot
 // add-ons while still rejecting fabricated jackpot proposals outright.
-var MAX_PROPOSAL_TOTAL = parseFloat(process.env.BTCPC_MAX_PROPOSAL_TOTAL) || 500;
+var MAX_PROPOSAL_TOTAL = parseFloat(process.env.HONE_MAX_PROPOSAL_TOTAL) || 500;
 
 // Strict recipient validation: when enabled, every reward recipient in a
 // proposal must appear in locally-recorded mining/compute proofs for that
 // epoch (system accounts exempt). Off by default — nodes can legitimately
 // see different proof subsets, and rejecting here only means this node
 // doesn't count the proposal toward consensus.
-var STRICT_PROPOSAL_VALIDATION = process.env.BTCPC_STRICT_PROPOSAL_VALIDATION === "1";
+var STRICT_PROPOSAL_VALIDATION = process.env.HONE_STRICT_PROPOSAL_VALIDATION === "1";
 
 // Accounts that may receive rewards without a recorded proof.
-var SYSTEM_REWARD_ACCOUNTS = { btcpc_recycle: true, btcpc: true };
+var SYSTEM_REWARD_ACCOUNTS = { hone_recycle: true, hone: true };
 
 // Per-epoch state
 // Map<epochNumber, { proposals: [], sourceTags: Set, windowStart: number, resolved: boolean, winner: object|null }>
@@ -103,7 +103,7 @@ var persistProvider = function (epochNumber, winner) {
   try { ledger = require("../services/ledger"); } catch (e) { return; }
   if (!ledger || typeof ledger.recordFinalizationConsensus !== "function") return;
   Promise.resolve(ledger.recordFinalizationConsensus(epochNumber, winner)).catch(function (e) {
-    console.log("[BTCPC Consensus] Failed to persist epoch " + epochNumber + " consensus: " + (e && e.message));
+    console.log("[HONE Consensus] Failed to persist epoch " + epochNumber + " consensus: " + (e && e.message));
   });
 };
 
@@ -275,7 +275,7 @@ function submitProposal(epochNumber, proposal, sourceTag) {
   // Validate before counting toward consensus
   var validation = validateProposal(epochNumber, proposal);
   if (!validation.ok) {
-    console.log("[BTCPC Consensus] Epoch " + epochNumber + " proposal from " +
+    console.log("[HONE Consensus] Epoch " + epochNumber + " proposal from " +
       ((proposal && proposal.proposer) || "?") + " rejected: " + validation.reason);
     return { accepted: false, consensus: false, winner: null, reason: validation.reason };
   }
@@ -291,7 +291,7 @@ function submitProposal(epochNumber, proposal, sourceTag) {
       if (_meetsResolveRequirements(s)) {
         resolve(epochNumber);
       } else {
-        console.log("[BTCPC Consensus] Epoch " + epochNumber + " window expired but requirements unmet (" +
+        console.log("[HONE Consensus] Epoch " + epochNumber + " window expired but requirements unmet (" +
           s.sourceTags.size + "/" + MIN_CONSENSUS_SOURCES + " source(s), " +
           s.proposals.length + "/" + MIN_CONSENSUS_PROPOSALS + " proposal(s)) — waiting");
         // Reschedule — check again every 10s until requirements are met
@@ -471,7 +471,7 @@ function resolve(epochNumber) {
   state.resolved = true;
   state.winner = winner;
 
-  console.log("[BTCPC Consensus] Epoch " + epochNumber + " resolved: " +
+  console.log("[HONE Consensus] Epoch " + epochNumber + " resolved: " +
     state.proposals.length + " proposal(s) from " + state.sourceTags.size + " distinct source(s), " +
     hashes.length + " group(s), " + (stakeWeighted ? "stake-weighted" : "count-based") +
     ", winner: " + winner.proposer +
@@ -479,7 +479,7 @@ function resolve(epochNumber) {
 
   // Persist the resolved round so a crash before EPOCH_FINALIZED doesn't lose it
   try { persistProvider(epochNumber, winner); } catch (e) {
-    console.log("[BTCPC Consensus] Persist failed for epoch " + epochNumber + ": " + (e && e.message));
+    console.log("[HONE Consensus] Persist failed for epoch " + epochNumber + ": " + (e && e.message));
   }
 
   // Fire callbacks

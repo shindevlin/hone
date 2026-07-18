@@ -1,19 +1,19 @@
 "use strict";
 
 /**
- * BTCPC Epoch Finalizer
+ * HONE Epoch Finalizer
  * Shin Devlin
  *
  * Shared module: applies an epoch's winning consensus proposal to
  * the ledger, stateStore, and block files.
  *
- * Used by both btcpc-mine (fallback, single-node) and btcpc-clock
+ * Used by both hone-mine (fallback, single-node) and hone-clock
  * (correct: clock owns finalization in multi-node deployments).
  *
  * Target architecture:
  *   verifiers compute rewards → finalizationConsensus → clock applies via applyFinalization
  * Transition flag:
- *   BTCPC_MINER_CLOCK=false  disables the clock loop inside btcpc-mine
+ *   HONE_MINER_CLOCK=false  disables the clock loop inside hone-mine
  */
 
 var ledger       = require("../services/ledger");
@@ -25,7 +25,7 @@ var blockchain   = require("./blockchain");
 var mempool      = require("../p2p/mempool");
 var finalityAnchoring = require("./finalityAnchoring");
 
-var FINALITY_INTERVAL = parseInt(process.env.BTCPC_FINALITY_INTERVAL) || 100;
+var FINALITY_INTERVAL = parseInt(process.env.HONE_FINALITY_INTERVAL) || 100;
 
 /**
  * Apply the winning consensus proposal: write rewards to ledger, mark epoch
@@ -63,7 +63,7 @@ async function applyFinalization(epochNumber, proposal, authorAccount) {
         break;
       }
     }
-    console.log("[BTCPC]   " + r.miner + ": " + r.amount.toFixed(4) + " BTCPC (" + (r.type || "mining") + ")");
+    console.log("[HONE]   " + r.miner + ": " + r.amount.toFixed(4) + " HONE (" + (r.type || "mining") + ")");
   }
   stateStore.setMiningProofs(epochNumber, epochProofs);
 
@@ -83,8 +83,8 @@ async function applyFinalization(epochNumber, proposal, authorAccount) {
   stateStore.setEpoch(epochNumber, epoch);
 
   var rewardNumber = proposal.reward_number !== undefined ? proposal.reward_number : epochNumber;
-  console.log("[BTCPC] Epoch " + epochNumber + " finalized | reward #" + rewardNumber +
-    " | " + rewards.length + " reward(s) | " + (proposal.block_reward || 0).toFixed(4) + " BTCPC");
+  console.log("[HONE] Epoch " + epochNumber + " finalized | reward #" + rewardNumber +
+    " | " + rewards.length + " reward(s) | " + (proposal.block_reward || 0).toFixed(4) + " HONE");
 
   try {
     var epochLedgerEntries = ledger.flushPendingEntries();
@@ -118,7 +118,7 @@ async function applyFinalization(epochNumber, proposal, authorAccount) {
       state_root: stateRoot,
       timestamp: epoch.ended_at.getTime(),
       difficulty: epoch.difficulty || 1,
-      miner_id: authorAccount || "btcpc-node"
+      miner_id: authorAccount || "hone-node"
     });
 
     var miningProofs = stateStore.getMiningProofs(epochNumber);
@@ -149,7 +149,7 @@ async function applyFinalization(epochNumber, proposal, authorAccount) {
     blockchain.addBlock(block);
 
     var blockHash = block.computeHash();
-    console.log("[BTCPC] Block " + epochNumber + " written | " + blockHash.slice(0, 16) + "... | state: " + stateRoot.slice(0, 16) + "...");
+    console.log("[HONE] Block " + epochNumber + " written | " + blockHash.slice(0, 16) + "... | state: " + stateRoot.slice(0, 16) + "...");
 
     if (epochNumber > 0 && epochNumber % FINALITY_INTERVAL === 0) {
       var snapshot = stateManager.generateFinalitySnapshot();
@@ -169,16 +169,16 @@ async function applyFinalization(epochNumber, proposal, authorAccount) {
       snapshot.block_hash = blockHash;
 
       blockStore.writeFinality(block, snapshot);
-      console.log("[BTCPC] Finality block " + epochNumber + " written | " + snapshot.account_count +
+      console.log("[HONE] Finality block " + epochNumber + " written | " + snapshot.account_count +
         " accounts | commitment: " + snapshot.rolling_commitment.slice(0, 16) + "...");
 
       finalityAnchoring.anchorIfDue(epochNumber, snapshot).catch(function (err) {
-        console.warn("[BTCPC][anchor] anchorIfDue error (non-fatal):", err.message);
+        console.warn("[HONE][anchor] anchorIfDue error (non-fatal):", err.message);
       });
 
       var pruned = blockStore.pruneBeforeFinality(epochNumber);
       if (pruned > 0) {
-        console.log("[BTCPC] Lucid Pruning: " + pruned + " block files pruned (before epoch " + epochNumber + ")");
+        console.log("[HONE] Lucid Pruning: " + pruned + " block files pruned (before epoch " + epochNumber + ")");
       }
     }
 
@@ -186,7 +186,7 @@ async function applyFinalization(epochNumber, proposal, authorAccount) {
     var clearedHashes = mempoolTxs.map(function (t) { return t.txHash; }).filter(Boolean);
     if (clearedHashes.length > 0) {
       mempool.removeTransactions(clearedHashes);
-      console.log("[BTCPC] Mempool: " + clearedHashes.length + " transactions included in block " + epochNumber);
+      console.log("[HONE] Mempool: " + clearedHashes.length + " transactions included in block " + epochNumber);
     }
 
     epoch._blockData = {
@@ -197,7 +197,7 @@ async function applyFinalization(epochNumber, proposal, authorAccount) {
       is_finality: epochNumber > 0 && epochNumber % FINALITY_INTERVAL === 0
     };
   } catch (err) {
-    console.error("[BTCPC] Failed to write block to disk: " + err.message);
+    console.error("[HONE] Failed to write block to disk: " + err.message);
     epoch._blockData = { ledger: ledger.flushPendingEntries() };
   }
 

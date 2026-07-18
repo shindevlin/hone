@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Blockchain
+ * HONE Blockchain
  * Shin Devlin
  *
  * In-memory blockchain state backed by the Block serialization layer.

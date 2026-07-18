@@ -6,8 +6,8 @@ describe("rustChainIpc", () => {
   beforeEach(() => {
     jest.resetModules();
     process.env = Object.assign({}, ORIGINAL_ENV);
-    delete process.env.BTCPC_CHAIN_SOCK;
-    delete process.env.BTCPC_CHAIN_IPC_TIMEOUT_MS;
+    delete process.env.HONE_CHAIN_SOCK;
+    delete process.env.HONE_CHAIN_IPC_TIMEOUT_MS;
   });
 
   afterEach(() => {
@@ -42,7 +42,7 @@ describe("rustChainIpc", () => {
 
     var call = mocked.spawnSync.mock.calls[0];
     expect(call[0]).toBe("nc");
-    expect(call[1]).toEqual(["-U", "/tmp/btcpc-chain.sock"]);
+    expect(call[1]).toEqual(["-U", "/tmp/hone-chain.sock"]);
 
     var request = JSON.parse(call[2].input.trim());
     expect(request.method).toBe("block_write");

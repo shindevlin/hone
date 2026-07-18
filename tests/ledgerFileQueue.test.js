@@ -18,8 +18,8 @@ const { execSync } = require('child_process');
 
 // Isolate this worker's data dir so parallel jest runs don't race on
 // the shared data/pending-entries.jsonl file.
-const ISOLATED_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-ledger-bridge-'));
-process.env.BTCPC_DATA_DIR = ISOLATED_DATA_DIR;
+const ISOLATED_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-ledger-bridge-'));
+process.env.HONE_DATA_DIR = ISOLATED_DATA_DIR;
 
 // Mock mempool so recordTransfer doesn't try to P2P-broadcast
 jest.mock('../src/p2p/mempool', () => ({
@@ -121,7 +121,7 @@ describe('ledger file-queue bridge (v2.13.1)', () => {
     const goodEntry = JSON.stringify({
       type: 'FAUCET',
       to: 'eve',
-      token: 'BTCPC',
+      token: 'HONE',
       amount: 10,
       epoch: 5,
       timestamp: Date.now(),
@@ -151,7 +151,7 @@ describe('ledger file-queue bridge (v2.13.1)', () => {
     const scriptPath = path.join(ISOLATED_DATA_DIR, 'writer.js');
     const ledgerPath = path.resolve(__dirname, '..', 'src', 'services', 'ledger');
     const writerScript = [
-      "process.env.BTCPC_DATA_DIR = " + JSON.stringify(ISOLATED_DATA_DIR) + ";",
+      "process.env.HONE_DATA_DIR = " + JSON.stringify(ISOLATED_DATA_DIR) + ";",
       "const ledger = require(" + JSON.stringify(ledgerPath) + ");",
       "(async () => {",
       "  await ledger.recordAccountCreate('frank', { owner: '9'.repeat(64) }, { evm: '0xfeed' }, 6);",
@@ -162,7 +162,7 @@ describe('ledger file-queue bridge (v2.13.1)', () => {
       execSync('node ' + JSON.stringify(scriptPath), {
         cwd: path.resolve(__dirname, '..'),
         stdio: 'pipe',
-        env: Object.assign({}, process.env, { BTCPC_DATA_DIR: ISOLATED_DATA_DIR }),
+        env: Object.assign({}, process.env, { HONE_DATA_DIR: ISOLATED_DATA_DIR }),
       });
     } finally {
       try { fs.unlinkSync(scriptPath); } catch (_) {}
@@ -205,7 +205,7 @@ describe('crash-mid-drain recovery (.draining-* stale files)', () => {
 
   it('recovers entries from a single stale drain file', () => {
     writeEntry(drainPath(99999, 1234567890), {
-      type: 'FAUCET', to: 'crash-ghost', token: 'BTCPC', amount: 5, epoch: 20, timestamp: Date.now(),
+      type: 'FAUCET', to: 'crash-ghost', token: 'HONE', amount: 5, epoch: 20, timestamp: Date.now(),
     });
 
     expect(fs.existsSync(PENDING_FILE)).toBe(false);
@@ -217,8 +217,8 @@ describe('crash-mid-drain recovery (.draining-* stale files)', () => {
   });
 
   it('recovers entries from multiple stale drain files (multiple crashed processes)', () => {
-    writeEntry(drainPath(11111, 100), { type: 'FAUCET', to: 'ghost-a', token: 'BTCPC', amount: 1, epoch: 21, timestamp: Date.now() });
-    writeEntry(drainPath(22222, 200), { type: 'FAUCET', to: 'ghost-b', token: 'BTCPC', amount: 2, epoch: 21, timestamp: Date.now() });
+    writeEntry(drainPath(11111, 100), { type: 'FAUCET', to: 'ghost-a', token: 'HONE', amount: 1, epoch: 21, timestamp: Date.now() });
+    writeEntry(drainPath(22222, 200), { type: 'FAUCET', to: 'ghost-b', token: 'HONE', amount: 2, epoch: 21, timestamp: Date.now() });
 
     const flushed = ledger.flushPendingEntries();
     const recipients = flushed.map(e => e.to);
@@ -230,7 +230,7 @@ describe('crash-mid-drain recovery (.draining-* stale files)', () => {
 
   it('skips corrupt lines in a stale drain file, keeps valid ones', () => {
     const p = drainPath(33333, 300);
-    const good = JSON.stringify({ type: 'FAUCET', to: 'good-ghost', token: 'BTCPC', amount: 3, epoch: 22, timestamp: Date.now() });
+    const good = JSON.stringify({ type: 'FAUCET', to: 'good-ghost', token: 'HONE', amount: 3, epoch: 22, timestamp: Date.now() });
     if (!fs.existsSync(ISOLATED_DATA_DIR)) fs.mkdirSync(ISOLATED_DATA_DIR, { recursive: true });
     fs.writeFileSync(p, '{corrupt\n' + good + '\n');
 
@@ -241,11 +241,11 @@ describe('crash-mid-drain recovery (.draining-* stale files)', () => {
 
   it('combines stale drain entries with entries from the normal pending file', () => {
     // Stale drain file from crashed old process
-    writeEntry(drainPath(44444, 400), { type: 'FAUCET', to: 'old-process', token: 'BTCPC', amount: 1, epoch: 23, timestamp: Date.now() });
+    writeEntry(drainPath(44444, 400), { type: 'FAUCET', to: 'old-process', token: 'HONE', amount: 1, epoch: 23, timestamp: Date.now() });
     // Fresh normal pending file written by a running process
     if (!fs.existsSync(ISOLATED_DATA_DIR)) fs.mkdirSync(ISOLATED_DATA_DIR, { recursive: true });
     fs.writeFileSync(PENDING_FILE,
-      JSON.stringify({ type: 'FAUCET', to: 'new-process', token: 'BTCPC', amount: 2, epoch: 23, timestamp: Date.now() }) + '\n'
+      JSON.stringify({ type: 'FAUCET', to: 'new-process', token: 'HONE', amount: 2, epoch: 23, timestamp: Date.now() }) + '\n'
     );
 
     const flushed = ledger.flushPendingEntries();

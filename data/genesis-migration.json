@@ -7,7 +7,7 @@
       "username": "natoshisakamoto",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {
         "owner": "03989f269afc60affb21c7d5692cf3f737b56d57db3c7d12bded8f38960e074d4b",
@@ -22,7 +22,7 @@
       "username": "bullship",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -32,7 +32,7 @@
       "username": "nsfwotica",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {
         "owner": "02517b3bf5a98ed44c1a8ead866a92a62bfab7a7d1d5b0ca4a32c37cfe80062680",
@@ -47,7 +47,7 @@
       "username": "brutus11",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -57,7 +57,7 @@
       "username": "ursos",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -67,7 +67,7 @@
       "username": "realfake",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -77,7 +77,7 @@
       "username": "redaktly",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -87,7 +87,7 @@
       "username": "buswingspread",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -97,7 +97,7 @@
       "username": "betchu-bot",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -107,7 +107,7 @@
       "username": "counselflow",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -117,7 +117,7 @@
       "username": "spirit-of-ngu",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -127,7 +127,7 @@
       "username": "itsurs",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -137,7 +137,7 @@
       "username": "waitlyfi",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -147,7 +147,7 @@
       "username": "shindevlin",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {
         "owner": "03995aa423f62fb1ed8eb3afb7a448146e41f0582db5ed21b66468029fa0100186",
@@ -162,7 +162,7 @@
       "username": "clock-984f1a06",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -172,7 +172,7 @@
       "username": "josh",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {
         "owner": "02d3a967fcbdfee9b5f2706b83bd74503077ae3e21e94fc321af048b04296e8a41",
@@ -193,7 +193,7 @@
       "username": "bridgeproof",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {},
       "chain_addresses": {},
@@ -202,27 +202,27 @@
   ],
   "system_accounts": [
     {
-      "username": "btcpc_treasury",
+      "username": "hone_treasury",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       }
     },
     {
-      "username": "btcpc",
+      "username": "hone",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {
         "posting": "03ead081731267c738282c3b854c19ec05b916b39899f491cb8af5cb6a107efb6b"
       }
     },
     {
-      "username": "btcpc_recycle",
+      "username": "hone_recycle",
       "balance": 0,
       "token_balances": {
-        "BTCPC": 0
+        "HONE": 0
       },
       "public_keys": {}
     }
@@ -230,13 +230,13 @@
   "genesis_entries": [
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "natoshisakamoto",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {
@@ -250,13 +250,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "bullship",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -265,13 +265,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "nsfwotica",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {
@@ -285,13 +285,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "brutus11",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -300,13 +300,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "ursos",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -315,13 +315,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "realfake",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -330,13 +330,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "redaktly",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -345,13 +345,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "buswingspread",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -360,13 +360,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "betchu-bot",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -375,13 +375,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "counselflow",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -390,13 +390,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "spirit-of-ngu",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -405,13 +405,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "itsurs",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -420,13 +420,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "waitlyfi",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -435,13 +435,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "shindevlin",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {
@@ -455,13 +455,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "clock-984f1a06",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -470,13 +470,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "josh",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {
@@ -496,13 +496,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
+      "from": "hone_genesis",
       "to": "bridgeproof",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0",
       "account_data": {
         "public_keys": {},
@@ -511,13 +511,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
-      "to": "btcpc_treasury",
+      "from": "hone_genesis",
+      "to": "hone_treasury",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.0 — system account",
       "account_data": {
         "public_keys": {},
@@ -526,14 +526,14 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
-      "to": "btcpc",
+      "from": "hone_genesis",
+      "to": "hone",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
-      "memo": "genesis migration v3.3 — btcpc root namespace account",
+      "signed_by": "hone_genesis",
+      "memo": "genesis migration v3.3 — hone root namespace account",
       "account_data": {
         "public_keys": {
           "posting": "03ead081731267c738282c3b854c19ec05b916b39899f491cb8af5cb6a107efb6b"
@@ -543,13 +543,13 @@
     },
     {
       "type": "ACCOUNT_CREATE",
-      "from": "btcpc_genesis",
-      "to": "btcpc_recycle",
+      "from": "hone_genesis",
+      "to": "hone_recycle",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
+      "signed_by": "hone_genesis",
       "memo": "genesis migration v3.3 — keyless protocol contract, no keys ever",
       "account_data": {
         "public_keys": {},
@@ -558,21 +558,21 @@
     },
     {
       "type": "WALLET_CREATE_CHILD",
-      "from": "btcpc",
-      "to": "btcpc/treasury",
+      "from": "hone",
+      "to": "hone/treasury",
       "amount": 0,
-      "token": "BTCPC",
+      "token": "HONE",
       "epoch": 0,
       "timestamp": "2026-04-12T19:54:40.093Z",
-      "signed_by": "btcpc_genesis",
-      "memo": "genesis migration v3.3 — wire btcpc_treasury as child btcpc/treasury",
+      "signed_by": "hone_genesis",
+      "memo": "genesis migration v3.3 — wire hone_treasury as child hone/treasury",
       "wallet_data": {
-        "parent": "btcpc",
+        "parent": "hone",
         "child_name": "treasury"
       }
     }
   ],
   "total_supply_migrated": 0,
-  "whitepaper_path": "docs/BTCPC_WHITEPAPER.md",
+  "whitepaper_path": "docs/HONE_WHITEPAPER.md",
   "whitepaper_size_bytes": 41031
 }

@@ -19,7 +19,7 @@ var url = require("url");
 var ACCOUNT = process.env.HONE_CLOCK_ACCOUNT || "josh";
 var PORT = parseInt(process.env.P2P_PORT) || 6946;
 var NODE_ID = crypto.randomBytes(16).toString("hex");
-var RELAY = "wss://btcpc-relay.shindevlin.workers.dev/ws";
+var RELAY = "wss://hone-relay.shindevlin.workers.dev/ws";
 var SEEDS = (process.env.HONE_SEED_PEERS || "").split(",").filter(Boolean);
 
 var currentEpoch = -1;

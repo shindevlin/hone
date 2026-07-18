@@ -1,12 +1,12 @@
 "use strict";
 
 /**
- * Inference memory — per-account BTCPC-FS memory with Obsidian-style graph.
+ * Inference memory — per-account HONE-FS memory with Obsidian-style graph.
  * Shin Devlin
  *
  * After a job settles the miner calls extractAndSaveMemory() to:
  *   1. Ask the local Ollama model to summarize the exchange + extract tags
- *   2. Write the summary blob to BTCPC-FS (blobStore)
+ *   2. Write the summary blob to HONE-FS (blobStore)
  *   3. Find similar existing memories by tag overlap (graph linking)
  *   4. Record INFERENCE_MEMORY_SAVE on chain
  *
@@ -22,8 +22,8 @@ const stateStore = require("../chain/stateStore");
 const ledger = require("./ledger");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
-const MEMORY_MODEL = process.env.BTCPC_MEMORY_MODEL || process.env.BTCPC_FAST_MODEL || "qwen3:0.6b";
+const BLOB_DIR = process.env.HONE_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const MEMORY_MODEL = process.env.HONE_MEMORY_MODEL || process.env.HONE_FAST_MODEL || "qwen3:0.6b";
 const MAX_MEMORY_BYTES = 32 * 1024; // 32 KB per memory blob
 const MAX_LINKED = 5;               // max backlinks per new memory
 const MAX_TAG_OVERLAP_CANDIDATES = 20;

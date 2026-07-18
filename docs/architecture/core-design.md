@@ -1,18 +1,18 @@
 ---
-title: BTCPC Core Architecture Decisions
-description: Canonical design decisions for the BTCPC sovereign chain node
+title: HONE Core Architecture Decisions
+description: Canonical design decisions for the HONE sovereign chain node
 captured_at: 2026-04-29
 author: Shin Devlin
 ---
 
-# BTCPC Core Architecture Decisions
+# HONE Core Architecture Decisions
 
 ## Emission Model
 - **Rust node is the canonical implementation.** JS node is deprecated.
 - Do NOT port the JS 11-period allotment model. Rust era-based doubling epoch model is correct.
 
 ## Genesis / Testnet Fund
-- **No genesis BTCPC allocation for anything** — not testnet fund, not anyone.
+- **No genesis HONE allocation for anything** — not testnet fund, not anyone.
 - `__testnet_fund__` starts at zero. Fills only from the ongoing 0.5% mandatory reserve split.
 - Testnet gets nothing until the chain is live and producing rewards.
 
@@ -23,7 +23,7 @@ author: Shin Devlin
 - Critical mass is dynamic: EMA of active participants over trailing N epochs.
 
 ## Mempool as Staked Node Type
-- Mempool operators stake BTCPC → earn portion of transaction fees.
+- Mempool operators stake HONE → earn portion of transaction fees.
 - Reward weighted inversely by propagation latency: lowest-lag nodes earn most.
 - Slashable stake for censorship, double-inclusion, or fee front-running.
 - `MempoolOperatorRegister` entry type, minimum stake threshold.
@@ -33,7 +33,7 @@ author: Shin Devlin
 - Device serial = hardware-burned unique identifier (IMEI, CPU serial, TPM endorsement key).
   - Same physical device re-registered later → same serial → claim is maintained.
   - NOT based on model/specs. Each physical unit is unique.
-- Device claim stake: stake BTCPC to register a serial. First staker wins.
+- Device claim stake: stake HONE to register a serial. First staker wins.
   - Overbid allowed at 1.5× existing stake; premium distributes to yield stakers.
   - Stake slashable for fraudulent claims.
 - This is the auth model for IoT/sensor devices — NOT JWT.
@@ -55,8 +55,8 @@ author: Shin Devlin
 - With stakers: 70% owner / 20% staker pool / 10% recycle.
 
 ## Cross-Chain Claims: 2FA Signature Model
-- Cross-chain wallet signature as 2FA for spending BTCPC.
-- Signing a message with a wallet on another chain (EVM, Solana, etc.) authorises spend on BTCPC.
+- Cross-chain wallet signature as 2FA for spending HONE.
+- Signing a message with a wallet on another chain (EVM, Solana, etc.) authorises spend on HONE.
 - Not just a bridge — a cross-chain authentication mechanism.
 
 ## Commerce: Three Sub-Protocols

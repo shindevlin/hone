@@ -1,17 +1,17 @@
 [Unit]
 Description=HONE GNSS Capture — Rust RTCM3 interceptor + chain recorder
-After=network-online.target btcpc-api.service
+After=network-online.target hone-api.service
 Wants=network-online.target
-Before=btcpc-miner.service
+Before=hone-miner.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/ubuntclaw/repos/btcpc
+WorkingDirectory=/home/ubuntclaw/repos/hone
 ExecStart=/usr/local/bin/hone-gnss-capture
 Restart=on-failure
 RestartSec=5
-EnvironmentFile=/home/ubuntclaw/repos/btcpc/.env
+EnvironmentFile=/home/ubuntclaw/repos/hone/.env
 # Real-time priority — GC pauses no longer a concern (Rust), but still keep it elevated
 Nice=-10
 LimitRTPRIO=10

@@ -1,5 +1,5 @@
 {
-  "wBTCPC": {
+  "wHONE": {
     "base": {
       "chainId": 8453,
       "contract": "0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47",
@@ -29,7 +29,7 @@
     "solana": {
       "mint": "2WAQ9PMEMe7AVEvhCu2tcM5wJktwsThEJ9pWbEhibAof",
       "tokenAccount": "DeLSTKe7QaMdnS2RkREGD67hq8SzyqNPowHrv5JGxumb",
-      "supply": "10000 wBTCPC minted",
+      "supply": "10000 wHONE minted",
       "decimals": 10,
       "deployedAt": "2026-04-09",
       "explorer": "https://solscan.io/token/2WAQ9PMEMe7AVEvhCu2tcM5wJktwsThEJ9pWbEhibAof"
@@ -55,19 +55,19 @@
     "hive": {
       "status": "live",
       "account": "shindevlin",
-      "claimId": "btcpc-claim",
+      "claimId": "hone-claim",
       "firstClaimTx": "7025c5ffdab91885b2c483285a616f4f99072010",
       "deployedAt": "2026-04-09"
     }
   },
-  "wBTCPCSale": {
+  "wHONESale": {
     "base": {
       "chainId": 8453,
       "contract": "0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26",
       "txHash": "0x90bf6ba83dde759cf7f42a2680435ddbf1abc23e53f9bfd1e56d1d55fa9b0807",
       "treasury": "0xBDe88F2B3a224B242704bD166804E0E12c75e830",
       "pricePerToken": "100000",
-      "priceUSD": "$0.10 per wBTCPC",
+      "priceUSD": "$0.10 per wHONE",
       "acceptedStablecoins": {
         "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
       },
@@ -82,7 +82,7 @@
         "USDT": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
         "DAI": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1"
       },
-      "priceUSD": "$0.10 per wBTCPC",
+      "priceUSD": "$0.10 per wHONE",
       "explorer": "https://arbiscan.io/address/0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26"
     },
     "optimism": {
@@ -110,7 +110,7 @@
         "USDT": "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
         "DAI": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063"
       },
-      "priceUSD": "$0.10 per wBTCPC"
+      "priceUSD": "$0.10 per wHONE"
     },
     "bsc": {
       "chainId": 56,
@@ -120,10 +120,10 @@
         "USDT": "0x55d398326f99059fF775485246999027B3197955",
         "DAI": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3"
       },
-      "priceUSD": "$0.10 per wBTCPC"
+      "priceUSD": "$0.10 per wHONE"
     }
   },
-  "wBTCPCBridge": {
+  "wHONEBridge": {
     "base": {
       "chainId": 8453,
       "contract": "0x62B433594672A27A3600809B753F2513770B20eE",
@@ -168,8 +168,8 @@
       "explorer": "https://bscscan.com/address/0x384Fe3d260aCaF82d3e7FE1a66Eba6bFc1537107"
     }
   },
-  "domain": "btcpc.net",
-  "wBTCPC_v2": {
+  "domain": "hone.net",
+  "wHONE_v2": {
     "note": "v2 contracts with claim fees (50% treasury, 50% stakers)",
     "base": {
       "contract": "0xC0B89F8dfaAD2e67bAe8d61204b2198997a0E0ED"
@@ -181,7 +181,7 @@
       "contract": "0x238499DB061a5A39bd9bc6Dea2a33472F6e5FEC9"
     }
   },
-  "wBTCPCBondingCurve": {
+  "wHONEBondingCurve": {
     "base": {
       "contract": "0xC4E330Fb0c484Acb9e38979064fB5601e4FDB4bC",
       "basePrice": "50000",
@@ -189,11 +189,11 @@
     },
     "arbitrum": {
       "contract": "0x46d8338f0192d42087b2A281b495e0e9C749D702",
-      "pool": "2000 wBTCPC"
+      "pool": "2000 wHONE"
     },
     "optimism": {
       "contract": "0x737D12eEbCB33F021378ba46C5820AbF20C23068",
-      "pool": "2000 wBTCPC"
+      "pool": "2000 wHONE"
     },
     "ethereum": {
       "chainId": 1,
@@ -223,10 +223,10 @@
   },
   "emergencyPause": "scripts/emergency-pause.sh",
   "handoffNFT": {
-    "collection": "BTCPC-GENESIS-OP",
+    "collection": "HONE-GENESIS-OP",
     "holder": "shindevlin",
     "revShare": "1%",
-    "conditions": "10 stakers + 1000 BTCPC staked + governance active"
+    "conditions": "10 stakers + 1000 HONE staked + governance active"
   },
   "pending": {
     "ton": "Need TON native. Send 2 TON to 0:bea7ca44...",

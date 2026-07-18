@@ -4,7 +4,7 @@
  * Auto-stake genesis miners — one-time bootstrap script.
  *
  * Reads current balances for the three genesis accounts and stakes
- * MIN_MINER_STAKE (10 BTCPC) for each, so they earn full mining
+ * MIN_MINER_STAKE (10 HONE) for each, so they earn full mining
  * rewards once the bootstrap period (first 1000 epochs) ends.
  *
  * Safe to run multiple times: skips accounts that already have
@@ -20,12 +20,12 @@ var stateStore = require(path.resolve(__dirname, "..", "src", "chain", "stateSto
 var ledger = require(path.resolve(__dirname, "..", "src", "services", "ledger"));
 var blockProposal = require(path.resolve(__dirname, "..", "src", "chain", "blockProposal"));
 
-var MIN_STAKE = blockProposal.MIN_MINER_STAKE; // 10 BTCPC
+var MIN_STAKE = blockProposal.MIN_MINER_STAKE; // 10 HONE
 var GENESIS_ACCOUNTS = ["natoshisakamoto", "shindevlin", "josh"];
 
 async function main() {
-  console.log("=== BTCPC Auto-Stake Genesis Miners ===");
-  console.log("MIN_MINER_STAKE:", MIN_STAKE, "BTCPC\n");
+  console.log("=== HONE Auto-Stake Genesis Miners ===");
+  console.log("MIN_MINER_STAKE:", MIN_STAKE, "HONE\n");
 
   // Replay chain state so balances are populated
   if (typeof stateStore.replayBlocks === "function") {
@@ -38,13 +38,13 @@ async function main() {
   var skipped = 0;
 
   for (var account of GENESIS_ACCOUNTS) {
-    var balance = stateStore.getBalance(account, "BTCPC");
+    var balance = stateStore.getBalance(account, "HONE");
     var pool = stateStore.getStakePool(account);
     var currentStake = (pool && pool.total_staked) ? pool.total_staked : 0;
 
     console.log(account + ":");
-    console.log("  balance:", balance, "BTCPC");
-    console.log("  current stake:", currentStake, "BTCPC");
+    console.log("  balance:", balance, "HONE");
+    console.log("  current stake:", currentStake, "HONE");
 
     if (currentStake >= MIN_STAKE) {
       console.log("  -> already staked enough, skipping\n");
@@ -59,13 +59,13 @@ async function main() {
       continue;
     }
 
-    console.log("  -> staking " + needed + " BTCPC (purpose: mining)");
+    console.log("  -> staking " + needed + " HONE (purpose: mining)");
     await ledger.recordStake(account, needed, "mining", 0);
     staked++;
 
     // Verify
     var afterPool = stateStore.getStakePool(account);
-    console.log("  -> new stake total: " + (afterPool ? afterPool.total_staked : 0) + " BTCPC\n");
+    console.log("  -> new stake total: " + (afterPool ? afterPool.total_staked : 0) + " HONE\n");
   }
 
   console.log("Done. Staked: " + staked + ", Skipped: " + skipped);

@@ -1,15 +1,15 @@
-# BTCPC Slashing Logic Security Review
+# HONE Slashing Logic Security Review
 
 ## Scope
 
-This document reviews the slashing conditions, rates, and edge cases in BTCPC's proof-of-compute consensus. Slashing applies to miners, verifiers, and staked commerce/storage participants. Storage hosts are explicitly excluded from slashing for absence (they are paid for delivery, not penalized for going offline).
+This document reviews the slashing conditions, rates, and edge cases in HONE's proof-of-compute consensus. Slashing applies to miners, verifiers, and staked commerce/storage participants. Storage hosts are explicitly excluded from slashing for absence (they are paid for delivery, not penalized for going offline).
 
 ---
 
 ## Slashing Principles
 
 - Slashing is punitive, not operational: nodes are slashed for provable misbehavior, not for being offline.
-- Fees are never burned. All slashed stake routes to `btcpc_recycle` for redistribution.
+- Fees are never burned. All slashed stake routes to `hone_recycle` for redistribution.
 - Slashing evidence must be on-chain and disputable within a defined challenge window.
 - Rates are calibrated to make attacks economically irrational without making honest errors catastrophic.
 
@@ -84,7 +84,7 @@ This document reviews the slashing conditions, rates, and edge cases in BTCPC's 
 **Current Gap:** Verifier selection weighted by stake, but minimum stake threshold not enforced per verifier slot.
 
 **Recommendation:**
-- Enforce a minimum stake per verifier registration (e.g., 100 BTCPC).
+- Enforce a minimum stake per verifier registration (e.g., 100 HONE).
 - Apply a Sybil resistance factor: stake per account, not aggregate stake, determines selection weight up to a cap.
 - Accounts sharing an IP or signing key pattern are flagged for manual review; automatic soft-cap on selection probability.
 
@@ -94,12 +94,12 @@ This document reviews the slashing conditions, rates, and edge cases in BTCPC's 
 
 | Offense | Evidence Required | Slash Rate | Routes To | Notes |
 |---------|------------------|------------|-----------|-------|
-| Work proof replay | Matching proof hashes in two epochs | 10x epoch reward | btcpc_recycle | Objective; no dispute needed |
-| Fraudulent work approval (verifier) | Dispute challenge + re-verification | 25% of verifier stake | btcpc_recycle | Challenge window: 10 epochs |
-| Slashing evidence censorship (proposer) | Gossip timestamp vs. block timestamp | 5% of proposer stake | btcpc_recycle | Requires gossip timestamp infra |
-| Sustained inactivity (staked miner) | Rolling 10-epoch submission rate | 0.5% per epoch below threshold | btcpc_recycle | Warn before slashing |
-| Sybil verifier registration | Key/IP clustering analysis | Registration stake forfeited | btcpc_recycle | Governance-triggered |
-| Double-sign block proposal | Two signed blocks at same height | 50% of proposer stake | btcpc_recycle | Highest severity |
+| Work proof replay | Matching proof hashes in two epochs | 10x epoch reward | hone_recycle | Objective; no dispute needed |
+| Fraudulent work approval (verifier) | Dispute challenge + re-verification | 25% of verifier stake | hone_recycle | Challenge window: 10 epochs |
+| Slashing evidence censorship (proposer) | Gossip timestamp vs. block timestamp | 5% of proposer stake | hone_recycle | Requires gossip timestamp infra |
+| Sustained inactivity (staked miner) | Rolling 10-epoch submission rate | 0.5% per epoch below threshold | hone_recycle | Warn before slashing |
+| Sybil verifier registration | Key/IP clustering analysis | Registration stake forfeited | hone_recycle | Governance-triggered |
+| Double-sign block proposal | Two signed blocks at same height | 50% of proposer stake | hone_recycle | Highest severity |
 
 ---
 

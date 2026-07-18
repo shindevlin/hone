@@ -4,17 +4,17 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/btcpc_bg">
+    android:background="@color/hone_bg">
 
     <!-- Toolbar -->
     <androidx.appcompat.widget.Toolbar
         android:id="@+id/stake_toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="@color/btcpc_surface"
+        android:background="@color/hone_surface"
         android:elevation="4dp"
         android:title="Stake"
-        android:titleTextColor="@color/btcpc_text" />
+        android:titleTextColor="@color/hone_text" />
 
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/stake_swipe_refresh"
@@ -38,7 +38,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="4dp"
                     android:text="Choose a Node Role"
-                    android:textColor="@color/btcpc_text"
+                    android:textColor="@color/hone_text"
                     android:textSize="20sp"
                     android:textStyle="bold" />
 
@@ -47,7 +47,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
                     android:text="Minimum stake requirements adjust dynamically with network demand."
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="13sp" />
 
                 <!-- Bootstrap free period banner (hidden when not in bootstrap) -->
@@ -70,9 +70,9 @@
                     android:layout_height="48dp"
                     android:layout_marginBottom="20dp"
                     android:text="Sponsor a User's Stake"
-                    android:textColor="@color/btcpc_orange"
-                    android:backgroundTint="@color/btcpc_surface_alt"
-                    android:strokeColor="@color/btcpc_orange"
+                    android:textColor="@color/hone_orange"
+                    android:backgroundTint="@color/hone_surface_alt"
+                    android:strokeColor="@color/hone_orange"
                     android:strokeWidth="1"
                     android:textSize="14sp"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton" />

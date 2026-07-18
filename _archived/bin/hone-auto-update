@@ -1,0 +1,288 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * hone-auto-update — container self-heal via image version polling
+ * Shin Devlin
+ *
+ * Runs as a background loop alongside all other roles (launched by
+ * bin/hone-all). Every HONE_UPDATE_INTERVAL_MS milliseconds (default
+ * 60 minutes) it:
+ *
+ *   1. Fetches https://hone.net/hone-image-version.txt
+ *   2. Compares that sha256 to the locally-loaded hone:latest image hash
+ *      (or the saved hash in .hone-image-hash if docker isn't available)
+ *   3. If different: downloads the new tarball and docker loads it, then
+ *      writes .hone-update-pending so the supervisor restarts children.
+ *   4. If same: does nothing.
+ *   5. Any error (network, docker, etc.) is logged and ignored — we retry
+ *      next interval. This script NEVER crashes the supervisor.
+ *
+ * Environment variables:
+ *   HONE_UPDATE_INTERVAL_MS  — poll interval in ms (default 3600000 = 60 min)
+ *   HONE_IMAGE_URL           — tarball URL (default https://hone.net/hone-image.tar.gz)
+ *   HONE_VERSION_URL         — version file URL (default https://hone.net/hone-image-version.txt)
+ *   HONE_HASH_FILE           — path to local saved hash (default <repo>/.hone-image-hash)
+ *   HONE_PENDING_FILE        — path to flag file for supervisor (default <repo>/.hone-update-pending)
+ */
+
+var https = require("https");
+var http  = require("http");
+var path  = require("path");
+var fs    = require("fs");
+var { execFile } = require("child_process");
+
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+var REPO_ROOT    = path.resolve(__dirname, "..");
+var VERSION_URL  = process.env.HONE_VERSION_URL  || "https://hone.net/hone-image-version.txt";
+var IMAGE_URL    = process.env.HONE_IMAGE_URL    || "https://hone.net/hone-image.tar.gz";
+var HASH_FILE    = process.env.HONE_HASH_FILE    || path.join(REPO_ROOT, ".hone-image-hash");
+var PENDING_FILE = process.env.HONE_PENDING_FILE || path.join(REPO_ROOT, ".hone-update-pending");
+var INTERVAL_MS  = parseInt(process.env.HONE_UPDATE_INTERVAL_MS || "3600000", 10);
+
+// ─── Logging ──────────────────────────────────────────────────────────────────
+
+function log(msg) {
+  process.stdout.write("[auto-update] " + msg + "\n");
+}
+
+function logErr(msg) {
+  process.stderr.write("[auto-update] ERROR: " + msg + "\n");
+}
+
+// ─── HTTP helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Fetch a URL and resolve with the full response body as a string.
+ * Follows one level of redirect (3xx).
+ * Rejects on non-200 status or any network error.
+ */
+function fetchText(url) {
+  return new Promise(function (resolve, reject) {
+    var mod = url.startsWith("https://") ? https : http;
+    mod.get(url, function (res) {
+      // Follow single redirect
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return fetchText(res.headers.location).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error("HTTP " + res.statusCode + " fetching " + url));
+      }
+      var chunks = [];
+      res.on("data", function (c) { chunks.push(c); });
+      res.on("error", reject);
+      res.on("end", function () { resolve(Buffer.concat(chunks).toString("utf8").trim()); });
+    }).on("error", reject);
+  });
+}
+
+/**
+ * Download a URL to a local file path, streaming (avoids large memory use).
+ * Returns a Promise that resolves when the file is fully written.
+ */
+function downloadFile(url, destPath) {
+  return new Promise(function (resolve, reject) {
+    var mod = url.startsWith("https://") ? https : http;
+    mod.get(url, function (res) {
+      // Follow single redirect
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return downloadFile(res.headers.location, destPath).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error("HTTP " + res.statusCode + " downloading " + url));
+      }
+      var out = fs.createWriteStream(destPath);
+      res.pipe(out);
+      out.on("error", reject);
+      out.on("finish", resolve);
+      res.on("error", reject);
+    }).on("error", reject);
+  });
+}
+
+// ─── Docker helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Get the local hash of hone:latest via docker image inspect.
+ * Returns the Id string (e.g. "sha256:abc123...") or null if docker
+ * isn't available or the image doesn't exist.
+ */
+function getDockerImageId() {
+  return new Promise(function (resolve) {
+    execFile(
+      "docker",
+      ["image", "inspect", "hone:latest", "--format", "{{.Id}}"],
+      { timeout: 15000 },
+      function (err, stdout) {
+        if (err) return resolve(null);
+        var id = (stdout || "").trim();
+        resolve(id || null);
+      }
+    );
+  });
+}
+
+/**
+ * Run `docker load` on a tarball.
+ * Returns a Promise that resolves on success and rejects on failure.
+ */
+function dockerLoad(tarPath) {
+  return new Promise(function (resolve, reject) {
+    execFile(
+      "docker",
+      ["load", "--input", tarPath],
+      { timeout: 300000 }, // 5 minutes
+      function (err, stdout, stderr) {
+        if (err) {
+          return reject(new Error("docker load failed: " + (stderr || err.message)));
+        }
+        log("docker load succeeded: " + (stdout || "").trim());
+        resolve();
+      }
+    );
+  });
+}
+
+// ─── Hash file helpers ────────────────────────────────────────────────────────
+
+function readSavedHash() {
+  try {
+    return fs.readFileSync(HASH_FILE, "utf8").trim();
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeSavedHash(hash) {
+  try {
+    fs.writeFileSync(HASH_FILE, hash, "utf8");
+  } catch (e) {
+    logErr("could not write hash file: " + e.message);
+  }
+}
+
+// ─── Flag file ────────────────────────────────────────────────────────────────
+
+function writePendingFlag() {
+  try {
+    fs.writeFileSync(PENDING_FILE, Date.now().toString(), "utf8");
+    log("wrote " + PENDING_FILE + " — supervisor will restart children");
+  } catch (e) {
+    logErr("could not write pending flag: " + e.message);
+  }
+}
+
+// ─── Core check ───────────────────────────────────────────────────────────────
+
+async function checkForUpdate() {
+  // Skip on source-based installations — hone-update-source handles those
+  if (process.env.HONE_DOCKER_UPDATE_DISABLED === 'true') {
+    log("Docker update disabled (source install) — skipping");
+    return;
+  }
+  log("checking for update — polling " + VERSION_URL);
+
+  // 1. Fetch remote version hash
+  var remoteHash;
+  try {
+    remoteHash = await fetchText(VERSION_URL);
+  } catch (e) {
+    logErr("failed to fetch version file: " + e.message);
+    return; // Retry next interval
+  }
+
+  if (!remoteHash || remoteHash.length < 10) {
+    logErr("remote version file looks malformed: " + JSON.stringify(remoteHash));
+    return;
+  }
+
+  log("remote hash: " + remoteHash);
+
+  // 2. Determine local hash — prefer docker inspect, fall back to saved file
+  var localHash = await getDockerImageId();
+  if (!localHash) {
+    localHash = readSavedHash();
+    if (localHash) {
+      log("docker not available — using saved hash: " + localHash);
+    } else {
+      log("no local hash found — treating as first run, will download");
+    }
+  } else {
+    log("local docker image id: " + localHash);
+  }
+
+  // Normalise: strip "sha256:" prefix for comparison since the version file
+  // contains a bare hex hash, not the docker "sha256:..." format
+  var normaliseHash = function (h) {
+    return (h || "").replace(/^sha256:/, "").toLowerCase();
+  };
+
+  if (normaliseHash(remoteHash) === normaliseHash(localHash)) {
+    log("up to date — no action needed");
+    return;
+  }
+
+  log("hash mismatch — update available. downloading " + IMAGE_URL);
+
+  // 3. Download new tarball to a temp file
+  var tmpPath = path.join(REPO_ROOT, ".hone-image-download.tar.gz");
+  try {
+    await downloadFile(IMAGE_URL, tmpPath);
+    log("download complete: " + tmpPath);
+  } catch (e) {
+    logErr("download failed: " + e.message);
+    // Clean up partial download if it exists
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    return; // Retry next interval
+  }
+
+  // 4. docker load
+  try {
+    await dockerLoad(tmpPath);
+  } catch (e) {
+    logErr("docker load failed: " + e.message);
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    return;
+  }
+
+  // 5. Clean up tarball
+  try { fs.unlinkSync(tmpPath); } catch (_) {}
+
+  // 6. Save the new hash
+  writeSavedHash(remoteHash);
+
+  // 7. Signal supervisor to restart children
+  writePendingFlag();
+
+  log("update complete — waiting for supervisor to restart children");
+}
+
+// ─── Main loop ────────────────────────────────────────────────────────────────
+
+log("starting — poll interval " + (INTERVAL_MS / 1000 / 60).toFixed(1) + " min");
+
+// Run once immediately, then on the interval
+checkForUpdate().catch(function (e) {
+  logErr("unexpected error in checkForUpdate: " + e.message);
+});
+
+setInterval(function () {
+  checkForUpdate().catch(function (e) {
+    logErr("unexpected error in checkForUpdate: " + e.message);
+  });
+}, INTERVAL_MS);
+
+// Keep the process alive (setInterval keeps the event loop running, but
+// we also want to handle graceful shutdown from the supervisor)
+process.on("SIGTERM", function () {
+  log("received SIGTERM — exiting");
+  process.exit(0);
+});
+
+process.on("SIGINT", function () {
+  log("received SIGINT — exiting");
+  process.exit(0);
+});

@@ -1,0 +1,17 @@
+[Unit]
+Description=HONE Telegram Bot — thin client for HONE chain
+Documentation=https://hone.network
+After=network.target hone-node.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/repos/honebot
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=%h/repos/honebot/.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

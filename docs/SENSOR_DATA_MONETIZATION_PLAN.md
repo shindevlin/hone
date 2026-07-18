@@ -1,4 +1,4 @@
-# BTCPC Sensor Data Monetization Plan
+# HONE Sensor Data Monetization Plan
 
 Version context: v3.0.96 working tree, Mongo disabled, block files are source of truth, stateStore is the rebuilt cache.
 
@@ -8,8 +8,8 @@ Version context: v3.0.96 working tree, Mongo disabled, block files are source of
 
 The Electron wrapper exists locally at `desktop/main.js`, and Linux desktop binaries exist under `website/`:
 
-- `website/BTCPC-desktop-linux.AppImage`
-- `website/btcpc-desktop-linux.deb`
+- `website/HONE-desktop-linux.AppImage`
+- `website/hone-desktop-linux.deb`
 
 Problem: the currently tracked `package.json` does not include Electron dependencies or `desktop` scripts. The desktop folder is untracked in this worktree. Before this can be treated as a supported build, package wiring must be restored and committed with the desktop files.
 
@@ -26,13 +26,13 @@ The Capacitor Android project exists locally under `android/`, with a debug APK 
 
 Native sensor bridge exists at:
 
-- `android/app/src/main/java/network/btcpc/app/BTCPCSensorsPlugin.java`
+- `android/app/src/main/java/network/hone/app/HONESensorsPlugin.java`
 
 Current native bridge behavior:
 
 - Uses Android `SensorManager`.
 - Lists `Sensor.TYPE_ALL`.
-- Streams known sensors as BTCPC sensor ids: `motion`, `orientation`, `light`, `magnetometer`, `barometer`, `proximity`, `steps`, `heart-rate`.
+- Streams known sensors as HONE sensor ids: `motion`, `orientation`, `light`, `magnetometer`, `barometer`, `proximity`, `steps`, `heart-rate`.
 - Streams unknown native sensors as `android-<type>`, so APK-only sensors are not hidden.
 
 Manifest permissions currently include:
@@ -91,14 +91,14 @@ The idea is strong because it creates a direct market between useful real-world 
 The clean user story is:
 
 1. A consumer asks for a data shape, not a sensor.
-2. BTCPC finds matching readings.
-3. BTCPC prices the query before delivery.
-4. BTCPC locks or charges funds.
-5. BTCPC returns data.
-6. BTCPC automatically pays sensor operators, protocol treasury accounts, and recycle.
-7. Optional: BTCPC runs inference over the returned data and includes analysis.
+2. HONE finds matching readings.
+3. HONE prices the query before delivery.
+4. HONE locks or charges funds.
+5. HONE returns data.
+6. HONE automatically pays sensor operators, protocol treasury accounts, and recycle.
+7. Optional: HONE runs inference over the returned data and includes analysis.
 
-This aligns with BTCPC because sensor operators earn by producing requested data, not just by existing.
+This aligns with HONE because sensor operators earn by producing requested data, not just by existing.
 
 Main risk: privacy and data quality. GPS and device data cannot leak exact physical locations by default. All query APIs should support fuzzed/metro-level data unless the sensor explicitly publishes precise readings. Query results should carry quality metadata: source count, time range, freshness, aggregation level, and confidence.
 
@@ -117,12 +117,12 @@ Protocol treasury split:
 - `shindevlin`: 50% of protocol share
 - `natoshisakamoto`: 50% of protocol share
 
-Example for 100 BTCPC data fee:
+Example for 100 HONE data fee:
 
-- 70 BTCPC split among sensor owners by returned reading count.
-- 10 BTCPC to `shindevlin`.
-- 10 BTCPC to `natoshisakamoto`.
-- 10 BTCPC to `btcpc_recycle`.
+- 70 HONE split among sensor owners by returned reading count.
+- 10 HONE to `shindevlin`.
+- 10 HONE to `natoshisakamoto`.
+- 10 HONE to `hone_recycle`.
 
 This should be configurable in one policy object, not scattered across routes.
 
@@ -166,7 +166,7 @@ Volume discounts:
 
 ### Token-Native
 
-Goal: no signup beyond having a BTCPC wallet/account.
+Goal: no signup beyond having a HONE wallet/account.
 
 Authentication options:
 
@@ -200,7 +200,7 @@ Flow:
 
 1. Enterprise pre-funds account/project wallet.
 2. API key or session token identifies project/account.
-3. Queries debit from prefunded BTCPC balance.
+3. Queries debit from prefunded HONE balance.
 4. Webhook can receive pushed datasets or query completion events.
 5. Invoice endpoint can summarize on-chain debits, not act as source of truth.
 
@@ -231,7 +231,7 @@ Response:
   "estimated_readings": 742,
   "max_cost": 0.742,
   "price_per_reading": 0.001,
-  "currency": "BTCPC",
+  "currency": "HONE",
   "expires_in_seconds": 60,
   "rate_card": {
     "type_multiplier": 1.5,
@@ -313,7 +313,7 @@ Response:
 ```json
 {
   "query_id": "sdqrun_...",
-  "inference_id": "btcpc-...",
+  "inference_id": "hone-...",
   "charged": {
     "data": 0.742,
     "inference": 0.031
@@ -357,11 +357,11 @@ Use escrow for multi-step queries and AI-integrated queries.
 
 Recommended settlement entries:
 
-1. `ESCROW_LOCK` from consumer to `btcpc_escrow`.
+1. `ESCROW_LOCK` from consumer to `hone_escrow`.
 2. `ESCROW_RELEASE` to each sensor owner.
 3. `ESCROW_RELEASE` to `shindevlin`.
 4. `ESCROW_RELEASE` to `natoshisakamoto`.
-5. `ESCROW_RELEASE` to `btcpc_recycle`.
+5. `ESCROW_RELEASE` to `hone_recycle`.
 6. `ESCROW_REFUND` to payer for unused max quote.
 
 Reason: this keeps all payment movements chain-visible and uses existing ledger/stateStore mechanics.
@@ -507,7 +507,7 @@ Minimum coverage:
 - Bulk discount.
 - Multi-owner payout proportional to returned readings.
 - Protocol split to `shindevlin` and `natoshisakamoto`.
-- Remainder to `btcpc_recycle`.
+- Remainder to `hone_recycle`.
 - Escrow overquote refund.
 - Empty result costs zero or minimum query fee, depending policy.
 - AI endpoint refunds inference escrow on model failure.
@@ -517,7 +517,7 @@ Minimum coverage:
 ## Open Decisions
 
 - Exact basis point split. Current recommendation: 70% sensors, 20% protocol, 10% recycle.
-- Whether protocol fee goes directly to `shindevlin`/`natoshisakamoto` or through `btcpc_treasury`.
+- Whether protocol fee goes directly to `shindevlin`/`natoshisakamoto` or through `hone_treasury`.
 - Minimum charge for empty queries.
 - Whether raw GPS precision is ever sellable by default. Recommendation: no, require opt-in.
 - Whether enterprise invoices are off-chain PDFs or on-chain summaries only.

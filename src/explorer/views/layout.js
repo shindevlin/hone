@@ -6,7 +6,7 @@ function layout(title, content) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} | BTCPC Block Explorer</title>
+  <title>${title} | HONE Block Explorer</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -416,7 +416,7 @@ function layout(title, content) {
     <div class="header-inner">
       <a href="/" class="logo">
         <div class="logo-icon">B</div>
-        <div class="logo-text">BTCPC <span>Explorer</span></div>
+        <div class="logo-text">HONE <span>Explorer</span></div>
       </a>
       <nav>
         <a href="/">Explorer</a>

@@ -36,7 +36,7 @@ const {
 // ── Auth middleware ──
 const BOT_API_KEY = process.env.BOT_API_KEY;
 if (!BOT_API_KEY) {
-  console.error('[BTCPC] FATAL: BOT_API_KEY not set in .env — bot routes are disabled');
+  console.error('[HONE] FATAL: BOT_API_KEY not set in .env — bot routes are disabled');
 }
 
 function requireBotKey(req, res, next) {
@@ -90,7 +90,7 @@ router.get('/user', async (req, res) => {
 });
 
 // POST /api/bot/create { username, telegramId?, telegramUsername?, password? }
-// Creates a new BTCPC account from Telegram. Shows mnemonic ONCE. We don't save it.
+// Creates a new HONE account from Telegram. Shows mnemonic ONCE. We don't save it.
 // telegramId and password are both optional — backward compatible with old bot code.
 router.post('/create', async (req, res) => {
   try {
@@ -159,7 +159,7 @@ router.post('/create', async (req, res) => {
       wallet_balance: account.wallet_balance,
       delegated_balance: account.delegated_balance,
       faucet_note: account.faucet_note,
-      btcpc_address: account.chain_addresses.btcpc,
+      hone_address: account.chain_addresses.hone,
       public_keys: account.public_keys,
       role_private_keys: account.role_private_keys,
       chain_addresses: account.chain_addresses,
@@ -173,7 +173,7 @@ router.post('/create', async (req, res) => {
 
 // ── JWT helpers ──
 function signBotJwt(username) {
-  const secret = process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET;
+  const secret = process.env.JWT_SECRET || process.env.HONE_JWT_SECRET;
   if (!secret) throw new Error('JWT secret not initialized');
   return jwt.sign({ username, src: 'bot' }, secret, { expiresIn: '30d' });
 }
@@ -306,7 +306,7 @@ router.get('/addresses', async (req, res) => {
     res.json({
       username,
       addresses: {
-        btcpc: chainAddresses.btcpc || username,
+        hone: chainAddresses.hone || username,
         evm: chainAddresses.evm || null,
         solana: chainAddresses.solana || null,
         bitcoin: chainAddresses.bitcoin || null,
@@ -356,14 +356,14 @@ router.post('/onboard', async (req, res) => {
       claimFaucet: true,
     });
 
-    const apiKey = 'btcpc_' + crypto.randomBytes(32).toString('hex');
+    const apiKey = 'hone_' + crypto.randomBytes(32).toString('hex');
     const project = new Project({
       name: `openclaw/${username}`,
       repoUrl: `openclaw://${username}`,
       owner: username,
       repo: source,
       apiKey,
-      walletAddress: account.chain_addresses.btcpc,
+      walletAddress: account.chain_addresses.hone,
       balance: 0,
       verified: true,
       verifiedAt: new Date()
@@ -443,7 +443,7 @@ router.get('/balance', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     // Balance from stateStore (O(1), no Mongo round-trip)
-    const balance = stateStore.getBalance(user.username, 'BTCPC');
+    const balance = stateStore.getBalance(user.username, 'HONE');
     const nodeInfo = nodeRegistry.getNode(user.username);
     const staked = nodeInfo?.stake || 0;
     const stakePool = stateStore.getStakePool ? stateStore.getStakePool(user.username) : null;
@@ -452,9 +452,9 @@ router.get('/balance', async (req, res) => {
     const proofCount = userProofs.length;
     const dreams = await getDreamsForAccount(user.username);
     const dreamCount = dreams.length;
-    // Derive BTCPC address from stateStore account
+    // Derive HONE address from stateStore account
     const accountState = stateStore.getAccount ? stateStore.getAccount(user.username) : null;
-    const address = accountState?.chain_addresses?.btcpc || null;
+    const address = accountState?.chain_addresses?.hone || null;
 
     res.json({
       username: user.username,
@@ -486,12 +486,12 @@ router.post('/claim', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const balance = stateStore.getBalance(user.username, 'BTCPC');
-    if (balance > 0) return res.status(400).json({ error: `Still have ${balance} BTCPC. Use tokens before claiming.` });
-    const delegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(user.username, 'BTCPC') : 0;
+    const balance = stateStore.getBalance(user.username, 'HONE');
+    if (balance > 0) return res.status(400).json({ error: `Still have ${balance} HONE. Use tokens before claiming.` });
+    const delegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(user.username, 'HONE') : 0;
     if (delegatedBalance > 0) {
       return res.status(429).json({
-        error: `Still have ${delegatedBalance} delegated BTCPC. Use it for AI, sensor data, storage, or other network services before claiming more.`,
+        error: `Still have ${delegatedBalance} delegated HONE. Use it for AI, sensor data, storage, or other network services before claiming more.`,
         delegated_balance: delegatedBalance,
       });
     }
@@ -509,8 +509,8 @@ router.post('/claim', async (req, res) => {
 
     // Record on permanent ledger as delegated network-use faucet credit.
     const epoch = await ledger.getCurrentEpoch();
-    await ledger.recordDelegate('btcpc_faucet', user.username, 1, 'faucet', epoch);
-    const nextDelegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(user.username, 'BTCPC') : delegatedBalance + 1;
+    await ledger.recordDelegate('hone_faucet', user.username, 1, 'faucet', epoch);
+    const nextDelegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(user.username, 'HONE') : delegatedBalance + 1;
 
     res.json({
       success: true,
@@ -518,7 +518,7 @@ router.post('/claim', async (req, res) => {
       balance,
       delegated_balance: nextDelegatedBalance,
       firstClaim: isFirstClaim,
-      note: 'Delegated BTCPC is network-use only. It can pay for direct on-chain services, but cannot be transferred, sold, staked, or bridged.',
+      note: 'Delegated HONE is network-use only. It can pay for direct on-chain services, but cannot be transferred, sold, staked, or bridged.',
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -810,11 +810,11 @@ router.post('/inference', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     // Balance from stateStore (no Mongo round-trip for the balance check)
-    const balance = stateStore.getBalance(user.username, 'BTCPC');
+    const balance = stateStore.getBalance(user.username, 'HONE');
 
     const stakePool = stateStore.getStakePool ? stateStore.getStakePool(user.username) : null;
     if (!stakePool || (stakePool.staked_amount || 0) < 1) {
-      return res.status(400).json({ error: 'Need at least 1 BTCPC staked for inference' });
+      return res.status(400).json({ error: 'Need at least 1 HONE staked for inference' });
     }
     if (balance < 0.01) {
       return res.status(400).json({ error: `Insufficient balance: ${balance}` });
@@ -823,8 +823,8 @@ router.post('/inference', async (req, res) => {
     // Submit via internal inference API
     const axios = require('axios');
     const API_URL = 'http://localhost:' + (process.env.PORT || 3000);
-    const RELAY_KEY = process.env.BTCPC_RELAY_API_KEY;
-    if (!RELAY_KEY) return res.status(500).json({ error: 'BTCPC_RELAY_API_KEY not configured' });
+    const RELAY_KEY = process.env.HONE_RELAY_API_KEY;
+    if (!RELAY_KEY) return res.status(500).json({ error: 'HONE_RELAY_API_KEY not configured' });
 
     const submitRes = await axios.post(`${API_URL}/v1/inference/submit`, {
       model: model || 'qwen3.5:27b',
@@ -965,11 +965,11 @@ router.post('/create-token', async (req, res) => {
     if (!/^[A-Za-z0-9]+$/.test(symbol)) return res.status(400).json({ error: 'invalid token symbol' });
 
     const ledger = require('../services/ledger');
-    const balance = await ledger.getBalance(user.username, 'BTCPC');
-    const fee = 42; // 42 BTCPC flat fee, 42M supply standard
+    const balance = await ledger.getBalance(user.username, 'HONE');
+    const fee = 42; // 42 HONE flat fee, 42M supply standard
 
     if (balance < fee) {
-      return res.status(400).json({ error: `Insufficient balance. Need ${fee} BTCPC, have ${balance.toFixed(2)}` });
+      return res.status(400).json({ error: `Insufficient balance. Need ${fee} HONE, have ${balance.toFixed(2)}` });
     }
 
     const epoch = await ledger.getCurrentEpoch();
@@ -991,13 +991,13 @@ router.post('/create-token', async (req, res) => {
         fee,
         creator: user.username
       },
-      message: `Token ${symbol.toUpperCase()} created. 42M supply minted to ${user.username}. Fee: ${fee} BTCPC.`
+      message: `Token ${symbol.toUpperCase()} created. 42M supply minted to ${user.username}. Fee: ${fee} HONE.`
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ════════════════════════════════════════════════════════════════════
-// CHAIN LINK — Link external wallets (ETH, etc.) to BTCPC account
+// CHAIN LINK — Link external wallets (ETH, etc.) to HONE account
 // ════════════════════════════════════════════════════════════════════
 
 // POST /api/bot/link-chain { telegramId, chain, address }
@@ -1070,28 +1070,28 @@ router.get('/linked-addresses', async (req, res) => {
 // REDDIT LINKING
 // ════════════════════════════════════════════════════════════════════
 
-// POST /api/bot/reddit-link { redditUsername, btcpcUsername }
-// Step 1: Reddit user requests to link their BTCPC account
+// POST /api/bot/reddit-link { redditUsername, honeUsername }
+// Step 1: Reddit user requests to link their HONE account
 router.post('/reddit-link', async (req, res) => {
   try {
-    const objErr = rejectObjectInputs(req.body, ['redditUsername', 'btcpcUsername']);
+    const objErr = rejectObjectInputs(req.body, ['redditUsername', 'honeUsername']);
     if (objErr) return res.status(400).json({ error: objErr });
     const redditUser = sanitizeString(req.body.redditUsername, 50);
-    const btcpcUser = sanitizeString(req.body.btcpcUsername, 20);
-    if (!redditUser || !btcpcUser) return res.status(400).json({ error: 'redditUsername and btcpcUsername required' });
+    const honeUser = sanitizeString(req.body.honeUsername, 20);
+    if (!redditUser || !honeUser) return res.status(400).json({ error: 'redditUsername and honeUsername required' });
 
-    // Verify BTCPC account exists
+    // Verify HONE account exists
     const User = require('../models/User');
-    const user = await User.findOne({ username: btcpcUser });
-    if (!user) return res.status(404).json({ error: 'BTCPC account not found' });
+    const user = await User.findOne({ username: honeUser });
+    if (!user) return res.status(404).json({ error: 'HONE account not found' });
 
     const chainLink = require('../services/chainLink');
-    const challenge = chainLink.generateChallenge(btcpcUser, 'reddit', redditUser);
+    const challenge = chainLink.generateChallenge(honeUser, 'reddit', redditUser);
 
     res.json({
       challengeId: challenge.challengeId,
       code: challenge.challengeId, // For Reddit, the challenge ID IS the confirmation code
-      instructions: 'Confirm this link in the BTCPC Devvit app to prove you control this Reddit account',
+      instructions: 'Confirm this link in the HONE Devvit app to prove you control this Reddit account',
       expiresIn: challenge.expiresIn
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1099,7 +1099,7 @@ router.post('/reddit-link', async (req, res) => {
 
 // POST /api/bot/reddit-verify { challengeId, redditUsername, signature }
 // Step 2: Devvit app confirms the link with HMAC proof
-// The Devvit app computes HMAC(challengeId, BTCPC_DEVVIT_SECRET) as the signature
+// The Devvit app computes HMAC(challengeId, HONE_DEVVIT_SECRET) as the signature
 router.post('/reddit-verify', async (req, res) => {
   try {
     const objErr = rejectObjectInputs(req.body, ['challengeId', 'redditUsername', 'signature']);
@@ -1116,15 +1116,15 @@ router.post('/reddit-verify', async (req, res) => {
 
     res.json({
       success: true,
-      btcpcUsername: result.username,
+      honeUsername: result.username,
       redditUsername: result.address,
-      message: 'Reddit u/' + result.address + ' linked to BTCPC ' + result.username
+      message: 'Reddit u/' + result.address + ' linked to HONE ' + result.username
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // GET /api/bot/reddit-account?redditUsername=xxx
-// Look up BTCPC account by Reddit username
+// Look up HONE account by Reddit username
 router.get('/reddit-account', async (req, res) => {
   try {
     const redditUser = sanitizeString(req.query.redditUsername, 50);
@@ -1145,7 +1145,7 @@ router.get('/reddit-account', async (req, res) => {
       }
     }
 
-    if (!username) return res.status(404).json({ error: 'No BTCPC account linked to u/' + redditUser });
+    if (!username) return res.status(404).json({ error: 'No HONE account linked to u/' + redditUser });
 
     const linked = await chainLink.getLinkedAddresses(username);
 
@@ -1154,7 +1154,7 @@ router.get('/reddit-account', async (req, res) => {
     const balance = await ledger.getBalance(username);
 
     res.json({
-      btcpcUsername: username,
+      honeUsername: username,
       redditUsername: redditUser,
       balance,
       linked
@@ -1359,7 +1359,7 @@ router.post('/rotate-keys', async (req, res) => {
 
 // POST /api/bot/rotate-owner
 // Rotate the owner key — the private key NEVER touches the server.
-// The client (CLI or btcpc.net/rotate) signs a challenge with the CURRENT
+// The client (CLI or hone.net/rotate) signs a challenge with the CURRENT
 // owner private key locally, then sends only the new public key + signature.
 // Body:    { username, new_owner_public_key, challenge, signature }
 //   challenge = sha256(username + new_owner_public_key + timestamp)
@@ -1458,7 +1458,7 @@ router.post('/set-password', async (req, res) => {
 // ════════════════════════════════════════════════════════════════════
 
 // POST /api/bot/send { from_telegram_id, to_account, amount, password }
-// Transfer BTCPC between accounts. Requires password verification.
+// Transfer HONE between accounts. Requires password verification.
 router.post('/send', async (req, res) => {
   try {
     var objErr = rejectObjectInputs(req.body, ['from_telegram_id', 'to_account', 'amount', 'password']);
@@ -1495,9 +1495,9 @@ router.post('/send', async (req, res) => {
     if (!pwOk) return res.status(401).json({ error: 'Invalid password' });
 
     // Check balance
-    var balance = stateStore.getBalance(sender.username, 'BTCPC');
+    var balance = stateStore.getBalance(sender.username, 'HONE');
     if (balance < amount) {
-      return res.status(400).json({ error: 'Insufficient balance: ' + balance + ' BTCPC available' });
+      return res.status(400).json({ error: 'Insufficient balance: ' + balance + ' HONE available' });
     }
 
     var authorization = null;
@@ -1508,7 +1508,7 @@ router.post('/send', async (req, res) => {
       try {
         authorization = await privateAuthorization.verifyTransferAuthorization(
           sender.username,
-          { from: sender.username, to: toAccount, amount, token: 'BTCPC', memo: 'Telegram bot send' },
+          { from: sender.username, to: toAccount, amount, token: 'HONE', memo: 'Telegram bot send' },
           req.body.private_auth
         );
       } catch (authErr) {
@@ -1520,7 +1520,7 @@ router.post('/send', async (req, res) => {
     var epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
     var entry = authorization
       ? await ledger.recordAuthorizedTransfer(
-          sender.username, toAccount, amount, 'BTCPC', null, epoch,
+          sender.username, toAccount, amount, 'HONE', null, epoch,
           'Telegram bot send',
           {
             signedBy: 'private_auth',
@@ -1531,11 +1531,11 @@ router.post('/send', async (req, res) => {
           }
         )
       : await ledger.recordTransfer(
-          sender.username, toAccount, amount, 'BTCPC', null, epoch,
+          sender.username, toAccount, amount, 'HONE', null, epoch,
           'Telegram bot send'
         );
 
-    var newBalance = stateStore.getBalance(sender.username, 'BTCPC');
+    var newBalance = stateStore.getBalance(sender.username, 'HONE');
 
     res.json({
       success: true,
@@ -1548,7 +1548,7 @@ router.post('/send', async (req, res) => {
 });
 
 // POST /api/bot/import { telegram_id, mnemonic }
-// Import/link an existing BTCPC account by verifying mnemonic ownership.
+// Import/link an existing HONE account by verifying mnemonic ownership.
 // Mnemonic is used for verification only — never stored.
 router.post('/import', async (req, res) => {
   try {
@@ -1620,12 +1620,12 @@ router.post('/import', async (req, res) => {
 });
 
 // POST /api/bot/export-mnemonic — deliberately disabled.
-// Mnemonics are never stored on BTCPC servers.
+// Mnemonics are never stored on HONE servers.
 router.post('/export-mnemonic', async (_req, res) => {
   res.status(403).json({
-    error: 'Mnemonics are never stored on BTCPC servers.',
+    error: 'Mnemonics are never stored on HONE servers.',
     message: 'Your mnemonic was shown once when you created your account. '
-      + 'BTCPC never stores it. If you lost it, use btcpc.net/rotate to generate new keys.',
+      + 'HONE never stores it. If you lost it, use hone.net/rotate to generate new keys.',
   });
 });
 
@@ -1634,7 +1634,7 @@ router.post('/export-mnemonic', async (_req, res) => {
 // ════════════════════════════════════════════════════════════════════
 
 // GET /api/bot/earnings?telegramId=xxx  OR  ?account=xxx
-// Returns a breakdown of how an account is earning BTCPC, plus recent epochs.
+// Returns a breakdown of how an account is earning HONE, plus recent epochs.
 router.get('/earnings', async (req, res) => {
   try {
     let username;
