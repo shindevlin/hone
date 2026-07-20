@@ -5157,6 +5157,123 @@ mod tests {
             "root should be non-empty");
     }
 
+    // ── BUG-6: sweeper determinism + restart-safety ───────────────────────────
+
+    /// Seed identical ensemble/agent_session/vrf state on two independent chains,
+    /// then invoke the three sweepers moved off the 30s wall-clock timer
+    /// (`ensemble::sweep_expired`, `agent_session::sweep_expired`, `vrf::sweep_epoch`)
+    /// with the SAME quorum-agreed `epoch` parameter on both — proving the sweep
+    /// outcome depends only on that parameter, never on node-local wall-clock state.
+    fn seed_sweepable_state(chain: &Chain, label: &str) {
+        fund(chain, &format!("requester-{label}"), 1_000_000_000);
+        fund(chain, &format!("client-{label}"), 1_000_000_000);
+        fund(chain, &format!("committer-{label}"), 1_000_000_000);
+
+        // Ensemble job with no votes — will expire with a refund at sweep time.
+        crate::ensemble::apply_job_post(chain, &LedgerEntry::EnsembleJobPost {
+            job_id: format!("job-{label}-0000001"),
+            requester: format!("requester-{label}"),
+            model: "qwen2.5:0.5b".to_string(),
+            input_hash: "abc123".to_string(),
+            max_fee: 100_000,
+            n_workers: 3,
+            epoch: 1,
+            nonce: 1,
+            signed_by: format!("requester-{label}"),
+            signature: None,
+        }).expect("ensemble job post");
+
+        // Agent session — will expire with an escrow refund at sweep time.
+        crate::agent_session::apply_open(chain, &LedgerEntry::AgentSessionOpen {
+            session_id: format!("sess-{label}-0000001"),
+            client: format!("client-{label}"),
+            client_pubkey: "deadbeef".to_string(),
+            model: "qwen2.5:0.5b".to_string(),
+            fee_escrow: 50_000,
+            epoch: 1,
+            nonce: 1,
+            signed_by: format!("client-{label}"),
+            system_prompt: None,
+            signature: None,
+        }, "server-pubkey-stub").expect("agent session open");
+
+        // VRF commit that is never revealed — will be slashed to the recycle
+        // fund at sweep time (2 finalized epochs after the commit epoch).
+        chain.store.state_set(&format!("clock_node:committer-{label}"), b"1")
+            .expect("register clock node");
+        crate::vrf::apply_commit(chain, &LedgerEntry::VrfCommit {
+            committer: format!("committer-{label}"),
+            commit_hash: "0".repeat(64),
+            epoch: 1,
+            nonce: 1,
+            signed_by: format!("committer-{label}"),
+            signature: None,
+        }).expect("vrf commit");
+    }
+
+    fn run_sweepers(chain: &Chain, epoch: u64) {
+        crate::ensemble::sweep_expired(chain, epoch);
+        crate::agent_session::sweep_expired(chain, epoch);
+        crate::vrf::sweep_epoch(chain, epoch);
+    }
+
+    #[test]
+    fn test_sweeper_determinism_two_nodes() {
+        let (a, _dir_a) = make_chain("sweep-det-a");
+        let (b, _dir_b) = make_chain("sweep-det-b");
+
+        // NOTE: label is shared ("x") on both chains so the seeded account/job/session
+        // keys are byte-identical, matching the "same quorum-agreed input" scenario the
+        // sweepers must handle deterministically.
+        seed_sweepable_state(&a, "x");
+        seed_sweepable_state(&b, "x");
+
+        // Sweep at a finalized epoch well past every expiry window (vote_deadline=4,
+        // vrf slash window=3, well clear at 25) — same epoch value on both nodes,
+        // exactly as the quorum-agreed finalized epoch is passed in production.
+        run_sweepers(&a, 25);
+        run_sweepers(&b, 25);
+
+        let root_a = a.store.balance_merkle_root();
+        let root_b = b.store.balance_merkle_root();
+        println!("[BUG-6] node-a state_root={root_a} node-b state_root={root_b}");
+        assert_eq!(root_a, root_b,
+            "sweeper determinism: state roots diverged under identical quorum-agreed epoch");
+    }
+
+    #[test]
+    fn test_sweeper_restart_safety() {
+        let (a, dir_a) = make_chain("sweep-restart-a");
+        seed_sweepable_state(&a, "r");
+
+        run_sweepers(&a, 25);
+        let root_before_restart = a.store.balance_merkle_root();
+
+        // Simulate a node restart: drop the in-memory Chain, reopen the RocksDB
+        // store from the same on-disk path.
+        drop(a);
+        let store_reopened = Store::open(dir_a.path()).expect("reopen store after restart");
+        let a2 = Chain::new(store_reopened, "node-restart-a".to_string(), "hone-testnet".to_string());
+
+        let root_after_restart = a2.store.balance_merkle_root();
+        println!("[BUG-6] pre-restart state_root={root_before_restart} post-restart state_root={root_after_restart}");
+        assert_eq!(root_before_restart, root_after_restart,
+            "state_root changed across restart with no new writes — persistence bug");
+
+        // Re-run the sweepers post-restart for the SAME epoch (simulating a node that
+        // crashed after sweeping but before its caller recorded the finalized-epoch
+        // done-marker, and so re-drives emit_epoch_rewards for that epoch on reboot).
+        // Each sweeper's internal per-record guard (job.status != Voting,
+        // session.status != Open, commit.deposit_refunded / round.finalised) must make
+        // this a no-op.
+        run_sweepers(&a2, 25);
+        let root_after_resweep = a2.store.balance_merkle_root();
+        println!("[BUG-6] post-restart-re-sweep state_root={root_after_resweep}");
+        assert_eq!(root_after_restart, root_after_resweep,
+            "re-running sweepers post-restart for an already-swept epoch mutated balances \
+             — sweep is not idempotent, would double-credit/debit on crash-restart");
+    }
+
     // ── T1-7: Registered validator set quorum ────────────────────────────────
 
     /// EpochFinalize with a lower quorum is rejected when a higher-quorum
