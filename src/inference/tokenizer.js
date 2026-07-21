@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Tokenizer
+ * HONE Tokenizer
  * Shin Devlin
  *
  * Loads HuggingFace-format tokenizer.json files for real BPE tokenization.
@@ -40,7 +40,7 @@ async function load(model) {
   }
 
   if (!fs.existsSync(tokenizerPath)) {
-    console.warn(`[BTCPC Tokenizer] No tokenizer found for ${model}, using byte-level fallback`);
+    console.warn(`[HONE Tokenizer] No tokenizer found for ${model}, using byte-level fallback`);
     loaded[key] = createByteFallback();
     return loaded[key];
   }
@@ -48,7 +48,7 @@ async function load(model) {
   const data = JSON.parse(fs.readFileSync(tokenizerPath, "utf8"));
   const tokenizer = parseBPETokenizer(data);
   loaded[key] = tokenizer;
-  console.log(`[BTCPC Tokenizer] Loaded ${model}: ${tokenizer.vocabSize} tokens`);
+  console.log(`[HONE Tokenizer] Loaded ${model}: ${tokenizer.vocabSize} tokens`);
   return tokenizer;
 }
 
@@ -71,20 +71,20 @@ async function downloadTokenizer(model, key) {
 
   const repo = hfRepos[model] || hfRepos[model.split(":")[0]];
   if (!repo) {
-    console.warn(`[BTCPC Tokenizer] No HuggingFace repo mapped for ${model}`);
+    console.warn(`[HONE Tokenizer] No HuggingFace repo mapped for ${model}`);
     return;
   }
 
   const url = `https://huggingface.co/${repo}/resolve/main/tokenizer.json`;
-  console.log(`[BTCPC Tokenizer] Downloading ${url}...`);
+  console.log(`[HONE Tokenizer] Downloading ${url}...`);
 
   try {
     fs.mkdirSync(dir, { recursive: true });
     const res = await axios.get(url, { timeout: 30000, responseType: "arraybuffer" });
     fs.writeFileSync(path.join(dir, "tokenizer.json"), res.data);
-    console.log(`[BTCPC Tokenizer] Saved to ${dir}/tokenizer.json`);
+    console.log(`[HONE Tokenizer] Saved to ${dir}/tokenizer.json`);
   } catch (err) {
-    console.warn(`[BTCPC Tokenizer] Download failed: ${err.message}`);
+    console.warn(`[HONE Tokenizer] Download failed: ${err.message}`);
   }
 }
 

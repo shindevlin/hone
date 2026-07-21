@@ -2,7 +2,7 @@
 
 // Hermes Agent (Nous Research) adapter — https://github.com/nousresearch/hermes-agent
 // Hermes runs as a CLI: `hermes` interactive session.
-// We install our SOUL.md as a Hermes profile and register btcpc as a skill.
+// We install our SOUL.md as a Hermes profile and register hone as a skill.
 
 const { spawnSync, spawn } = require("child_process");
 const path = require("path");
@@ -20,10 +20,10 @@ function isAvailable() {
 function installSkill() {
   try {
     fs.mkdirSync(HERMES_SKILLS_DIR, { recursive: true });
-    const dest = path.join(HERMES_SKILLS_DIR, "btcpc.json");
+    const dest = path.join(HERMES_SKILLS_DIR, "hone.json");
     fs.copyFileSync(SKILL_SRC, dest);
-    console.log(`  ✓ BTCPC skill installed in Hermes at ${dest}`);
-    console.log("  Try: hermes 'what is my btcpc balance'");
+    console.log(`  ✓ HONE skill installed in Hermes at ${dest}`);
+    console.log("  Try: hermes 'what is my hone balance'");
     return true;
   } catch (e) {
     console.warn(`  ⚠ Could not install Hermes skill: ${e.message}`);
@@ -42,7 +42,7 @@ function install() {
 // Launch an interactive Hermes session pre-loaded with our SOUL.md as context.
 // Returns a child process handle for the session.
 function startSession(soulPath) {
-  const args = ["--profile", soulPath, "--skill", "btcpc"];
+  const args = ["--profile", soulPath, "--skill", "hone"];
   return spawn("hermes", args, { stdio: "inherit" });
 }
 

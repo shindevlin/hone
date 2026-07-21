@@ -19,7 +19,7 @@ const crypto = require("crypto");
 const os = require("os");
 
 const HEADLESS = true; // always — buyer sessions are private; miner must not watch
-const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const BLOB_DIR = process.env.HONE_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
 const { assertUrlAllowed } = require("./browserContentFilter");
 const SCREENSHOT_QUALITY = 80; // JPEG quality for screenshots
 const DEFAULT_TIMEOUT_MS = 10000;
@@ -56,7 +56,7 @@ class BrowserSession {
     });
     const ctx = await this.browser.newContext({
       viewport: this.viewport,
-      userAgent: "Mozilla/5.0 (compatible; BTCPCBrowserAgent/1.0)",
+      userAgent: "Mozilla/5.0 (compatible; HONEBrowserAgent/1.0)",
     });
     this.page = await ctx.newPage();
     console.log(`[BrowserRunner] Job ${this.jobId} — launched (headless: ${HEADLESS})`);
@@ -70,7 +70,7 @@ class BrowserSession {
 
   async takeScreenshot() {
     const buf = await this.page.screenshot({ type: "jpeg", quality: SCREENSHOT_QUALITY });
-    // Store as BTCPC-FS blob: sha256(content) → filename
+    // Store as HONE-FS blob: sha256(content) → filename
     const cid = crypto.createHash("sha256").update(buf).digest("hex");
     if (!fs.existsSync(BLOB_DIR)) {
       fs.mkdirSync(BLOB_DIR, { recursive: true });

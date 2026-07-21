@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>BTCPC Doubling Schedule — Era & Supply Projection</title>
+<title>HONE Doubling Schedule — Era & Supply Projection</title>
 <style>
   :root {
     --bg: #0d0d0d;
@@ -61,11 +61,11 @@
 </head>
 <body>
 
-<h1>BTCPC Doubling Schedule</h1>
+<h1>HONE Doubling Schedule</h1>
 <p style="margin-bottom:20px;">
   <span class="tag btc">BTC-Aligned</span>
   <span class="tag era">5 Eras</span>
-  <span class="tag">42,000,000 BTCPC Supply</span>
+  <span class="tag">42,000,000 HONE Supply</span>
   <span class="tag">Genesis: 2026-05-01 11:00 UTC</span>
 </p>
 
@@ -73,17 +73,17 @@
   <div class="card">
     <div class="card-title">Total Supply</div>
     <div class="card-val">42,000,000</div>
-    <div class="card-sub">BTCPC &mdash; fully mined by ~2140-10-01, same day as Bitcoin's last satoshi</div>
+    <div class="card-sub">HONE &mdash; fully mined by ~2140-10-01, same day as Bitcoin's last satoshi</div>
   </div>
   <div class="card">
     <div class="card-title">Mechanism</div>
-    <div class="card-val">2 BTCPC</div>
+    <div class="card-val">2 HONE</div>
     <div class="card-sub">constant reward per epoch &mdash; epoch duration doubles each era (not reward)</div>
   </div>
   <div class="card">
     <div class="card-title">Epochs per Era</div>
     <div class="card-val">4,200,000</div>
-    <div class="card-sub">5 eras × 4,200,000 × 2 BTCPC = 42,000,000 BTCPC total</div>
+    <div class="card-sub">5 eras × 4,200,000 × 2 HONE = 42,000,000 HONE total</div>
   </div>
   <div class="card">
     <div class="card-title">Era 0 Epoch Duration</div>
@@ -106,8 +106,8 @@ The values below assume the compile-time constant <code style="color:#aaa;backgr
       <th>Duration</th>
       <th>Epoch Duration</th>
       <th>Epochs/Day</th>
-      <th>BTCPC/Day</th>
-      <th>BTCPC in Era</th>
+      <th>HONE/Day</th>
+      <th>HONE in Era</th>
       <th>Cumulative</th>
       <th>% Supply</th>
     </tr>
@@ -298,7 +298,7 @@ The values below assume the compile-time constant <code style="color:#aaa;backgr
       <th>Year</th>
       <th>Era</th>
       <th>Approx Daily Rate</th>
-      <th>Cumulative BTCPC</th>
+      <th>Cumulative HONE</th>
       <th>% of 42M</th>
       <th>Remaining</th>
     </tr>
@@ -332,7 +332,7 @@ The values below assume the compile-time constant <code style="color:#aaa;backgr
 <h2>Oracle Layer — Automatic BTC Tracking</h2>
 <div class="oracle-box">
   <h3>No governance. No voting. Automatic.</h3>
-  <p style="color:#888;font-size:13px;margin-bottom:10px;">BTCPC nodes that also run a Bitcoin full node submit <code>BtcHeightReport</code> entries to the chain. These are used to refine the target end timestamp automatically, with no human intervention required.</p>
+  <p style="color:#888;font-size:13px;margin-bottom:10px;">HONE nodes that also run a Bitcoin full node submit <code>BtcHeightReport</code> entries to the chain. These are used to refine the target end timestamp automatically, with no human intervention required.</p>
   <ul>
     <li>Signed by an active <strong>clock-node</strong> posting key (trusted role)</li>
     <li>Height must be monotonically increasing — rewinding rejected</li>
@@ -341,7 +341,7 @@ The values below assume the compile-time constant <code style="color:#aaa;backgr
     <li>Chain holds 7-entry rolling median → stored as <code>chain_param:btc_end_ms</code></li>
     <li>Era calibration reads <code>chain_param:btc_end_ms</code> in preference to the compile-time constant</li>
   </ul>
-  <p style="color:#888;font-size:12px;margin-top:10px;">Precision grows each decade: by era 4 (starting 2081) Bitcoin's block schedule is known to within weeks, so BTCPC's final epoch durations converge to within ±1 epoch (~7 minutes) of the BTC last-coin event.</p>
+  <p style="color:#888;font-size:12px;margin-top:10px;">Precision grows each decade: by era 4 (starting 2081) Bitcoin's block schedule is known to within weeks, so HONE's final epoch durations converge to within ±1 epoch (~7 minutes) of the BTC last-coin event.</p>
 </div>
 
 <h2>Key Numbers</h2>
@@ -351,21 +351,21 @@ The values below assume the compile-time constant <code style="color:#aaa;backgr
   </thead>
   <tbody>
     <tr><td><code style="color:#aaa;">DOUBLING_INTERVAL</code></td><td class="num">4,200,000 epochs</td><td>Epochs per era</td></tr>
-    <tr><td><code style="color:#aaa;">BLOCK_REWARD_DREAMS</code></td><td class="num">20,000,000,000</td><td>2 BTCPC per epoch (constant, all eras)</td></tr>
-    <tr><td><code style="color:#aaa;">SUPPLY_CAP_DREAMS</code></td><td class="num">420,000,000,000,000,000</td><td>42,000,000 BTCPC total</td></tr>
+    <tr><td><code style="color:#aaa;">BLOCK_REWARD_DREAMS</code></td><td class="num">20,000,000,000</td><td>2 HONE per epoch (constant, all eras)</td></tr>
+    <tr><td><code style="color:#aaa;">SUPPLY_CAP_DREAMS</code></td><td class="num">420,000,000,000,000,000</td><td>42,000,000 HONE total</td></tr>
     <tr><td><code style="color:#aaa;">RECYCLE_ERA</code></td><td class="num">5</td><td>First era with no new supply</td></tr>
     <tr><td><code style="color:#aaa;">INITIAL_EPOCH_MS</code></td><td class="num">30,000 ms</td><td>Era 0 only; fixed</td></tr>
     <tr><td><code style="color:#aaa;">BTC_GENESIS_MS</code></td><td class="num">1,231,006,505,000</td><td>2009-01-03 18:15:05 UTC</td></tr>
     <tr><td><code style="color:#aaa;">BTC_LAST_BLOCK</code></td><td class="num">6,930,000</td><td>Block where subsidy rounds to 0 satoshis</td></tr>
     <tr><td><code style="color:#aaa;">BTC_PROJECTED_END_MS</code></td><td class="num">5,389,006,505,000</td><td>≈ 2140-10-01 18:15 UTC</td></tr>
     <tr><td>Genesis timestamp</td><td class="num">1,777,633,200,000 ms</td><td>2026-05-01 11:00:00 UTC (noon Ireland, UTC+1)</td></tr>
-    <tr><td>Era 0 supply</td><td class="num">8,400,000 BTCPC</td><td>= 20% of total</td></tr>
-    <tr><td>Dreams per BTCPC</td><td class="num">10,000,000,000</td><td>10<sup>10</sup> (like satoshis to BTC)</td></tr>
+    <tr><td>Era 0 supply</td><td class="num">8,400,000 HONE</td><td>= 20% of total</td></tr>
+    <tr><td>Dreams per HONE</td><td class="num">10,000,000,000</td><td>10<sup>10</sup> (like satoshis to BTC)</td></tr>
   </tbody>
 </table>
 
 <p class="footnote" style="margin-top:24px;">
-  Generated for BTCPC — <a href="BTCPC_WHITEPAPER.md" style="color:#4da6ff;">See Whitepaper §1.2.1</a> for full Bitcoin Supply Alignment specification.<br>
+  Generated for HONE — <a href="HONE_WHITEPAPER.md" style="color:#4da6ff;">See Whitepaper §1.2.1</a> for full Bitcoin Supply Alignment specification.<br>
   Dates are UTC. Era 1–4 endpoints will shift slightly as oracle reports refine <code>chain_param:btc_end_ms</code> over decades.
 </p>
 

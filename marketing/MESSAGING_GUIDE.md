@@ -2,7 +2,7 @@
 
 ## Brand Voice
 
-BTCPC's voice is **confident, technical but accessible, and slightly irreverent**. We know what we've built is significant, but we don't take ourselves too seriously. The "42" supply is a Douglas Adams joke — we're serious engineers who don't forget to have fun.
+HONE's voice is **confident, technical but accessible, and slightly irreverent**. We know what we've built is significant, but we don't take ourselves too seriously. The "42" supply is a Douglas Adams joke — we're serious engineers who don't forget to have fun.
 
 ### Do
 - Use plain English first, technical terms second
@@ -33,22 +33,22 @@ BTCPC's voice is **confident, technical but accessible, and slightly irreverent*
 
 ### 1. Crypto Natives
 **Who:** People who already hold crypto, understand Bitcoin, follow DeFi/NFTs
-**Message:** BTCPC is the next evolution of Proof of Work. Instead of wasting energy on hash puzzles, miners earn by providing real AI compute. 42M supply. Cross-chain from day one.
+**Message:** HONE is the next evolution of Proof of Work. Instead of wasting energy on hash puzzles, miners earn by providing real AI compute. 42M supply. Cross-chain from day one.
 **Channels:** Crypto Twitter/X, Discord, Telegram, CoinDesk, Decrypt
 
 ### 2. AI Builders / Developers
 **Who:** Developers building AI-powered apps, frustrated with OpenAI pricing/censorship
-**Message:** Decentralized inference API. Pay per use in BTCPC tokens. No rate limits, no content filtering, no API keys from a corporation. Run any open-source model.
+**Message:** Decentralized inference API. Pay per use in HONE tokens. No rate limits, no content filtering, no API keys from a corporation. Run any open-source model.
 **Channels:** HackerNews, GitHub, dev conferences, Reddit r/LocalLLaMA
 
 ### 3. GPU Owners / Gamers
 **Who:** People with powerful GPUs sitting idle (gamers, researchers, hobbyists)
-**Message:** Your GPU earns money while you sleep. Install the miner, let it run when you're not gaming. Auto-throttles when you're at the keyboard. Mine BTCPC + tokens on 5 other chains.
+**Message:** Your GPU earns money while you sleep. Install the miner, let it run when you're not gaming. Auto-throttles when you're at the keyboard. Mine HONE + tokens on 5 other chains.
 **Channels:** Reddit r/pcmasterrace, YouTube tech channels, gaming forums
 
 ### 4. Environmental / ESG Audiences
 **Who:** People concerned about crypto's environmental impact
-**Message:** BTCPC proves that blockchain mining can produce useful output alongside security. Every watt of energy produces useful AI output — real answers to real questions. The greenest mining model in crypto.
+**Message:** HONE proves that blockchain mining can produce useful output alongside security. Every watt of energy produces useful AI output — real answers to real questions. The greenest mining model in crypto.
 **Channels:** ESG publications, sustainability conferences, mainstream tech press
 
 ### 5. Investors / VCs
@@ -59,23 +59,23 @@ BTCPC's voice is **confident, technical but accessible, and slightly irreverent*
 ## Content Calendar Ideas
 
 ### Launch Phase (Now)
-- "What is BTCPC" explainer video (60 seconds)
+- "What is HONE" explainer video (60 seconds)
 - "How mining works" animated infographic
 - Genesis story blog post ("The chain that dreamed itself into existence")
 - Developer quickstart guide
 - Telegram bot demo video
 
 ### Growth Phase
-- "How I earn BTCPC while gaming" user story
+- "How I earn HONE while gaming" user story
 - "Clock node on a Raspberry Pi" tutorial
 - Cross-chain liquidity explainer
-- Comparison: BTCPC vs traditional cloud AI pricing
+- Comparison: HONE vs traditional cloud AI pricing
 - Interview with the founder
 
 ### Community Phase
 - Miner leaderboard / stats page
 - Genesis Dream NFT showcase
-- Community-built apps using BTCPC inference
+- Community-built apps using HONE inference
 - Bug bounty program announcement
 - Hackathon sponsorship
 

@@ -1,10 +1,10 @@
-# BTCPC v3.0 Launch Plan
+# HONE v3.0 Launch Plan
 
 > Build for millions. Restart clean. Go public.
 
 ## Overview
 
-This plan takes BTCPC from the current 3-node dev network to a public
+This plan takes HONE from the current 3-node dev network to a public
 chain designed for millions of users. Five scaling phases ship BEFORE
 the chain restarts at epoch 0. Then we go public, deploy Nebra gateways,
 update local projects, and anchor to external chains.
@@ -19,7 +19,7 @@ update local projects, and anchor to external chains.
 
 **Changes:**
 - `EPOCH_DURATION_MS`: 300,000 → 30,000
-- `bin/btcpc-clock`: update `computeEpochNumber` timing, heartbeat intervals
+- `bin/hone-clock`: update `computeEpochNumber` timing, heartbeat intervals
 - `src/chain/blockSizeCap.js`: replace fixed 1 MB with adaptive cap
   - Start at 1 MB
   - If block is >50% full: next block cap = min(current × 1.25, 32 MB)
@@ -29,7 +29,7 @@ update local projects, and anchor to external chains.
 - `src/services/epochManager.js`: update interval
 - Emission schedule: block reward per epoch shrinks proportionally
   (same annual emission, 10× more epochs per year → 1/10 per epoch)
-  Genesis reward: ~243 BTCPC/5min → ~24.3 BTCPC/30s
+  Genesis reward: ~243 HONE/5min → ~24.3 HONE/30s
 
 **Tests:** epoch timing, adaptive cap growth/shrink, emission math
 
@@ -59,16 +59,16 @@ update local projects, and anchor to external chains.
 - Peer scoring: nodes that relay invalid/unsigned messages get deprioritized
 
 **Finality anchoring Solidity contracts:**
-- `contracts/BTCPCAnchor.sol` — receives state root hashes from anchor submitters
+- `contracts/HONEAnchor.sol` — receives state root hashes from anchor submitters
   - `submitAnchor(uint256 epoch, bytes32 stateRoot, bytes signature)` — verifies ECDSA signature from a registered authority
   - `getAnchor(uint256 epoch)` → `(bytes32 stateRoot, address submitter, uint256 timestamp)`
   - Deploy on: Base, Arbitrum, Ethereum, Bitcoin (via Stacks or ordinals)
-- `contracts/wBTCPC.sol` — ERC20 for the bridge (v2.16-alpha spec, 4.2M per chain)
+- `contracts/wHONE.sol` — ERC20 for the bridge (v2.16-alpha spec, 4.2M per chain)
   - Constructor mints 4,200,000 to bridge reserve address
   - No `mint()`, no `burn()`, just standard ERC20 transfers
   - Immutable: no admin, no upgrade, no pause
 - `contracts/BridgeLock.sol` — source-side lock contract
-  - `lockForWrap(uint256 amount, uint256 destChainId)` — locks BTCPC native, emits event for the bridge relay
+  - `lockForWrap(uint256 amount, uint256 destChainId)` — locks HONE native, emits event for the bridge relay
   - `unlockFromUnwrap(address recipient, uint256 amount)` — called by bridge relay after unwrap verification
 
 **Tests:** Hardhat/Foundry test suite for all contracts
@@ -117,7 +117,7 @@ The current whitepaper (`docs/HONE_WHITEPAPER.md`, 821 lines) reflects v0.3 from
 - Proof of Compute consensus (not PoW, not PoS — machines earn by doing useful work)
 - Five-pool emission model (60/10/5/15/10 split)
 - No Burn All Recycle economics
-- BTCPC-FS content-addressed storage
+- HONE-FS content-addressed storage
 - Stateless + stateful compute hosting
 - IoT sensor mesh + LoRa gateways
 - Lock-and-recycle cross-chain bridge
@@ -139,7 +139,7 @@ This whitepaper gets inscribed in Dream #0 of the new chain.
    - Dream #0: new whitepaper inscription
    - 19 × ACCOUNT_CREATE (preserving all keys)
    - 19 × GENESIS_MINT (preserving exact balances)
-   - System accounts: btcpc_recycle, btcpc_treasury
+   - System accounts: hone_recycle, hone_treasury
 4. Writes to `data/genesis-migration.json`
 
 **`scripts/reset-chain.js`:**
@@ -153,20 +153,20 @@ This whitepaper gets inscribed in Dream #0 of the new chain.
 
 **Target hardware:** Nebra Helium Indoor/Outdoor Hotspot (ARM-based, runs Linux)
 
-**`bin/btcpc-nebra`:**
+**`bin/hone-nebra`:**
 1. Detects hardware (ARM arch, LoRa concentrator chip)
 2. Installs Node.js if missing (via nvm)
-3. Clones btcpc repo (needs git + network)
+3. Clones hone repo (needs git + network)
 4. Configures as: `HONE_ROLES=clock,storage,sensor`
 5. Sets up LoRa packet forwarder to listen for sensor packets
 6. Registers as gateway via `POST /api/gateways`
-7. Starts `bin/btcpc-all` as a systemd service
+7. Starts `bin/hone-all` as a systemd service
 8. First Nebra belongs to shin → `HONE_MINER=shindevlin`
 
 **Setup instructions** (step-by-step for the user):
 1. SSH into the Nebra: `ssh root@<nebra-ip>`
 2. Run: `curl -fsSL https://honemesh.net/nebra-install.sh | bash`
-3. Enter your BTCPC username when prompted
+3. Enter your HONE username when prompted
 4. The script handles everything else (Node, git clone, LoRa config, systemd service)
 
 **`website/nebra-install.sh`:** hosted installer for Nebra, similar pattern to install.sh but ARM-specific.
@@ -183,13 +183,13 @@ This whitepaper gets inscribed in Dream #0 of the new chain.
 
 ### Local project updates
 
-**`~/repos/btcpcbot/`:** (Telegram wallet bot)
+**`~/repos/honebot/`:** (Telegram wallet bot)
 - Update API calls to use current endpoints
 - Add inference job submission: bot can send `/infer <prompt>` → creates an InferenceJob → miners earn from real work
-- Add auto-update: `scripts/auto-update.sh` does `git pull origin main && npm install && systemctl restart btcpcbot`
+- Add auto-update: `scripts/auto-update.sh` does `git pull origin main && npm install && systemctl restart honebot`
 - Cron: every 15 minutes
 
-**`~/repos/btcpcwalletbot/`:** (Telegram buy bot)
+**`~/repos/honewalletbot/`:** (Telegram buy bot)
 - Same auto-update pattern
 - Add bridge commands: `/wrap <amount> <chain>`, `/unwrap <amount>`
 - Add sensor commands: `/sensors`, `/readings <sensor-id>`
@@ -222,7 +222,7 @@ Step 15: Announce on Substack + Telegram + Reddit
 Step 16: Phase 3 — P2P mesh + Solidity contracts for anchoring + bridge
 Step 17: Phase 4 — Snapshot sync protocol
 Step 18: Phase 5 — Sharding (when TPS demands it)
-Step 19: DEX liquidity provisioning (Uniswap V3 pools for wBTCPC)
+Step 19: DEX liquidity provisioning (Uniswap V3 pools for wHONE)
 Step 20: SDK + developer documentation site
 Step 21: Native Windows .exe installer (Inno Setup)
 Step 22: Mobile app (React Native — balance, sensor data, mining status)
@@ -245,17 +245,17 @@ Estimated time to Step 10 (go public): 2-3 more sessions if we keep this pace.
 ## Post-Launch Roadmap — Hardware + Partnerships
 
 ### Flipper Zero integration (post-genesis)
-- Custom firmware for Flipper Zero as a BTCPC hardware wallet + mobile sensor
+- Custom firmware for Flipper Zero as a HONE hardware wallet + mobile sensor
 - NFC tap-to-authenticate: tap Flipper to sign transactions instead of passwords
 - GPIO sensor input: connect DHT22/BME280 via GPIO pins → mobile IoT data collection
 - Sub-GHz radio: short-range sensor receiver (~100m) for environments without LoRa coverage
-- BLE relay: bridge BLE sensor beacons to BTCPC network
-- Flipper becomes a pocket-sized BTCPC node that earns IoT rewards while walking around
+- BLE relay: bridge BLE sensor beacons to HONE network
+- Flipper becomes a pocket-sized HONE node that earns IoT rewards while walking around
 
 ### ADS-B flight tracking (Wingbits integration)
 - $25 USB ADS-B dongle plugged into Nebra's USB port
 - Receives airplane transponder signals → earns WINGS tokens
-- Same device (Nebra) earns BTCPC IoT rewards + Wingbits WINGS simultaneously
+- Same device (Nebra) earns HONE IoT rewards + Wingbits WINGS simultaneously
 - Hyfix Wingbits serial discovered: REDACTED_SERIAL
 
 ### Additional LoRa sensors
@@ -272,7 +272,7 @@ Estimated time to Step 10 (go public): 2-3 more sessions if we keep this pace.
 
 ### Paid data API (api.honemesh.net)
 - REST API selling sensor data to external consumers
-- Fiat (Stripe) + stablecoin + BTCPC payment options
+- Fiat (Stripe) + stablecoin + HONE payment options
 - Pricing tiers: free (100 calls/day), developer ($10/mo), enterprise (custom)
 - Revenue split: 70% data owner (gateway/sensor) / 20% recycle / 10% storage hosts
 - GNSS correction data: highest value ($500-5000/mo for precision positioning)
@@ -281,10 +281,10 @@ Estimated time to Step 10 (go public): 2-3 more sessions if we keep this pace.
 
 ### Cross-DePIN aggregator
 - Single device (Nebra + sensors + Hyfix) earns from multiple DePIN networks:
-  - BTCPC (IoT + clock + storage rewards)
+  - HONE (IoT + clock + storage rewards)
   - GEODNET (GEOD tokens for GNSS corrections)
   - RTK Direct (RTK tokens for GNSS data)
   - onocoy (ONO tokens for GNSS coverage)
   - Wingbits (WINGS tokens for ADS-B flight tracking)
   - WeatherXM (WXM tokens for weather data — needs weather station)
-- BTCPC chain monitors all earnings across networks via cross-chain address monitoring
+- HONE chain monitors all earnings across networks via cross-chain address monitoring

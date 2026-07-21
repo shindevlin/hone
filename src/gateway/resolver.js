@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Gateway Resolver — v2.10.2
+ * HONE Gateway Resolver — v2.10.2
  * Shin Devlin
  *
  * Pure data-layer module for turning gateway URLs into structured resolved
@@ -19,7 +19,7 @@
  *
  * Trust model: always reads from the local stateStore. An optional
  * remoteClient.js (future) provides the same interface but queries a
- * remote BTCPC node via JSON-RPC for lightweight gateway deployments.
+ * remote HONE node via JSON-RPC for lightweight gateway deployments.
  */
 
 const crypto = require('crypto');

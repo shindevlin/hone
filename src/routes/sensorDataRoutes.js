@@ -209,7 +209,7 @@ router.get("/availability", (req, res) => {
   const availability = Object.entries(typeCounts).map(([type, count]) => ({
     type,
     sensor_count: count,
-    price_per_reading_btcpc: rateCard && rateCard.price_per_reading
+    price_per_reading_hone: rateCard && rateCard.price_per_reading
       ? rateCard.price_per_reading[type] || rateCard.price_per_reading.default
       : null,
   }));

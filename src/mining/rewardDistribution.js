@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Block Emission — fully dynamic reward distribution
+ * HONE Block Emission — fully dynamic reward distribution
  * Shin Devlin
  *
  * Every pool floats between 0% and 99.9% of block reward — no floors,
@@ -51,7 +51,7 @@
  *     storageWork:   { [host]: number }      // bytes delivered (optional)
  *     sensors:       string[]               // ACTIVE sensors — liveness pre-filtered
  *     sensorWork:    { [owner]: number }     // readings delivered — liveness signal (optional)
- *     sensorRevenue: { [owner]: number }     // BTCPC from data purchases — primary signal (optional)
+ *     sensorRevenue: { [owner]: number }     // HONE from data purchases — primary signal (optional)
  *     gateways:      string[]
  *     gatewayWork:   { [owner]: number }     // packets relayed (optional)
  *     serviceHosts:  string[]
@@ -74,7 +74,7 @@ const SERVICE_SCORE_PER_HOST  = 2500;
 const VERIFIER_SCORE_PER_CHECK   = 300;   // per verification performed
 const STORAGE_SCORE_PER_MB       = 2;     // per MB delivered (bytes / 1048576)
 const SENSOR_BASE_SCORE_PER_NODE      = 100;  // small liveness base per active sensor
-const SENSOR_REVENUE_MULTIPLIER       = 5000; // 1 BTCPC in sales → 5000 score points
+const SENSOR_REVENUE_MULTIPLIER       = 5000; // 1 HONE in sales → 5000 score points
 const SENSOR_SCORE_PER_READING        = 50;   // proxy only — used when no revenue data
 const GATEWAY_SCORE_PER_PACKET   = 15;    // per packet relayed
 const SERVICE_SCORE_PER_REQUEST  = 25;    // per request served
@@ -177,7 +177,7 @@ function distributeBlockReward(blockReward, participants) {
       rewards.push({ miner: t, amount: share, type: 'testnet' });
     }
   } else {
-    rewards.push({ miner: 'btcpc_recycle', amount: testnetPool, type: 'recycle' });
+    rewards.push({ miner: 'hone_recycle', amount: testnetPool, type: 'recycle' });
   }
 
   // ── 2. Work scores — fully demand-driven ──────────────────────────────
@@ -212,11 +212,11 @@ function distributeBlockReward(blockReward, participants) {
 
   // ── Nothing active — recycle the distributable pool ───────────────────
   if (totalScore === 0) {
-    rewards.push({ miner: 'btcpc_recycle', amount: distributable, type: 'recycle' });
+    rewards.push({ miner: 'hone_recycle', amount: distributable, type: 'recycle' });
     const paid = rewards.reduce((s, r) => s + r.amount, 0);
     const dust = round(blockReward - paid);
     if (Math.abs(dust) > 1e-9) {
-      rewards.push({ miner: 'btcpc_recycle', amount: Math.abs(dust), type: 'recycle' });
+      rewards.push({ miner: 'hone_recycle', amount: Math.abs(dust), type: 'recycle' });
     }
     return rewards;
   }
@@ -284,7 +284,7 @@ function distributeBlockReward(blockReward, participants) {
   const paid = rewards.reduce((s, r) => s + r.amount, 0);
   const dust = round(blockReward - paid);
   if (Math.abs(dust) > 1e-9) {
-    rewards.push({ miner: 'btcpc_recycle', amount: Math.abs(dust), type: 'recycle' });
+    rewards.push({ miner: 'hone_recycle', amount: Math.abs(dust), type: 'recycle' });
   }
 
   return rewards;

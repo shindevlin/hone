@@ -33,7 +33,7 @@ function dashboard(data) {
     <tr>
       <td><a href="/block/${e.epoch_number}">${e.epoch_number}</a></td>
       <td><span class="status status-${escapeHtml(e.status)}">${escapeHtml(e.status)}</span></td>
-      <td class="amount">${formatNumber(e.block_reward)} BTCPC</td>
+      <td class="amount">${formatNumber(e.block_reward)} HONE</td>
       <td>${formatNumber(e.total_work)}</td>
       <td>${(e.commitments || []).length}</td>
       <td>${formatDate(e.started_at)}</td>
@@ -45,7 +45,7 @@ function dashboard(data) {
       <td><span class="type-badge type-${escapeHtml(t.type)}">${escapeHtml(t.type.replace("_", " "))}</span></td>
       <td><a href="/account/${encodeURIComponent(t.from)}">${escapeHtml(t.from)}</a></td>
       <td><a href="/account/${encodeURIComponent(t.to)}">${escapeHtml(t.to)}</a></td>
-      <td class="amount">${formatNumber(t.amount)} BTCPC</td>
+      <td class="amount">${formatNumber(t.amount)} HONE</td>
       <td>${formatDate(t.timestamp)}</td>
     </tr>
   `).join("");
@@ -66,7 +66,7 @@ function dashboard(data) {
       <div class="stat-card">
         <div class="stat-label">Total Supply</div>
         <div class="stat-value">${formatNumber(totalSupply)}</div>
-        <div class="stat-sub">BTCPC</div>
+        <div class="stat-sub">HONE</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Total Mined</div>
@@ -82,7 +82,7 @@ function dashboard(data) {
       <div class="stat-card">
         <div class="stat-label">Block Reward</div>
         <div class="stat-value accent">${currentPeriod ? formatNumber(currentPeriod.reward_per_epoch) : "--"}</div>
-        <div class="stat-sub">BTCPC / epoch</div>
+        <div class="stat-sub">HONE / epoch</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Active Miners</div>
@@ -92,7 +92,7 @@ function dashboard(data) {
       <div class="stat-card">
         <div class="stat-label">Total Staked</div>
         <div class="stat-value">${formatNumber(totalStaked)}</div>
-        <div class="stat-sub">BTCPC locked</div>
+        <div class="stat-sub">HONE locked</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Mempool Size</div>

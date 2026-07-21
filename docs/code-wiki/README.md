@@ -1,6 +1,6 @@
 # Code Wiki
 
-This is the generated map of the BTCPC codebase.
+This is the generated map of the HONE codebase.
 
 Use it when you want to find where a feature lives, what tests cover it, or how a request moves through the system.
 
@@ -8,10 +8,10 @@ Use it when you want to find where a feature lives, what tests cover it, or how 
 
 ## If You're New
 
-- [BTCPC docs index](../INDEX.md) - the human-written overview of the project.
+- [HONE docs index](../INDEX.md) - the human-written overview of the project.
 - [Full generated index](index.md) - every generated community page in one place.
 
-If you want the shortest path to understanding BTCPC, start with the docs index and then come back here when you need the code-level map.
+If you want the shortest path to understanding HONE, start with the docs index and then come back here when you need the code-level map.
 
 ## If You Are Debugging Or Building
 

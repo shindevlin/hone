@@ -1,5 +1,5 @@
 ---
-title: BTCPC Agent Workflows — plan & build
+title: HONE Agent Workflows — plan & build
 description: What the agent-workflow engine is today, the multi-step-workflow gap, and the plan to make agent workflows run non-fragile on live hone
 author: Shin Devlin
 status: plan → building
@@ -10,7 +10,7 @@ status: plan → building
 **Shin:** "agent workflows via the engine? plan them, build them, push them. use grouchly."
 
 ## 1. What exists today (verified 2026-07-04)
-BTCPC already has a real agent layer — more built than the verticals:
+HONE already has a real agent layer — more built than the verticals:
 
 - **Agent sessions** (`agent_session.rs`): persistent, encrypted, tool-capable AI
   sessions. Open → turns (ReAct) → close. Rolling 50-turn history + summary.
@@ -21,7 +21,7 @@ BTCPC already has a real agent layer — more built than the verticals:
   `{"tool":...}` calls, executes them, feeds results back. Up to 8 iterations.
   Tools: `chain_read` (query the chain), `web_search` (DuckDuckGo), `code_exec`
   (sandboxed 30s).
-- **Orchestrator** (`rust/btcpc-orchestrator`, `btcpc-orchestratord`): control
+- **Orchestrator** (`rust/hone-orchestrator`, `hone-orchestratord`): control
   plane — RuntimeJob/Worker/Attempt/Span/Attestation with signed attestations +
   verifier challenges. Runs API-tool jobs end-to-end today.
 - **Registry + credits** (`agent_registry.rs`): agents register, hold credit,

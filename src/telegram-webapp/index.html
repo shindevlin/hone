@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC Telegram Wallet</title>
+  <title>HONE Telegram Wallet</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
@@ -122,16 +122,16 @@
   <main class="shell">
     <div class="hero">
       <div>
-        <h1>BTCPC Wallet</h1>
+        <h1>HONE Wallet</h1>
         <div class="muted" id="userLine">Telegram Mini App</div>
       </div>
-      <div class="pill">btcpcscan</div>
+      <div class="pill">honescan</div>
     </div>
 
     <section class="card">
       <div class="label">Spendable Balance</div>
-      <div class="balance"><span id="balance">--</span> BTCPC</div>
-      <div class="muted">Staked: <span id="staked">--</span> BTCPC</div>
+      <div class="balance"><span id="balance">--</span> HONE</div>
+      <div class="muted">Staked: <span id="staked">--</span> HONE</div>
       <div class="row" style="margin-top: 14px;">
         <button id="refreshBtn">Refresh</button>
         <button class="secondary" id="heartbeatBtn">Heartbeat</button>
@@ -142,10 +142,10 @@
       <section class="card">
         <div class="label">Send Tokens</div>
         <div class="stack">
-          <input id="toAddress" placeholder="Recipient BTCPC address">
+          <input id="toAddress" placeholder="Recipient HONE address">
           <input id="amount" type="number" min="0" step="0.00000001" placeholder="Amount">
           <input id="memo" placeholder="Memo (optional)">
-          <button id="sendBtn">Send BTCPC</button>
+          <button id="sendBtn">Send HONE</button>
         </div>
         <div class="status" id="sendStatus"></div>
       </section>
@@ -227,7 +227,7 @@
       data.transactions.forEach(tx => {
         const div = document.createElement("div");
         div.className = "item";
-        div.innerHTML = `<strong>${tx.direction || "--"} ${tx.type || "tx"}</strong><span>${Number(tx.amount || 0).toFixed(4)} BTCPC</span><span class="muted">${new Date(tx.timestamp || Date.now()).toLocaleString()}</span>`;
+        div.innerHTML = `<strong>${tx.direction || "--"} ${tx.type || "tx"}</strong><span>${Number(tx.amount || 0).toFixed(4)} HONE</span><span class="muted">${new Date(tx.timestamp || Date.now()).toLocaleString()}</span>`;
         host.appendChild(div);
       });
     }

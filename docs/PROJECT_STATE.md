@@ -1,10 +1,10 @@
-# BTCPC Project State
+# HONE Project State
 
 Snapshot date: 2026-04-08
 
 ## Summary
 
-BTCPC is no longer in an early scaffold phase. The repository already contains a working application server, blockchain/ledger services, mining and epoch logic, OpenAI-compatible inference endpoints, encrypted inference groundwork, bot APIs, cross-chain claim groundwork, a wrapped token contract, and an explorer UI.
+HONE is no longer in an early scaffold phase. The repository already contains a working application server, blockchain/ledger services, mining and epoch logic, OpenAI-compatible inference endpoints, encrypted inference groundwork, bot APIs, cross-chain claim groundwork, a wrapped token contract, and an explorer UI.
 
 The main project risk is not absence of implementation. It is the gap between what is implemented and what is verified, documented, and consistently maintained.
 
@@ -16,7 +16,7 @@ The main project risk is not absence of implementation. It is the gap between wh
 - OpenAI-compatible inference API and encrypted inference session flow
 - P2P networking, epoch management, mining, and permanent ledger/state machinery
 - Explorer/dashboard server
-- Cross-chain claim groundwork and `wBTCPC` contract
+- Cross-chain claim groundwork and `wHONE` contract
 - Desktop/system tray and updater-related operational components
 
 ## What is materially lacking

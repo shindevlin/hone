@@ -30,12 +30,12 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
     ['alice', 'bob', 'carol', 'shindevlin'].forEach(a => epochBandwidth.seedForTest(a));
-    // Seed uploader with BTCPC
+    // Seed uploader with HONE
     stateStore.applyEntry({
       type: 'FAUCET',
-      from: 'btcpc_genesis',
+      from: 'hone_genesis',
       to: 'shindevlin',
-      token: 'BTCPC',
+      token: 'HONE',
       amount: 100000,
       epoch: 0,
       timestamp: 1,
@@ -46,7 +46,7 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
     test('two-tier split: 70/20/9/1', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: ['alice'],
         cold_hosts: ['bob'],
         bytes_served_by_host: { alice: 1000 },
@@ -65,7 +65,7 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
     test('active host with all bytes + full uptime gets entire active pool', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: ['alice'],
         cold_hosts: [],
         bytes_served_by_host: { alice: 1000 },
@@ -75,13 +75,13 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
         success_by_host: { alice: 1.0 },
       });
       // Active pool = 700, alice gets 100% (1.0 bandwidth weight + 1.0 uptime weight, composite 1.0)
-      expect(result.active_payouts[0].amount_btcpc).toBeCloseTo(700, 5);
+      expect(result.active_payouts[0].amount_hone).toBeCloseTo(700, 5);
     });
 
     test('cold host with full uptime gets entire cold pool', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: [],
         cold_hosts: ['bob'],
       };
@@ -90,13 +90,13 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
         success_by_host: { bob: 1.0 },
       });
       // Cold pool = 200, bob gets 100%
-      expect(result.cold_payouts[0].amount_btcpc).toBeCloseTo(200, 5);
+      expect(result.cold_payouts[0].amount_hone).toBeCloseTo(200, 5);
     });
 
     test('active host with 70% bandwidth + 30% uptime split works correctly', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: ['alice', 'bob'],
         cold_hosts: [],
         bytes_served_by_host: { alice: 1000, bob: 0 }, // alice serves all bytes
@@ -112,14 +112,14 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
       // bob   gets 700 * 0.24 = 168
       const alice = result.active_payouts.find((p) => p.host === 'alice');
       const bob = result.active_payouts.find((p) => p.host === 'bob');
-      expect(alice.amount_btcpc).toBeCloseTo(532, 3);
-      expect(bob.amount_btcpc).toBeCloseTo(168, 3);
+      expect(alice.amount_hone).toBeCloseTo(532, 3);
+      expect(bob.amount_hone).toBeCloseTo(168, 3);
     });
 
     test('cold host split by uptime alone', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: [],
         cold_hosts: ['alice', 'bob', 'carol'],
       };
@@ -132,7 +132,7 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
       // bob:   200 * (1.0 / 2.0) = 100
       // carol: 200 * (0.5 / 2.0) = 50
       const byHost = {};
-      result.cold_payouts.forEach((p) => { byHost[p.host] = p.amount_btcpc; });
+      result.cold_payouts.forEach((p) => { byHost[p.host] = p.amount_hone; });
       expect(byHost.alice).toBeCloseTo(50, 3);
       expect(byHost.bob).toBeCloseTo(100, 3);
       expect(byHost.carol).toBeCloseTo(50, 3);
@@ -141,7 +141,7 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
     test('challenge success rate multiplies the payout', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: [],
         cold_hosts: ['alice'],
       };
@@ -151,13 +151,13 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
         success_by_host: { alice: 0.5 },
       });
       // Cold pool = 200, alice weight = 1.0, success = 0.5 → 100
-      expect(result.cold_payouts[0].amount_btcpc).toBeCloseTo(100, 5);
+      expect(result.cold_payouts[0].amount_hone).toBeCloseTo(100, 5);
     });
 
     test('0% challenge success → 0 payout (pay-for-delivery)', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: [],
         cold_hosts: ['alice'],
       };
@@ -165,13 +165,13 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
         uptime_by_host: { alice: 1.0 },
         success_by_host: { alice: 0.0 },
       });
-      expect(result.cold_payouts[0].amount_btcpc).toBe(0);
+      expect(result.cold_payouts[0].amount_hone).toBe(0);
     });
 
     test('zero uptime → zero payout', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: [],
         cold_hosts: ['alice'],
       };
@@ -179,18 +179,18 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
         uptime_by_host: { alice: 0.0 },
         success_by_host: { alice: 1.0 },
       });
-      expect(result.cold_payouts[0].amount_btcpc).toBe(0);
+      expect(result.cold_payouts[0].amount_hone).toBe(0);
     });
 
     test('missing context factors default to 1.0 (full credit)', () => {
       const blob = {
         cid: CID_A,
-        payment_btcpc: 1000,
+        payment_hone: 1000,
         active_hosts: [],
         cold_hosts: ['alice'],
       };
       const result = payouts.computePayouts(blob, {});
-      expect(result.cold_payouts[0].amount_btcpc).toBeCloseTo(200, 5);
+      expect(result.cold_payouts[0].amount_hone).toBeCloseTo(200, 5);
     });
   });
 
@@ -210,7 +210,7 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
           active_hosts: ['alice'],
           cold_hosts: ['bob'],
           duration_epochs: 100,
-          payment_btcpc: 1000,
+          payment_hone: 1000,
         },
         1
       );
@@ -225,25 +225,25 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
 
       // alice = active, got all bytes + full uptime → 700
       // bob = cold, full uptime → 200
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBeCloseTo(700, 3);
-      expect(stateStore.getBalance('bob', 'BTCPC')).toBeCloseTo(200, 3);
-      expect(stateStore.getBalance('btcpc_recycle', 'BTCPC')).toBeCloseTo(90, 3);
-      expect(stateStore.getBalance('btcpc_reputation_pool', 'BTCPC')).toBeCloseTo(10, 3);
+      expect(stateStore.getBalance('alice', 'HONE')).toBeCloseTo(700, 3);
+      expect(stateStore.getBalance('bob', 'HONE')).toBeCloseTo(200, 3);
+      expect(stateStore.getBalance('hone_recycle', 'HONE')).toBeCloseTo(90, 3);
+      expect(stateStore.getBalance('hone_reputation_pool', 'HONE')).toBeCloseTo(10, 3);
     });
 
     test('failed challenges reduce payout but do NOT slash balance/stake', async () => {
       // Seed alice with starting balance + stake (so we can verify stake unchanged)
       stateStore.applyEntry({
         type: 'FAUCET',
-        from: 'btcpc_genesis',
+        from: 'hone_genesis',
         to: 'alice',
-        token: 'BTCPC',
+        token: 'HONE',
         amount: 1000,
         epoch: 0,
         timestamp: 99,
       });
       await ledger.recordStake('alice', 50, 'storage', 1);
-      const aliceBalanceBefore = stateStore.getBalance('alice', 'BTCPC');
+      const aliceBalanceBefore = stateStore.getBalance('alice', 'HONE');
       const stakeBeforeSettle = stateStore.getStakePool('alice').total_staked;
 
       // Seed uptime: 20 heartbeats over 100 epochs = 1.0 uptime
@@ -269,7 +269,7 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
           active_hosts: [],
           cold_hosts: ['alice'],
           duration_epochs: 100,
-          payment_btcpc: 1000,
+          payment_hone: 1000,
         },
         14
       );
@@ -283,7 +283,7 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
 
       // Payout should be 200 * 1.0 * 0.5 = 100 (half of cold pool due to 50% success)
       // alice balance: starting (1000 - 50 stake) + 100 payout = 1050
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBeCloseTo(aliceBalanceBefore + 100, 3);
+      expect(stateStore.getBalance('alice', 'HONE')).toBeCloseTo(aliceBalanceBefore + 100, 3);
 
       // Stake unchanged (NOT slashed)
       expect(stateStore.getStakePool('alice').total_staked).toBe(stakeBeforeSettle);
@@ -299,13 +299,13 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
           active_hosts: [],
           cold_hosts: ['alice'],
           duration_epochs: 100,
-          payment_btcpc: 1000,
+          payment_hone: 1000,
         },
         14
       );
 
       const blob = stateStore.getBlobCommit(CID_A);
-      const uploaderBefore = stateStore.getBalance('shindevlin', 'BTCPC');
+      const uploaderBefore = stateStore.getBalance('shindevlin', 'HONE');
       const result = await payouts.settlePayouts(blob, {
         uploader: 'shindevlin',
         epoch: 100,
@@ -313,12 +313,12 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
       });
 
       // alice earned nothing
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBe(0);
+      expect(stateStore.getBalance('alice', 'HONE')).toBe(0);
       // Recycle + reputation still paid
-      expect(stateStore.getBalance('btcpc_recycle', 'BTCPC')).toBeCloseTo(90, 3);
-      expect(stateStore.getBalance('btcpc_reputation_pool', 'BTCPC')).toBeCloseTo(10, 3);
+      expect(stateStore.getBalance('hone_recycle', 'HONE')).toBeCloseTo(90, 3);
+      expect(stateStore.getBalance('hone_reputation_pool', 'HONE')).toBeCloseTo(10, 3);
       // Uploader only paid the recycle + reputation shares (~100), not the full pool
-      const uploaderAfter = stateStore.getBalance('shindevlin', 'BTCPC');
+      const uploaderAfter = stateStore.getBalance('shindevlin', 'HONE');
       expect(uploaderBefore - uploaderAfter).toBeCloseTo(100, 3);
     });
 
@@ -345,7 +345,7 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
           active_hosts: ['alice'],
           cold_hosts: ['bob', 'carol'],
           duration_epochs: 100,
-          payment_btcpc: 1000,
+          payment_hone: 1000,
         },
         1
       );
@@ -359,15 +359,15 @@ describe('blobPayouts two-tier (v2.11.2-delta)', () => {
       });
 
       // alice (active, sole): full active pool 700 (1.0 bandwidth + 1.0 uptime composite × 1.0 success)
-      expect(stateStore.getBalance('alice', 'BTCPC')).toBeCloseTo(700, 3);
+      expect(stateStore.getBalance('alice', 'HONE')).toBeCloseTo(700, 3);
       // bob (cold, 0.5 uptime), carol (cold, 0.25 uptime)
       // Total cold uptime = 0.75
       // bob:   200 * (0.5/0.75) ≈ 133.33
       // carol: 200 * (0.25/0.75) ≈ 66.67
-      expect(stateStore.getBalance('bob', 'BTCPC')).toBeCloseTo(133.33, 1);
-      expect(stateStore.getBalance('carol', 'BTCPC')).toBeCloseTo(66.67, 1);
-      expect(stateStore.getBalance('btcpc_recycle', 'BTCPC')).toBeCloseTo(90, 3);
-      expect(stateStore.getBalance('btcpc_reputation_pool', 'BTCPC')).toBeCloseTo(10, 3);
+      expect(stateStore.getBalance('bob', 'HONE')).toBeCloseTo(133.33, 1);
+      expect(stateStore.getBalance('carol', 'HONE')).toBeCloseTo(66.67, 1);
+      expect(stateStore.getBalance('hone_recycle', 'HONE')).toBeCloseTo(90, 3);
+      expect(stateStore.getBalance('hone_reputation_pool', 'HONE')).toBeCloseTo(10, 3);
     });
   });
 });

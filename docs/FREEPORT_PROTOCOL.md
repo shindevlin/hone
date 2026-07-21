@@ -6,7 +6,7 @@
 
 ## Overview
 
-Freeport is a censorship-resistant, sovereign marketplace protocol baked into BTCPC genesis as a native ledger entry type — not a smart contract or sidechain. Stores, products, orders, escrow, and reputation are all first-class chain primitives. Digital product delivery uses asymmetric encryption keyed to the buyer's on-chain public key, so only the buyer can decrypt what they purchased. The reserved accounts `freeport` and `freeport-escrow` are seeded at block 0 and cannot be created or destroyed by any participant.
+Freeport is a censorship-resistant, sovereign marketplace protocol baked into HONE genesis as a native ledger entry type — not a smart contract or sidechain. Stores, products, orders, escrow, and reputation are all first-class chain primitives. Digital product delivery uses asymmetric encryption keyed to the buyer's on-chain public key, so only the buyer can decrypt what they purchased. The reserved accounts `freeport` and `freeport-escrow` are seeded at block 0 and cannot be created or destroyed by any participant.
 
 ---
 

@@ -18,7 +18,7 @@ Citations point at the real source (`main.rs`, `chain.rs`, `emission.rs`, `entry
 
 ### Naming Lock (HONE / hunit / hone-\*)
 
-Brand/network = **HONE**, token/ticker = **HONE**, base unit = **hunit** (1 HONE = 10^10 hunits), chain_id = **hone** (mainnet) / **hone-testnet**, crates = `hone-*`, CLI binary = `hone`, env vars = `HONE_*`, domain = **honemesh.net**. Any remaining "BTCPC/btcpc/dream" in older docs or directory names is a **not-yet-migrated tail**, not the current name. The active implementation is Rust; the Node.js prototype (`src/`, `bin/`, `package.json`) is deprecated and referenced only where a doc still describes it.
+Brand/network = **HONE**, token/ticker = **HONE**, base unit = **hunit** (1 HONE = 10^10 hunits), chain_id = **hone** (mainnet) / **hone-testnet**, crates = `hone-*`, CLI binary = `hone`, env vars = `HONE_*`, domain = **honemesh.net**. Any remaining "HONE/hone/dream" in older docs or directory names is a **not-yet-migrated tail**, not the current name. The active implementation is Rust; the Node.js prototype (`src/`, `bin/`, `package.json`) is deprecated and referenced only where a doc still describes it.
 
 ---
 
@@ -498,14 +498,14 @@ Phones are full storage nodes. `phone_storage::apply_proof` verifies `submitted_
 
 ### Hive external replica — second storage domain [BUILT chain support]
 
-A storage operator mirrors HONE-FS blobs into Hive `custom_json` as an **external decentralized replica** — a *separate* storage domain, never local disk [BUILT `entry.rs:918-962`, `hive_replica.rs`; SPEC'D `docs/BTCPC_FS_HIVE_EXTERNAL_REPLICA_PLAN.md`].
+A storage operator mirrors HONE-FS blobs into Hive `custom_json` as an **external decentralized replica** — a *separate* storage domain, never local disk [BUILT `entry.rs:918-962`, `hive_replica.rs`; SPEC'D `docs/HONE_FS_HIVE_EXTERNAL_REPLICA_PLAN.md`].
 
 | Entry | Who | Effect |
 |---|---|---|
 | `HiveReplicaCommit` | storage node | records Hive account/tx, CID, `merkle_root`, `bytes_replicated`, `replica_kind`, `confirmations`. **Earns nothing alone.** |
 | `HiveReplicaVerify` | independent verifier | fetches the Hive tx, matches commit, passes challenge → creates `storage_beat:{epoch}:{node_id}:hive` reward slot |
 
-Two reward slots per operator: local + `…:hive`. **Replica-kind weights** (of verified bytes): `full 75%`, `chunk 50%`, `parity 30%`, `manifest 5%` (cap 1 MiB). Hive slot capped at 100 GiB score/node/epoch, forced tier 1. Anti-gaming: no self-verify, ≥20 confirmations, one event per ref per epoch [BUILT `hive_replica.rs`]. The `btcpc-hivefs-adapter` sidecar (Phases 2–3) is [ASPIRATIONAL].
+Two reward slots per operator: local + `…:hive`. **Replica-kind weights** (of verified bytes): `full 75%`, `chunk 50%`, `parity 30%`, `manifest 5%` (cap 1 MiB). Hive slot capped at 100 GiB score/node/epoch, forced tier 1. Anti-gaming: no self-verify, ≥20 confirmations, one event per ref per epoch [BUILT `hive_replica.rs`]. The `hone-hivefs-adapter` sidecar (Phases 2–3) is [ASPIRATIONAL].
 
 ### Erasure / replication [ASPIRATIONAL]
 
@@ -751,7 +751,7 @@ User-deployed WebAssembly via **wasmtime v23** (`ContractEngine`, `contracts.rs:
 | `ContractDeploy` | deterministic `contract_id = derive_contract_address(deployer,epoch,nonce)` | [BUILT] tx.rs:666 |
 | `ContractCall` | method + args + `deposit` (debited signer→contract pre-exec) | [BUILT] tx.rs:675 |
 | Gas | wasmtime fuel; limit `500_000`/call, 100 ms wall-clock hard abort | [SPEC'D] docs/CONTRACTS.md |
-| Host fns | `hone_get/set/delete/balance/transfer/emit/caller` | [SPEC'D] (doc shows legacy `btcpc_*` names) |
+| Host fns | `hone_get/set/delete/balance/transfer/emit/caller` | [SPEC'D] (doc shows legacy `hone_*` names) |
 | Re-entrancy | `transfer` rate-limited 1/call | [SPEC'D] |
 | Immutability | immutable by default; opt-in `upgradeable` via governance timelock | [SPEC'D] |
 
@@ -768,7 +768,7 @@ Lock-and-release bridge between native HONE and wrapped **wHONE** on EVM chains 
 | `BridgeUnwrap` | wHONE→HONE | Burn wHONE, FIFO-queue external unlock | [BUILT] tx.rs:1742 |
 | `BridgeUnlock` | custodian | Confirm external unlock processed | [BUILT] tx.rs:1750 |
 
-**Trust model [SPEC'D]:** V2 = **3-of-5 multisig** (shindevlin / natoshisakamoto / josh + 2 HSM nodes), EIP-712 (domain `wHONEBridge v2`), daily volume caps, any-1 pause / 3-of-5 unpause. Release (HONE→EVM) needs 3-of-5; lock (EVM→HONE) is trustless event-watching. **V3 [ASPIRATIONAL]:** light-client Patricia-Merkle state-root proofs + 21 staked relayers (slashable). Solidity contracts audit-gated (Zellic/OtterSec/Trail of Bits). Docs still use legacy `wBTCPC`/`btcpc` naming — not yet migrated. **Peer-discovery registries [SPEC'D, code-complete/not-deployed]:** TON (`discovery.rs:TON_REGISTRY_CONTRACT`) and Bitcoin Ordinals fall back to Hive discovery until their constants are set. **Reward pool:** none — bridge ops are custody/multisig-gated value transfers.
+**Trust model [SPEC'D]:** V2 = **3-of-5 multisig** (shindevlin / natoshisakamoto / josh + 2 HSM nodes), EIP-712 (domain `wHONEBridge v2`), daily volume caps, any-1 pause / 3-of-5 unpause. Release (HONE→EVM) needs 3-of-5; lock (EVM→HONE) is trustless event-watching. **V3 [ASPIRATIONAL]:** light-client Patricia-Merkle state-root proofs + 21 staked relayers (slashable). Solidity contracts audit-gated (Zellic/OtterSec/Trail of Bits). Docs still use legacy `wHONE`/`hone` naming — not yet migrated. **Peer-discovery registries [SPEC'D, code-complete/not-deployed]:** TON (`discovery.rs:TON_REGISTRY_CONTRACT`) and Bitcoin Ordinals fall back to Hive discovery until their constants are set. **Reward pool:** none — bridge ops are custody/multisig-gated value transfers.
 
 ### Wiiv — Decentralized Render Platform [SPEC'D / ASPIRATIONAL — DRY-RUN ONLY]
 
@@ -791,7 +791,7 @@ Modality-agnostic (image/video/audio/3D/composite) render marketplace: brief →
 
 HONE is "one machine, many roles" — not one process with many responsibilities. Every device runs the roles its hardware can support, and every role that produces work maps to a **reward pool** in the 4-layer model. The market (Layer B per-pool utilization) decides how much each pool earns.
 
-> Naming note: some device docs still say "BTCPC / dreams / 5% clock" in prose (pre-rebrand tail). Current names: **HONE** token, **hunit** base unit, **hone-\*** crates, chain_id **hone**. Static per-pool percentages quoted in older docs are superseded by the dynamic Layer-B model.
+> Naming note: some device docs still say "HONE / dreams / 5% clock" in prose (pre-rebrand tail). Current names: **HONE** token, **hunit** base unit, **hone-\*** crates, chain_id **hone**. Static per-pool percentages quoted in older docs are superseded by the dynamic Layer-B model.
 
 ### 1. Role Matrix [SPEC'D `docs/ROLE_MATRIX.md`]
 
@@ -844,20 +844,20 @@ Phase-ordered by data value; the Pi gateway already supports USB/serial/I2C/GPIO
 | 4 | ADXL345, Grove D7S, Raspberry Shake | vibration / seismic | sensor |
 | 5-7 | ultrasonic, soil moisture, INA219, PZEM-004T, ESP32/LoRa/GPS | flood, agriculture, energy, remote nodes | sensor / gateway |
 
-Meshtastic bridge [ASPIRATIONAL] — the prior `btcpc-meshtastic` bridge binary and its setup script are **archived** (under `_archived/`), not in the current `bin/`/`scripts/`. A re-implemented Meshtastic on-ramp (auto-detect `/dev/ttyUSB*`, join a "hone" channel, relay signed packets) is a roadmap item, not live code.
+Meshtastic bridge [ASPIRATIONAL] — the prior `hone-meshtastic` bridge binary and its setup script are **archived** (under `_archived/`), not in the current `bin/`/`scripts/`. A re-implemented Meshtastic on-ramp (auto-detect `/dev/ttyUSB*`, join a "hone" channel, relay signed packets) is a roadmap item, not live code.
 
 ### 5. Clients & Bots [BUILT/partial]
 
 | Client | Location | State |
 |---|---|---|
-| Desktop (Electron/Tauri) | `clients/btcpc-desktop/` | dir present; rename pending [BUILT-scaffold] |
-| Android (Capacitor) | `clients/btcpc-android/`, `clients/hone-android-native/` | miner+sensor+clock Rust BUILT (`android/rust/hone-miner`); www is a stub; needs APK rebuild + JNI wiring [BUILT-but-not-wired] |
+| Desktop (Electron/Tauri) | `clients/hone-desktop/` | dir present; rename pending [BUILT-scaffold] |
+| Android (Capacitor) | `clients/hone-android/`, `clients/hone-android-native/` | miner+sensor+clock Rust BUILT (`android/rust/hone-miner`); www is a stub; needs APK rebuild + JNI wiring [BUILT-but-not-wired] |
 | Flipper firmware | `clients/hone-flipper/` | `hone_wallet.c` FAP [BUILT] |
-| Telegram bots | `bots/btcpcbot/`, `bots/btcpcwalletbot/` | thin HTTP clients via `/api/bot/*`; rename pending [SPEC'D] |
+| Telegram bots | `bots/honebot/`, `bots/honewalletbot/` | thin HTTP clients via `/api/bot/*`; rename pending [SPEC'D] |
 | Ludicrous (Warp fork) | `ludicrous/` + `plugins/ludicrous/` | [BUILT-scaffold] |
-| Relay | `services/btcpc-relay/` (Cloudflare Workers) | live `wss://btcpc-relay.shindevlin.workers.dev/ws` [SPEC'D] |
+| Relay | `services/hone-relay/` (Cloudflare Workers) | live `wss://hone-relay.shindevlin.workers.dev/ws` [SPEC'D] |
 
-`flipper_rx.rs` (parse+verify+submit Flipper Sub-GHz/NFC) is BUILT **and JNI-wired** — `NativeFlipperService.nativeIngestFrame` (`android/rust/btcpc-miner/src/lib.rs`) calls `flipper_rx::handle_ble_frame`. The Flipper→chain path exists in native code; do NOT rewrite it in TS. (Remaining gap is client-side surfacing, not the native ingest.)
+`flipper_rx.rs` (parse+verify+submit Flipper Sub-GHz/NFC) is BUILT **and JNI-wired** — `NativeFlipperService.nativeIngestFrame` (`android/rust/hone-miner/src/lib.rs`) calls `flipper_rx::handle_ble_frame`. The Flipper→chain path exists in native code; do NOT rewrite it in TS. (Remaining gap is client-side surfacing, not the native ingest.)
 
 ### 6. Consolidated Roadmap — everything we want to work towards
 

@@ -242,7 +242,7 @@
       </label>
       <label class="option" data-account="telegram">
         <div class="option-title">Connect Telegram Account</div>
-        <div class="option-desc">Use an account you already created via @btcpcbot.</div>
+        <div class="option-desc">Use an account you already created via @honebot.</div>
       </label>
     </div>
 
@@ -260,7 +260,7 @@
       </div>
       <div id="telegram-form" style="display:none;">
         <p>Enter your existing HONE username (you'll verify via Telegram).</p>
-        <input type="text" id="telegram-username" placeholder="username from @btcpcbot" maxlength="20">
+        <input type="text" id="telegram-username" placeholder="username from @honebot" maxlength="20">
       </div>
       <div id="mnemonic-display" style="display:none;">
         <div class="warning"><strong>WRITE THIS DOWN.</strong> This is the only way to recover your account. Anyone with these words has full control. Never share or store digitally.</div>
@@ -445,7 +445,7 @@
             document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Mining Started</h1><p style="margin-top:16px;color:#94a3b8;">Your node is connected to the HONE network. View your dashboard at <a href="http://localhost:4242/dashboard?account=' + state.username + '" style="color:#f7931a;">localhost:4242</a></p></div>';
           } else {
             // Even if the backend doesn't have the endpoint yet, succeed
-            document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Setup Complete</h1><p style="margin-top:16px;color:#94a3b8;">Account: <strong>' + state.username + '</strong><br>Run <code>node bin/btcpc-mine</code> to start mining.</p></div>';
+            document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Setup Complete</h1><p style="margin-top:16px;color:#94a3b8;">Account: <strong>' + state.username + '</strong><br>Run <code>node bin/hone-mine</code> to start mining.</p></div>';
           }
         } catch (e) {
           document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Setup Complete</h1><p style="margin-top:16px;color:#94a3b8;">Account: <strong>' + state.username + '</strong><br>Save your recovery phrase and run the miner from terminal.</p></div>';

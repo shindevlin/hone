@@ -27,35 +27,35 @@ ebe3b9b979c2: Pull complete
 0471f6728e08: Pull complete
 Digest: sha256:ef584f1e53a3c118ae5d581bdf5be740f941dad0f40148be6e85bcae37f57133
 Status: Downloaded newer image for trailofbits/slither:latest
-INFO:Slither:Compilation warnings/errors on /src/contracts/wBTCPC.sol:
-[91m/src/contracts/wBTCPC.sol:72:24: Error: Expected ',' but got identifier[0m
+INFO:Slither:Compilation warnings/errors on /src/contracts/wHONE.sol:
+[91m/src/contracts/wHONE.sol:72:24: Error: Expected ',' but got identifier[0m
         bytes calldata signature
                        ^-------^
 
-INFO:SlitherSolcParsing:No contract were found in /src/contracts/wBTCPC.sol, check the correct compilation
-INFO:Slither:Compilation warnings/errors on /src/contracts/wBTCPCSale.sol:
-[91m/src/contracts/wBTCPCSale.sol:4:1: Error: Source "@openzeppelin/contracts/token/ERC20/IERC20.sol" not found: File not found.[0m
+INFO:SlitherSolcParsing:No contract were found in /src/contracts/wHONE.sol, check the correct compilation
+INFO:Slither:Compilation warnings/errors on /src/contracts/wHONESale.sol:
+[91m/src/contracts/wHONESale.sol:4:1: Error: Source "@openzeppelin/contracts/token/ERC20/IERC20.sol" not found: File not found.[0m
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ^------------------------------------------------------^
-[91m/src/contracts/wBTCPCSale.sol:5:1: Error: Source "@openzeppelin/contracts/access/Ownable.sol" not found: File not found.[0m
+[91m/src/contracts/wHONESale.sol:5:1: Error: Source "@openzeppelin/contracts/access/Ownable.sol" not found: File not found.[0m
 import "@openzeppelin/contracts/access/Ownable.sol";
 ^--------------------------------------------------^
 
-INFO:SlitherSolcParsing:No contract were found in /src/contracts/wBTCPCSale.sol, check the correct compilation
-INFO:Slither:Compilation warnings/errors on /src/contracts/wBTCPCBondingCurve.sol:
-[91m/src/contracts/wBTCPCBondingCurve.sol:4:1: Error: Source "@openzeppelin/contracts/token/ERC20/IERC20.sol" not found: File not found.[0m
+INFO:SlitherSolcParsing:No contract were found in /src/contracts/wHONESale.sol, check the correct compilation
+INFO:Slither:Compilation warnings/errors on /src/contracts/wHONEBondingCurve.sol:
+[91m/src/contracts/wHONEBondingCurve.sol:4:1: Error: Source "@openzeppelin/contracts/token/ERC20/IERC20.sol" not found: File not found.[0m
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ^------------------------------------------------------^
-[91m/src/contracts/wBTCPCBondingCurve.sol:5:1: Error: Source "@openzeppelin/contracts/access/Ownable.sol" not found: File not found.[0m
+[91m/src/contracts/wHONEBondingCurve.sol:5:1: Error: Source "@openzeppelin/contracts/access/Ownable.sol" not found: File not found.[0m
 import "@openzeppelin/contracts/access/Ownable.sol";
 ^--------------------------------------------------^
 
-INFO:SlitherSolcParsing:No contract were found in /src/contracts/wBTCPCBondingCurve.sol, check the correct compilation
-INFO:Slither:Compilation warnings/errors on /src/contracts/wBTCPCBridge.sol:
-[91m/src/contracts/wBTCPCBridge.sol:33:30: Error: Expected ';' but got identifier[0m
+INFO:SlitherSolcParsing:No contract were found in /src/contracts/wHONEBondingCurve.sol, check the correct compilation
+INFO:Slither:Compilation warnings/errors on /src/contracts/wHONEBridge.sol:
+[91m/src/contracts/wHONEBridge.sol:33:30: Error: Expected ';' but got identifier[0m
     bytes32 public immutable DOMAIN_SEPARATOR;
                              ^--------------^
 
-INFO:SlitherSolcParsing:No contract were found in /src/contracts/wBTCPCBridge.sol, check the correct compilation
+INFO:SlitherSolcParsing:No contract were found in /src/contracts/wHONEBridge.sol, check the correct compilation
 WARNING:Slither:[91mNo contract was analyzed[0m
-INFO:Slither:/src/contracts/wBTCPCBridge.sol analyzed (0 contracts), 0 result(s) found
+INFO:Slither:/src/contracts/wHONEBridge.sol analyzed (0 contracts), 0 result(s) found

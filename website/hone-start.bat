@@ -211,6 +211,6 @@ echo.
 echo  View logs:  docker compose logs -f hone
 echo  Stop node:  docker compose stop
 echo.
-echo [HONE] Mining started. Check your balance in Telegram: @btcpcbot /balance
+echo [HONE] Mining started. Check your balance in Telegram: @honebot /balance
 echo.
 endlocal

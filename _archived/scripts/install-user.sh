@@ -2,13 +2,13 @@
 set -euo pipefail
 
 # ── Integrity check ────────────────────────────────────────────────────────────
-# If this script was fetched from btcpc.net (or anywhere else), verify it
+# If this script was fetched from hone.net (or anywhere else), verify it
 # matches the canonical copy on GitHub before executing anything privileged.
-# Skip with BTCPC_SKIP_VERIFY=1 for offline / air-gapped installs.
-GITHUB_RAW="https://raw.githubusercontent.com/shindevlin/btcpc/main/scripts/install-user.sh"
+# Skip with HONE_SKIP_VERIFY=1 for offline / air-gapped installs.
+GITHUB_RAW="https://raw.githubusercontent.com/shindevlin/hone/main/scripts/install-user.sh"
 
-if [[ "${BTCPC_SKIP_VERIFY:-0}" != "1" ]] && command -v sha256sum >/dev/null 2>&1; then
-  echo "[btcpc] Verifying script integrity against GitHub..."
+if [[ "${HONE_SKIP_VERIFY:-0}" != "1" ]] && command -v sha256sum >/dev/null 2>&1; then
+  echo "[hone] Verifying script integrity against GitHub..."
   _SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   # When piped via `curl | bash`, BASH_SOURCE[0] is /dev/stdin — fall back to a
   # temp download for comparison in that case.
@@ -18,41 +18,41 @@ if [[ "${BTCPC_SKIP_VERIFY:-0}" != "1" ]] && command -v sha256sum >/dev/null 2>&
       _GITHUB_HASH="$(sha256sum "$_TMP" | awk '{print $1}')"
       # Re-fetch self from the same source we were called from and compare
       _SELF_TMP="$(mktemp)"
-      _SELF_URL="${BTCPC_INSTALL_URL:-https://btcpc.net/install.sh}"
+      _SELF_URL="${HONE_INSTALL_URL:-https://hone.net/install.sh}"
       if curl -fsSL --max-time 15 "$_SELF_URL" -o "$_SELF_TMP" 2>/dev/null; then
         _SELF_HASH="$(sha256sum "$_SELF_TMP" | awk '{print $1}')"
         if [[ "$_GITHUB_HASH" != "$_SELF_HASH" ]]; then
           echo ""
           echo "ERROR: Script integrity check failed."
-          echo "  btcpc.net hash : $_SELF_HASH"
+          echo "  hone.net hash : $_SELF_HASH"
           echo "  GitHub hash    : $_GITHUB_HASH"
           echo ""
-          echo "The script served by btcpc.net does not match GitHub."
+          echo "The script served by hone.net does not match GitHub."
           echo "This could indicate a compromised server or a deployment in progress."
-          echo "To skip this check: BTCPC_SKIP_VERIFY=1 bash <(curl -fsSL $GITHUB_RAW)"
+          echo "To skip this check: HONE_SKIP_VERIFY=1 bash <(curl -fsSL $GITHUB_RAW)"
           echo "Or install directly from GitHub: bash <(curl -fsSL $GITHUB_RAW)"
           rm -f "$_TMP" "$_SELF_TMP"
           exit 1
         fi
-        echo "[btcpc] Integrity OK (matches GitHub sha256: ${_GITHUB_HASH:0:16}...)"
+        echo "[hone] Integrity OK (matches GitHub sha256: ${_GITHUB_HASH:0:16}...)"
       else
-        echo "[btcpc] Could not re-fetch self for comparison — skipping verify"
+        echo "[hone] Could not re-fetch self for comparison — skipping verify"
       fi
       rm -f "$_TMP" "$_SELF_TMP" 2>/dev/null || true
     else
-      echo "[btcpc] Could not reach GitHub for verification — skipping (set BTCPC_SKIP_VERIFY=1 to suppress)"
+      echo "[hone] Could not reach GitHub for verification — skipping (set HONE_SKIP_VERIFY=1 to suppress)"
     fi
   fi
 fi
 # ── End integrity check ────────────────────────────────────────────────────────
 
 USERNAME="${1:-}"
-REPO_URL="${BTCPC_REPO_URL:-https://github.com/shindevlin/btcpc.git}"
-INSTALL_DIR="${BTCPC_INSTALL_DIR:-$HOME/btcpc}"
+REPO_URL="${HONE_REPO_URL:-https://github.com/shindevlin/hone.git}"
+INSTALL_DIR="${HONE_INSTALL_DIR:-$HOME/hone}"
 
 if [[ -z "$USERNAME" ]]; then
   echo "Usage: bash install.sh <username>"
-  echo "       curl -fsSL https://btcpc.net/install.sh | bash -s -- <username>"
+  echo "       curl -fsSL https://hone.net/install.sh | bash -s -- <username>"
   exit 1
 fi
 
@@ -71,7 +71,7 @@ if ! command -v sudo >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[btcpc] Installing BTCPC for user: $USERNAME"
+echo "[hone] Installing HONE for user: $USERNAME"
 
 # ── Dependencies ───────────────────────────────────────────────────────────────
 sudo apt-get update -qq
@@ -79,15 +79,15 @@ sudo apt-get install -y curl git ca-certificates openssl
 
 # Node.js 20+
 if ! command -v node >/dev/null 2>&1 || [[ "$(node -v 2>/dev/null | sed 's/^v//;s/\..*//')" -lt 20 ]]; then
-  echo "[btcpc] Installing Node.js 20..."
+  echo "[hone] Installing Node.js 20..."
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
   sudo apt-get install -y nodejs
 fi
 
 # Ollama (optional — needed for mining)
-if [[ "${BTCPC_SKIP_OLLAMA:-0}" != "1" ]]; then
+if [[ "${HONE_SKIP_OLLAMA:-0}" != "1" ]]; then
   if ! command -v ollama >/dev/null 2>&1; then
-    echo "[btcpc] Installing Ollama..."
+    echo "[hone] Installing Ollama..."
     curl -fsSL https://ollama.ai/install.sh | sh
   fi
 fi
@@ -112,22 +112,22 @@ PORT=3000
 NODE_ENV=production
 JWT_SECRET=$JWT_SECRET_VALUE
 JWT_EXPIRES_IN=7d
-BTCPC_MONGO_MODE=disabled
+HONE_MONGO_MODE=disabled
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
 EOF
-  echo "[btcpc] Generated .env with fresh JWT secret"
+  echo "[hone] Generated .env with fresh JWT secret"
 else
-  echo "[btcpc] .env already exists — skipping (delete it to reset config)"
+  echo "[hone] .env already exists — skipping (delete it to reset config)"
 fi
 
 # ── Capability wizard ──────────────────────────────────────────────────────────
-# Only run interactively — skip if piped (curl | bash) or BTCPC_NONINTERACTIVE=1
-if [[ "${BTCPC_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
+# Only run interactively — skip if piped (curl | bash) or HONE_NONINTERACTIVE=1
+if [[ "${HONE_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo " BTCPC Agent Capabilities"
-  echo " You earn BTCPC for every job your machine processes."
+  echo " HONE Agent Capabilities"
+  echo " You earn HONE for every job your machine processes."
   echo " Choose what you want to allow. You can change these later in .env"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
@@ -161,7 +161,7 @@ if [[ "${BTCPC_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
   }
 
   echo "── Inference jobs (text generation, AI chat) ──────────────────────────────"
-  echo "   Standard inference is always enabled — it's the core of BTCPC mining."
+  echo "   Standard inference is always enabled — it's the core of HONE mining."
   echo ""
 
   echo "── Code execution (sandboxed JavaScript / Python / Bash) ─────────────────"
@@ -185,7 +185,7 @@ if [[ "${BTCPC_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
     echo ""
     echo "   Tor / .onion hidden services: Used by SecureDrop, privacy-focused news"
     echo "   outlets, whistleblower platforms, and censorship-evading services."
-    echo "   BTCPC does not block these by default — censorship resistance is core"
+    echo "   HONE does not block these by default — censorship resistance is core"
     echo "   to the protocol."
     _BLOCK_ONION=$(_ask_yn "   Block Tor/.onion hidden services?" "n")
     echo ""
@@ -224,58 +224,58 @@ if [[ "${BTCPC_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
   # Write capability settings to .env
   {
     echo ""
-    echo "# BTCPC Agent Capabilities (set during install)"
-    echo "BTCPC_CODE_EXEC_ENABLED=${_CODE_EXEC}"
-    echo "BTCPC_BROWSER_ENABLED=${_BROWSER}"
+    echo "# HONE Agent Capabilities (set during install)"
+    echo "HONE_CODE_EXEC_ENABLED=${_CODE_EXEC}"
+    echo "HONE_BROWSER_ENABLED=${_BROWSER}"
     if [[ "$_BROWSER" == "true" ]]; then
-      echo "BTCPC_BROWSER_BLOCK_ONION=${_BLOCK_ONION}"
-      echo "BTCPC_BROWSER_BLOCK_ADULT=${_BLOCK_ADULT}"
-      echo "BTCPC_BROWSER_BLOCK_GAMBLING=${_BLOCK_GAMBLING}"
-      echo "BTCPC_BROWSER_BLOCK_DRUGS=${_BLOCK_DRUGS}"
-      echo "BTCPC_BROWSER_BLOCK_WEAPONS=${_BLOCK_WEAPONS}"
+      echo "HONE_BROWSER_BLOCK_ONION=${_BLOCK_ONION}"
+      echo "HONE_BROWSER_BLOCK_ADULT=${_BLOCK_ADULT}"
+      echo "HONE_BROWSER_BLOCK_GAMBLING=${_BLOCK_GAMBLING}"
+      echo "HONE_BROWSER_BLOCK_DRUGS=${_BLOCK_DRUGS}"
+      echo "HONE_BROWSER_BLOCK_WEAPONS=${_BLOCK_WEAPONS}"
       if [[ -n "$_ALLOWED_DOMAINS" ]]; then
-        echo "BTCPC_BROWSER_ALLOWED_DOMAINS=${_ALLOWED_DOMAINS}"
+        echo "HONE_BROWSER_ALLOWED_DOMAINS=${_ALLOWED_DOMAINS}"
       fi
     fi
-    echo "BTCPC_FINETUNE_ENABLED=${_FINETUNE}"
-    echo "BTCPC_DEFAULT_TIER=${_TIER}"
+    echo "HONE_FINETUNE_ENABLED=${_FINETUNE}"
+    echo "HONE_DEFAULT_TIER=${_TIER}"
   } >> .env
 
   # Install Playwright if browser jobs enabled
   if [[ "$_BROWSER" == "true" ]]; then
     echo ""
-    echo "[btcpc] Installing Playwright (headless browser for agent jobs)..."
+    echo "[hone] Installing Playwright (headless browser for agent jobs)..."
     npm install playwright --save-dev --silent 2>/dev/null || true
     npx playwright install chromium --with-deps 2>/dev/null || \
-      echo "[btcpc] Playwright chromium install failed — browser jobs will be skipped at runtime"
+      echo "[hone] Playwright chromium install failed — browser jobs will be skipped at runtime"
   fi
 
   # Install fine-tuning dependencies if enabled
   if [[ "$_FINETUNE" == "true" ]]; then
-    echo "[btcpc] Fine-tuning support noted — ensure Ollama has sufficient VRAM for your chosen models."
+    echo "[hone] Fine-tuning support noted — ensure Ollama has sufficient VRAM for your chosen models."
   fi
 
   echo ""
-  echo "[btcpc] Capability settings written to .env"
+  echo "[hone] Capability settings written to .env"
 fi
 
 # ── Create account ─────────────────────────────────────────────────────────────
-BTCPC_MINER="$USERNAME" \
-BTCPC_CLOCK_ACCOUNT="$USERNAME" \
-node bin/btcpc-setup --yes --username "$USERNAME" --skip-ollama
+HONE_MINER="$USERNAME" \
+HONE_CLOCK_ACCOUNT="$USERNAME" \
+node bin/hone-setup --yes --username "$USERNAME" --skip-ollama
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo " BTCPC installed successfully"
+echo " HONE installed successfully"
 echo " Username : $USERNAME"
 echo " API      : http://localhost:3000"
 echo " Explorer : http://localhost:4242"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "Start the node:  cd $INSTALL_DIR && node bin/btcpc-all"
-echo "Mine tokens:     cd $INSTALL_DIR && BTCPC_MINER=$USERNAME node bin/btcpc-all"
+echo "Start the node:  cd $INSTALL_DIR && node bin/hone-all"
+echo "Mine tokens:     cd $INSTALL_DIR && HONE_MINER=$USERNAME node bin/hone-all"
 echo ""
 echo "To verify this script yourself before running:"
-echo "  curl -fsSL https://btcpc.net/install.sh -o install.sh"
+echo "  curl -fsSL https://hone.net/install.sh -o install.sh"
 echo "  cat install.sh        # inspect it"
 echo "  bash install.sh $USERNAME"

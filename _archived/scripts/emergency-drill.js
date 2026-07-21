@@ -2,7 +2,7 @@
 "use strict";
 
 /**
- * BTCPC Emergency Drill
+ * HONE Emergency Drill
  * Shin Devlin
  *
  * Simulates the pause → validate → resume cycle without touching live funds.
@@ -19,7 +19,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
-const BASE_URL = process.env.BTCPC_BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.HONE_BASE_URL || 'http://localhost:3000';
 const VERBOSE = process.argv.includes('--verbose');
 
 let passed = 0;
@@ -64,7 +64,7 @@ async function check(label, fn) {
 }
 
 async function runDrill() {
-  console.log('=== BTCPC Emergency Drill ===');
+  console.log('=== HONE Emergency Drill ===');
   console.log('Target:', BASE_URL);
   console.log('');
 
@@ -110,13 +110,13 @@ async function runDrill() {
 
   // 5. Secrets file exists and is readable
   await check('Secrets file accessible', async () => {
-    const secretsPath = path.join(process.env.HOME || '/root', '.btcpc', 'secrets.json');
-    if (!fs.existsSync(secretsPath)) throw new Error('~/.btcpc/secrets.json not found');
+    const secretsPath = path.join(process.env.HOME || '/root', '.hone', 'secrets.json');
+    if (!fs.existsSync(secretsPath)) throw new Error('~/.hone/secrets.json not found');
     const stat = fs.statSync(secretsPath);
     const mode = (stat.mode & 0o777).toString(8);
     log('  Secrets file mode: ' + mode);
     if ((stat.mode & 0o077) !== 0) {
-      throw new Error('secrets.json is world/group readable (mode ' + mode + ') — run: chmod 600 ~/.btcpc/secrets.json');
+      throw new Error('secrets.json is world/group readable (mode ' + mode + ') — run: chmod 600 ~/.hone/secrets.json');
     }
   });
 

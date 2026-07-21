@@ -1,5 +1,5 @@
 @echo off
-:: BTCPC Node — Windows launcher
+:: HONE Node — Windows launcher
 :: Double-click this file. Requires: Docker Desktop + Ollama installed on Windows.
 
 :: Make Ollama listen on all interfaces so the Docker container can reach it.
@@ -18,9 +18,9 @@ start "" ollama serve
 echo Waiting for Ollama to start...
 timeout /t 3 /nobreak >nul
 
-echo Starting BTCPC node...
+echo Starting HONE node...
 docker compose up -d
 
 echo.
-echo Done. Node is running. Check logs with: docker compose logs -f btcpc-node
+echo Done. Node is running. Check logs with: docker compose logs -f hone-node
 pause

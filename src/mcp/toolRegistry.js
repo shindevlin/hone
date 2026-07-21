@@ -1,14 +1,14 @@
 "use strict";
 
 /**
- * BTCPC Tool Registry
+ * HONE Tool Registry
  * Shin Devlin
  *
  * Tracks tool capabilities declared by mining nodes.
  * Tools come in three kinds:
  *   cli   — shell command exposed as a tool (sandboxed, no network writes)
  *   mcp   — MCP server endpoint the node runs locally
- *   builtin — deterministic tools baked into the runtime (calc, hash, btcpc_fs_read)
+ *   builtin — deterministic tools baked into the runtime (calc, hash, hone_fs_read)
  *
  * On-chain registration: TOOL_CAPABILITY_REGISTER ledger entry.
  * In-memory: this module holds the live index, hydrated from replay.
@@ -19,7 +19,7 @@
  *   mcp     : 1.50  (full MCP call round-trip)
  *
  * Tool traces: non-deterministic tool results (web_fetch, sensor_read) must be
- * committed as BTCPC-FS blobs before the proof is submitted. The proof carries
+ * committed as HONE-FS blobs before the proof is submitted. The proof carries
  * tool_trace_hash = sha256(JSON.stringify(toolCallLog)) so verifiers can check
  * the trace CID on-chain without re-running the fetch.
  */
@@ -42,10 +42,10 @@ const BUILTIN_TOOLS = {
     deterministic: true,
     multiplier: 1.10,
   },
-  btcpc_fs_read: {
-    name: "btcpc_fs_read",
+  hone_fs_read: {
+    name: "hone_fs_read",
     kind: "builtin",
-    description: "Read a pinned BTCPC-FS blob by CID. Input: { cid: string }",
+    description: "Read a pinned HONE-FS blob by CID. Input: { cid: string }",
     deterministic: true, // CID is content-addressed
     multiplier: 1.10,
   },

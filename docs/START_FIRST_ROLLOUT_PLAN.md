@@ -1,9 +1,9 @@
-# BTCPC Start-First Rollout Plan
+# HONE Start-First Rollout Plan
 
 Version: `2026-04-24-v7`
 Status: active planning note
 
-This note records the next public UX pass for BTCPC. The goal is to make the
+This note records the next public UX pass for HONE. The goal is to make the
 chain easy to approach for both humans and AI agents without requiring them to
 already understand the repo structure or the policy model.
 
@@ -11,7 +11,7 @@ already understand the repo structure or the policy model.
 
 - Make `/start` the canonical first-stop route for humans and agents.
 - Turn the current multi-page install flow into one obvious onboarding path.
-- Make controller mode turnkey inside the existing BTCPC web and desktop app.
+- Make controller mode turnkey inside the existing HONE web and desktop app.
 - Add user-visible Terms and Privacy policy pages.
 - Keep the desktop, browser, and agent flows aligned so the same guidance works
   everywhere.
@@ -44,7 +44,7 @@ already understand the repo structure or the policy model.
 
 - Privy remains the embedded controller layer for supported external-chain
   signing.
-- BTCPC native spending keeps local active-key signing available.
+- HONE native spending keeps local active-key signing available.
 - External controller mode can disable active-key sends when the user opts in.
 - Secondary approval stays a separate outside-wallet lane.
 
@@ -59,7 +59,7 @@ already understand the repo structure or the policy model.
 
 - Make controller approval work cleanly on phones.
 - Prefer QR / deep-link / one-tap confirmation flows.
-- Return the user to BTCPC automatically after signing.
+- Return the user to HONE automatically after signing.
 
 ### 6. Versioning and notes
 
@@ -72,7 +72,7 @@ already understand the repo structure or the policy model.
 - A new user can open `/start` and understand what to do within one minute.
 - A first-time agent can follow the page and complete install deterministically.
 - A user can find Terms and Privacy from every major public surface.
-- Desktop and browser both expose the controller flow without a BTCPC extension.
+- Desktop and browser both expose the controller flow without a HONE extension.
 
 ## Change log
 

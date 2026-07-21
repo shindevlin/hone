@@ -1,4 +1,4 @@
-# BTCPC Pre-Mainnet Security Checklist
+# HONE Pre-Mainnet Security Checklist
 
 ## Overview
 
@@ -29,7 +29,7 @@ These issues represent attack surfaces that could compromise chain integrity, en
 
 - [ ] **S-02**: Slashing evidence gossip is independent of block proposals; evidence included within N epochs of first broadcast.
 - [ ] **S-03**: Replay slash rate is set to 10x epoch reward; evidence window is 100 epochs.
-- [ ] All slashed stake routes to `btcpc_recycle`; no burn paths exist anywhere in the codebase.
+- [ ] All slashed stake routes to `hone_recycle`; no burn paths exist anywhere in the codebase.
 
 ---
 
@@ -45,7 +45,7 @@ These issues should be resolved before opening the testnet to external validator
 
 ### Sybil Resistance
 
-- [ ] **S-05**: Minimum stake per verifier registration is enforced (recommended: 100 BTCPC).
+- [ ] **S-05**: Minimum stake per verifier registration is enforced (recommended: 100 HONE).
 - [ ] **S-05**: Per-account selection weight cap is implemented; aggregate Sybil stake does not gain linear selection advantage.
 
 ### Network Health

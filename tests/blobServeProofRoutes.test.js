@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS serve proof route tests — v2.11.1
+ * HONE-FS serve proof route tests — v2.11.1
  */
 
 const http = require('http');

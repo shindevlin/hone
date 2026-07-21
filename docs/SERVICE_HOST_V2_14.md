@@ -1,17 +1,17 @@
 ---
-title: BTCPC Service Host — v2.14 Spec (Stateful Multi-Service Hosting)
+title: HONE Service Host — v2.14 Spec (Stateful Multi-Service Hosting)
 description: Turning the runtime job market into a real hosting platform, specified against Bullship as the first customer
 author: Shin Devlin
 status: draft
 supersedes_prototype: src/services/serviceHostRunner.js (v2.13-beta, deprecated Node.js)
 ---
 
-# BTCPC Service Host — v2.14
+# HONE Service Host — v2.14
 
 > **First customer, first spec.** Bullship (a Telegram trivia game,
-> `github.com/estejosh/bullship`) tried to host itself on BTCPC and could not.
+> `github.com/estejosh/bullship`) tried to host itself on HONE and could not.
 > It runs today as a Docker Compose stack tunneled from a home PC. Bullship is
-> BTCPC's most realistic first Service-Host customer, so **its requirements are
+> HONE's most realistic first Service-Host customer, so **its requirements are
 > the v2.14 spec.** Every milestone below has a Bullship acceptance test.
 
 This document is written against the **canonical Rust node**. The
@@ -42,7 +42,7 @@ and their API routes (`src/api.rs`) already present:
 Also present and reusable:
 
 - **Encrypted secrets** — `src/secret_store.rs`: AES-256-GCM at rest
-  (`~/.btcpc/secrets.enc`), key from hardware fingerprint or
+  (`~/.hone/secrets.enc`), key from hardware fingerprint or
   `HONE_SECRETS_PASSPHRASE`, RocksDB `secret:` index. Currently used
   node-locally (e.g. TOTP). **Not yet a deploy-time sealed-secret channel.**
 - **Node hosting market** — `GET/POST /api/service/node-hosting*`: buyers
@@ -51,7 +51,7 @@ Also present and reusable:
 - **Contract engine** — `src/contracts.rs`, `POST /api/contract/deploy`, with
   per-deployer nonces.
 
-**Conclusion:** BTCPC has a bonded, escrowed, challenge-slashable *stateless*
+**Conclusion:** HONE has a bonded, escrowed, challenge-slashable *stateless*
 compute market. v2.14 is the set of deltas that make it *stateful,
 multi-service, secret-bearing, and publicly reachable* — i.e. able to run
 Bullship.
@@ -70,7 +70,7 @@ model rather than replacing it.
 **Delta:**
 - New entry `RuntimeVolumeCreate { volume_id, owner, runtime_id, size_bytes, class, replication, bond, epoch, signed_by }` — `class` ∈ `{block, object}`; `replication` = copies to keep. Bond escrows storage rent.
 - New entry `RuntimeVolumeAttach { volume_id, runtime_id, mount_path, mode, epoch, signed_by }`.
-- Volume data lives in **BTCPC-FS/Hive replica** (already the binary-distribution layer). A volume is a replicated, content-addressed dataset with a mutable HEAD pointer committed on-chain each snapshot epoch.
+- Volume data lives in **HONE-FS/Hive replica** (already the binary-distribution layer). A volume is a replicated, content-addressed dataset with a mutable HEAD pointer committed on-chain each snapshot epoch.
 - Host-side: the runner mounts the volume before spawning the runtime; on graceful stop it snapshots and commits the new HEAD.
 - **Acceptance:** deploy a single Postgres runtime with a 1 GB volume; write a row; kill the host; redeploy; the row is still there.
 
@@ -81,9 +81,9 @@ are one app."
 
 **Delta:**
 - New entry `AppBundleRegister { bundle_id, owner, manifest_cid, service_count, bond, epoch, signed_by }`. The bundle manifest (stored in FS at `manifest_cid`) is a **compose-compiled** document: a list of services, each mapping to a `RuntimeRegister`-shaped record, plus a private-network declaration and inter-service DNS names.
-- A `btcpc bundle from-compose docker-compose.yml` tool compiles Compose → bundle manifest (images → runtime_class + binary CID; `depends_on` → start order; named volumes → `RuntimeVolumeCreate`; `environment` → secret refs, see Gap C).
+- A `hone bundle from-compose docker-compose.yml` tool compiles Compose → bundle manifest (images → runtime_class + binary CID; `depends_on` → start order; named volumes → `RuntimeVolumeCreate`; `environment` → secret refs, see Gap C).
 - Deploy is atomic: `RuntimeDeploy` gains an optional `bundle_id`; all services in a bundle place together (or on a placement group, Gap E) and share a private overlay network with stable service DNS (`postgres`, `redis`, `gateway`).
-- **Acceptance:** `btcpc bundle from-compose` on Bullship's real compose file produces a bundle that deploys all services with the gateway able to reach `postgres:5432` and `redis:6379` by name.
+- **Acceptance:** `hone bundle from-compose` on Bullship's real compose file produces a bundle that deploys all services with the gateway able to reach `postgres:5432` and `redis:6379` by name.
 
 ### Gap C — Sealed secrets
 **Bullship needs at runtime:** `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, later a Hive
@@ -154,7 +154,7 @@ stateful customer) without shipping general volume orchestration first.
 ## 4. Near-term win — public inference endpoint (do first, no chain change)
 
 Bullship already routes **all** AI generation (`ai-headline`, `oracle`,
-`queue_worker` via `btcpc-sdk`) through the BTCPC inference API. Its host expects
+`queue_worker` via `hone-sdk`) through the HONE inference API. Its host expects
 `http://172.17.0.1:4242` and **falls back to canned mock headlines when the
 endpoint is absent.**
 
@@ -162,7 +162,7 @@ endpoint is absent.**
 (the node already serves `/v1/chat/completions`, `/v1/models`, `/v1/pricing`).
 Point Bullship's SDK base URL at it. This restores real AI-written fake
 headlines **before any hosting work lands** — the fastest possible proof that
-BTCPC delivers value to this customer.
+HONE delivers value to this customer.
 
 This is milestone **M0** and is independent of M1–M6.
 
@@ -170,7 +170,7 @@ This is milestone **M0** and is independent of M1–M6.
 
 ## 5. Open questions
 
-1. **Volume backend:** reuse BTCPC-FS/Hive replica for block volumes, or a
+1. **Volume backend:** reuse HONE-FS/Hive replica for block volumes, or a
    dedicated volume CF? (Leaning: FS for object/snapshot, a thin block layer on
    top for Postgres.)
 2. **Ingress trust:** is a single staked gateway acceptable for v2.14, with

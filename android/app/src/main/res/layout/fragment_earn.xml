@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/btcpc_bg"
+    android:background="@color/hone_bg"
     android:fillViewport="true">
 
     <LinearLayout
@@ -15,8 +15,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            android:text="Earn BTCPC"
-            android:textColor="@color/btcpc_text"
+            android:text="Earn HONE"
+            android:textColor="@color/hone_text"
             android:textSize="22sp"
             android:textStyle="bold" />
 
@@ -26,7 +26,7 @@
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:layout_marginBottom="20dp"
-            android:backgroundTint="@color/btcpc_orange"
+            android:backgroundTint="@color/hone_orange"
             android:text="Start Mining"
             android:textColor="@android:color/black"
             android:textSize="18sp"
@@ -38,7 +38,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            style="@style/BtcpcCard">
+            style="@style/HoneCard">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -60,7 +60,7 @@
                         android:layout_marginEnd="10dp"
                         android:text="●"
                         android:textSize="10sp"
-                        android:textColor="@color/btcpc_muted" />
+                        android:textColor="@color/hone_muted" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -72,7 +72,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Miner"
-                            android:textColor="@color/btcpc_text"
+                            android:textColor="@color/hone_text"
                             android:textSize="17sp"
                             android:textStyle="bold" />
 
@@ -81,7 +81,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="On-device ONNX inference"
-                            android:textColor="@color/btcpc_muted"
+                            android:textColor="@color/hone_muted"
                             android:textSize="13sp" />
 
                     </LinearLayout>
@@ -98,7 +98,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:text="Model"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="12sp" />
 
                 <Spinner
@@ -106,19 +106,19 @@
                     android:layout_width="match_parent"
                     android:layout_height="40dp"
                     android:layout_marginTop="4dp"
-                    android:background="@color/btcpc_bg"
+                    android:background="@color/hone_bg"
                     android:paddingStart="8dp"
-                    android:popupBackground="@color/btcpc_surface" />
+                    android:popupBackground="@color/hone_surface" />
 
                 <TextView
                     android:id="@+id/earn_miner_status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:background="@color/btcpc_bg"
+                    android:background="@color/hone_bg"
                     android:padding="8dp"
                     android:text="Stopped"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="13sp" />
 
                 <!-- Chain-verified proof count — only populated after API confirms -->
@@ -127,12 +127,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:background="@color/btcpc_bg"
+                    android:background="@color/hone_bg"
                     android:paddingStart="8dp"
                     android:paddingEnd="8dp"
                     android:paddingBottom="8dp"
                     android:text=""
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="12sp"
                     android:fontFamily="monospace" />
 
@@ -144,7 +144,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            style="@style/BtcpcCard">
+            style="@style/HoneCard">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -165,7 +165,7 @@
                         android:layout_marginEnd="10dp"
                         android:text="●"
                         android:textSize="10sp"
-                        android:textColor="@color/btcpc_muted" />
+                        android:textColor="@color/hone_muted" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -177,7 +177,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Clock Peer"
-                            android:textColor="@color/btcpc_text"
+                            android:textColor="@color/hone_text"
                             android:textSize="17sp"
                             android:textStyle="bold" />
 
@@ -186,7 +186,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="WebSocket time relay"
-                            android:textColor="@color/btcpc_muted"
+                            android:textColor="@color/hone_muted"
                             android:textSize="13sp" />
 
                     </LinearLayout>
@@ -203,10 +203,10 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:background="@color/btcpc_bg"
+                    android:background="@color/hone_bg"
                     android:padding="8dp"
                     android:text="Stopped"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="13sp" />
 
             </LinearLayout>
@@ -217,7 +217,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            style="@style/BtcpcCard">
+            style="@style/HoneCard">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -238,7 +238,7 @@
                         android:layout_marginEnd="10dp"
                         android:text="●"
                         android:textSize="10sp"
-                        android:textColor="@color/btcpc_muted" />
+                        android:textColor="@color/hone_muted" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -250,7 +250,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Sensor Rig"
-                            android:textColor="@color/btcpc_text"
+                            android:textColor="@color/hone_text"
                             android:textSize="17sp"
                             android:textStyle="bold" />
 
@@ -259,7 +259,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="Phone sensors to chain"
-                            android:textColor="@color/btcpc_muted"
+                            android:textColor="@color/hone_muted"
                             android:textSize="13sp" />
 
                     </LinearLayout>
@@ -284,63 +284,63 @@
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="6dp"
                         android:text="ACTIVE SENSORS"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="11sp"
                         android:letterSpacing="0.1" />
 
                     <CheckBox android:id="@+id/sensor_motion"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Motion (accelerometer, gyroscope)"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="true" />
 
                     <CheckBox android:id="@+id/sensor_orientation"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Orientation (rotation vector)"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="true" />
 
                     <CheckBox android:id="@+id/sensor_environment"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Environment (light, pressure, temp, humidity)"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="true" />
 
                     <CheckBox android:id="@+id/sensor_magnetometer"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Magnetometer"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="true" />
 
                     <CheckBox android:id="@+id/sensor_proximity"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Proximity"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="true" />
 
                     <CheckBox android:id="@+id/sensor_steps"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Step counter"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="true" />
 
                     <CheckBox android:id="@+id/sensor_heartrate"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Heart rate"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="false" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="false" />
 
                     <CheckBox android:id="@+id/sensor_gps"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="GPS location"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="false" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="false" />
 
                     <CheckBox android:id="@+id/sensor_battery"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Battery level"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+                        android:textColor="@color/hone_text" android:textSize="13sp"
+                        android:buttonTint="@color/hone_orange" android:checked="true" />
 
                 </LinearLayout>
 
@@ -349,10 +349,10 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:background="@color/btcpc_bg"
+                    android:background="@color/hone_bg"
                     android:padding="8dp"
                     android:text="Stopped"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="13sp" />
 
             </LinearLayout>
@@ -363,7 +363,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            style="@style/BtcpcCard">
+            style="@style/HoneCard">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -384,7 +384,7 @@
                         android:layout_marginEnd="10dp"
                         android:text="●"
                         android:textSize="10sp"
-                        android:textColor="@color/btcpc_muted" />
+                        android:textColor="@color/hone_muted" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -396,7 +396,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Storage"
-                            android:textColor="@color/btcpc_text"
+                            android:textColor="@color/hone_text"
                             android:textSize="17sp"
                             android:textStyle="bold" />
 
@@ -404,8 +404,8 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="Host BTCPC-FS blobs"
-                            android:textColor="@color/btcpc_muted"
+                            android:text="Host HONE-FS blobs"
+                            android:textColor="@color/hone_muted"
                             android:textSize="13sp" />
 
                     </LinearLayout>
@@ -428,7 +428,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Quota: "
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="13sp" />
 
                     <TextView
@@ -436,7 +436,7 @@
                         android:layout_width="60dp"
                         android:layout_height="wrap_content"
                         android:text="1 GB"
-                        android:textColor="@color/btcpc_orange"
+                        android:textColor="@color/hone_orange"
                         android:textSize="13sp"
                         android:textStyle="bold" />
 
@@ -449,18 +449,18 @@
                     android:layout_marginTop="4dp"
                     android:max="18"
                     android:progress="3"
-                    android:progressTint="@color/btcpc_orange"
-                    android:thumbTint="@color/btcpc_orange" />
+                    android:progressTint="@color/hone_orange"
+                    android:thumbTint="@color/hone_orange" />
 
                 <TextView
                     android:id="@+id/earn_storage_status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:background="@color/btcpc_bg"
+                    android:background="@color/hone_bg"
                     android:padding="8dp"
                     android:text="Stopped"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="13sp" />
 
             </LinearLayout>

@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 /**
- * BTCPC Flipper Pairing Tool
+ * HONE Flipper Pairing Tool
  *
  * One-shot pairing: reads the Flipper Zero BLE MAC from USB serial and
- * pushes it to the BTCPC Android app running on a connected phone.
+ * pushes it to the HONE Android app running on a connected phone.
  *
  * Requirements on the PC:
- *   - Flipper plugged in via USB running btcpc_relay.fap
+ *   - Flipper plugged in via USB running hone_relay.fap
  *   - Android phone plugged in via USB with USB debugging enabled
  *   - adb installed and on PATH (included in Android SDK platform-tools)
  *
  * Bundle as a standalone exe (no node required on end-user's machine):
  *   npm install -g pkg
  *   pkg scripts/pair-flipper.js -t node18-win,node18-linux,node18-macos \
- *       --output dist/btcpcflipper
- *   → dist/btcpcflipper.exe  (Windows)
- *     dist/btcpcflipper-linux
- *     dist/btcpcflipper-macos
+ *       --output dist/honeflipper
+ *   → dist/honeflipper.exe  (Windows)
+ *     dist/honeflipper-linux
+ *     dist/honeflipper-macos
  *
  * Usage:
  *   node scripts/pair-flipper.js
@@ -49,9 +49,9 @@ const PHONE_PORT = 6942;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function log(msg)  { process.stdout.write('[btcpc-pair] ' + msg + '\n'); }
-function err(msg)  { process.stderr.write('[btcpc-pair] ERROR: ' + msg + '\n'); }
-function ok(msg)   { process.stdout.write('[btcpc-pair] ✓ ' + msg + '\n'); }
+function log(msg)  { process.stdout.write('[hone-pair] ' + msg + '\n'); }
+function err(msg)  { process.stderr.write('[hone-pair] ERROR: ' + msg + '\n'); }
+function ok(msg)   { process.stdout.write('[hone-pair] ✓ ' + msg + '\n'); }
 function fail(msg) { err(msg); process.exit(1); }
 
 function postPair(mac) {
@@ -142,8 +142,8 @@ function readMacFromSerial(portPath, timeoutMs) {
     const timer = setTimeout(() => {
       if (!resolved) {
         port.close();
-        reject(new Error(`No BTCPC_MAC: seen from ${portPath} within ${timeoutMs / 1000}s.\n` +
-          '  Make sure btcpc_relay.fap is running on the Flipper.'));
+        reject(new Error(`No HONE_MAC: seen from ${portPath} within ${timeoutMs / 1000}s.\n` +
+          '  Make sure hone_relay.fap is running on the Flipper.'));
       }
     }, timeoutMs);
 
@@ -159,11 +159,11 @@ function readMacFromSerial(portPath, timeoutMs) {
         while ((nl = buf.indexOf('\n')) !== -1) {
           const line = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
-          if (line.startsWith('BTCPC_MAC:')) {
+          if (line.startsWith('HONE_MAC:')) {
             const parts = line.split(' ');
-            const mac = parts[0].slice('BTCPC_MAC:'.length).trim().toUpperCase();
-            const sigPart = parts.find(p => p.startsWith('BTCPC_SIG:'));
-            const sig = sigPart ? sigPart.slice('BTCPC_SIG:'.length).trim().toLowerCase() : null;
+            const mac = parts[0].slice('HONE_MAC:'.length).trim().toUpperCase();
+            const sigPart = parts.find(p => p.startsWith('HONE_SIG:'));
+            const sig = sigPart ? sigPart.slice('HONE_SIG:'.length).trim().toLowerCase() : null;
             if (mac.match(/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/)) {
               resolved = true;
               clearTimeout(timer);
@@ -184,7 +184,7 @@ function readMacFromSerial(portPath, timeoutMs) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  log('BTCPC Flipper Pairing Tool');
+  log('HONE Flipper Pairing Tool');
   log('');
 
   // 1. Check adb is reachable
@@ -223,7 +223,7 @@ async function main() {
     fail(
       'Flipper Zero not found on any serial port.\n' +
       '  1. Connect Flipper via USB\n' +
-      '  2. Open btcpc_relay.fap on the Flipper\n' +
+      '  2. Open hone_relay.fap on the Flipper\n' +
       '  3. Or specify the port manually:  --port /dev/ttyACM0\n' +
       '     (Windows: --port COM3)'
     );
@@ -232,7 +232,7 @@ async function main() {
 
   // 4. Read MAC + signature
   log(`Waiting for BLE MAC from Flipper (up to ${timeoutSec}s)...`);
-  log('  → If btcpc_relay.fap is not open yet, open it now.');
+  log('  → If hone_relay.fap is not open yet, open it now.');
   const { mac, sig } = await readMacFromSerial(portPath, timeoutSec * 1000);
   ok(`Got BLE MAC: ${mac}`);
   if (sig) {
@@ -261,11 +261,11 @@ async function main() {
     ok(`Paired! Phone confirmed: ${result.mac}`);
     log('');
     log('Pairing complete. You can now unplug the Flipper from the PC.');
-    log('On your phone: open the BTCPC app → Flipper tab to verify.');
+    log('On your phone: open the HONE app → Flipper tab to verify.');
   } catch (e) {
     fail(
       `Phone did not accept the MAC: ${e.message}\n` +
-      '  Make sure the BTCPC app is running on your phone.'
+      '  Make sure the HONE app is running on your phone.'
     );
   }
 

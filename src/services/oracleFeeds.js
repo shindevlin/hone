@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Oracle Feeds — v2.13-delta
+ * HONE Oracle Feeds — v2.13-delta
  * Shin Devlin
  *
  * Generic off-chain data consensus primitive. A "feed" is a named data
@@ -32,7 +32,7 @@
  *     pattern as serviceRegistry → serviceRoutes.
  *
  * Feed ID format: "<owner>/<name>"
- *   - owner must be a valid BTCPC account name
+ *   - owner must be a valid HONE account name
  *   - name matches /^[a-z0-9][a-z0-9-]{0,62}$/
  *   - same rules as service slugs and commerce product slugs
  */

@@ -5,7 +5,7 @@ const { getBlockReward, getCurrentPeriod } = require('./emissionSchedule');
 const { shouldStartBackgroundTimers } = require('./backgroundTimers');
 
 /**
- * BTCPC Epoch Manager
+ * HONE Epoch Manager
  *
  * Manages the 30-second epoch cycle: creation, commitment collection,
  * consensus determination, and reward distribution.
@@ -18,7 +18,7 @@ const MAX_DIFFICULTY_DECREASE = 0.25;
 const BASELINE_WORK_PER_EPOCH = 100; // baseline expected work per epoch at difficulty 1.0
 
 // Genesis timestamp — hardcoded. Midnight California, April 15 2026.
-// This is the birth of the BTCPC v3.0 chain. All nodes must agree on this value.
+// This is the birth of the HONE v3.0 chain. All nodes must agree on this value.
 // Every epoch number on every node is derived from this single constant.
 const GENESIS_TIMESTAMP = 1777633200000; // 2026-05-01T11:00:00.000Z (noon Ireland, UTC+1)
 let epochInterval = null;
@@ -56,7 +56,7 @@ async function createEpoch(epochNumber) {
     status: 'active'
   });
 
-  console.log(`[BTCPC] Epoch ${epochNumber} started | reward: ${reward} BTCPC | difficulty: ${currentDifficulty}`);
+  console.log(`[HONE] Epoch ${epochNumber} started | reward: ${reward} HONE | difficulty: ${currentDifficulty}`);
   return stateStore.getEpoch(epochNumber);
 }
 
@@ -167,7 +167,7 @@ async function distributeRewards(epoch) {
       minerReward = parseFloat((minerReward - royaltyCut).toFixed(10));
       for (const [uploader, amount] of Object.entries(royaltyCreditMap)) {
         if (amount > 0) {
-          await ledger.recordMiningReward(uploader, amount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} model royalty`, 'model_royalty');
+          await ledger.recordMiningReward(uploader, amount, currentEpoch, 'HONE', `Epoch ${currentEpoch} model royalty`, 'model_royalty');
         }
       }
     }
@@ -186,20 +186,20 @@ async function distributeRewards(epoch) {
       const minerAmount = parseFloat((minerReward * minerShare).toFixed(10));
 
       if (minerAmount > 0) {
-        await ledger.recordMiningReward(minerName, minerAmount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} mining reward (miner share)`, 'mining');
+        await ledger.recordMiningReward(minerName, minerAmount, currentEpoch, 'HONE', `Epoch ${currentEpoch} mining reward (miner share)`, 'mining');
       }
 
       for (const delegation of delegations) {
         const delegatorShare = delegation.amount / totalPool;
         const delegatorAmount = parseFloat((minerReward * delegatorShare).toFixed(10));
         if (delegatorAmount <= 0) continue;
-        await ledger.recordMiningReward(delegation.from, delegatorAmount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} delegation reward`, 'mining');
+        await ledger.recordMiningReward(delegation.from, delegatorAmount, currentEpoch, 'HONE', `Epoch ${currentEpoch} delegation reward`, 'mining');
       }
 
       rewards.push({ node_id: minerName, amount: minerReward });
     } else {
       // No delegations — miner gets full reward
-      await ledger.recordMiningReward(minerName, minerReward, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} mining reward`, 'mining');
+      await ledger.recordMiningReward(minerName, minerReward, currentEpoch, 'HONE', `Epoch ${currentEpoch} mining reward`, 'mining');
       rewards.push({ node_id: minerName, amount: minerReward });
     }
   }
@@ -242,7 +242,7 @@ async function adjustDifficulty(epochNumber) {
   const newDifficulty = parseFloat((currentDifficulty * adjustmentRatio).toFixed(10));
   currentDifficulty = newDifficulty;
 
-  console.log(`[BTCPC] Difficulty adjusted at epoch ${epochNumber}: ${newDifficulty} (ratio: ${adjustmentRatio.toFixed(4)})`);
+  console.log(`[HONE] Difficulty adjusted at epoch ${epochNumber}: ${newDifficulty} (ratio: ${adjustmentRatio.toFixed(4)})`);
   return newDifficulty;
 }
 
@@ -266,7 +266,7 @@ function getNextAdjustmentEpoch(currentEpochNum) {
 async function finalizeEpoch(epochNumber) {
   const epoch = stateStore.getEpoch(epochNumber);
   if (!epoch) {
-    console.error(`[BTCPC] Epoch ${epochNumber} not found for finalization`);
+    console.error(`[HONE] Epoch ${epochNumber} not found for finalization`);
     return null;
   }
 
@@ -276,11 +276,11 @@ async function finalizeEpoch(epochNumber) {
 
   // Security T-01: require minimum work before finalizing (prevents empty-epoch inflation).
   // Bypass during genesis bootstrap (first 10 epochs) so chain can start without miners.
-  const MIN_WORK_THRESHOLD = parseFloat(process.env.BTCPC_MIN_WORK_THRESHOLD || '0');
+  const MIN_WORK_THRESHOLD = parseFloat(process.env.HONE_MIN_WORK_THRESHOLD || '0');
   if (MIN_WORK_THRESHOLD > 0 && epochNumber > 10) {
     const totalWork = (epoch.commitments || []).reduce((s, c) => s + (c.inference_count || 0) + (c.tx_count || 0), 0);
     if (totalWork < MIN_WORK_THRESHOLD) {
-      console.warn(`[BTCPC] Epoch ${epochNumber} below work threshold (${totalWork} < ${MIN_WORK_THRESHOLD}) — deferring finalization`);
+      console.warn(`[HONE] Epoch ${epochNumber} below work threshold (${totalWork} < ${MIN_WORK_THRESHOLD}) — deferring finalization`);
       return null;
     }
   }
@@ -303,7 +303,7 @@ async function finalizeEpoch(epochNumber) {
   // Check for difficulty adjustment
   await adjustDifficulty(epochNumber + 1);
 
-  console.log(`[BTCPC] Epoch ${epochNumber} finalized | commitments: ${(epoch.commitments || []).length} | reward distributed: ${epoch.block_reward} BTCPC | difficulty: ${currentDifficulty}`);
+  console.log(`[HONE] Epoch ${epochNumber} finalized | commitments: ${(epoch.commitments || []).length} | reward distributed: ${epoch.block_reward} HONE | difficulty: ${currentDifficulty}`);
   return epoch;
 }
 
@@ -354,11 +354,11 @@ async function epochTick() {
       // Release matured holds (challenge window expired with no failure)
       const holdResult = await ledgerMod.releaseMaturedStorageHolds(currentEpochNum);
       if (holdResult.released > 0) {
-        console.log(`[BTCPC] Storage holds released: ${holdResult.released} holds, ${holdResult.totalReleased.toFixed(4)} BTCPC (epoch ${currentEpochNum})`);
+        console.log(`[HONE] Storage holds released: ${holdResult.released} holds, ${holdResult.totalReleased.toFixed(4)} HONE (epoch ${currentEpochNum})`);
       }
     } catch (_) {}
 
-    // Distribute btcpc_recycle pool every 240 epochs (~2 hours)
+    // Distribute hone_recycle pool every 240 epochs (~2 hours)
     try {
       const ledgerMod = require('./ledger');
       if (
@@ -367,12 +367,12 @@ async function epochTick() {
       ) {
         const result = await ledgerMod.distributeRecyclePool(currentEpochNum);
         if (result.distributed > 0) {
-          console.log(`[BTCPC] Recycle pool distributed: ${result.distributed.toFixed(4)} BTCPC to ${result.recipients} stakers (epoch ${currentEpochNum})`);
+          console.log(`[HONE] Recycle pool distributed: ${result.distributed.toFixed(4)} HONE to ${result.recipients} stakers (epoch ${currentEpochNum})`);
         }
       }
     } catch (_) {}
   } catch (err) {
-    console.error('[BTCPC] Epoch tick error:', err.message);
+    console.error('[HONE] Epoch tick error:', err.message);
   }
 }
 
@@ -380,20 +380,20 @@ async function epochTick() {
  * Start the epoch loop. Creates genesis epoch if needed, then ticks every 5 minutes.
  */
 async function startEpochLoop() {
-  console.log('[BTCPC] Starting epoch manager...');
+  console.log('[HONE] Starting epoch manager...');
 
   // Initialize difficulty from the latest epoch in stateStore.
   const latestEpoch = stateStore.getLatestEpoch();
   if (latestEpoch && latestEpoch.difficulty) {
     currentDifficulty = latestEpoch.difficulty;
-    console.log(`[BTCPC] Difficulty initialized from chain state: ${currentDifficulty}`);
+    console.log(`[HONE] Difficulty initialized from chain state: ${currentDifficulty}`);
   }
 
   // Initialize genesis if needed
   let genesis = await getGenesisTimestamp();
   if (!genesis) {
     GENESIS_TIMESTAMP = Date.now();
-    console.log(`[BTCPC] Genesis timestamp set: ${new Date(GENESIS_TIMESTAMP).toISOString()}`);
+    console.log(`[HONE] Genesis timestamp set: ${new Date(GENESIS_TIMESTAMP).toISOString()}`);
 
     // Create epoch 0 — the genesis epoch
     await createEpoch(0);
@@ -406,7 +406,7 @@ async function startEpochLoop() {
   if (shouldStartBackgroundTimers()) {
     epochInterval = setInterval(epochTick, EPOCH_DURATION_MS);
   }
-  console.log(`[BTCPC] Epoch loop running — ${EPOCH_DURATION_MS / 1000}s interval`);
+  console.log(`[HONE] Epoch loop running — ${EPOCH_DURATION_MS / 1000}s interval`);
 }
 
 /**
@@ -416,7 +416,7 @@ function stopEpochLoop() {
   if (epochInterval) {
     clearInterval(epochInterval);
     epochInterval = null;
-    console.log('[BTCPC] Epoch loop stopped');
+    console.log('[HONE] Epoch loop stopped');
   }
 }
 

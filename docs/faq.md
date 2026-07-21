@@ -2,11 +2,11 @@
 
 ## Getting Tokens
 
-### How do I get my first BTCPC?
-Claim 1 free BTCPC via the faucet — either through the API (`POST /api/faucet/claim`) or the Telegram bot (`/claim`). You can only claim once per account.
+### How do I get my first HONE?
+Claim 1 free HONE via the faucet — either through the API (`POST /api/faucet/claim`) or the Telegram bot (`/claim`). You can only claim once per account.
 
 ### I need more tokens
-Email **shindevlin@proton.me** with your BTCPC username. Include what you plan to use them for.
+Email **shindevlin@proton.me** with your HONE username. Include what you plan to use them for.
 
 ### Can I mine without a GPU?
 Mining on CPU works but is very slow and earns minimal rewards. An NVIDIA GPU with 8GB+ VRAM is recommended.
@@ -30,13 +30,13 @@ Mining on CPU works but is very slow and earns minimal rewards. An NVIDIA GPU wi
 - Check if the staking pool exists and is active.
 
 ### Inference Returns an Error
-- Check you have at least 0.01 BTCPC balance.
-- For Telegram bot inference, you need at least 1 BTCPC staked.
+- Check you have at least 0.01 HONE balance.
+- For Telegram bot inference, you need at least 1 HONE staked.
 - Verify the relay or Ollama endpoint is reachable.
 
 ## Support
 
-- Telegram Group: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)
-- Telegram Bot: [@btcpcbot](https://t.me/btcpcbot)
+- Telegram Group: [t.me/honenetwork](https://t.me/honenetwork)
+- Telegram Bot: [@honebot](https://t.me/honebot)
 - Email: shindevlin@proton.me
-- GitHub Issues: [shindevlin/btcpc](https://github.com/shindevlin/btcpc/issues)
+- GitHub Issues: [shindevlin/hone](https://github.com/shindevlin/hone/issues)

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Gateway Storefront — HTML rendering — v2.10.2
+ * HONE Gateway Storefront — HTML rendering — v2.10.2
  * Shin Devlin
  *
  * Server-side HTML rendering for store/product pages. Pure functions:
@@ -25,7 +25,7 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
-function fmtBtcpc(amount) {
+function fmtHone(amount) {
   if (amount === null || amount === undefined) return '0';
   var n = Number(amount);
   if (!isFinite(n)) return '0';
@@ -55,7 +55,7 @@ function baseLayout(title, bodyHtml) {
     '<head>',
     '<meta charset="UTF-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-    '<title>' + esc(title) + ' — BTCPC</title>',
+    '<title>' + esc(title) + ' — HONE</title>',
     '<style>',
     'body{font-family:system-ui,-apple-system,sans-serif;max-width:960px;margin:0 auto;padding:24px;background:#0a0a0a;color:#e0e0e0;line-height:1.5}',
     'a{color:#f7931a;text-decoration:none}a:hover{text-decoration:underline}',
@@ -80,14 +80,14 @@ function baseLayout(title, bodyHtml) {
     '</head>',
     '<body>',
     '<header>',
-    '<h1><a href="/">BTCPC</a></h1>',
+    '<h1><a href="/">HONE</a></h1>',
     '<div class="tagline">sovereign chain · commerce · compute · no burn, all recycle</div>',
     '<nav><a href="/">home</a><a href="/stores">stores</a></nav>',
     '</header>',
     '<main>',
     bodyHtml,
     '</main>',
-    '<footer>BTCPC — Bitcoin Proof of Compute · <a href="https://btcpc.net">btcpc.net</a></footer>',
+    '<footer>HONE — Bitcoin Proof of Compute · <a href="https://hone.net">hone.net</a></footer>',
     '</body>',
     '</html>',
   ].join('\n');
@@ -100,7 +100,7 @@ function baseLayout(title, bodyHtml) {
 function renderLanding(data) {
   var stores = data.recent_stores || [];
   var body = [
-    '<h2>Welcome to BTCPC Commerce</h2>',
+    '<h2>Welcome to HONE Commerce</h2>',
     '<p>Open storefronts backed by real stake, priced in a chain that recycles every fee back to the people doing the work. ' + data.total_stores + ' active store' + (data.total_stores === 1 ? '' : 's') + ' right now.</p>',
     stores.length === 0
       ? '<div class="notice">No stores open yet. Be the first — <a href="/stores">browse the directory</a> or POST to <code>/api/commerce/stores</code> to open your own.</div>'
@@ -183,7 +183,7 @@ function renderStoreProfile(data) {
     (store.total_fulfilled || 0) + ' fulfilled · ',
     (store.total_disputed || 0) + ' disputed',
     '</div>',
-    '<div class="meta">staked: ' + fmtBtcpc(store.stake_amount) + ' BTCPC · capacity: ' + (store.capacity || 0) + ' slots</div>',
+    '<div class="meta">staked: ' + fmtHone(store.stake_amount) + ' HONE · capacity: ' + (store.capacity || 0) + ' slots</div>',
     '</article>',
     '<h3 style="margin-top:32px">Products (' + products.length + ')</h3>',
     products.length === 0
@@ -202,7 +202,7 @@ function renderProductCard(product) {
   return [
     '<a href="' + esc(path) + '" class="product-card">',
     '<h3>' + esc(product.title || product.product_id) + '</h3>',
-    '<div class="price">' + fmtBtcpc(product.price) + ' ' + esc(product.token || 'BTCPC') + '</div>',
+    '<div class="price">' + fmtHone(product.price) + ' ' + esc(product.token || 'HONE') + '</div>',
     '<div class="stock">' + (product.stock || 0) + ' in stock</div>',
     product.category ? '<div class="meta"><span class="badge">' + esc(product.category) + '</span></div>' : '',
     product.description_snippet
@@ -226,7 +226,7 @@ function renderProduct(data) {
     '<article>',
     '<div class="meta"><a href="/stores/' + esc(product.seller) + '">← ' + esc(store ? store.name || store.seller : product.seller) + '</a></div>',
     '<h2>' + esc(product.title || product.product_id) + '</h2>',
-    '<div class="price" style="font-size:2rem;margin:16px 0">' + fmtBtcpc(product.price) + ' ' + esc(product.token || 'BTCPC') + '</div>',
+    '<div class="price" style="font-size:2rem;margin:16px 0">' + fmtHone(product.price) + ' ' + esc(product.token || 'HONE') + '</div>',
     '<div class="stock" style="font-size:1rem">' + (product.stock || 0) + ' in stock</div>',
     product.category
       ? '<div class="meta" style="margin-top:12px"><span class="badge">' + esc(product.category) + '</span></div>'
@@ -244,7 +244,7 @@ function renderProduct(data) {
       : '',
     '<div class="meta" style="margin-top:8px">product id: <span class="cid">' + esc(product.product_id) + '</span></div>',
     '<div class="meta">shortcode: <a href="/s/' + esc(shortcode) + '">/s/' + esc(shortcode) + '</a></div>',
-    '<div class="notice">To buy this product, authenticate via /api/commerce/orders with a BTCPC account holding sufficient balance. Order flow: place → seller fulfill → buyer confirm delivery.</div>',
+    '<div class="notice">To buy this product, authenticate via /api/commerce/orders with a HONE account holding sufficient balance. Order flow: place → seller fulfill → buyer confirm delivery.</div>',
     '</article>',
   ].join('\n');
 
@@ -296,7 +296,7 @@ function renderResolved(resolved) {
 
 module.exports = {
   esc: esc,
-  fmtBtcpc: fmtBtcpc,
+  fmtHone: fmtHone,
   fmtRep: fmtRep,
   baseLayout: baseLayout,
   renderLanding: renderLanding,

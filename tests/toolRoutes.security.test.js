@@ -12,7 +12,7 @@ jest.mock("../src/chain/stateStore", () => ({
 }));
 
 const toolRoutes = require("../src/routes/toolRoutes");
-const mcpServer = require("../src/mcp/btcpcMcpServer");
+const mcpServer = require("../src/mcp/mcpJsonRpcServer");
 const ledger = require("../src/services/ledger");
 
 function makeTestServer() {

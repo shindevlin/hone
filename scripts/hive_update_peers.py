@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Update the btcpc Hive account's peer list.
+Update the hone Hive account's peer list.
 
 Usage:
     python3 hive_update_peers.py
@@ -8,7 +8,7 @@ Usage:
 Requires:  pip install beem
 
 Run this whenever bootstrap node addresses change.
-The BTCPC node reads this list at startup via the discovery module.
+The HONE node reads this list at startup via the discovery module.
 """
 
 import json
@@ -23,12 +23,12 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-HIVE_ACCOUNT  = "btcpc"
+HIVE_ACCOUNT  = "hone"
 POSTING_KEY   = ""  # set via env var or prompt — do not hardcode
 
 # Update this list whenever bootstrap node addresses change.
 # Format: libp2p multiaddr strings.
-BTCPC_PEERS = [
+HONE_PEERS = [
     "/dns4/bootstrap1.honemesh.net/tcp/6942",
     "/dns4/bootstrap2.honemesh.net/tcp/6942",
     # Add more as the network grows:
@@ -47,13 +47,13 @@ def main():
     h   = Hive(keys=[key])
     acc = Account(HIVE_ACCOUNT, blockchain_instance=h)
 
-    # Preserve any existing metadata fields, only overwrite btcpc_peers.
+    # Preserve any existing metadata fields, only overwrite hone_peers.
     try:
         existing = json.loads(acc["json_metadata"] or "{}")
     except Exception:
         existing = {}
 
-    existing["hone_peers"] = BTCPC_PEERS
+    existing["hone_peers"] = HONE_PEERS
     new_meta = json.dumps(existing, separators=(",", ":"))
 
     print(f"Updating @{HIVE_ACCOUNT} json_metadata:")

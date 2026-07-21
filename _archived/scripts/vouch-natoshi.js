@@ -2,17 +2,17 @@
 "use strict";
 
 /**
- * BTCPC natoshi vouching script
+ * HONE natoshi vouching script
  * Shin Devlin
  *
  * natoshisakamoto vouches for all known sensors, miners, and accounts on the
- * network by staking BTCPC on each one. This signals network legitimacy and
+ * network by staking HONE on each one. This signals network legitimacy and
  * means natoshi's staked amounts are at risk if any vouched entity is slashed.
  *
  * Run: node scripts/vouch-natoshi.js [--dry-run]
  *
  * Requires the node API to be running at localhost:4242 with a valid natoshi JWT.
- * Set BTCPC_NATOSHI_TOKEN env var, or it will try to auth from secrets.json.
+ * Set HONE_NATOSHI_TOKEN env var, or it will try to auth from secrets.json.
  */
 
 const https = require('https');
@@ -20,13 +20,13 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
-const API_BASE = process.env.BTCPC_API_BASE || 'http://localhost:4242';
+const API_BASE = process.env.HONE_API_BASE || 'http://localhost:4242';
 const DRY_RUN = process.argv.includes('--dry-run');
 
 // ── Entities to vouch for ───────────────────────────────────────────────────
 // Each entry: { target_id, target_type, stake_amount, note }
 //
-// Stake amounts per type (BTCPC):
+// Stake amounts per type (HONE):
 //   Full miner PC (grouchly, beastly):   1000
 //   Clock node (any PC running clock):    500
 //   GNSS sensor (Hyfix, high hardware):   500
@@ -51,10 +51,10 @@ const VOUCHES = [
 
 // ── Auth token ──────────────────────────────────────────────────────────────
 function getToken() {
-  if (process.env.BTCPC_NATOSHI_TOKEN) return process.env.BTCPC_NATOSHI_TOKEN;
+  if (process.env.HONE_NATOSHI_TOKEN) return process.env.HONE_NATOSHI_TOKEN;
 
   // Try secrets.json
-  const secretsPath = path.join(process.env.HOME || '/root', '.btcpc', 'secrets.json');
+  const secretsPath = path.join(process.env.HOME || '/root', '.hone', 'secrets.json');
   if (fs.existsSync(secretsPath)) {
     try {
       const secrets = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
@@ -111,7 +111,7 @@ function request(method, path, body, token) {
 async function main() {
   const token = getToken();
   if (!token) {
-    console.error('[vouch-natoshi] No token found. Set BTCPC_NATOSHI_TOKEN or add natoshisakamoto.jwt to ~/.btcpc/secrets.json');
+    console.error('[vouch-natoshi] No token found. Set HONE_NATOSHI_TOKEN or add natoshisakamoto.jwt to ~/.hone/secrets.json');
     process.exit(1);
   }
 
@@ -128,7 +128,7 @@ async function main() {
     const label = '[' + vouch.target_id + ' (' + vouch.target_type + ')]';
 
     if (DRY_RUN) {
-      console.log('  DRY RUN ' + label + ' stake=' + vouch.stake_amount + ' BTCPC  note=' + vouch.note);
+      console.log('  DRY RUN ' + label + ' stake=' + vouch.stake_amount + ' HONE  note=' + vouch.note);
       ok++;
       continue;
     }
@@ -143,7 +143,7 @@ async function main() {
       }, token);
 
       if (resp.status === 201 || resp.status === 200) {
-        console.log('  ✓ ' + label + ' — vouched with ' + vouch.stake_amount + ' BTCPC');
+        console.log('  ✓ ' + label + ' — vouched with ' + vouch.stake_amount + ' HONE');
         ok++;
       } else if (resp.status === 409) {
         console.log('  ~ ' + label + ' — already vouched (skipped)');

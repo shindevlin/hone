@@ -1,9 +1,9 @@
 # Safe Ruflo Project Orchestration
 
 ## Decision
-Ruflo is a development orchestration tool only. Do not install or initialize it inside the main BTCPC checkout, wallet directories, release directories, or any repo containing secrets.
+Ruflo is a development orchestration tool only. Do not install or initialize it inside the main HONE checkout, wallet directories, release directories, or any repo containing secrets.
 
-The sandbox test showed Ruflo can create `.claude`, `.claude-flow`, `.mcp.json`, `AGENTS.md`, `.agents`, `.codex`, hooks, daemon config, MCP config, and permissive local profiles. That is too invasive for BTCPC production code.
+The sandbox test showed Ruflo can create `.claude`, `.claude-flow`, `.mcp.json`, `AGENTS.md`, `.agents`, `.codex`, hooks, daemon config, MCP config, and permissive local profiles. That is too invasive for HONE production code.
 
 ## Safe Starting Workflow
 Use one isolated sandbox per project.
@@ -32,7 +32,7 @@ ruflo init --codex --minimal --no-global
 
 ## Operating Rules
 - Use throwaway clones or disposable worktrees.
-- Do not mount `~/.btcpc`, wallet files, signing keys, browser profiles, Proton/Camofox profiles, or release credentials.
+- Do not mount `~/.hone`, wallet files, signing keys, browser profiles, Proton/Camofox profiles, or release credentials.
 - Do not use Ruflo auto-commit, auto-push, daemon, or full init modes until every generated hook/config is reviewed.
 - Review diffs manually before copying patches back to the real repo.
 - Prefer task prompts with tight file scopes.
@@ -51,7 +51,7 @@ PATH="$RUFLO_SANDBOX/npm-prefix/bin:$PATH" \
 ruflo task --help
 ```
 
-Then ask it to plan work in the sandbox clone. Do not let it operate on BTCPC mainline until its output has been reviewed and manually ported.
+Then ask it to plan work in the sandbox clone. Do not let it operate on HONE mainline until its output has been reviewed and manually ported.
 
-## BTCPC Boundary
-Ruflo may help orchestrate coding projects. It must not become BTCPC's runtime, agent layer, wallet tooling, or production orchestrator.
+## HONE Boundary
+Ruflo may help orchestrate coding projects. It must not become HONE's runtime, agent layer, wallet tooling, or production orchestrator.

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * BTCPC Model Uploader
+ * HONE Model Uploader
  *
  * Downloads ONNX model files from HuggingFace (one-time operation),
- * uploads each file to the BTCPC blob store, and writes CIDs to
+ * uploads each file to the HONE blob store, and writes CIDs to
  * data/model-registry.json. After this runs, phones download models
- * from btcpc.net — not from HuggingFace.
+ * from hone.net — not from HuggingFace.
  *
  * Usage:
- *   BTCPC_API=https://btcpc.net BTCPC_JWT=<your-jwt> node scripts/upload-models.js
+ *   HONE_API=https://hone.net HONE_JWT=<your-jwt> node scripts/upload-models.js
  *   node scripts/upload-models.js --api http://localhost:3000 --jwt <token> --model smollm2-360m
  */
 
@@ -19,14 +19,14 @@ const path = require('path');
 
 const REGISTRY_PATH = path.resolve(__dirname, '../data/model-registry.json');
 
-const API_BASE = process.env.BTCPC_API || 'https://btcpc.net';
-const JWT = process.env.BTCPC_JWT;
+const API_BASE = process.env.HONE_API || 'https://hone.net';
+const JWT = process.env.HONE_JWT;
 const MODEL_FILTER = process.argv.includes('--model')
   ? process.argv[process.argv.indexOf('--model') + 1]
   : null;
 
 if (!JWT) {
-  console.error('BTCPC_JWT env var required. Get yours from the app settings or /public/login.');
+  console.error('HONE_JWT env var required. Get yours from the app settings or /public/login.');
   process.exit(1);
 }
 
@@ -114,7 +114,7 @@ const MODEL_FILES = {
 function fetchUrl(url, baseUrl) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
-    const req = mod.get(url, { headers: { 'User-Agent': 'btcpc-model-uploader/1.0' } }, (res) => {
+    const req = mod.get(url, { headers: { 'User-Agent': 'hone-model-uploader/1.0' } }, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308) {
         let loc = res.headers.location;
         // Resolve relative redirects against the origin of the request URL
@@ -223,7 +223,7 @@ async function main() {
     fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + '\n');
     console.log(`  Registry updated.`);
   }
-  console.log('\nDone. Restart btcpc-api to serve updated registry.');
+  console.log('\nDone. Restart hone-api to serve updated registry.');
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

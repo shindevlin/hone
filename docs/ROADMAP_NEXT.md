@@ -1,4 +1,4 @@
-# BTCPC v3.2.0 — Next Implementation Roadmap
+# HONE v3.2.0 — Next Implementation Roadmap
 
 Generated: 2026-04-15
 Base version: 3.1.11 (targeting 3.2.0)
@@ -33,7 +33,7 @@ The encrypted inference branches (worktree-agent-ab749035, worktree-agent-a0d322
 contain a working ECDH + AES-256-GCM session system in src/inference/session.js with
 createSession / deriveSessionKey / destroySession and a 5-minute TTL. The session key
 infrastructure is complete and can be extended to carry tool-call state without re-doing
-the cryptographic plumbing. This is the highest-value feature differentiating BTCPC inference
+the cryptographic plumbing. This is the highest-value feature differentiating HONE inference
 from commodity API providers.
 
 ### Affected files
@@ -200,7 +200,7 @@ a pre-shared VPN.
 - Add `@stablelib/noise` (pure-JS, no native addon — works in Electron and ARM) as a dependency.
 - In encryptedTransport.js: implement initiator and responder sides of Noise_XX.
   Noise_XX provides mutual authentication and is the correct pattern when both parties'
-  static keys are unknown at connection time (matches BTCPC's open peer model).
+  static keys are unknown at connection time (matches HONE's open peer model).
 - Each node generates a persistent Noise static keypair on first startup, stored in
   src/services/secretStore.js (already provides key persistence).
 - In protocol.js: on WebSocket `open` (outbound) or `connection` (inbound), perform the

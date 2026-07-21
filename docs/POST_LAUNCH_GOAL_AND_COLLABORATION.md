@@ -1,5 +1,5 @@
 ---
-title: BTCPC Post-Launch — project analysis, forward goal, and autonomous collaboration protocol
+title: HONE Post-Launch — project analysis, forward goal, and autonomous collaboration protocol
 description: Now that hone is live, where the project stands, the goal to keep advancing, and how Beastly + Grouchly build together without human intervention (except gated actions)
 author: Shin Devlin
 status: living charter
@@ -34,8 +34,8 @@ status: living charter
   that was failing ALL submissions. With josh funded, needs live verification that
   SensorDataCommit → SensorReward flows.
 - **Flipper → chain:** `flipper_rx.rs` (parse+verify+submit) is BUILT in
-  `android/rust/btcpc-miner`, but NOT wired into the running Android client
-  (btcpc-android/www is a stub). Gap = JNI wiring, not missing code. Don't
+  `android/rust/hone-miner`, but NOT wired into the running Android client
+  (hone-android/www is a stub). Gap = JNI wiring, not missing code. Don't
   rewrite in TS.
 - **Phone node:** can be a full node (miner qwen2.5-0.5b + sensors + clock); needs
   the APK rebuilt (Beastly has the Android SDK) and josh-funded submission live.
@@ -47,13 +47,13 @@ status: living charter
   live service. Bullship is the template for turning each on.
 
 ### Debt / cleanup
-- Two phone inference paths (candle in btcpc-android, tract-onnx in btcpc-miner) —
+- Two phone inference paths (candle in hone-android, tract-onnx in hone-miner) —
   converge on candle.
 - Ollama still the default inference path until the candle migration lands.
 
 ## 2. The forward goal
 
-> **GOAL: Make every BTCPC vertical demonstrably EARN on the live chain, with the
+> **GOAL: Make every HONE vertical demonstrably EARN on the live chain, with the
 > node stack non-fragile and the two agents advancing it autonomously.**
 
 Measured by these milestones, in rough priority:

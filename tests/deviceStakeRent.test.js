@@ -8,7 +8,7 @@
  * Economics:
  *   70% → device owner
  *   20% → staker pool (weighted by slot multiplier × stake_amount)
- *   10% → btcpc_recycle
+ *   10% → hone_recycle
  *   1% tribute on entry (non-refundable), unless staker === owner
  */
 
@@ -27,7 +27,7 @@ function makeStakeEntry(deviceId, staker, stakeAmount, rentBid, rentMode, owner,
     from: staker,
     to: owner,
     amount: stakeAmount,
-    token: "BTCPC",
+    token: "HONE",
     epoch: epoch || 1,
     timestamp: Date.now() + Math.random(),
     yield_stake_data: {
@@ -49,7 +49,7 @@ function makeUnstakeEntry(deviceId, staker, epoch) {
     from: staker,
     to: staker,
     amount: 0,
-    token: "BTCPC",
+    token: "HONE",
     epoch: epoch || 2,
     timestamp: Date.now() + Math.random(),
     yield_stake_data: { device_id: deviceId, staker: staker },
@@ -63,7 +63,7 @@ function makeRentEntry(deviceId, staker, rentAmount, owner, epoch) {
     from: staker,
     to: owner,
     amount: rentAmount,
-    token: "BTCPC",
+    token: "HONE",
     epoch: epoch || 2,
     timestamp: Date.now() + Math.random(),
     yield_stake_data: {
@@ -79,7 +79,7 @@ function makeRentEntry(deviceId, staker, rentAmount, owner, epoch) {
 function fundAccounts(accounts, amount) {
   accounts.forEach(function (acc, idx) {
     stateStore.applyEntry({
-      type: "MINING_REWARD", to: acc, amount: amount, token: "BTCPC",
+      type: "MINING_REWARD", to: acc, amount: amount, token: "HONE",
       epoch: 0, timestamp: idx + 1,
     });
   });
@@ -93,8 +93,8 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
 
   // ── Test 1: Fresh stake, tribute, slot 1 assignment ───────────────────────
   test("1. fresh stake assigns slot 1, deducts balance, pays tribute to owner", () => {
-    const aliceBefore = stateStore.getBalance("alice", "BTCPC");
-    const ownerBefore = stateStore.getBalance("owner1", "BTCPC");
+    const aliceBefore = stateStore.getBalance("alice", "HONE");
+    const ownerBefore = stateStore.getBalance("owner1", "HONE");
 
     stateStore.applyEntry(makeStakeEntry("owner1/device-a", "alice", 1000, 0.001, "earnings", "owner1", 1));
 
@@ -107,10 +107,10 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
     const tribute = round(1000 * 0.01);
     expect(pool[0].tribute_paid).toBeCloseTo(tribute, 8);
 
-    const aliceAfter = stateStore.getBalance("alice", "BTCPC");
+    const aliceAfter = stateStore.getBalance("alice", "HONE");
     expect(round(aliceBefore - aliceAfter)).toBeCloseTo(1000, 8);
 
-    const ownerAfter = stateStore.getBalance("owner1", "BTCPC");
+    const ownerAfter = stateStore.getBalance("owner1", "HONE");
     expect(round(ownerAfter - ownerBefore)).toBeCloseTo(tribute, 8);
   });
 
@@ -147,7 +147,7 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
     expect(pool10).toHaveLength(10);
 
     // Lowest rent_bid is s1 (0.001) — it should be evicted
-    const s1BalBefore = stateStore.getBalance("s1", "BTCPC");
+    const s1BalBefore = stateStore.getBalance("s1", "HONE");
 
     // s11 enters with higher rent_bid than s1
     stateStore.applyEntry(makeStakeEntry("owner1/device-a", "s11", 500, 0.0015, "earnings", "owner1", 11));
@@ -161,7 +161,7 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
     expect(s1Names).toContain("s11");
 
     // s1 stake returned
-    const s1BalAfter = stateStore.getBalance("s1", "BTCPC");
+    const s1BalAfter = stateStore.getBalance("s1", "HONE");
     expect(s1BalAfter).toBeGreaterThan(s1BalBefore);
   });
 
@@ -169,7 +169,7 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
   test("5. earnings mode: yield covers rent, surplus goes to wallet (stake unchanged)", () => {
     stateStore.applyEntry(makeStakeEntry("owner1/device-a", "alice", 1000, 0.001, "earnings", "owner1", 1));
 
-    const aliceBal = stateStore.getBalance("alice", "BTCPC");
+    const aliceBal = stateStore.getBalance("alice", "HONE");
     // rent_amount 0 means yield covered all rent — no stake deduction
     stateStore.applyEntry(makeRentEntry("owner1/device-a", "alice", 0, "owner1", 2));
 
@@ -221,10 +221,10 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
     // Deplete some stake via rent
     stateStore.applyEntry(makeRentEntry("owner1/device-a", "alice", 100, "owner1", 2));
 
-    const aliceBeforeUnstake = stateStore.getBalance("alice", "BTCPC");
+    const aliceBeforeUnstake = stateStore.getBalance("alice", "HONE");
     stateStore.applyEntry(makeUnstakeEntry("owner1/device-a", "alice", 3));
 
-    const aliceAfterUnstake = stateStore.getBalance("alice", "BTCPC");
+    const aliceAfterUnstake = stateStore.getBalance("alice", "HONE");
     expect(round(aliceAfterUnstake - aliceBeforeUnstake)).toBeCloseTo(900, 8);
 
     const pool = stateStore.getDeviceStakerPool("owner1/device-a");
@@ -233,10 +233,10 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
 
   // ── Test 10: Owner auto-stake — no tribute ────────────────────────────────
   test("10. owner auto-stake: no tribute, balance deducted by only stake_amount", () => {
-    const ownerBefore = stateStore.getBalance("owner1", "BTCPC");
+    const ownerBefore = stateStore.getBalance("owner1", "HONE");
     stateStore.applyEntry(makeStakeEntry("owner1/device-a", "owner1", 500, 0.001, "earnings", "owner1", 1));
 
-    const ownerAfter = stateStore.getBalance("owner1", "BTCPC");
+    const ownerAfter = stateStore.getBalance("owner1", "HONE");
     expect(round(ownerBefore - ownerAfter)).toBeCloseTo(500, 8);
 
     const pool = stateStore.getDeviceStakerPool("owner1/device-a");
@@ -258,7 +258,7 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
 
     stateStore.applyEntry({
       type: "DEVICE_YIELD_RENT_MODE",
-      from: "alice", to: "alice", amount: 0, token: "BTCPC", epoch: 2, timestamp: Date.now(),
+      from: "alice", to: "alice", amount: 0, token: "HONE", epoch: 2, timestamp: Date.now(),
       yield_stake_data: { device_id: "owner1/device-a", staker: "alice", rent_mode: "stake" },
     });
 
@@ -267,7 +267,7 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
   });
 
   // ── Test 13: Floor rent for new device ────────────────────────────────────
-  test("13. floor rent formula: 50 BTCPC/month minimum for new devices", () => {
+  test("13. floor rent formula: 50 HONE/month minimum for new devices", () => {
     // floor = max(0 * 0.07, 50) / 86400
     const expectedFloor = 50 / 86400;
     expect(expectedFloor).toBeCloseTo(0.00057870, 6);
@@ -278,7 +278,7 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
     stateStore.applyEntry(makeStakeEntry("owner1/device-a", "alice", 500, 0.001, "earnings", "owner1", 1));
     stateStore.applyEntry({
       type: "DEVICE_YIELD_AUTO_STAKE",
-      from: "owner1", to: "owner1", amount: 0, token: "BTCPC", epoch: 1, timestamp: Date.now(),
+      from: "owner1", to: "owner1", amount: 0, token: "HONE", epoch: 1, timestamp: Date.now(),
       yield_stake_data: { device_id: "owner1/device-a", owner: "owner1", pct: 10 },
     });
 
@@ -311,11 +311,11 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
   // ── Test 16: Unstake non-existent position is no-op ───────────────────────
   test("16. unstake for non-staker is a no-op", () => {
     stateStore.applyEntry(makeStakeEntry("owner1/device-a", "alice", 500, 0.001, "earnings", "owner1", 1));
-    const bobBefore = stateStore.getBalance("bob", "BTCPC");
+    const bobBefore = stateStore.getBalance("bob", "HONE");
 
     stateStore.applyEntry(makeUnstakeEntry("owner1/device-a", "bob", 2));
 
-    const bobAfter = stateStore.getBalance("bob", "BTCPC");
+    const bobAfter = stateStore.getBalance("bob", "HONE");
     expect(bobAfter).toBe(bobBefore);
     const pool = stateStore.getDeviceStakerPool("owner1/device-a");
     expect(pool[0].staker).toBe("alice");
@@ -336,7 +336,7 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
   test("18. DEVICE_YIELD_AUTO_STAKE stores auto-stake percentage 0-50", () => {
     stateStore.applyEntry({
       type: "DEVICE_YIELD_AUTO_STAKE",
-      from: "owner1", to: "owner1", amount: 0, token: "BTCPC", epoch: 1, timestamp: Date.now(),
+      from: "owner1", to: "owner1", amount: 0, token: "HONE", epoch: 1, timestamp: Date.now(),
       yield_stake_data: { device_id: "owner1/device-a", owner: "owner1", pct: 25 },
     });
     expect(stateStore.getDeviceAutoStakePct("owner1/device-a")).toBe(25);
@@ -344,7 +344,7 @@ describe("Device Stake & Rent — stateStore mechanics", () => {
     // Over-limit clamped to 50
     stateStore.applyEntry({
       type: "DEVICE_YIELD_AUTO_STAKE",
-      from: "owner1", to: "owner1", amount: 0, token: "BTCPC", epoch: 2, timestamp: Date.now(),
+      from: "owner1", to: "owner1", amount: 0, token: "HONE", epoch: 2, timestamp: Date.now(),
       yield_stake_data: { device_id: "owner1/device-a", owner: "owner1", pct: 99 },
     });
     expect(stateStore.getDeviceAutoStakePct("owner1/device-a")).toBe(50);

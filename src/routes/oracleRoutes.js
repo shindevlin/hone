@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Oracle Feed HTTP Routes — v2.13-delta / v2.16-beta
+ * HONE Oracle Feed HTTP Routes — v2.13-delta / v2.16-beta
  * Shin Devlin
  *
  * REST wrapper around oracleFeeds (v2.13-delta). Follows the

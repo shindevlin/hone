@@ -6,7 +6,7 @@ const net = require("net");
 const DEFAULT_PORT = 6942;
 
 function _defaultPort() {
-  const parsed = parseInt(process.env.P2P_PORT || process.env.BTCPC_API_P2P_PORT || DEFAULT_PORT, 10);
+  const parsed = parseInt(process.env.P2P_PORT || process.env.HONE_API_P2P_PORT || DEFAULT_PORT, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PORT;
 }
 
@@ -124,7 +124,7 @@ function isConnectableP2PAddress(raw) {
 function getAdvertisedP2PAddress() {
   const port = _defaultPort();
 
-  const envAddress = normalizeP2PAddress(process.env.BTCPC_PUBLIC_ADDRESS);
+  const envAddress = normalizeP2PAddress(process.env.HONE_PUBLIC_ADDRESS);
   if (envAddress) return envAddress;
 
   const envHost = _normalize(process.env.P2P_ADVERTISE_IP);

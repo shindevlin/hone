@@ -1,4 +1,4 @@
-# BTCPC Implementation Spec for Security Review
+# HONE Implementation Spec for Security Review
 
 Date: 2026-04-28
 
@@ -30,16 +30,16 @@ The reason for this order is that the storage route and heartbeat fixes are conc
 
 ### Goal
 
-The replay path currently accepts negative BTCPC balances from persisted state. That is a chain integrity issue, not just a UI bug. A wallet must never re-enter the active state with a spendable balance below zero, even if the on-disk snapshot is malformed or stale.
+The replay path currently accepts negative HONE balances from persisted state. That is a chain integrity issue, not just a UI bug. A wallet must never re-enter the active state with a spendable balance below zero, even if the on-disk snapshot is malformed or stale.
 
 ### Files to change
 
-- [`src/chain/stateStore.js`](/mnt/btcpc-storage/repos/btcpc/src/chain/stateStore.js)
-- [`src/chain/replay.js`](/mnt/btcpc-storage/repos/btcpc/src/chain/replay.js)
-- [`src/chain/blockStore.js`](/mnt/btcpc-storage/repos/btcpc/src/chain/blockStore.js)
-- [`src/p2p/chainSync.js`](/mnt/btcpc-storage/repos/btcpc/src/p2p/chainSync.js)
-- [`tests/replay.test.js`](/mnt/btcpc-storage/repos/btcpc/tests/replay.test.js)
-- [`tests/stateStore.test.js`](/mnt/btcpc-storage/repos/btcpc/tests/stateStore.test.js)
+- [`src/chain/stateStore.js`](/mnt/btcpc-storage/repos/hone/src/chain/stateStore.js)
+- [`src/chain/replay.js`](/mnt/btcpc-storage/repos/hone/src/chain/replay.js)
+- [`src/chain/blockStore.js`](/mnt/btcpc-storage/repos/hone/src/chain/blockStore.js)
+- [`src/p2p/chainSync.js`](/mnt/btcpc-storage/repos/hone/src/p2p/chainSync.js)
+- [`tests/replay.test.js`](/mnt/btcpc-storage/repos/hone/tests/replay.test.js)
+- [`tests/stateStore.test.js`](/mnt/btcpc-storage/repos/hone/tests/stateStore.test.js)
 
 ### Insertion point
 
@@ -49,7 +49,7 @@ Patch the finality hydration path in `src/chain/stateStore.js` and the startup r
 
 ```js
 function _assertNonNegativeBalances() {
-  // Scan all BTCPC balances after replay or finality hydration.
+  // Scan all HONE balances after replay or finality hydration.
   // If any non-system account is negative, fail hard rather than carrying
   // a corrupt spendable state forward.
 }
@@ -84,12 +84,12 @@ The current service returns `verified: true` for every request. That is a securi
 
 ### Files to change
 
-- [`src/services/privateAuthorization.js`](/mnt/btcpc-storage/repos/btcpc/src/services/privateAuthorization.js)
-- [`src/routes/walletRoutes.js`](/mnt/btcpc-storage/repos/btcpc/src/routes/walletRoutes.js)
-- [`src/controllers/walletController.js`](/mnt/btcpc-storage/repos/btcpc/src/controllers/walletController.js)
-- [`src/routes/botRoutes.js`](/mnt/btcpc-storage/repos/btcpc/src/routes/botRoutes.js)
-- [`src/explorer/server.js`](/mnt/btcpc-storage/repos/btcpc/src/explorer/server.js)
-- [`tests/privateAuthorization.test.js`](/mnt/btcpc-storage/repos/btcpc/tests/privateAuthorization.test.js)
+- [`src/services/privateAuthorization.js`](/mnt/btcpc-storage/repos/hone/src/services/privateAuthorization.js)
+- [`src/routes/walletRoutes.js`](/mnt/btcpc-storage/repos/hone/src/routes/walletRoutes.js)
+- [`src/controllers/walletController.js`](/mnt/btcpc-storage/repos/hone/src/controllers/walletController.js)
+- [`src/routes/botRoutes.js`](/mnt/btcpc-storage/repos/hone/src/routes/botRoutes.js)
+- [`src/explorer/server.js`](/mnt/btcpc-storage/repos/hone/src/explorer/server.js)
+- [`tests/privateAuthorization.test.js`](/mnt/btcpc-storage/repos/hone/tests/privateAuthorization.test.js)
 - `tests/walletController.test.js`
 
 ### Insertion point
@@ -158,7 +158,7 @@ async function requestEnrollment(user, chain, label, address) {
     label: sanitizeString(label || "", 120),
     address: sanitizeString(address || "", 200),
     message: [
-      "BTCPC PRIVATE AUTH ENROLLMENT",
+      "HONE PRIVATE AUTH ENROLLMENT",
       "challenge_id=" + challengeId,
       "user=" + username,
       "chain=" + sanitizeString(chain || "", 40),
@@ -216,16 +216,16 @@ async function requestTransferAuthorization(user, transferDetails) {
     transfer: {
       to: sanitizeString((transferDetails && (transferDetails.to || transferDetails.toAddress || transferDetails.recipient)) || "", 200),
       amount: Number(transferDetails && transferDetails.amount) || 0,
-      token: sanitizeString((transferDetails && transferDetails.token) || "BTCPC", 20) || "BTCPC",
+      token: sanitizeString((transferDetails && transferDetails.token) || "HONE", 20) || "HONE",
       memo: sanitizeString((transferDetails && transferDetails.memo) || "", 500) || "",
     },
     message: [
-      "BTCPC PRIVATE AUTH TRANSFER",
+      "HONE PRIVATE AUTH TRANSFER",
       "challenge_id=" + challengeId,
       "user=" + username,
       "to=" + (transferDetails && (transferDetails.to || transferDetails.toAddress || transferDetails.recipient) || ""),
       "amount=" + String((transferDetails && transferDetails.amount) || ""),
-      "token=" + ((transferDetails && transferDetails.token) || "BTCPC"),
+      "token=" + ((transferDetails && transferDetails.token) || "HONE"),
       "memo=" + ((transferDetails && transferDetails.memo) || ""),
     ].join("\\n"),
     createdAt: _now(),
@@ -254,7 +254,7 @@ async function verifyTransferAuthorization(account, transferData, privateAuth) {
   const actual = {
     to: sanitizeString(transferData && (transferData.to || transferData.toAddress || transferData.recipient) || "", 200),
     amount: Number(transferData && transferData.amount) || 0,
-    token: sanitizeString((transferData && transferData.token) || "BTCPC", 20) || "BTCPC",
+    token: sanitizeString((transferData && transferData.token) || "HONE", 20) || "HONE",
     memo: sanitizeString((transferData && transferData.memo) || "", 500) || "",
   };
   if (
@@ -300,10 +300,10 @@ Prevent arbitrary callers from spoofing storage host liveness.
 
 ### Files to change
 
-- [`src/routes/storageRoutes.js`](/mnt/btcpc-storage/repos/btcpc/src/routes/storageRoutes.js)
-- [`src/services/ledger.js`](/mnt/btcpc-storage/repos/btcpc/src/services/ledger.js)
-- [`src/chain/stateStore.js`](/mnt/btcpc-storage/repos/btcpc/src/chain/stateStore.js)
-- [`tests/storageRoutes.test.js`](/mnt/btcpc-storage/repos/btcpc/tests/storageRoutes.test.js)
+- [`src/routes/storageRoutes.js`](/mnt/btcpc-storage/repos/hone/src/routes/storageRoutes.js)
+- [`src/services/ledger.js`](/mnt/btcpc-storage/repos/hone/src/services/ledger.js)
+- [`src/chain/stateStore.js`](/mnt/btcpc-storage/repos/hone/src/chain/stateStore.js)
+- [`tests/storageRoutes.test.js`](/mnt/btcpc-storage/repos/hone/tests/storageRoutes.test.js)
 - `tests/storageHeartbeat.test.js`
 
 ### Insertion point
@@ -378,10 +378,10 @@ The server creates `storageId` and then expects the client to sign a payload con
 
 ### Files to change
 
-- [`src/routes/storageRoutes.js`](/mnt/btcpc-storage/repos/btcpc/src/routes/storageRoutes.js)
-- [`src/services/ledger.js`](/mnt/btcpc-storage/repos/btcpc/src/services/ledger.js)
-- [`src/chain/stateStore.js`](/mnt/btcpc-storage/repos/btcpc/src/chain/stateStore.js)
-- [`tests/storageRoutes.test.js`](/mnt/btcpc-storage/repos/btcpc/tests/storageRoutes.test.js)
+- [`src/routes/storageRoutes.js`](/mnt/btcpc-storage/repos/hone/src/routes/storageRoutes.js)
+- [`src/services/ledger.js`](/mnt/btcpc-storage/repos/hone/src/services/ledger.js)
+- [`src/chain/stateStore.js`](/mnt/btcpc-storage/repos/hone/src/chain/stateStore.js)
+- [`tests/storageRoutes.test.js`](/mnt/btcpc-storage/repos/hone/tests/storageRoutes.test.js)
 
 ### Insertion point
 
@@ -460,9 +460,9 @@ Keep the anti-self-credit rule, but make the witness chain of custody clearer an
 
 ### Files to change
 
-- [`src/p2p/protocol.js`](/mnt/btcpc-storage/repos/btcpc/src/p2p/protocol.js)
-- [`src/chain/blockProposal.js`](/mnt/btcpc-storage/repos/btcpc/src/chain/blockProposal.js)
-- [`tests/clockConsensus.test.js`](/mnt/btcpc-storage/repos/btcpc/tests/clockConsensus.test.js)
+- [`src/p2p/protocol.js`](/mnt/btcpc-storage/repos/hone/src/p2p/protocol.js)
+- [`src/chain/blockProposal.js`](/mnt/btcpc-storage/repos/hone/src/chain/blockProposal.js)
+- [`tests/clockConsensus.test.js`](/mnt/btcpc-storage/repos/hone/tests/clockConsensus.test.js)
 - `tests/p2pSyncReplay.test.js`
 
 ### Insertion points

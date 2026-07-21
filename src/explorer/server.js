@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Block Explorer (btcpcscan)
+ * HONE Block Explorer (honescan)
  * Bitcoin Proof of Compute — Chain Explorer
  * Port 4242 (42 x 101)
  *
@@ -56,12 +56,12 @@ app.use(express.json());
 // MongoDB connection
 // ---------------------------------------------------------------------------
 const MONGODB_URI = process.env.MONGODB_URI;
-if (!MONGODB_URI) { console.error("[btcpcscan] FATAL: MONGODB_URI not set"); process.exit(1); }
+if (!MONGODB_URI) { console.error("[honescan] FATAL: MONGODB_URI not set"); process.exit(1); }
 
 mongoose.connect(MONGODB_URI).then(() => {
-  console.log("[btcpcscan] Connected to MongoDB");
+  console.log("[honescan] Connected to MongoDB");
 }).catch(err => {
-  console.error("[btcpcscan] MongoDB connection error:", err.message);
+  console.error("[honescan] MongoDB connection error:", err.message);
   process.exit(1);
 });
 
@@ -96,7 +96,7 @@ function validateTelegramInitData(req, res, next) {
 
   try {
     var crypto = require('crypto');
-    var botToken = process.env.BTCPC_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+    var botToken = process.env.HONE_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
     if (!botToken) { req._telegramVerified = false; return next(); }
 
     var params = new URLSearchParams(initData);
@@ -149,14 +149,14 @@ app.get("/api/bot/balance", requireBotApiKey, async (req, res) => {
     const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
 
-    const balance = stateStore.getBalance(user.username, "BTCPC");
+    const balance = stateStore.getBalance(user.username, "HONE");
     const stakePool = stateStore.getStakePool ? stateStore.getStakePool(user.username) : null;
     const accountState = stateStore.getAccount ? stateStore.getAccount(user.username) : null;
     res.json({
       username: user.username,
       balance,
       staked: stakePool?.staked_amount || 0,
-      address: accountState?.chain_addresses?.btcpc || null
+      address: accountState?.chain_addresses?.hone || null
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -244,7 +244,7 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
     const recipient = await User.findOne({ username: toAddress }) ||
       (stateStore.getAllAccounts ? (() => {
         for (const [uname, acc] of Object.entries(stateStore.getAllAccounts())) {
-          if (acc.chain_addresses?.btcpc === toAddress) return { username: uname };
+          if (acc.chain_addresses?.hone === toAddress) return { username: uname };
         }
         return null;
       })() : null);
@@ -254,8 +254,8 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
     const memo = sanitizeString(req.body.memo, 500) || null;
 
     // Balance check via stateStore (chain state)
-    const balance = stateStore.getBalance(user.username, "BTCPC");
-    if (balance < amount) return res.status(400).json({ error: "Insufficient BTCPC balance" });
+    const balance = stateStore.getBalance(user.username, "HONE");
+    if (balance < amount) return res.status(400).json({ error: "Insufficient HONE balance" });
 
     let authorization = null;
     if (user.privateAuth && user.privateAuth.enabled) {
@@ -265,7 +265,7 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
       try {
         authorization = await privateAuthorization.verifyTransferAuthorization(
           user.username,
-          { from: user.username, to: recipient.username, amount, token: "BTCPC", memo },
+          { from: user.username, to: recipient.username, amount, token: "HONE", memo },
           req.body.private_auth
         );
       } catch (authErr) {
@@ -279,7 +279,7 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
           user.username,
           recipient.username,
           amount,
-          "BTCPC",
+          "HONE",
           null,
           epoch,
           memo,
@@ -291,7 +291,7 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
             factors: authorization.factors
           }
         )
-      : await ledger.recordTransfer(user.username, recipient.username, amount, "BTCPC", null, epoch, memo);
+      : await ledger.recordTransfer(user.username, recipient.username, amount, "HONE", null, epoch, memo);
     const txHash = blockStore.hashLedgerEntry(entry);
     res.json({ success: true, txHash, epoch });
   } catch (err) {
@@ -356,7 +356,7 @@ app.get("/", async (req, res) => {
       recentDreams
     }));
   } catch (err) {
-    console.error("[btcpcscan] Dashboard error:", err);
+    console.error("[honescan] Dashboard error:", err);
     res.status(500).send("Internal server error");
   }
 });
@@ -378,7 +378,7 @@ app.get("/block/:epoch", async (req, res) => {
 
     res.send(blockView(epoch, period, blockData));
   } catch (err) {
-    console.error("[btcpcscan] Block error:", err);
+    console.error("[honescan] Block error:", err);
     res.status(500).send("Internal server error");
   }
 });
@@ -400,7 +400,7 @@ app.get("/account/:username", async (req, res) => {
     const stake = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
     const ledgerEntries = await ledger.getRecentEntries ? await ledger.getRecentEntries(50, username) : [];
     const miningRewards = [];
-    const balance = await ledger.getBalance(username, "BTCPC");
+    const balance = await ledger.getBalance(username, "HONE");
     const pendingDebit = mempool.getPendingDebit(username);
 
     // Get SMT proof if available
@@ -417,7 +417,7 @@ app.get("/account/:username", async (req, res) => {
       smtProof: smtState ? { root: smtState.root, state: smtState.state } : null
     }));
   } catch (err) {
-    console.error("[btcpcscan] Account error:", err);
+    console.error("[honescan] Account error:", err);
     res.status(500).send("Internal server error");
   }
 });
@@ -440,7 +440,7 @@ app.get("/tx", async (req, res) => {
 
     res.send(transactionsView({ transactions, total, page, perPage }));
   } catch (err) {
-    console.error("[btcpcscan] Transactions error:", err);
+    console.error("[honescan] Transactions error:", err);
     res.status(500).send("Internal server error");
   }
 });
@@ -469,7 +469,7 @@ app.get("/tx/:txHash", async (req, res) => {
           from: mempoolTx.from,
           to: mempoolTx.to,
           amount: mempoolTx.amount,
-          token: mempoolTx.token || "BTCPC",
+          token: mempoolTx.token || "HONE",
           timestamp: mempoolTx.timestamp,
           memo: mempoolTx.memo
         };
@@ -530,7 +530,7 @@ app.get("/miners", async (req, res) => {
       totalCount: miners.length
     }));
   } catch (err) {
-    console.error("[btcpcscan] Miners error:", err);
+    console.error("[honescan] Miners error:", err);
     res.status(500).send("Internal server error");
   }
 });
@@ -553,7 +553,7 @@ app.get("/mempool", async (req, res) => {
           from: t.from,
           to: t.to,
           amount: t.amount,
-          token: t.token || "BTCPC",
+          token: t.token || "HONE",
           timestamp: t.timestamp,
           age_ms: Date.now() - t._mempoolAddedAt
         };
@@ -598,7 +598,7 @@ app.get("/api/stats", async (req, res) => {
     const periodTable = getPeriodTable();
 
     res.json({
-      chain: "BTCPC",
+      chain: "HONE",
       name: "Bitcoin Proof of Compute",
       total_supply: TOTAL_SUPPLY,
       total_mined: statsTotalMined,
@@ -621,7 +621,7 @@ app.get("/api/stats", async (req, res) => {
       explorer_version: "2.0.0"
     });
   } catch (err) {
-    console.error("[btcpcscan] API stats error:", err);
+    console.error("[honescan] API stats error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -678,7 +678,7 @@ app.get("/api/account/:username", async (req, res) => {
   try {
     var username = sanitizeString(req.params.username, 20);
     if (!username || !validAccountName(username)) return res.status(400).json({ error: "invalid account name" });
-    var balance = await ledger.getBalance(username, "BTCPC");
+    var balance = await ledger.getBalance(username, "HONE");
     var allBalances = await ledger.getTokenBalances(username);
     var accountRecord = await ledger.getAccountRecord(username);
     var pendingDebit = mempool.getPendingDebit(username);
@@ -713,7 +713,7 @@ function formatLedgerEntry(entry) {
     from: entry.from || "",
     to: entry.to || "",
     amount: entry.amount || 0,
-    token: entry.token || "BTCPC",
+    token: entry.token || "HONE",
     memo: entry.memo || "",
     timestamp: entry.timestamp,
     epoch: entry.epoch,
@@ -777,7 +777,7 @@ app.get("/tokenomics", async (req, res) => {
       totalVerifiers
     }));
   } catch (err) {
-    console.error("[btcpcscan] Tokenomics error:", err);
+    console.error("[honescan] Tokenomics error:", err);
     res.status(500).send("Internal server error");
   }
 });
@@ -806,7 +806,7 @@ app.get("/blocks", async (req, res) => {
 
     res.send(blocksView({ epochs, total, page, perPage }));
   } catch (err) {
-    console.error("[btcpcscan] Blocks error:", err);
+    console.error("[honescan] Blocks error:", err);
     res.status(500).send("Internal server error");
   }
 });
@@ -831,7 +831,7 @@ app.get("/dashboard", async (req, res) => {
     var ledgerEntries = await ledger.getRecentEntries ? await ledger.getRecentEntries(20, accountName) : [];
     var miningRewards = [];
 
-    var balance = await ledger.getBalance(accountName, "BTCPC");
+    var balance = await ledger.getBalance(accountName, "HONE");
     var pendingDebit = mempool.getPendingDebit(accountName);
     var smtState = stateManager.getAccountState(accountName);
 
@@ -877,7 +877,7 @@ app.get("/dashboard", async (req, res) => {
       smtProof: smtState ? { root: smtState.root, state: smtState.state } : null
     }));
   } catch (err) {
-    console.error("[btcpcscan] Dashboard error:", err);
+    console.error("[honescan] Dashboard error:", err);
     res.status(500).send("Internal server error");
   }
 });
@@ -933,7 +933,7 @@ app.post("/settings", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`
   ============================================
-    btcpcscan — BTCPC Chain Explorer
+    honescan — HONE Chain Explorer
     Bitcoin Proof of Compute
     http://localhost:${PORT}
   ============================================

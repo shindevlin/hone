@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Resource Manager — Smart mining throttle
+ * HONE Resource Manager — Smart mining throttle
  * Shin Devlin
  *
  * Four layers of resource management:
@@ -22,15 +22,15 @@ var { notifyThrottle } = require("./systemNotify");
 
 var mode = "full";          // "full", "reduced", "paused"
 var manualOverride = null;  // null = auto, "full", "reduced", "paused"
-var maxCpuPercent = parseInt(process.env.BTCPC_MAX_CPU) || 100;
-var maxGpuPercent = parseInt(process.env.BTCPC_MAX_GPU) || 100;
-var idleThresholdMs = parseInt(process.env.BTCPC_IDLE_THRESHOLD_MS) || 120000; // 2 min
-var fullWorkItems = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
+var maxCpuPercent = parseInt(process.env.HONE_MAX_CPU) || 100;
+var maxGpuPercent = parseInt(process.env.HONE_MAX_GPU) || 100;
+var idleThresholdMs = parseInt(process.env.HONE_IDLE_THRESHOLD_MS) || 120000; // 2 min
+var fullWorkItems = parseInt(process.env.HONE_WORK_PER_EPOCH) || 3;
 var reducedWorkItems = 1;
 var lastMode = "full";
 
 // Schedule: "HH:MM-HH:MM" for reduced hours (e.g. "09:00-17:00")
-var scheduleReduced = process.env.BTCPC_REDUCED_HOURS || null;
+var scheduleReduced = process.env.HONE_REDUCED_HOURS || null;
 
 // ── Idle Detection ───────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ function getWorkItems() {
   if (currentMode !== lastMode) {
     lastMode = currentMode;
     notifyThrottle(currentMode);
-    console.log("[BTCPC] Mining mode: " + currentMode +
+    console.log("[HONE] Mining mode: " + currentMode +
       (currentMode === "full" ? " (" + fullWorkItems + " work items)" :
        currentMode === "reduced" ? " (" + reducedWorkItems + " work item)" :
        " (paused)"));
@@ -172,10 +172,10 @@ function getMode() {
 function setManualMode(newMode) {
   if (newMode === "auto" || newMode === null) {
     manualOverride = null;
-    console.log("[BTCPC] Mining mode: auto (idle detection + schedule)");
+    console.log("[HONE] Mining mode: auto (idle detection + schedule)");
   } else if (["full", "reduced", "paused"].includes(newMode)) {
     manualOverride = newMode;
-    console.log("[BTCPC] Mining mode: " + newMode + " (manual override)");
+    console.log("[HONE] Mining mode: " + newMode + " (manual override)");
   }
 }
 
@@ -198,7 +198,7 @@ function resume() {
  */
 function setCpuCap(percent) {
   maxCpuPercent = Math.max(10, Math.min(100, percent));
-  console.log("[BTCPC] CPU cap: " + maxCpuPercent + "%");
+  console.log("[HONE] CPU cap: " + maxCpuPercent + "%");
 }
 
 /**
@@ -208,7 +208,7 @@ function setCpuCap(percent) {
  */
 function setGpuCap(percent) {
   maxGpuPercent = Math.max(0, Math.min(100, percent));
-  console.log("[BTCPC] GPU cap: " + maxGpuPercent + "%");
+  console.log("[HONE] GPU cap: " + maxGpuPercent + "%");
 
   // Apply via Ollama environment — num_gpu layers
   // 0% = CPU only, 100% = all layers on GPU

@@ -4,11 +4,11 @@
  * Phase F — MongoDB optional tests
  *
  * Verifies that:
- *   1. When BTCPC_MONGO_MODE=disabled, mongoose.connect is never called
+ *   1. When HONE_MONGO_MODE=disabled, mongoose.connect is never called
  *   2. When mongoose.connect throws, startup continues anyway
  *   3. loginUser works via secretStore-only when Mongo is unavailable
  *   4. Chain replay (stateStore path) never touches Mongo
- *   5. BTCPC_MONGO_MODE=disabled: mongoEnabled stays false
+ *   5. HONE_MONGO_MODE=disabled: mongoEnabled stays false
  */
 
 const fs = require('fs');
@@ -16,8 +16,8 @@ const os = require('os');
 const path = require('path');
 
 // Isolate secretStore per test run
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-mongo-optional-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-mongo-optional-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 process.env.JWT_SECRET = 'test-secret-for-mongo-optional-tests';
 
 // Mock mongoose — captures calls without hitting a real DB
@@ -69,20 +69,20 @@ describe('Phase F — MongoDB optional', () => {
     fs.rmSync(ISOLATED_DIR, { recursive: true, force: true });
   });
 
-  // ── 1. BTCPC_MONGO_MODE=disabled: connectDB should skip mongoose.connect ──
-  describe('BTCPC_MONGO_MODE=disabled', () => {
+  // ── 1. HONE_MONGO_MODE=disabled: connectDB should skip mongoose.connect ──
+  describe('HONE_MONGO_MODE=disabled', () => {
     it('does not call mongoose.connect when mode is disabled', async () => {
-      const savedMode = process.env.BTCPC_MONGO_MODE;
+      const savedMode = process.env.HONE_MONGO_MODE;
       const savedUri = process.env.MONGODB_URI;
 
-      process.env.BTCPC_MONGO_MODE = 'disabled';
+      process.env.HONE_MONGO_MODE = 'disabled';
       process.env.MONGODB_URI = 'mongodb://localhost:27017/test';
 
       // Inline connectDB logic (mirrors src/index.js connectDB)
       let mongoEnabled = false;
       const mongoose = require('mongoose');
       async function connectDB() {
-        const mongoMode = (process.env.BTCPC_MONGO_MODE || '').toLowerCase();
+        const mongoMode = (process.env.HONE_MONGO_MODE || '').toLowerCase();
         if (mongoMode === 'disabled') {
           return; // skip
         }
@@ -98,7 +98,7 @@ describe('Phase F — MongoDB optional', () => {
       expect(mockConnect).not.toHaveBeenCalled();
       expect(mongoEnabled).toBe(false);
 
-      process.env.BTCPC_MONGO_MODE = savedMode || '';
+      process.env.HONE_MONGO_MODE = savedMode || '';
       process.env.MONGODB_URI = savedUri || '';
     });
   });
@@ -106,10 +106,10 @@ describe('Phase F — MongoDB optional', () => {
   // ── 2. mongoose.connect throws — startup continues, mongoEnabled stays false ──
   describe('mongoose.connect throws', () => {
     it('continues startup with mongoEnabled=false when connect rejects', async () => {
-      const savedMode = process.env.BTCPC_MONGO_MODE;
+      const savedMode = process.env.HONE_MONGO_MODE;
       const savedUri = process.env.MONGODB_URI;
 
-      process.env.BTCPC_MONGO_MODE = 'enabled';
+      process.env.HONE_MONGO_MODE = 'enabled';
       process.env.MONGODB_URI = 'mongodb://unreachable:27017/test';
 
       mockConnect.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
@@ -117,7 +117,7 @@ describe('Phase F — MongoDB optional', () => {
       let mongoEnabled = false;
       const mongoose = require('mongoose');
       async function connectDB() {
-        const mongoMode = (process.env.BTCPC_MONGO_MODE || '').toLowerCase();
+        const mongoMode = (process.env.HONE_MONGO_MODE || '').toLowerCase();
         if (mongoMode === 'disabled') { return; }
         if (!process.env.MONGODB_URI) { return; }
         try {
@@ -132,7 +132,7 @@ describe('Phase F — MongoDB optional', () => {
       expect(mockConnect).toHaveBeenCalledTimes(1);
       expect(mongoEnabled).toBe(false);
 
-      process.env.BTCPC_MONGO_MODE = savedMode || '';
+      process.env.HONE_MONGO_MODE = savedMode || '';
       process.env.MONGODB_URI = savedUri || '';
     });
   });
@@ -145,7 +145,7 @@ describe('Phase F — MongoDB optional', () => {
         username: 'mongoless_user',
         password: 'password123',
         email: 'mongoless@example.com',
-        wallet: 'BTCPC_test_wallet',
+        wallet: 'HONE_test_wallet',
       });
 
       const { req, res } = makeReqRes({
@@ -167,7 +167,7 @@ describe('Phase F — MongoDB optional', () => {
         username: 'mongoless_badpass',
         password: 'correct_password',
         email: 'badpass@example.com',
-        wallet: 'BTCPC_test_wallet2',
+        wallet: 'HONE_test_wallet2',
       });
 
       const { req, res } = makeReqRes({

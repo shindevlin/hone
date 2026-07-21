@@ -22,11 +22,11 @@ const REGISTRY_URL = 'https://registry.ollama.ai/v2/library';
 const verificationCache = {};
 const CACHE_TTL_MS = 3600000; // 1 hour
 
-// BTCPC_CUSTOM_MODELS — comma-separated list of model names that bypass registry
+// HONE_CUSTOM_MODELS — comma-separated list of model names that bypass registry
 // hash verification (e.g. local fine-tunes, custom GGUFs). These earn a reduced
 // work value since their parameter counts can't be independently verified.
 const CUSTOM_MODELS = new Set(
-  (process.env.BTCPC_CUSTOM_MODELS || '').split(',').map(s => s.trim()).filter(Boolean)
+  (process.env.HONE_CUSTOM_MODELS || '').split(',').map(s => s.trim()).filter(Boolean)
 );
 
 /**
@@ -111,7 +111,7 @@ async function verifyModel(model) {
     reason: null
   };
 
-  // Custom model bypass — listed in BTCPC_CUSTOM_MODELS or name contains a slash
+  // Custom model bypass — listed in HONE_CUSTOM_MODELS or name contains a slash
   // (HuggingFace-style names like "user/model-name" are never in Ollama registry)
   const isCustom = CUSTOM_MODELS.has(model) || model.includes('/');
   if (isCustom) {

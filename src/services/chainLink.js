@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Chain Link — Link external wallets to BTCPC accounts
+ * HONE Chain Link — Link external wallets to HONE accounts
  * Shin Devlin
  *
  * Users prove ownership of external wallets (ETH, Solana, etc.) by
@@ -42,14 +42,14 @@ function normalizeClaimedAddress(chain, address) {
  * Generate a link challenge for a user.
  * The user must sign this exact message with their external wallet.
  *
- * @param {string} username — BTCPC account
+ * @param {string} username — HONE account
  * @param {string} chain — "evm", "solana", "bitcoin"
  * @param {string} address — the external wallet address to link
  * @returns {{ challengeId, message, expiresIn }}
  */
 function generateChallenge(username, chain, address) {
   var challengeId = crypto.randomBytes(16).toString("hex");
-  var message = "BTCPC-LINK:" + username + ":" + chain + ":" + address + ":" + challengeId;
+  var message = "HONE-LINK:" + username + ":" + chain + ":" + address + ":" + challengeId;
   var expiresAt = Date.now() + 600000; // 10 minutes
 
   pendingChallenges.set(challengeId, {
@@ -226,7 +226,7 @@ function recoverBitcoinAddress(message, signature) {
 // ─── Verification & Linking ──────────────────────────────────────
 
 /**
- * Verify a signed challenge and link the address to the BTCPC account.
+ * Verify a signed challenge and link the address to the HONE account.
  *
  * @param {string} challengeId
  * @param {string} signature — hex signature from the external wallet
@@ -257,9 +257,9 @@ async function verifyAndLink(challengeId, signature) {
     } else if (challenge.chain === "reddit") {
       // Reddit linking: signature must be HMAC(challengeId, DEVVIT_SECRET).
       // Only the Devvit app knows the secret, proving the request came from Reddit context.
-      var devvitSecret = process.env.BTCPC_DEVVIT_SECRET;
+      var devvitSecret = process.env.HONE_DEVVIT_SECRET;
       if (!devvitSecret) {
-        return { success: false, error: "Reddit linking not configured (BTCPC_DEVVIT_SECRET missing)" };
+        return { success: false, error: "Reddit linking not configured (HONE_DEVVIT_SECRET missing)" };
       }
       var expectedSig = crypto.createHmac("sha256", devvitSecret).update(challengeId).digest("hex");
       if (signature === expectedSig) {

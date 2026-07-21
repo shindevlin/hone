@@ -1,7 +1,7 @@
 {
-  "name": "btcpc-bot",
+  "name": "hone-bot",
   "version": "1.0.0",
-  "description": "BTCPC Telegram bot — check balances, mining stats, epoch info",
+  "description": "HONE Telegram bot — check balances, mining stats, epoch info",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

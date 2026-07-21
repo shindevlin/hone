@@ -1,0 +1,418 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * hone-flipper-listener — auto-detect Flipper and sync sensor data
+ *
+ * Runs as a background daemon. When a Flipper Zero is connected via USB,
+ * automatically flushes its buffered sensor readings to the HONE chain.
+ *
+ * Store-and-forward: when the chain API is unreachable, readings are written
+ * to ~/.hone/flipper-buffer.jsonl and drained on the next successful call.
+ *
+ * Sub-GHz relay: subghz readings include relay_account for reward attribution
+ * when the submitting node is not the device owner.
+ *
+ * Usage: node bin/hone-flipper-listener
+ */
+
+var fs   = require("fs");
+var path = require("path");
+var http = require("http");
+var os   = require("os");
+var { execSync, execFileSync } = require("child_process");
+
+var CHECK_INTERVAL_MS = 10000; // check every 10 seconds
+var FLUSH_INTERVAL_MS = 30000; // flush readings every 30 seconds
+var lastFlush = 0;
+
+var CHAIN_HOST  = "http://localhost:4242";
+var ACCOUNT     = process.env.HONE_MINER || "josh";
+var RELAY_ACCOUNT = process.env.RELAY_ACCOUNT || "natoshisakamoto";
+var AUTH_TOKEN  = process.env.HONE_AUTH_TOKEN || "";
+
+// ── Store-and-forward buffer ─────────────────────────────────────────────────
+var BUFFER_DIR  = path.join(os.homedir(), ".hone");
+var BUFFER_FILE = path.join(BUFFER_DIR, "flipper-buffer.jsonl");
+var BUFFER_MAX  = 10000; // max lines before oldest are dropped
+
+function ensureBufferDir() {
+    try {
+        if (!fs.existsSync(BUFFER_DIR)) fs.mkdirSync(BUFFER_DIR, { recursive: true });
+    } catch (_) {}
+}
+
+function bufferReading(entry) {
+    ensureBufferDir();
+    try {
+        // Read existing lines
+        var existing = [];
+        if (fs.existsSync(BUFFER_FILE)) {
+            existing = fs.readFileSync(BUFFER_FILE, "utf8")
+                .split("\n")
+                .filter(function(l) { return l.trim().length > 0; });
+        }
+        existing.push(JSON.stringify(entry));
+        // Cap at BUFFER_MAX — drop oldest
+        if (existing.length > BUFFER_MAX) {
+            existing = existing.slice(existing.length - BUFFER_MAX);
+        }
+        fs.writeFileSync(BUFFER_FILE, existing.join("\n") + "\n", "utf8");
+    } catch (e) {
+        log("Buffer write error: " + e.message);
+    }
+}
+
+function readBuffer() {
+    try {
+        if (!fs.existsSync(BUFFER_FILE)) return [];
+        return fs.readFileSync(BUFFER_FILE, "utf8")
+            .split("\n")
+            .filter(function(l) { return l.trim().length > 0; })
+            .map(function(l) {
+                try { return JSON.parse(l); } catch (_) { return null; }
+            })
+            .filter(Boolean);
+    } catch (_) {
+        return [];
+    }
+}
+
+function clearBuffer() {
+    try {
+        if (fs.existsSync(BUFFER_FILE)) fs.writeFileSync(BUFFER_FILE, "", "utf8");
+    } catch (_) {}
+}
+
+// ── Logging ──────────────────────────────────────────────────────────────────
+function log(msg) { console.log("[flipper-listener] " + msg); }
+
+// ── Flipper detection ─────────────────────────────────────────────────────────
+function findFlipperPort() {
+    try {
+        var files = fs.readdirSync("/dev").filter(function(f) { return f.startsWith("ttyACM"); });
+        for (var i = 0; i < files.length; i++) {
+            var port = "/dev/" + files[i];
+            try {
+                var sysPath = "/sys/class/tty/" + files[i] + "/device/../manufacturer";
+                var mfg = fs.readFileSync(sysPath, "utf8").trim().toLowerCase();
+                if (mfg.includes("flipper")) return port;
+            } catch (_) {}
+        }
+        // Fallback: check lsusb for Flipper USB VID:PID 0483:5740
+        try {
+            var lsusb = execSync("lsusb 2>/dev/null", { encoding: "utf8" });
+            if (lsusb.includes("0483:5740") && files.length > 0) return "/dev/" + files[0];
+        } catch (_) {}
+    } catch (_) {}
+    return null;
+}
+
+/**
+ * Configure the tty in raw mode at 115200 baud, same as hone-flipper-bridge.
+ * Must be called before opening the file descriptor.
+ */
+function configureTty(port) {
+    execFileSync("stty", ["-F", port, "115200", "raw", "-echo", "-echoe",
+        "-echok", "-echoctl", "-echoke"], { stdio: "ignore" });
+}
+
+/**
+ * Open the Flipper serial port and return the fd.
+ * The caller is responsible for closing it with fs.closeSync(fd).
+ */
+function openFlipperPort(port) {
+    configureTty(port);
+    return fs.openSync(port, "r+");
+}
+
+/**
+ * Read bytes from fd until a complete top-level JSON object is found or
+ * timeoutMs elapses.  Uses brace-depth counting so embedded newlines in
+ * string values (e.g. a leading \n in the account name) don't break parsing.
+ */
+function readJsonFromFd(fd, timeoutMs) {
+    var readBuf = "";
+    var chunkBuf = Buffer.alloc(256);
+    var deadline = Date.now() + (timeoutMs || 4000);
+
+    while (Date.now() < deadline) {
+        try {
+            var n = fs.readSync(fd, chunkBuf, 0, chunkBuf.length);
+            if (n > 0) readBuf += chunkBuf.slice(0, n).toString("utf8");
+        } catch (e) {
+            if (e.code !== "EAGAIN" && e.code !== "EWOULDBLOCK") throw e;
+            var waitEnd = Date.now() + 50;
+            while (Date.now() < waitEnd) {}
+        }
+
+        // Find the first '{' and walk to its matching '}'
+        var start = readBuf.indexOf("{");
+        if (start < 0) continue;
+
+        var depth = 0, inStr = false, esc = false;
+        for (var i = start; i < readBuf.length; i++) {
+            var c = readBuf[i];
+            if (esc)          { esc = false; continue; }
+            if (c === "\\")   { esc = true;  continue; }
+            if (c === '"')    { inStr = !inStr; continue; }
+            if (!inStr) {
+                if (c === "{") depth++;
+                else if (c === "}") {
+                    depth--;
+                    if (depth === 0) {
+                        var candidate = readBuf.slice(start, i + 1);
+                        try {
+                            return JSON.parse(candidate);
+                        } catch (_) {
+                            // malformed — skip past this '{' and retry
+                            readBuf = readBuf.slice(start + 1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return { raw: readBuf };
+}
+
+/**
+ * Send one JSON command on an already-open fd and return the parsed response.
+ * Does NOT close the fd — caller owns the lifecycle.
+ */
+function sendCommandOnFd(fd, cmd) {
+    var json = JSON.stringify(cmd) + "\n";
+    fs.writeSync(fd, Buffer.from(json, "utf8"));
+    return readJsonFromFd(fd, 4000);
+}
+
+/**
+ * Send a JSON command to the Flipper and wait for a JSON response.
+ * Opens and closes its own port connection each call (legacy helper;
+ * prefer openFlipperPort + sendCommandOnFd for multi-command sessions).
+ */
+function sendCommand(port, cmd) {
+    return new Promise(function(resolve, reject) {
+        var fd;
+        try {
+            fd = openFlipperPort(port);
+        } catch (e) {
+            return reject(e);
+        }
+        try {
+            resolve(sendCommandOnFd(fd, cmd));
+        } catch (e) {
+            reject(e);
+        } finally {
+            try { fs.closeSync(fd); } catch (_) {}
+        }
+    });
+}
+
+/**
+ * Build the POST body for a sensor reading.
+ * Includes relay_account for subghz readings when the submitter is not the
+ * device owner (ACCOUNT !== RELAY_ACCOUNT).
+ */
+function buildBody(sensorType, value, metadata) {
+    var body = {
+        account:  ACCOUNT,
+        value:    value,
+        metadata: metadata || {},
+    };
+    // Sub-GHz relay attribution: only set when the submitting node is not the owner
+    if (sensorType === "subghz" && ACCOUNT !== RELAY_ACCOUNT) {
+        body.relay_account = RELAY_ACCOUNT;
+    }
+    return body;
+}
+
+/**
+ * POST a sensor reading to the chain via HTTP.
+ * Returns a Promise that resolves with the parsed response, or rejects on
+ * network error (ECONNREFUSED, timeout, etc.) so callers can buffer.
+ */
+function postReading(sensorId, value, metadata, sensorType) {
+    return new Promise(function(resolve, reject) {
+        var encodedId = encodeURIComponent(sensorId);
+        var bodyObj   = buildBody(sensorType || "unknown", value, metadata);
+        var bodyStr   = JSON.stringify(bodyObj);
+        var options = {
+            method: "POST",
+            hostname: "localhost",
+            port: 4242,
+            path: "/api/sensors/" + encodedId + "/readings",
+            headers: {
+                "Content-Type":   "application/json",
+                "Content-Length": Buffer.byteLength(bodyStr),
+            },
+        };
+        if (AUTH_TOKEN) {
+            options.headers["Authorization"] = "Bearer " + AUTH_TOKEN;
+        }
+
+        var req = http.request(options, function(res) {
+            var raw = "";
+            res.on("data", function(c) { raw += c; });
+            res.on("end", function() {
+                try { resolve(JSON.parse(raw)); } catch (_) { resolve({ raw: raw }); }
+            });
+        });
+        req.on("error", reject);
+        req.setTimeout(8000, function() {
+            req.destroy(new Error("request timeout"));
+        });
+        req.write(bodyStr);
+        req.end();
+    });
+}
+
+/**
+ * Drain any buffered readings (oldest first).
+ * Returns the number of entries successfully submitted.
+ */
+async function drainBuffer() {
+    var entries = readBuffer();
+    if (entries.length === 0) return 0;
+
+    log("draining " + entries.length + " buffered readings");
+    var remaining = [];
+    var drained = 0;
+
+    for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        try {
+            var result = await postReading(e.sensorId, e.value, e.metadata, e.sensorType);
+            if (result && (result.success || result.duplicate)) {
+                drained++;
+            } else {
+                // Server rejected it — don't re-buffer, just skip
+                log("Buffered reading rejected for " + e.sensorId + ": " + JSON.stringify(result));
+                drained++;
+            }
+        } catch (err) {
+            // API still unreachable — stop draining, keep remaining
+            remaining = entries.slice(i);
+            break;
+        }
+    }
+
+    // Rewrite the file with only the unsubmitted entries
+    try {
+        ensureBufferDir();
+        if (remaining.length > 0) {
+            fs.writeFileSync(BUFFER_FILE,
+                remaining.map(function(x) { return JSON.stringify(x); }).join("\n") + "\n",
+                "utf8");
+        } else {
+            clearBuffer();
+        }
+    } catch (_) {}
+
+    return drained;
+}
+
+async function flushReadings(fd) {
+    try {
+        log("Flushing readings from Flipper...");
+        var resp = sendCommandOnFd(fd, { cmd: "flush_readings" });
+
+        log("flush raw: " + JSON.stringify(resp));
+        if (resp && resp.readings && resp.readings.length > 0) {
+            log("Got " + resp.readings.length + " readings from Flipper");
+
+            // Drain any previously buffered readings first
+            var buffered = readBuffer();
+            if (buffered.length > 0) {
+                await drainBuffer();
+            }
+
+            var submitted = 0;
+            for (var i = 0; i < resp.readings.length; i++) {
+                var r = resp.readings[i];
+                var sensorType = r.type || "unknown";
+                var sensorId   = r.id || (ACCOUNT + "/flipper-" + sensorType);
+                var value      = (r.rssi !== undefined) ? r.rssi : (r.value !== undefined ? r.value : 0);
+                var metadata   = {
+                    type:               sensorType,
+                    source:             "flipper-zero",
+                    signal_strength_dbm: typeof r.rssi === "number" ? r.rssi : undefined,
+                };
+                // Pass through any extra fields the Flipper returns
+                if (r.unit)                         metadata.unit        = r.unit;
+                if (typeof r.battery_pct === "number") metadata.battery_pct = r.battery_pct;
+
+                try {
+                    var result = await postReading(sensorId, value, metadata, sensorType);
+                    if (result && (result.success || result.duplicate)) {
+                        submitted++;
+                    } else {
+                        log("Reading rejected for " + sensorId + ": " + JSON.stringify(result));
+                    }
+                } catch (e) {
+                    // API unreachable — buffer this reading and the rest
+                    log("Post error for " + sensorId + " (buffering): " + e.message);
+                    for (var j = i; j < resp.readings.length; j++) {
+                        var rb = resp.readings[j];
+                        var st = rb.type || "unknown";
+                        var sid = ACCOUNT + "/flipper-" + st;
+                        var rv = (rb.rssi !== undefined) ? rb.rssi : (rb.value !== undefined ? rb.value : 0);
+                        var rm = {
+                            type:               st,
+                            source:             "flipper-zero",
+                            signal_strength_dbm: typeof rb.rssi === "number" ? rb.rssi : undefined,
+                        };
+                        if (rb.unit)                           rm.unit        = rb.unit;
+                        if (typeof rb.battery_pct === "number") rm.battery_pct = rb.battery_pct;
+                        bufferReading({ sensorId: sid, value: rv, metadata: rm, sensorType: st });
+                    }
+                    break;
+                }
+            }
+            log("Submitted " + submitted + "/" + resp.readings.length + " to chain");
+        } else {
+            log("No readings to flush");
+            // Still try to drain the buffer if API is reachable
+            var pending = readBuffer();
+            if (pending.length > 0) {
+                await drainBuffer();
+            }
+        }
+    } catch (e) {
+        log("Flush error: " + e.message);
+    }
+}
+
+log("HONE Flipper Listener started");
+log("Checking for Flipper every " + (CHECK_INTERVAL_MS / 1000) + "s");
+log("Account: " + ACCOUNT + " | Relay account: " + RELAY_ACCOUNT);
+
+setInterval(async function() {
+    var port = findFlipperPort();
+
+    if (port) {
+        var now = Date.now();
+        if (now - lastFlush > FLUSH_INTERVAL_MS) {
+            var fd = null;
+            try {
+                fd = openFlipperPort(port);
+                var ping = sendCommandOnFd(fd, { cmd: "ping" });
+                if (ping && ping.status === "ok") {
+                    log("Flipper connected on " + port + " (v" + (ping.version || "?") + ")");
+                    await flushReadings(fd);
+                    lastFlush = now;
+                } else {
+                    log("Flipper ping: no HONE app response on " + port);
+                }
+            } catch (e) {
+                log("Serial error: " + e.message);
+            } finally {
+                if (fd !== null) { try { fs.closeSync(fd); } catch (_) {} }
+            }
+        }
+    }
+}, CHECK_INTERVAL_MS);
+
+// Keep alive
+setInterval(function() {}, 60000);

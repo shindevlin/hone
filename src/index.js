@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * DEPRECATED — Node.js prototype. DO NOT USE OR MODIFY.
- * The active BTCPC node is rust/btcpc-node/ (Rust, libp2p, RocksDB).
+ * The active HONE node is rust/hone-node/ (Rust, libp2p, RocksDB).
  * This file is kept for migration reference only.
  */
 
@@ -19,14 +19,14 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const { version } = require('../package.json');
 
-// Accept the persisted BTCPC_JWT_SECRET alias written by older self-heal code.
-if (!process.env.JWT_SECRET && process.env.BTCPC_JWT_SECRET) {
-  process.env.JWT_SECRET = process.env.BTCPC_JWT_SECRET;
+// Accept the persisted HONE_JWT_SECRET alias written by older self-heal code.
+if (!process.env.JWT_SECRET && process.env.HONE_JWT_SECRET) {
+  process.env.JWT_SECRET = process.env.HONE_JWT_SECRET;
 }
 
 // Persist JWT material outside the repo so restarts remain stable without
 // rewriting .env in-place.
-const jwtSecretPath = path.join(os.homedir(), '.btcpc', 'jwt_secret');
+const jwtSecretPath = path.join(os.homedir(), '.hone', 'jwt_secret');
 
 if (!process.env.JWT_SECRET && fs.existsSync(jwtSecretPath)) {
   try {
@@ -38,22 +38,22 @@ if (!process.env.JWT_SECRET && fs.existsSync(jwtSecretPath)) {
 if (!process.env.JWT_SECRET) {
   const crypto = require('crypto');
   process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');
-  console.log('[BTCPC] JWT_SECRET auto-generated (persisted under ~/.btcpc/jwt_secret)');
+  console.log('[HONE] JWT_SECRET auto-generated (persisted under ~/.hone/jwt_secret)');
   try {
     fs.mkdirSync(path.dirname(jwtSecretPath), { recursive: true, mode: 0o700 });
     fs.writeFileSync(jwtSecretPath, process.env.JWT_SECRET + '\n', { mode: 0o600 });
-    console.log('[BTCPC] JWT_SECRET saved to ' + jwtSecretPath);
+    console.log('[HONE] JWT_SECRET saved to ' + jwtSecretPath);
   } catch (_) {
     // Container filesystem may be read-only — that's fine, just volatile
   }
 }
 
-// Phase F: MongoDB is optional. BTCPC_MONGO_MODE=disabled skips connection entirely.
+// Phase F: MongoDB is optional. HONE_MONGO_MODE=disabled skips connection entirely.
 let mongoEnabled = false;
 
 // Purchase address startup check
-if (!process.env.BTCPC_PURCHASE_ETH_ADDRESS) {
-  console.warn('[BTCPC] WARNING: BTCPC_PURCHASE_ETH_ADDRESS not set — ETH purchase route will return 503');
+if (!process.env.HONE_PURCHASE_ETH_ADDRESS) {
+  console.warn('[HONE] WARNING: HONE_PURCHASE_ETH_ADDRESS not set — ETH purchase route will return 503');
 }
 
 const app = express();
@@ -65,7 +65,7 @@ app.set('trust proxy', 'loopback');
 // Middleware — security first
 app.use(cors({
   origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [
-    'https://btcpc.net', 'https://scan.btcpc.net', 'https://docs.btcpc.net',
+    'https://hone.net', 'https://scan.hone.net', 'https://docs.hone.net',
     'http://localhost:4242', 'http://localhost:3000', 'http://localhost:3100',
     'https://localhost',   // Capacitor Android app
     'capacitor://localhost' // Capacitor iOS app
@@ -108,7 +108,7 @@ app.get('/health', (_req, res) => {
 
 app.get('/', (_req, res) => {
   res.json({
-    name: 'BTCPC API',
+    name: 'HONE API',
     version,
     endpoints: [
       '/health',
@@ -271,21 +271,21 @@ app.use('/api/', limiter);
 
 // Database connection — Phase F: non-fatal, optional
 async function connectDB() {
-  const mongoMode = (process.env.BTCPC_MONGO_MODE || '').toLowerCase();
+  const mongoMode = (process.env.HONE_MONGO_MODE || '').toLowerCase();
   if (mongoMode === 'disabled') {
-    console.log('[BTCPC] MongoDB: DISABLED via BTCPC_MONGO_MODE=disabled');
+    console.log('[HONE] MongoDB: DISABLED via HONE_MONGO_MODE=disabled');
     return;
   }
   if (!process.env.MONGODB_URI) {
-    console.warn('[BTCPC] MongoDB: enabled but unreachable — MONGODB_URI not set, falling back to secretStore + stateStore');
+    console.warn('[HONE] MongoDB: enabled but unreachable — MONGODB_URI not set, falling back to secretStore + stateStore');
     return;
   }
   try {
     await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 3000 });
     mongoEnabled = true;
-    console.log('[BTCPC] MongoDB: enabled and connected');
+    console.log('[HONE] MongoDB: enabled and connected');
   } catch (err) {
-    console.warn('[BTCPC] MongoDB: enabled but unreachable — falling back to secretStore + stateStore (' + err.message + ')');
+    console.warn('[HONE] MongoDB: enabled but unreachable — falling back to secretStore + stateStore (' + err.message + ')');
   }
 }
 
@@ -295,60 +295,60 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message });
 });
 
-// BTCPC Epoch Manager
+// HONE Epoch Manager
 const { startEpochLoop } = require('./services/epochManager');
 
-// BTCPC P2P Network — feature flag selects Rust sidecar or Node.js WebSocket layer
-const p2pNetwork = process.env.BTCPC_USE_RUST_P2P === 'true'
-  ? require('../../btcpc-p2p/js/ipc_client')
+// HONE P2P Network — feature flag selects Rust sidecar or Node.js WebSocket layer
+const p2pNetwork = process.env.HONE_USE_RUST_P2P === 'true'
+  ? require('../../hone-p2p/js/ipc_client')
   : require('./p2p/network');
 const { loadFromDatabase } = require('./p2p/chainSync');
 
-const PORT = process.env.BTCPC_API_PORT || process.env.PORT || 3000;
+const PORT = process.env.HONE_API_PORT || process.env.PORT || 3000;
 connectDB().then(async () => {
   // Phase B: replay blocks into stateStore at startup so shadow reads have data
   try {
     const replay = require('./chain/replay');
     const result = await replay.replayFromDisk({ verbose: true });
-    console.log('[BTCPC] stateStore replay: ' + result.replayed + ' blocks, ' +
+    console.log('[HONE] stateStore replay: ' + result.replayed + ' blocks, ' +
       result.accounts + ' accounts, height=' + result.chainHeight + ', ' + result.durationMs + 'ms');
   } catch (err) {
-    console.error('[BTCPC] stateStore replay error:', err.message);
+    console.error('[HONE] stateStore replay error:', err.message);
   }
 
-  // Bootstrap: if BTCPC_ACTIVE_KEY is set and the miner account has no active
+  // Bootstrap: if HONE_ACTIVE_KEY is set and the miner account has no active
   // public key in stateStore yet, inject it directly so block proposal signatures
   // from this node can be verified without waiting for an on-chain KEY_ROTATE.
-  if (process.env.BTCPC_ACTIVE_KEY && process.env.BTCPC_MINER) {
+  if (process.env.HONE_ACTIVE_KEY && process.env.HONE_MINER) {
     try {
       const stateStore = require('./chain/stateStore');
-      const minerAcct = stateStore.getAccount(process.env.BTCPC_MINER);
+      const minerAcct = stateStore.getAccount(process.env.HONE_MINER);
       if (!minerAcct || !minerAcct.public_keys || !minerAcct.public_keys.active) {
         const { secp256k1 } = require('@noble/curves/secp256k1');
-        const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(process.env.BTCPC_ACTIVE_KEY, 'hex'), true);
+        const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(process.env.HONE_ACTIVE_KEY, 'hex'), true);
         const activePubKey = Buffer.from(pubKeyBytes).toString('hex');
-        stateStore.bootstrapAccountKey(process.env.BTCPC_MINER, 'active', activePubKey);
-        console.log('[BTCPC] Bootstrap: injected active public key for ' + process.env.BTCPC_MINER + ': ' + activePubKey.slice(0, 16) + '...');
+        stateStore.bootstrapAccountKey(process.env.HONE_MINER, 'active', activePubKey);
+        console.log('[HONE] Bootstrap: injected active public key for ' + process.env.HONE_MINER + ': ' + activePubKey.slice(0, 16) + '...');
       }
     } catch (keyErr) {
-      console.warn('[BTCPC] Bootstrap key inject failed:', keyErr.message);
+      console.warn('[HONE] Bootstrap key inject failed:', keyErr.message);
     }
   }
 
   app.listen(PORT, () => {
-    console.log(`BTCPC server running on port ${PORT}`);
+    console.log(`HONE server running on port ${PORT}`);
   });
 
   // v2.10.2: optional gateway server for human-viewable commerce pages.
   // Off by default to avoid port-binding surprises; enable via env var.
-  if (process.env.BTCPC_GATEWAY_ENABLED === 'true') {
+  if (process.env.HONE_GATEWAY_ENABLED === 'true') {
     try {
       const { startGateway } = require('./gateway/server');
       startGateway().catch((err) => {
-        console.error('[BTCPC Gateway] failed to start:', err.message);
+        console.error('[HONE Gateway] failed to start:', err.message);
       });
     } catch (err) {
-      console.error('[BTCPC Gateway] module load error:', err.message);
+      console.error('[HONE Gateway] module load error:', err.message);
     }
   }
 
@@ -356,20 +356,20 @@ connectDB().then(async () => {
   const { startAutoUpdater } = require('./services/autoUpdater');
   startAutoUpdater();
 
-  // Start the BTCPC epoch loop after DB is connected
-  if (process.env.BTCPC_EPOCH_ENABLED !== 'false') {
+  // Start the HONE epoch loop after DB is connected
+  if (process.env.HONE_EPOCH_ENABLED !== 'false') {
     startEpochLoop().catch(err => {
-      console.error('[BTCPC] Failed to start epoch loop:', err.message);
+      console.error('[HONE] Failed to start epoch loop:', err.message);
     });
   }
 
-  // Start the BTCPC P2P network
-  if (process.env.BTCPC_P2P_ENABLED !== 'false') {
+  // Start the HONE P2P network
+  if (process.env.HONE_P2P_ENABLED !== 'false') {
     try {
       await loadFromDatabase();
       p2pNetwork.startServer();
       p2pNetwork.connectToSeeds();
-      console.log('[BTCPC] P2P network layer started');
+      console.log('[HONE] P2P network layer started');
 
       // Initialize fork resolver — self-heals back to main chain if we diverge
       const forkResolver = require('./chain/forkResolver');
@@ -378,13 +378,13 @@ connectDB().then(async () => {
       const ledger = require('./services/ledger');
       const settlement = require('./chain/rewardSettlement');
       forkResolver.init({ blockStore, stateStore, ledger, settlement });
-      forkResolver.on('heal_started', (e) => console.log('[BTCPC ForkResolver] Healing — rolled back to epoch', e.commonAncestor));
-      forkResolver.on('heal_complete', (e) => console.log('[BTCPC ForkResolver] Healed — replayed', e.replayed, 'blocks'));
-      forkResolver.on('need_full_resync', (e) => console.warn('[BTCPC ForkResolver] Full resync needed from', e.peer, '—', e.reason));
+      forkResolver.on('heal_started', (e) => console.log('[HONE ForkResolver] Healing — rolled back to epoch', e.commonAncestor));
+      forkResolver.on('heal_complete', (e) => console.log('[HONE ForkResolver] Healed — replayed', e.replayed, 'blocks'));
+      forkResolver.on('need_full_resync', (e) => console.warn('[HONE ForkResolver] Full resync needed from', e.peer, '—', e.reason));
       // Wire clock connectivity into isolation detection
       const clockConsensus = require('./chain/clockConsensus');
       clockConsensus.setPeerSource(() => p2pNetwork.getPeers());
-      console.log('[BTCPC] Fork resolver and clock consensus initialized');
+      console.log('[HONE] Fork resolver and clock consensus initialized');
 
       // Initialize P2P inference router (listens for results)
       const { initP2PRouter } = require('./inference/p2pRouter');
@@ -393,10 +393,10 @@ connectDB().then(async () => {
       // Sync local models into the API's model registry so it knows what this node can serve
       const { syncLocalModels } = require('./services/modelRegistry');
       syncLocalModels('local').then(models => {
-        if (models.length) console.log(`[BTCPC] API model registry synced: ${models.join(', ')}`);
+        if (models.length) console.log(`[HONE] API model registry synced: ${models.join(', ')}`);
       }).catch(() => {});
     } catch (err) {
-      console.error('[BTCPC] Failed to start P2P network:', err.message);
+      console.error('[HONE] Failed to start P2P network:', err.message);
     }
   }
 }).catch(err => {

@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/btcpc_bg"
+    android:background="@color/hone_bg"
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
@@ -11,7 +11,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="60dp"
-        android:background="@color/btcpc_surface"
+        android:background="@color/hone_surface"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingStart="16dp"
@@ -20,16 +20,16 @@
         <ImageView
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:src="@drawable/btcpc_logo"
+            android:src="@drawable/hone_logo"
             android:scaleType="fitCenter"
-            android:contentDescription="BTCPC" />
+            android:contentDescription="HONE" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="10dp"
-            android:text="BTCPC"
-            android:textColor="@color/btcpc_orange"
+            android:text="HONE"
+            android:textColor="@color/hone_orange"
             android:textSize="22sp"
             android:textStyle="bold"
             android:letterSpacing="0.05" />
@@ -39,20 +39,20 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="@color/btcpc_surface_alt" />
+        android:background="@color/hone_surface_alt" />
 
     <FrameLayout
         android:id="@+id/fragment_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="@color/btcpc_bg" />
+        android:background="@color/hone_bg" />
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottom_nav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/btcpc_surface"
+        android:background="@color/hone_surface"
         app:itemIconTint="@color/nav_item_color"
         app:itemTextColor="@color/nav_item_color"
         app:menu="@menu/bottom_nav_menu"

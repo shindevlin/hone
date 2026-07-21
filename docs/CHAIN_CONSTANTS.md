@@ -1,4 +1,4 @@
-# BTCPC Chain Constants — Canonical Reference
+# HONE Chain Constants — Canonical Reference
 
 This file is the single source of truth for all protocol constants.
 The CI workflow `check-constants.yml` fails if any constant listed here
@@ -12,7 +12,7 @@ drifts from the value in source code.
 |----------|-------|--------|
 | Mainnet chain ID | `hone` | `hone-types/src/lib.rs:MAINNET_CHAIN_ID` |
 | Testnet chain ID | `hone-testnet` | `hone-types/src/lib.rs:TESTNET_CHAIN_ID` |
-| Native token symbol | `BTCPC` | `hone-types/src/lib.rs:NATIVE_TOKEN` |
+| Native token symbol | `HONE` | `hone-types/src/lib.rs:NATIVE_TOKEN` |
 | HTTP API port | `4242` | `src/config.rs` default |
 | P2P port | `6942` | `src/config.rs` default |
 
@@ -22,10 +22,10 @@ drifts from the value in source code.
 
 | Constant | Value | Notes | Source |
 |----------|-------|-------|--------|
-| Total supply cap | 42,000,000 BTCPC | Hard maximum, never burned | `emission.rs:SUPPLY_CAP_HUNITS` |
+| Total supply cap | 42,000,000 HONE | Hard maximum, never burned | `emission.rs:SUPPLY_CAP_HUNITS` |
 | Smallest unit | 1 hunit | | `lib.rs:HUNITS_PER_HONE` |
-| Dreams per BTCPC | 10,000,000,000 | 10^10 | `lib.rs:HUNITS_PER_HONE` |
-| Block reward (era 0) | 2 BTCPC per epoch | Constant within era | `emission.rs:BLOCK_REWARD_HUNITS` |
+| Dreams per HONE | 10,000,000,000 | 10^10 | `lib.rs:HUNITS_PER_HONE` |
+| Block reward (era 0) | 2 HONE per epoch | Constant within era | `emission.rs:BLOCK_REWARD_HUNITS` |
 | Era 0 epoch duration | 30 seconds | | `emission.rs:INITIAL_EPOCH_MS` |
 | Doubling interval | 4,200,000 epochs | Epoch duration doubles per era | `emission.rs:DOUBLING_INTERVAL` |
 | Recycle-only era | Era 5 | No new supply after this | `emission.rs:RECYCLE_ERA` |
@@ -38,11 +38,11 @@ drifts from the value in source code.
 
 | Era | Epoch duration | Epochs/day | Daily emission | Cumulative years |
 |-----|---------------|-----------|----------------|-----------------|
-| 0 | 30 s | 2,880 | 5,760 BTCPC | ~4 years |
-| 1 | 60 s | 1,440 | 2,880 BTCPC | ~8 years |
-| 2 | 2 min | 720 | 1,440 BTCPC | ~16 years |
-| 3 | 4 min | 360 | 720 BTCPC | ~32 years |
-| 4 | 8 min | 180 | 360 BTCPC | ~64 years |
+| 0 | 30 s | 2,880 | 5,760 HONE | ~4 years |
+| 1 | 60 s | 1,440 | 2,880 HONE | ~8 years |
+| 2 | 2 min | 720 | 1,440 HONE | ~16 years |
+| 3 | 4 min | 360 | 720 HONE | ~32 years |
+| 4 | 8 min | 180 | 360 HONE | ~64 years |
 | 5+ | 16 min | 90 | recycle only | ∞ |
 
 ---
@@ -92,9 +92,9 @@ drifts from the value in source code.
 
 | Constant | Value | Source |
 |----------|-------|--------|
-| Min stake for weight multiplier | 100 BTCPC | `emission.rs:MIN_STAKE` |
+| Min stake for weight multiplier | 100 HONE | `emission.rs:MIN_STAKE` |
 | Stake weight formula | `min(sqrt(stake / MIN_STAKE), 10)` | `emission.rs:stake_weight()` |
-| Name registration stake | 10 BTCPC | `lib.rs:NAME_REGISTRATION_STAKE` |
+| Name registration stake | 10 HONE | `lib.rs:NAME_REGISTRATION_STAKE` |
 | Device overbid multiplier | 1.5× minimum | `emission.rs:DEVICE_CLAIM_OVERBID_*` |
 | Overbid staker share | 50% of premium | `emission.rs:OVERCLAIM_STAKER_SHARE_BPS` |
 

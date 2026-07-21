@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Bridge Fee Distributor — v2.16-alpha
+ * HONE Bridge Fee Distributor — v2.16-alpha
  * Shin Devlin
  *
  * Pure fee calculation and LP distribution module for the lock-and-recycle
@@ -10,13 +10,13 @@
  *
  * Fee schedule (source asset, confirmed — see memory/feedback_no_burn_all_recycle.md):
  *   Wrap (all sizes):       0.05% flat — encourages adoption
- *   Unwrap < 1,000 BTCPC:   0.20%
+ *   Unwrap < 1,000 HONE:   0.20%
  *   Unwrap 1,000-100,000:   0.15%
  *   Unwrap > 100,000:       0.10%
  *
  * Fee currency:
- *   Wrap fee in BTCPC (source asset)
- *   Unwrap fee in wBTCPC (source asset)
+ *   Wrap fee in HONE (source asset)
+ *   Unwrap fee in wHONE (source asset)
  *
  * Fee distribution to LPs:
  *   Pro-rata by weight = amount × remaining_lock_days (veCRV-style).
@@ -43,10 +43,10 @@ function _round(n) {
 }
 
 /**
- * Compute the wrap fee for a given BTCPC amount.
+ * Compute the wrap fee for a given HONE amount.
  * Flat 0.05% regardless of size.
  *
- * @param {number} amount — gross BTCPC being wrapped (including fee)
+ * @param {number} amount — gross HONE being wrapped (including fee)
  * @returns {{ fee, net, rate_bps }}
  */
 function computeWrapFee(amount) {
@@ -60,13 +60,13 @@ function computeWrapFee(amount) {
 }
 
 /**
- * Compute the unwrap fee for a given wBTCPC amount.
+ * Compute the unwrap fee for a given wHONE amount.
  * Tiered by volume:
  *   < 1,000   → 0.20%
  *   1,000-100,000 → 0.15%
  *   > 100,000 → 0.10%
  *
- * @param {number} amount — gross wBTCPC being unwrapped (including fee)
+ * @param {number} amount — gross wHONE being unwrapped (including fee)
  * @returns {{ fee, net, tier, rate_bps }}
  */
 function computeUnwrapFee(amount) {
@@ -102,7 +102,7 @@ function computeUnwrapFee(amount) {
  *
  * @param {string} chainId
  * @param {number} feeAmount — total fee amount to distribute
- * @param {string} feeCurrency — "BTCPC" or "wBTCPC"
+ * @param {string} feeCurrency — "HONE" or "wHONE"
  * @param {object} bridgeRegistry — injected bridgeRegistry module
  * @returns {Array<{ funder, weight, share, amount, currency }>}
  */

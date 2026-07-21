@@ -441,7 +441,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-contract-runtime"
+name = "hone-contract-runtime"
 version = "1.0.0"
 dependencies = [
  "anyhow",
@@ -457,7 +457,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-node"
+name = "hone-node"
 version = "1.2.2"
 dependencies = [
  "aes-gcm",
@@ -469,8 +469,8 @@ dependencies = [
  "blake2",
  "borsh",
  "bs58",
- "btcpc-contract-runtime",
- "btcpc-types",
+ "hone-contract-runtime",
+ "hone-types",
  "chrono",
  "dirs-next",
  "ed25519-dalek",
@@ -505,7 +505,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-types"
+name = "hone-types"
 version = "1.2.2"
 dependencies = [
  "borsh",

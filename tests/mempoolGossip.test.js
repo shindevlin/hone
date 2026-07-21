@@ -17,8 +17,8 @@ const os = require('os');
 const path = require('path');
 
 // Isolated data dir — must be set BEFORE requiring ledger
-const ISOLATED_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-gossip-'));
-process.env.BTCPC_DATA_DIR = ISOLATED_DATA_DIR;
+const ISOLATED_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-gossip-'));
+process.env.HONE_DATA_DIR = ISOLATED_DATA_DIR;
 
 // ─── mocks ───────────────────────────────────────────────────────────────────
 
@@ -105,9 +105,9 @@ describe('mempool gossip (v2.13.3)', () => {
   it('appendForeignEntry writes entry to disk so next flush includes it', () => {
     const foreignEntry = {
       type: 'FAUCET',
-      from: 'btcpc_genesis',
+      from: 'hone_genesis',
       to: 'gossip-carol',
-      token: 'BTCPC',
+      token: 'HONE',
       amount: 100,
       epoch: 3,
       timestamp: Date.now(),
@@ -177,9 +177,9 @@ describe('mempool gossip (v2.13.3)', () => {
     // Foreign entry from another node
     const foreignEntry = {
       type: 'FAUCET',
-      from: 'btcpc_genesis',
+      from: 'hone_genesis',
       to: 'gossip-grace',
-      token: 'BTCPC',
+      token: 'HONE',
       amount: 50,
       epoch: 6,
       timestamp: Date.now() + 1,

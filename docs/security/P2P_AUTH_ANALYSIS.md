@@ -1,8 +1,8 @@
-# BTCPC P2P Message Authentication Analysis
+# HONE P2P Message Authentication Analysis
 
 ## Scope
 
-This document analyzes the authentication and integrity guarantees of BTCPC's WebSocket-based P2P layer. The P2P network handles block gossip, peer discovery, chain sync, account announcements, and inference job routing.
+This document analyzes the authentication and integrity guarantees of HONE's WebSocket-based P2P layer. The P2P network handles block gossip, peer discovery, chain sync, account announcements, and inference job routing.
 
 ---
 
@@ -50,7 +50,7 @@ This document analyzes the authentication and integrity guarantees of BTCPC's We
 
 ### P2P-03: No Peer Identity Binding to Stake
 
-**Description:** Any node can connect and send messages without proving it holds a staked BTCPC account. There is no challenge-response handshake that ties a peer's WebSocket connection to an on-chain identity.
+**Description:** Any node can connect and send messages without proving it holds a staked HONE account. There is no challenge-response handshake that ties a peer's WebSocket connection to an on-chain identity.
 
 **Impact:** Unauthenticated peers can submit fake work proofs, spam gossip, and trigger processing overhead without any economic stake at risk.
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy wBTCPC + Sale + Bridge on a specific EVM chain
+# Deploy wHONE + Sale + Bridge on a specific EVM chain
 # Usage: bash scripts/deploy-chain.sh <chain>
 # Chains: base, arbitrum, optimism, ethereum
 
@@ -7,8 +7,8 @@ export PATH="$HOME/.foundry/bin:$PATH"
 cd "$(dirname "$0")/.."
 
 CHAIN=$1
-KEY="${BTCPC_SHIN_EVM_KEY:?Set BTCPC_SHIN_EVM_KEY in .env}"
-SHIN="${BTCPC_SHIN_ADDRESS:-0xBDe88F2B3a224B242704bD166804E0E12c75e830}"
+KEY="${HONE_SHIN_EVM_KEY:?Set HONE_SHIN_EVM_KEY in .env}"
+SHIN="${HONE_SHIN_ADDRESS:-0xBDe88F2B3a224B242704bD166804E0E12c75e830}"
 
 # Chain configs
 case $CHAIN in
@@ -22,22 +22,22 @@ case $CHAIN in
 esac
 
 echo "============================================"
-echo "  Deploying wBTCPC suite on $CHAIN"
+echo "  Deploying wHONE suite on $CHAIN"
 echo "============================================"
 
-# 1. Deploy wBTCPC token
-echo "[1/3] Deploying wBTCPC token..."
-TOKEN_OUT=$(forge create "contracts/wBTCPC.sol:wBTCPC" --broadcast \
+# 1. Deploy wHONE token
+echo "[1/3] Deploying wHONE token..."
+TOKEN_OUT=$(forge create "contracts/wHONE.sol:wHONE" --broadcast \
   --rpc-url "$RPC" --private-key "$KEY" \
   --constructor-args "$SHIN" 2>&1)
 TOKEN=$(echo "$TOKEN_OUT" | grep "Deployed to:" | awk '{print $3}')
-echo "  wBTCPC: $TOKEN"
+echo "  wHONE: $TOKEN"
 
 if [ -z "$TOKEN" ]; then echo "  FAILED - check gas balance"; exit 1; fi
 
 # 2. Deploy Sale contract
-echo "[2/3] Deploying wBTCPCSale..."
-SALE_OUT=$(forge create "contracts/wBTCPCSale.sol:wBTCPCSale" --broadcast \
+echo "[2/3] Deploying wHONESale..."
+SALE_OUT=$(forge create "contracts/wHONESale.sol:wHONESale" --broadcast \
   --rpc-url "$RPC" --private-key "$KEY" \
   --constructor-args "$TOKEN" "$SHIN" "100000" 2>&1)
 SALE=$(echo "$SALE_OUT" | grep "Deployed to:" | awk '{print $3}')
@@ -62,8 +62,8 @@ if [ -n "$USDBC" ]; then
 fi
 
 # 3. Deploy Bridge
-echo "[3/3] Deploying wBTCPCBridge..."
-BRIDGE_OUT=$(forge create "contracts/wBTCPCBridge.sol:wBTCPCBridge" --broadcast \
+echo "[3/3] Deploying wHONEBridge..."
+BRIDGE_OUT=$(forge create "contracts/wHONEBridge.sol:wHONEBridge" --broadcast \
   --rpc-url "$RPC" --private-key "$KEY" \
   --constructor-args "$TOKEN" "$SHIN" 2>&1)
 BRIDGE=$(echo "$BRIDGE_OUT" | grep "Deployed to:" | awk '{print $3}')
@@ -77,7 +77,7 @@ echo ""
 echo "============================================"
 echo "  $CHAIN deployment complete"
 echo "============================================"
-echo "  wBTCPC:  $TOKEN"
+echo "  wHONE:  $TOKEN"
 echo "  Sale:    $SALE"
 echo "  Bridge:  $BRIDGE"
 echo "============================================"

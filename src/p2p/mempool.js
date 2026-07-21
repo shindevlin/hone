@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Transaction Mempool
+ * HONE Transaction Mempool
  * Shin Devlin
  *
  * In-memory transaction pool for pending transactions awaiting
@@ -38,7 +38,7 @@ function hashTransaction(tx) {
     nonce: tx.nonce,
     timestamp: tx.timestamp,
     to: tx.to,
-    token: tx.token || "BTCPC",
+    token: tx.token || "HONE",
     type: tx.type
   };
   return crypto.createHash("sha256")

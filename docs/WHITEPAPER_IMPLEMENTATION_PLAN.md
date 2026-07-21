@@ -1,20 +1,20 @@
-# BTCPC Whitepaper Implementation Plan
+# HONE Whitepaper Implementation Plan
 
 Created: 2026-04-14
 
 ## Scope
 
-This plan reconciles the BTCPC v3.0 whitepaper with the current codebase and records implementation work so another engineer or LLM can resume without redoing the audit.
+This plan reconciles the HONE v3.0 whitepaper with the current codebase and records implementation work so another engineer or LLM can resume without redoing the audit.
 
 ## User Clarifications
 
 - Epochs are 30-second consensus epochs. There must be no 5-minute fallback.
 - "Doublings" are emission periods that should double in length while reward-per-epoch remains the same within the period. Working recovered schedule: 1 week, then 2 weeks, 4 weeks, 8 weeks, and so on.
 - P2P signatures matter most for spend and authority-bearing actions. The whitepaper currently says all P2P messages are signed; implementation should enforce signatures at minimum for spend, account, clock, storage, sensor, and block/finality authority messages.
-- Finality anchoring to external chains should be wallet-funded or sponsor-funded. Users/projects should be able to fund chain-specific anchor wallets, and local BTCPC rewards for facilitating external finality should be documented in the whitepaper.
+- Finality anchoring to external chains should be wallet-funded or sponsor-funded. Users/projects should be able to fund chain-specific anchor wallets, and local HONE rewards for facilitating external finality should be documented in the whitepaper.
 - TOTP should exist as protocol/app infrastructure and SDK support so projects can enforce protected actions without a human operator.
 - Human wallets should also be able to opt into TOTP when they choose; this must protect local secretStore-backed wallets, not only Mongo-backed accounts.
-- TOTP should use standard authenticator apps such as Google Authenticator/Authy/Aegis: BTCPC shows an `otpauth://` QR/code during setup, the user enters the 6-digit code for sensitive actions, and chain storage should contain only policy/commitment data plus the protected action list, never the raw seed.
+- TOTP should use standard authenticator apps such as Google Authenticator/Authy/Aegis: HONE shows an `otpauth://` QR/code during setup, the user enters the 6-digit code for sensitive actions, and chain storage should contain only policy/commitment data plus the protected action list, never the raw seed.
 - Verifier strictness should scale with adoption. Early network: low verifier quorum. Larger network: opt-in verifier nodes, larger panels, higher verification coverage.
 
 ## Priority Fixes
@@ -49,7 +49,7 @@ This plan reconciles the BTCPC v3.0 whitepaper with the current codebase and rec
    - Convert placeholder anchor payloads into real Merkle-batched finality payloads.
    - Add sponsor wallet funding model and anchor-fee accounting.
    - Add chain-specific submitter interfaces for Base, Arbitrum, Ethereum, Bitcoin, and future chains.
-   - Document user-funded finality as an optional service with BTCPC rewards for finalizers.
+   - Document user-funded finality as an optional service with HONE rewards for finalizers.
 
 7. Verifier scaling
    - Add network-size-aware verifier quorum/panel sizing.
@@ -72,7 +72,7 @@ This plan reconciles the BTCPC v3.0 whitepaper with the current codebase and rec
 
 - Exact final cap/truncation behavior for the weekly doubling schedule, though the current working assumption is that the cap simply truncates the last period.
 - Which P2P messages are mandatory-signed from day one versus allowed unsigned gossip.
-- Whether finality funders receive only BTCPC rewards, off-chain fee rebates, or both.
+- Whether finality funders receive only HONE rewards, off-chain fee rebates, or both.
 - Exact verifier panel formula by miner count, active job count, and model value.
 - Whether more reserved names should be added beyond the current system/confusing-name list.
 

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Fork Resolver
+ * HONE Fork Resolver
  * Shin Devlin
  *
  * Detects chain forks and self-heals back to the main chain.
@@ -24,13 +24,13 @@
  *
  * Guards:
  *   - heal_in_progress flag prevents new seals during healing
- *   - Max rollback depth: BTCPC_MAX_ROLLBACK_DEPTH epochs (default 500)
+ *   - Max rollback depth: HONE_MAX_ROLLBACK_DEPTH epochs (default 500)
  *   - If fork is deeper than max: request full resync from peer
  */
 
 const EventEmitter = require("events");
 
-const MAX_ROLLBACK_DEPTH = parseInt(process.env.BTCPC_MAX_ROLLBACK_DEPTH) || 500;
+const MAX_ROLLBACK_DEPTH = parseInt(process.env.HONE_MAX_ROLLBACK_DEPTH) || 500;
 const emitter = new EventEmitter();
 
 let healInProgress = false;
@@ -146,7 +146,7 @@ async function selfHeal({ commonAncestor, localHeight, peerBlocks, peerId }) {
 
   const rollbackDepth = localHeight - commonAncestor;
   if (rollbackDepth > MAX_ROLLBACK_DEPTH) {
-    console.warn("[BTCPC ForkResolver] Fork too deep (" + rollbackDepth + " epochs)" +
+    console.warn("[HONE ForkResolver] Fork too deep (" + rollbackDepth + " epochs)" +
       " — requesting full resync from " + peerId);
     emitter.emit("need_full_resync", { peer: peerId, depth: rollbackDepth });
     return { healed: false, reason: "fork_too_deep_need_resync" };
@@ -163,12 +163,12 @@ async function selfHeal({ commonAncestor, localHeight, peerBlocks, peerId }) {
   const peerScore = scoreChain(peerBlocks);
 
   if (localScore >= peerScore && localScore > 0) {
-    console.log("[BTCPC ForkResolver] Our chain wins (score " + localScore +
+    console.log("[HONE ForkResolver] Our chain wins (score " + localScore +
       " vs " + peerScore + ") — no heal needed");
     return { healed: false, reason: "local_chain_wins" };
   }
 
-  console.log("[BTCPC ForkResolver] FORK DETECTED — healing to peer chain" +
+  console.log("[HONE ForkResolver] FORK DETECTED — healing to peer chain" +
     " | ancestor=" + commonAncestor +
     " | rollback=" + rollbackDepth + " epochs" +
     " | score: local=" + localScore + " peer=" + peerScore +
@@ -208,7 +208,7 @@ async function selfHeal({ commonAncestor, localHeight, peerBlocks, peerId }) {
         }
       }
     }
-    console.log("[BTCPC ForkResolver] Rolled back " + rollbackDepth + " epochs to ancestor " + commonAncestor);
+    console.log("[HONE ForkResolver] Rolled back " + rollbackDepth + " epochs to ancestor " + commonAncestor);
 
     // Step 4: Replay peer blocks forward
     let replayed = 0;
@@ -219,7 +219,7 @@ async function selfHeal({ commonAncestor, localHeight, peerBlocks, peerId }) {
       }
       replayed++;
     }
-    console.log("[BTCPC ForkResolver] Replayed " + replayed + " peer blocks");
+    console.log("[HONE ForkResolver] Replayed " + replayed + " peer blocks");
 
     // Step 5: Resubmit orphaned proofs to open settlement windows
     if (_settlement) {
@@ -229,18 +229,18 @@ async function selfHeal({ commonAncestor, localHeight, peerBlocks, peerId }) {
         resubmitted++;
       }
       if (resubmitted > 0) {
-        console.log("[BTCPC ForkResolver] Resubmitted " + resubmitted + " orphaned work proofs to settlement");
+        console.log("[HONE ForkResolver] Resubmitted " + resubmitted + " orphaned work proofs to settlement");
       }
     }
 
     emitter.emit("heal_complete", { commonAncestor, rolledBack: rollbackDepth, replayed, peerId });
-    console.log("[BTCPC ForkResolver] Self-heal complete — chain restored to epoch " +
+    console.log("[HONE ForkResolver] Self-heal complete — chain restored to epoch " +
       (commonAncestor + replayed));
 
     return { healed: true, rolledBack: rollbackDepth, replayed, reason: "healed_to_peer_chain" };
 
   } catch (err) {
-    console.error("[BTCPC ForkResolver] Heal failed:", err.message);
+    console.error("[HONE ForkResolver] Heal failed:", err.message);
     emitter.emit("heal_failed", { error: err.message, peerId });
     // Request full resync as fallback
     emitter.emit("need_full_resync", { peer: peerId, reason: "heal_error" });
@@ -271,7 +271,7 @@ async function onPeerBlock(peerBlock, peerId, getPeerBlocksFn) {
 
   if (!forked) return; // chains agree at this height
 
-  console.log("[BTCPC ForkResolver] Fork detected at epoch " + peerEpoch +
+  console.log("[HONE ForkResolver] Fork detected at epoch " + peerEpoch +
     " | local=" + (local_hash || "?").slice(0, 12) +
     " peer=" + (peer_hash || "?").slice(0, 12) +
     " | from " + peerId);
@@ -286,13 +286,13 @@ async function onPeerBlock(peerBlock, peerId, getPeerBlocksFn) {
       peerBlocks = result.blocks || [];
     }
   } catch (err) {
-    console.warn("[BTCPC ForkResolver] Could not fetch peer blocks:", err.message);
+    console.warn("[HONE ForkResolver] Could not fetch peer blocks:", err.message);
     return;
   }
 
   const ancestor = findCommonAncestor(peerHashes);
   if (ancestor < 0) {
-    console.warn("[BTCPC ForkResolver] No common ancestor found — requesting full resync");
+    console.warn("[HONE ForkResolver] No common ancestor found — requesting full resync");
     emitter.emit("need_full_resync", { peer: peerId, reason: "no_common_ancestor" });
     return;
   }

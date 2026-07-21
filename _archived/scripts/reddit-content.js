@@ -2,7 +2,7 @@
 "use strict";
 
 /**
- * Generate ready-to-post Reddit content for r/btcpc.
+ * Generate ready-to-post Reddit content for r/hone.
  * Usage: node scripts/reddit-content.js [type]
  * Types: stats, milestone, weekly, launch
  */
@@ -10,7 +10,7 @@
 const mongoose = require("mongoose");
 const { getBlockReward } = require("../src/services/emissionSchedule");
 
-const MONGO_URI = process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/btcpc?authSource=admin";
+const MONGO_URI = process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/hone?authSource=admin";
 
 const CHAINS = [
   { name: "Base", explorer: "https://basescan.org/address/0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47" },
@@ -53,15 +53,15 @@ async function getStats() {
 }
 
 function generateStats(stats) {
-  const title = `BTCPC Network Stats — Epoch ${stats.latestEpoch} | ${stats.totalMined} BTCPC Mined`;
+  const title = `HONE Network Stats — Epoch ${stats.latestEpoch} | ${stats.totalMined} HONE Mined`;
   const body = `## Network Snapshot
 
 | Metric | Value |
 |--------|-------|
 | Current Epoch | ${stats.latestEpoch} |
 | Total Epochs | ${stats.epochs} |
-| BTCPC Mined | ${stats.totalMined} / 42,000,000 |
-| Block Reward | ${stats.currentReward} BTCPC/epoch |
+| HONE Mined | ${stats.totalMined} / 42,000,000 |
+| Block Reward | ${stats.currentReward} HONE/epoch |
 | Active Miners | ${stats.miners} |
 | Ledger Entries | ${stats.ledgerCount} |
 | Live Chains | ${stats.chains} |
@@ -79,27 +79,27 @@ ${CHAINS.map(c => `- **${c.name}**: [View on Explorer](${c.explorer})`).join("\n
 
 ---
 
-*Mining is useful work. Every BTCPC is earned by running AI inference.*
+*Mining is useful work. Every HONE is earned by running AI inference.*
 
-[Website](https://btcpc.net) | [Explorer](https://btcpc.net:4242) | [Substack](https://btcpc.substack.com) | [GitHub](https://github.com/shindevlin/btcpc)`;
+[Website](https://hone.net) | [Explorer](https://hone.net:4242) | [Substack](https://hone.substack.com) | [GitHub](https://github.com/shindevlin/hone)`;
 
   return { title, body };
 }
 
 function generateMilestone(stats) {
-  const title = `[Milestone] BTCPC reaches ${stats.epochs} epochs — ${stats.totalMined} BTCPC mined across ${stats.chains} chains`;
-  const body = `We just hit **${stats.epochs} epochs** on the BTCPC network.
+  const title = `[Milestone] HONE reaches ${stats.epochs} epochs — ${stats.totalMined} HONE mined across ${stats.chains} chains`;
+  const body = `We just hit **${stats.epochs} epochs** on the HONE network.
 
-### What is BTCPC?
+### What is HONE?
 
 Bitcoin Proof of Compute is a sovereign blockchain where **mining = AI inference**. Instead of burning electricity on SHA-256 hashes, miners run AI models and earn tokens for real, useful work.
 
 ### Key Numbers
 
-- **${stats.totalMined} BTCPC** mined out of 42M total supply
+- **${stats.totalMined} HONE** mined out of 42M total supply
 - **${stats.chains} chains**: Base, Arbitrum, Optimism, Ethereum, Polygon, BSC, Solana, Hive
 - **${stats.miners} active miners** running inference
-- **Block reward**: ${stats.currentReward} BTCPC per 5-minute epoch
+- **Block reward**: ${stats.currentReward} HONE per 5-minute epoch
 
 ### Three Roles, Any Hardware
 
@@ -120,26 +120,26 @@ No staking required to mine. No special hardware. A mid-range desktop earns alon
 
 ---
 
-[Website](https://btcpc.net) | [Substack](https://btcpc.substack.com) | [Whitepaper](https://github.com/shindevlin/btcpc/blob/main/docs/BTCPC_WHITEPAPER.md) | [GitHub](https://github.com/shindevlin/btcpc)`;
+[Website](https://hone.net) | [Substack](https://hone.substack.com) | [Whitepaper](https://github.com/shindevlin/hone/blob/main/docs/HONE_WHITEPAPER.md) | [GitHub](https://github.com/shindevlin/hone)`;
 
   return { title, body };
 }
 
 function generateLaunch() {
-  const title = "Introducing BTCPC — Bitcoin Proof of Compute: a blockchain where mining means AI inference";
+  const title = "Introducing HONE — Bitcoin Proof of Compute: a blockchain where mining means AI inference";
   const body = `## What if mining was useful?
 
-Bitcoin proved that decentralized consensus works. BTCPC asks the next question: **what if the work that secures the chain also produces something people are paying for?**
+Bitcoin proved that decentralized consensus works. HONE asks the next question: **what if the work that secures the chain also produces something people are paying for?**
 
-BTCPC is a sovereign blockchain where miners run AI models instead of hashing. Every token is earned by real compute — inference that users actually requested and paid for.
+HONE is a sovereign blockchain where miners run AI models instead of hashing. Every token is earned by real compute — inference that users actually requested and paid for.
 
 ### The Basics
 
-- **Supply**: 42,000,000 BTCPC (same timeline as Bitcoin, all mined by ~2140)
+- **Supply**: 42,000,000 HONE (same timeline as Bitcoin, all mined by ~2140)
 - **Epochs**: 5 minutes (like Bitcoin blocks, but faster)
 - **Mining**: Run any Ollama model — GPU or CPU
 - **Verification**: Random verifier panels check output quality (no redundant computation)
-- **Cross-chain**: wBTCPC live on 8 chains — Base, Arbitrum, Optimism, Ethereum, Polygon, BSC, Solana, Hive
+- **Cross-chain**: wHONE live on 8 chains — Base, Arbitrum, Optimism, Ethereum, Polygon, BSC, Solana, Hive
 
 ### Three Roles
 
@@ -147,11 +147,11 @@ BTCPC is a sovereign blockchain where miners run AI models instead of hashing. E
 - **Verifiers** (10%) — lightweight nodes checking work quality
 - **Clocks** (5%) — any device keeping epoch timing (phones work)
 
-Hardware diversity is a feature, not a bug. A network of identical GPUs is a monoculture — one exploit takes it all down. BTCPC wants every machine to be different.
+Hardware diversity is a feature, not a bug. A network of identical GPUs is a monoculture — one exploit takes it all down. HONE wants every machine to be different.
 
 ### No Burns, No Tricks
 
-- Tokens are never burned — slashed tokens go to btcpc_recycle
+- Tokens are never burned — slashed tokens go to hone_recycle
 - No minting contracts — every token earned through mining
 - Dormancy recycling instead of burning (5yr grace, 10%/yr decay, one tap resets the clock)
 - All protocol parameters changeable by network consensus
@@ -159,15 +159,15 @@ Hardware diversity is a feature, not a bug. A network of identical GPUs is a mon
 ### Try It
 
 \`\`\`bash
-npm install -g btcpc
-btcpc-setup
+npm install -g hone
+hone-setup
 \`\`\`
 
 Or just run a clock node from your phone.
 
 ---
 
-[Website](https://btcpc.net) | [Substack](https://btcpc.substack.com) | [Whitepaper](https://github.com/shindevlin/btcpc/blob/main/docs/BTCPC_WHITEPAPER.md) | [GitHub](https://github.com/shindevlin/btcpc) | [Telegram](https://t.me/btcpcbot)
+[Website](https://hone.net) | [Substack](https://hone.substack.com) | [Whitepaper](https://github.com/shindevlin/hone/blob/main/docs/HONE_WHITEPAPER.md) | [GitHub](https://github.com/shindevlin/hone) | [Telegram](https://t.me/honebot)
 
 *Built by Shin Devlin. Validated by Natoshi. Voiced by Josh.*`;
 

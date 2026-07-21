@@ -26,18 +26,18 @@ function loadEnv() {
   } catch { return {}; }
 }
 const ENV = loadEnv();
-const BTCPC_API       = 'http://localhost:4242';
-const BTCPC_KEY       = process.env.BTCPC_RELAY_API_KEY || ENV.BTCPC_RELAY_API_KEY || '';
+const HONE_API       = 'http://localhost:4242';
+const HONE_KEY       = process.env.HONE_RELAY_API_KEY || ENV.HONE_RELAY_API_KEY || '';
 
-// Try marketing .env first, fall back to btcpcbot's real token
+// Try marketing .env first, fall back to honebot's real token
 function loadBotToken() {
   if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN !== 'your-telegram-bot-token')
     return process.env.TELEGRAM_BOT_TOKEN;
   if (ENV.TELEGRAM_BOT_TOKEN && ENV.TELEGRAM_BOT_TOKEN !== 'your-telegram-bot-token')
     return ENV.TELEGRAM_BOT_TOKEN;
   try {
-    const botEnv = require('fs').readFileSync(path.join(__dirname, '../../btcpcbot/.env'), 'utf8');
-    const m = botEnv.match(/^BTCPC_BOT_TOKEN=(.+)$/m);
+    const botEnv = require('fs').readFileSync(path.join(__dirname, '../../honebot/.env'), 'utf8');
+    const m = botEnv.match(/^HONE_BOT_TOKEN=(.+)$/m);
     return m ? m[1].trim() : '';
   } catch { return ''; }
 }
@@ -88,15 +88,15 @@ async function writeVoice(mem) {
   await fs.writeFile(VOICE_FILE, JSON.stringify(mem, null, 2));
 }
 
-// ── BTCPC inference (routes through chain → miners) ────────
-async function btcpcInfer(messages, model = 'qwen3.5:9b') {
-  if (!BTCPC_KEY) throw new Error('BTCPC_RELAY_API_KEY not set');
-  const res = await fetch(`${BTCPC_API}/v1/chat/completions`, {
+// ── HONE inference (routes through chain → miners) ────────
+async function honeInfer(messages, model = 'qwen3.5:9b') {
+  if (!HONE_KEY) throw new Error('HONE_RELAY_API_KEY not set');
+  const res = await fetch(`${HONE_API}/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${BTCPC_KEY}` },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HONE_KEY}` },
     body: JSON.stringify({ model, messages, temperature: 0.3 }),
   });
-  if (!res.ok) throw new Error(`BTCPC inference ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`HONE inference ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return data.choices[0].message.content.trim();
 }
@@ -122,7 +122,7 @@ async function qualityCheck(post) {
       .filter(l => l.startsWith('- ') || l.startsWith('* '))
       .slice(0, 20).join('\n');
 
-    const result = await btcpcInfer([{ role: 'user', content:
+    const result = await honeInfer([{ role: 'user', content:
       `You are reviewing a social post for the "${post.persona}" persona on ${post.platform}.
 
 Key rules for this persona:
@@ -158,8 +158,8 @@ async function maybeDistil(persona, mem) {
       `${i + 1}. [${n.platform}] Rejection: "${n.note}"\n   Example: "${n.excerpt}"`
     ).join('\n\n');
 
-    const distilled = await btcpcInfer([{ role: 'user', content:
-      `You are refining the voice of the "${persona}" persona for BTCPC marketing.
+    const distilled = await honeInfer([{ role: 'user', content:
+      `You are refining the voice of the "${persona}" persona for HONE marketing.
 
 These are ${raw.length} rejection notes — why specific posts were rejected:
 
@@ -173,8 +173,8 @@ Format: one rule per line, no numbers, no preamble.` }]);
 
     let finalRules;
     if (mem[persona].rules.length > 0) {
-      const merged = await btcpcInfer([{ role: 'user', content:
-        `Merge these voice rules for the "${persona}" BTCPC marketing persona.
+      const merged = await honeInfer([{ role: 'user', content:
+        `Merge these voice rules for the "${persona}" HONE marketing persona.
 
 Existing rules:
 ${mem[persona].rules.map(r => `- ${r}`).join('\n')}
@@ -325,8 +325,8 @@ app.post('/api/import', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`BTCPC Marketing Dashboard → http://localhost:${PORT}`);
-  if (!BTCPC_KEY)      console.warn('  WARNING: BTCPC_RELAY_API_KEY not set — quality checks and distillation disabled');
+  console.log(`HONE Marketing Dashboard → http://localhost:${PORT}`);
+  if (!HONE_KEY)      console.warn('  WARNING: HONE_RELAY_API_KEY not set — quality checks and distillation disabled');
   if (!TELEGRAM_TOKEN || TELEGRAM_TOKEN === 'your-telegram-bot-token')
     console.warn('  WARNING: TELEGRAM_BOT_TOKEN not set — failed-post notifications disabled');
   if (!TELEGRAM_CHAT)  console.warn('  WARNING: TELEGRAM_CHAT_ID not set — failed-post notifications disabled');

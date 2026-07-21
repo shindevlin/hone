@@ -22,12 +22,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep-link: btcpc://pair?sid=<SESSION_ID> — Flipper QR pairing -->
+            <!-- Deep-link: hone://pair?sid=<SESSION_ID> — Flipper QR pairing -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="btcpc" android:host="pair"/>
+                <data android:scheme="hone" android:host="pair"/>
             </intent-filter>
 
             <!-- Launch app when Flipper Zero is plugged in via USB OTG -->
@@ -73,7 +73,7 @@
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="network.btcpc.app.CONFIGURE" />
+                <action android:name="network.hone.app.CONFIGURE" />
             </intent-filter>
         </receiver>
 

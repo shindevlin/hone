@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS Serve Proof Routes — v2.11.1
+ * HONE-FS Serve Proof Routes — v2.11.1
  * Shin Devlin
  *
  * HTTP endpoints for storage hosts to submit bandwidth serve proofs.

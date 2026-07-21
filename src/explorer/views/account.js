@@ -45,7 +45,7 @@ function accountView(data) {
       <td><span class="type-badge type-${escapeHtml(typeClass)}">${escapeHtml((t.type || "").replace(/_/g, " "))}</span></td>
       <td>${t.from === user.username ? `<strong>${escapeHtml(t.from)}</strong>` : t.from ? `<a href="/account/${encodeURIComponent(t.from)}">${escapeHtml(t.from)}</a>` : "--"}</td>
       <td>${t.to === user.username ? `<strong>${escapeHtml(t.to)}</strong>` : t.to ? `<a href="/account/${encodeURIComponent(t.to)}">${escapeHtml(t.to)}</a>` : "--"}</td>
-      <td class="amount ${dirClass}">${dirSign}${formatNumber(t.amount)} ${escapeHtml(t.token || "BTCPC")}</td>
+      <td class="amount ${dirClass}">${dirSign}${formatNumber(t.amount)} ${escapeHtml(t.token || "HONE")}</td>
       <td>${t.epoch !== undefined ? `<a href="/block/${t.epoch}">#${t.epoch}</a>` : "--"}</td>
       <td>${formatDate(t.timestamp)}</td>
     </tr>`;
@@ -61,7 +61,7 @@ function accountView(data) {
       <div class="stat-card">
         <div class="stat-label">Ledger Balance</div>
         <div class="stat-value accent">${formatNumber(balance)}</div>
-        <div class="stat-sub">BTCPC (source of truth)</div>
+        <div class="stat-sub">HONE (source of truth)</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Available</div>
@@ -90,11 +90,11 @@ function accountView(data) {
         <dt>State Root</dt>
         <dd><span class="hash" style="max-width: none;">${smtProof.root}</span></dd>
         <dt>Balance (SMT)</dt>
-        <dd class="amount">${formatNumber(smtProof.state.balance)} BTCPC</dd>
+        <dd class="amount">${formatNumber(smtProof.state.balance)} HONE</dd>
         <dt>Staked (SMT)</dt>
-        <dd>${formatNumber(smtProof.state.staked)} BTCPC</dd>
+        <dd>${formatNumber(smtProof.state.staked)} HONE</dd>
         <dt>Delegated (SMT)</dt>
-        <dd>${formatNumber(smtProof.state.delegated)} BTCPC</dd>
+        <dd>${formatNumber(smtProof.state.delegated)} HONE</dd>
         <dt>Nonce</dt>
         <dd>${smtProof.state.nonce}</dd>
       </dl>
@@ -115,7 +115,7 @@ function accountView(data) {
         <dt>VRAM</dt>
         <dd>${node.hardware && node.hardware.vram_gb ? escapeHtml(String(node.hardware.vram_gb)) + " GB" : "--"}</dd>
         <dt>Stake</dt>
-        <dd class="amount">${formatNumber(node.stake_amount)} BTCPC</dd>
+        <dd class="amount">${formatNumber(node.stake_amount)} HONE</dd>
         <dt>Reputation</dt>
         <dd>${node.reputation}/100</dd>
         <dt>Models</dt>

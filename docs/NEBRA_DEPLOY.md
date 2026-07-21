@@ -1,6 +1,6 @@
 # Nebra Pi Deployment Rules
 
-**Device**: Nebra Pi 3 (`pi@192.168.68.75`, SSH alias `btcpc-nebra`)  
+**Device**: Nebra Pi 3 (`pi@192.168.68.75`, SSH alias `hone-nebra`)  
 **Architecture**: aarch64  
 **Role**: hone-node clock/sensor relay
 
@@ -20,25 +20,25 @@ sudo systemctl stop <old-service>
 sudo systemctl disable <old-service>
 
 # 2. Confirm no competing services are running
-systemctl list-units --state=running | grep -E 'hone|btcpc'
+systemctl list-units --state=running | grep -E 'hone|hone'
 
 # 3. Verify SSH is responsive (try a no-op before SCP)
-ssh btcpc-nebra echo "ok"
+ssh hone-nebra echo "ok"
 
 # 4. Only then SCP the new binary
-scp hone-node btcpc-nebra:/tmp/hone-node-new
+scp hone-node hone-nebra:/tmp/hone-node-new
 ```
 
 ### Why this matters
 
-During the btcpc→hone cutover, `btcpc-node-v2.service` was left running while attempting to SCP the new hone-node binary. The service saturated all CPU and RAM, causing every SSH/SCP attempt to timeout with "Broken pipe". Recovery required physical reboot + SD card surgery (removing autostart symlinks directly from the mounted filesystem).
+During the hone→hone cutover, `hone-node-v2.service` was left running while attempting to SCP the new hone-node binary. The service saturated all CPU and RAM, causing every SSH/SCP attempt to timeout with "Broken pipe". Recovery required physical reboot + SD card surgery (removing autostart symlinks directly from the mounted filesystem).
 
 This rule prevents that class of failure.
 
 ## Service name
 
 Current production service: `hone-node.service`  
-Previous (removed): `btcpc-node-v2.service`, `btcpc-gnss-capture.service`, `btcpc-testnet.service`
+Previous (removed): `hone-node-v2.service`, `hone-gnss-capture.service`, `hone-testnet.service`
 
 ## SD card recovery (last resort)
 

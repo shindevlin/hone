@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Bridge Registry — v2.16-alpha
+ * HONE Bridge Registry — v2.16-alpha
  * Shin Devlin
  *
  * In-memory registry for the lock-and-recycle cross-chain bridge primitive.
@@ -10,12 +10,12 @@
  *
  * Bridge design (all locked in — see memory/feedback_no_burn_all_recycle.md):
  *
- *   Per-chain wBTCPC supply: 4,200,000 hard cap (pre-minted at deploy, never
+ *   Per-chain wHONE supply: 4,200,000 hard cap (pre-minted at deploy, never
  *   minted again). No burn function. All unwraps are "transfer to bridge
- *   reserve", not burns. This is the BTCPC Lock-and-Recycle bridge.
+ *   reserve", not burns. This is the HONE Lock-and-Recycle bridge.
  *
- *   Wrap flow:  user locks BTCPC native → wBTCPC released from reserve
- *   Unwrap flow: user transfers wBTCPC to reserve → BTCPC native released
+ *   Wrap flow:  user locks HONE native → wHONE released from reserve
+ *   Unwrap flow: user transfers wHONE to reserve → HONE native released
  *
  *   LP funding: permissionless, variable lock period (30-1460 days).
  *   LP weight: amount × remaining_lock_days (veCRV-style).
@@ -37,14 +37,14 @@ var funders = new Map();
 // chainId → FIFO withdrawal queue (array of funder names)
 var withdrawalQueues = new Map();
 
-// chainId → smoothing buffer amount (BTCPC)
+// chainId → smoothing buffer amount (HONE)
 var smoothingBuffers = new Map();
 
 // chainId → { wraps, unwraps } (running totals)
 var volumeStats = new Map();
 
-/** wBTCPC hard cap per destination chain (4.2M, NOT 42M). */
-var WBTCPC_SUPPLY_PER_CHAIN = 4200000;
+/** wHONE hard cap per destination chain (4.2M, NOT 42M). */
+var WHONE_SUPPLY_PER_CHAIN = 4200000;
 
 /** Lock period bounds in days. */
 var MIN_LOCK_DAYS = 30;
@@ -74,7 +74,7 @@ function _funderKey(chainId, funder) {
  * @param {string} chainId — unique chain identifier (e.g. "base", "arbitrum", "ethereum")
  * @param {object} config
  * @param {string} config.name — human-readable chain name
- * @param {number} [config.wbtcpc_supply] — wBTCPC supply (defaults to WBTCPC_SUPPLY_PER_CHAIN)
+ * @param {number} [config.whone_supply] — wHONE supply (defaults to WHONE_SUPPLY_PER_CHAIN)
  * @param {string} config.bridge_reserve_address — on-chain address of the bridge reserve
  * @param {number} [config.fee_wrap_bps] — wrap fee in basis points (default 5 = 0.05%)
  * @param {object} [config.fee_unwrap_tiers] — unwrap fee tiers (defaults to spec)
@@ -95,15 +95,15 @@ function registerChain(chainId, config) {
     throw new Error("config.bridge_reserve_address required");
   }
 
-  var supply = typeof config.wbtcpc_supply === "number"
-    ? config.wbtcpc_supply
-    : WBTCPC_SUPPLY_PER_CHAIN;
+  var supply = typeof config.whone_supply === "number"
+    ? config.whone_supply
+    : WHONE_SUPPLY_PER_CHAIN;
 
-  if (supply !== WBTCPC_SUPPLY_PER_CHAIN) {
+  if (supply !== WHONE_SUPPLY_PER_CHAIN) {
     // Allow override in tests but enforce the hard cap invariant
-    if (supply > WBTCPC_SUPPLY_PER_CHAIN) {
+    if (supply > WHONE_SUPPLY_PER_CHAIN) {
       throw new Error(
-        "wBTCPC supply per chain cannot exceed hard cap of " + WBTCPC_SUPPLY_PER_CHAIN +
+        "wHONE supply per chain cannot exceed hard cap of " + WHONE_SUPPLY_PER_CHAIN +
         " (4.2M). It is 4.2M, not 42M."
       );
     }
@@ -128,7 +128,7 @@ function registerChain(chainId, config) {
   var record = {
     chain_id: chainId,
     name: config.name,
-    wbtcpc_supply: supply,
+    whone_supply: supply,
     bridge_reserve_address: config.bridge_reserve_address,
     fee_wrap_bps: feeWrapBps,
     fee_unwrap_tiers: feeUnwrapTiers,
@@ -137,8 +137,8 @@ function registerChain(chainId, config) {
     registered_at: existing ? existing.registered_at : _now(),
     updated_at: _now(),
     // Running state
-    total_locked_btcpc: existing ? existing.total_locked_btcpc : 0,
-    circulating_wbtcpc: existing ? existing.circulating_wbtcpc : 0,
+    total_locked_hone: existing ? existing.total_locked_hone : 0,
+    circulating_whone: existing ? existing.circulating_whone : 0,
   };
 
   chains.set(chainId, record);
@@ -171,22 +171,22 @@ function getAllChains() {
 }
 
 /**
- * Fund the bridge for a destination chain. Funder locks BTCPC native.
+ * Fund the bridge for a destination chain. Funder locks HONE native.
  * Returns the funder lock record including veCRV-style weight.
  *
- * @param {string} funder — BTCPC account name
+ * @param {string} funder — HONE account name
  * @param {string} chainId
- * @param {number} amountBtcpc — BTCPC to lock
+ * @param {number} amountHone — HONE to lock
  * @param {number} lockDays — lock period (30-1460)
  * @returns {{ funder, chain_id, amount, lock_days, lock_expires_at, weight, locked_at }}
  */
-function fundBridge(funder, chainId, amountBtcpc, lockDays) {
+function fundBridge(funder, chainId, amountHone, lockDays) {
   if (typeof funder !== "string" || funder.length === 0) throw new Error("funder required");
   var chain = chains.get(chainId);
   if (!chain) throw new Error("unknown chainId: " + chainId);
 
-  var amount = Number(amountBtcpc);
-  if (!Number.isFinite(amount) || amount <= 0) throw new Error("amountBtcpc must be a positive number");
+  var amount = Number(amountHone);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("amountHone must be a positive number");
 
   var days = Number(lockDays);
   if (!Number.isFinite(days) || days < chain.lock_period_min_days || days > chain.lock_period_max_days) {
@@ -195,11 +195,11 @@ function fundBridge(funder, chainId, amountBtcpc, lockDays) {
     );
   }
 
-  // Check wBTCPC supply cap: circulating + new amount cannot exceed chain supply
-  var newCirculating = chain.circulating_wbtcpc + amount;
-  if (newCirculating > chain.wbtcpc_supply) {
+  // Check wHONE supply cap: circulating + new amount cannot exceed chain supply
+  var newCirculating = chain.circulating_whone + amount;
+  if (newCirculating > chain.whone_supply) {
     throw new Error(
-      "bridge funding would exceed wBTCPC supply cap of " + chain.wbtcpc_supply +
+      "bridge funding would exceed wHONE supply cap of " + chain.whone_supply +
       " (4.2M hard cap per chain)"
     );
   }
@@ -240,8 +240,8 @@ function fundBridge(funder, chainId, amountBtcpc, lockDays) {
   funders.set(key, record);
 
   // Update chain state
-  chain.total_locked_btcpc = _round(chain.total_locked_btcpc + amount);
-  chain.circulating_wbtcpc = _round(chain.circulating_wbtcpc + amount);
+  chain.total_locked_hone = _round(chain.total_locked_hone + amount);
+  chain.circulating_whone = _round(chain.circulating_whone + amount);
 
   return Object.assign({}, record);
 }
@@ -288,7 +288,7 @@ function requestUnlock(funder, chainId) {
  * unwrap volume + smoothing buffer. Returns array of fulfilled withdrawals.
  *
  * @param {string} chainId
- * @param {number} [availableVolume=0] — BTCPC available from recent unwrap volume
+ * @param {number} [availableVolume=0] — HONE available from recent unwrap volume
  * @returns {Array<{ funder, amount, source }>}
  */
 function processUnlock(chainId, availableVolume) {
@@ -333,8 +333,8 @@ function processUnlock(chainId, availableVolume) {
     // Fulfill withdrawal
     queue.shift();
     funders.delete(key);
-    chain.total_locked_btcpc = _round(Math.max(0, chain.total_locked_btcpc - lock.amount));
-    chain.circulating_wbtcpc = _round(Math.max(0, chain.circulating_wbtcpc - lock.amount));
+    chain.total_locked_hone = _round(Math.max(0, chain.total_locked_hone - lock.amount));
+    chain.circulating_whone = _round(Math.max(0, chain.circulating_whone - lock.amount));
 
     fulfilled.push({ funder: funder, amount: paid, source: source });
   }
@@ -344,34 +344,34 @@ function processUnlock(chainId, availableVolume) {
 }
 
 /**
- * Record a wrap: user locks BTCPC, wBTCPC is released from bridge reserve.
- * Fee charged in BTCPC (source asset).
+ * Record a wrap: user locks HONE, wHONE is released from bridge reserve.
+ * Fee charged in HONE (source asset).
  *
  * @param {string} user
  * @param {string} chainId
- * @param {number} amountBtcpc — gross amount including fee
+ * @param {number} amountHone — gross amount including fee
  * @returns {{ user, chain_id, gross_amount, fee, net_amount, fee_currency, tx_hash_placeholder }}
  */
-function wrap(user, chainId, amountBtcpc) {
+function wrap(user, chainId, amountHone) {
   if (typeof user !== "string" || user.length === 0) throw new Error("user required");
   var chain = chains.get(chainId);
   if (!chain) throw new Error("unknown chainId: " + chainId);
 
-  var gross = Number(amountBtcpc);
-  if (!Number.isFinite(gross) || gross <= 0) throw new Error("amountBtcpc must be positive");
+  var gross = Number(amountHone);
+  if (!Number.isFinite(gross) || gross <= 0) throw new Error("amountHone must be positive");
 
   var feeInfo = getWrapFee(chainId, gross);
 
-  // Circulating check: net_amount of wBTCPC must not exceed supply cap
-  var afterCirculating = chain.circulating_wbtcpc + feeInfo.net;
-  if (afterCirculating > chain.wbtcpc_supply) {
+  // Circulating check: net_amount of wHONE must not exceed supply cap
+  var afterCirculating = chain.circulating_whone + feeInfo.net;
+  if (afterCirculating > chain.whone_supply) {
     throw new Error(
-      "wrap would exceed wBTCPC circulating cap of " + chain.wbtcpc_supply +
+      "wrap would exceed wHONE circulating cap of " + chain.whone_supply +
       " for chain " + chainId
     );
   }
 
-  chain.circulating_wbtcpc = _round(afterCirculating);
+  chain.circulating_whone = _round(afterCirculating);
 
   var stats = volumeStats.get(chainId);
   stats.wraps = _round(stats.wraps + gross);
@@ -384,39 +384,39 @@ function wrap(user, chainId, amountBtcpc) {
     gross_amount: gross,
     fee: feeInfo.fee,
     net_amount: feeInfo.net,
-    fee_currency: "BTCPC",
+    fee_currency: "HONE",
     tx_hash_placeholder: txHash,
   };
 }
 
 /**
- * Record an unwrap: user transfers wBTCPC to bridge reserve, BTCPC released.
- * Fee charged in wBTCPC (source asset). No burn — transfer to reserve only.
+ * Record an unwrap: user transfers wHONE to bridge reserve, HONE released.
+ * Fee charged in wHONE (source asset). No burn — transfer to reserve only.
  *
  * @param {string} user
  * @param {string} chainId
- * @param {number} amountWbtcpc — gross amount including fee
+ * @param {number} amountWhone — gross amount including fee
  * @returns {{ user, chain_id, gross_amount, fee, net_amount, fee_currency, tier, tx_hash_placeholder }}
  */
-function unwrap(user, chainId, amountWbtcpc) {
+function unwrap(user, chainId, amountWhone) {
   if (typeof user !== "string" || user.length === 0) throw new Error("user required");
   var chain = chains.get(chainId);
   if (!chain) throw new Error("unknown chainId: " + chainId);
 
-  var gross = Number(amountWbtcpc);
-  if (!Number.isFinite(gross) || gross <= 0) throw new Error("amountWbtcpc must be positive");
+  var gross = Number(amountWhone);
+  if (!Number.isFinite(gross) || gross <= 0) throw new Error("amountWhone must be positive");
 
-  if (gross > chain.circulating_wbtcpc) {
+  if (gross > chain.circulating_whone) {
     throw new Error(
-      "unwrap amount " + gross + " exceeds circulating wBTCPC " + chain.circulating_wbtcpc +
+      "unwrap amount " + gross + " exceeds circulating wHONE " + chain.circulating_whone +
       " — cannot unwrap more than is circulating"
     );
   }
 
   var feeInfo = getUnwrapFee(chainId, gross);
 
-  // wBTCPC transfers to reserve — reduce circulating by gross (full amount returns to reserve)
-  chain.circulating_wbtcpc = _round(Math.max(0, chain.circulating_wbtcpc - gross));
+  // wHONE transfers to reserve — reduce circulating by gross (full amount returns to reserve)
+  chain.circulating_whone = _round(Math.max(0, chain.circulating_whone - gross));
 
   var stats = volumeStats.get(chainId);
   stats.unwraps = _round(stats.unwraps + gross);
@@ -429,7 +429,7 @@ function unwrap(user, chainId, amountWbtcpc) {
     gross_amount: gross,
     fee: feeInfo.fee,
     net_amount: feeInfo.net,
-    fee_currency: "wBTCPC",
+    fee_currency: "wHONE",
     tier: feeInfo.tier,
     tx_hash_placeholder: txHash,
   };
@@ -503,26 +503,26 @@ function getLPWeight(funder, chainId) {
 }
 
 /**
- * Get total BTCPC locked across all funders for this chain.
+ * Get total HONE locked across all funders for this chain.
  */
 function getTotalLocked(chainId) {
   var chain = chains.get(chainId);
   if (!chain) return 0;
-  return chain.total_locked_btcpc;
+  return chain.total_locked_hone;
 }
 
 /**
- * Get currently circulating wBTCPC on the destination chain
- * (i.e., wBTCPC that has been released from reserve).
+ * Get currently circulating wHONE on the destination chain
+ * (i.e., wHONE that has been released from reserve).
  */
-function getCirculatingWbtcpc(chainId) {
+function getCirculatingWhone(chainId) {
   var chain = chains.get(chainId);
   if (!chain) return 0;
-  return chain.circulating_wbtcpc;
+  return chain.circulating_whone;
 }
 
 /**
- * Get the current smoothing buffer balance for this chain (in BTCPC).
+ * Get the current smoothing buffer balance for this chain (in HONE).
  * Capped at SMOOTHING_CAP_FRACTION of total locked liquidity.
  */
 function getSmoothingBuffer(chainId) {
@@ -534,13 +534,13 @@ function getSmoothingBuffer(chainId) {
  * Internally caps the buffer at 10% of total locked liquidity.
  *
  * @param {string} chainId
- * @param {number} amount — BTCPC to add to the buffer
+ * @param {number} amount — HONE to add to the buffer
  */
 function _addToSmoothingBuffer(chainId, amount) {
   var chain = chains.get(chainId);
   if (!chain) return;
   var current = smoothingBuffers.get(chainId) || 0;
-  var cap = _round(chain.total_locked_btcpc * SMOOTHING_CAP_FRACTION);
+  var cap = _round(chain.total_locked_hone * SMOOTHING_CAP_FRACTION);
   var next = _round(current + amount);
   smoothingBuffers.set(chainId, Math.min(next, cap > 0 ? cap : next));
 }
@@ -580,7 +580,7 @@ function resetForTests() {
 
 module.exports = {
   // Constants (exported for tests and other modules)
-  WBTCPC_SUPPLY_PER_CHAIN: WBTCPC_SUPPLY_PER_CHAIN,
+  WHONE_SUPPLY_PER_CHAIN: WHONE_SUPPLY_PER_CHAIN,
   MIN_LOCK_DAYS: MIN_LOCK_DAYS,
   MAX_LOCK_DAYS: MAX_LOCK_DAYS,
 
@@ -606,7 +606,7 @@ module.exports = {
   // LP state
   getLPWeight: getLPWeight,
   getTotalLocked: getTotalLocked,
-  getCirculatingWbtcpc: getCirculatingWbtcpc,
+  getCirculatingWhone: getCirculatingWhone,
 
   // Smoothing buffer
   getSmoothingBuffer: getSmoothingBuffer,

@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/btcpc_bg"
+    android:background="@color/hone_bg"
     android:orientation="vertical">
 
     <TextView
@@ -12,7 +12,7 @@
         android:paddingTop="16dp"
         android:paddingBottom="8dp"
         android:text="Activity"
-        android:textColor="@color/btcpc_text"
+        android:textColor="@color/hone_text"
         android:textSize="22sp"
         android:textStyle="bold" />
 
@@ -39,7 +39,7 @@
                 android:layout_height="match_parent"
                 android:gravity="center"
                 android:text="No activity yet.\nPull to refresh."
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="15sp"
                 android:visibility="gone" />
 

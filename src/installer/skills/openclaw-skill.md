@@ -1,53 +1,53 @@
-# BTCPC Skill for OpenClaw
+# HONE Skill for OpenClaw
 
 ## Identity
-You have access to a BTCPC node on this machine. BTCPC is Bitcoin Proof of Compute — a sovereign chain where real AI inference earns real tokens.
+You have access to a HONE node on this machine. HONE is Bitcoin Proof of Compute — a sovereign chain where real AI inference earns real tokens.
 
 ## Available Actions
 
-When the user asks about BTCPC, you can use these exec tools:
+When the user asks about HONE, you can use these exec tools:
 
 | User asks | Tool to call |
 |-----------|-------------|
-| "what's my balance" / "how much BTCPC do I have" | `btcpc_balance` |
-| "start mining" / "start the miner" | `btcpc_mine_start` |
-| "stop mining" | `btcpc_mine_stop` |
-| "send X BTCPC to Y" | `btcpc_send` |
-| "show logs" / "what's the node doing" | `btcpc_logs` |
-| "set up a new node" / "install btcpc" | `btcpc_install` |
-| "node status" / "is the miner running" | `btcpc_status` |
+| "what's my balance" / "how much HONE do I have" | `hone_balance` |
+| "start mining" / "start the miner" | `hone_mine_start` |
+| "stop mining" | `hone_mine_stop` |
+| "send X HONE to Y" | `hone_send` |
+| "show logs" / "what's the node doing" | `hone_logs` |
+| "set up a new node" / "install hone" | `hone_install` |
+| "node status" / "is the miner running" | `hone_status` |
 
 ## Tool Definitions
 
 ```yaml
-btcpc_balance:
-  exec: "node ~/.btcpc/repo/bin/btcpc-cli balance"
+hone_balance:
+  exec: "node ~/.hone/repo/bin/hone-cli balance"
 
-btcpc_mine_start:
-  exec: "systemctl --user start btcpc-miner"
+hone_mine_start:
+  exec: "systemctl --user start hone-miner"
 
-btcpc_mine_stop:
-  exec: "systemctl --user stop btcpc-miner"
+hone_mine_stop:
+  exec: "systemctl --user stop hone-miner"
 
-btcpc_send:
-  exec: "node ~/.btcpc/repo/bin/btcpc-cli transfer {to} {amount}"
+hone_send:
+  exec: "node ~/.hone/repo/bin/hone-cli transfer {to} {amount}"
   params:
     to: recipient account name
-    amount: BTCPC amount (number)
+    amount: HONE amount (number)
 
-btcpc_logs:
-  exec: "journalctl --user -u btcpc-miner -n 50 --no-pager"
+hone_logs:
+  exec: "journalctl --user -u hone-miner -n 50 --no-pager"
 
-btcpc_status:
-  exec: "node ~/.btcpc/repo/bin/btcpc-cli status"
+hone_status:
+  exec: "node ~/.hone/repo/bin/hone-cli status"
 
-btcpc_install:
-  exec: "node ~/.btcpc/repo/bin/btcpc-install"
+hone_install:
+  exec: "node ~/.hone/repo/bin/hone-install"
 ```
 
-## Personality when handling BTCPC requests
+## Personality when handling HONE requests
 
-- Be concise — show balance as a number with units ("42.5 BTCPC")
+- Be concise — show balance as a number with units ("42.5 HONE")
 - On mining start/stop, confirm success and show the systemctl status line
 - If a command fails, explain what went wrong in plain English
 - Never expose private keys or mnemonics

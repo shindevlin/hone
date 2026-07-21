@@ -1,6 +1,6 @@
-# BTCPC WASM Contract API
+# HONE WASM Contract API
 
-BTCPC supports user-deployed WebAssembly contracts via the `btcpc-contract-runtime` crate
+HONE supports user-deployed WebAssembly contracts via the `hone-contract-runtime` crate
 (Wasmtime). Contracts coexist with native protocol entry types (D12).
 
 ---
@@ -61,7 +61,7 @@ Call a deployed contract.
 | `contract` | Contract address (20-byte hex from deploy) |
 | `method` | Export function name to call (UTF-8, ≤ 64 chars) |
 | `args` | Base64-encoded call arguments (contract-defined encoding) |
-| `value` | Native BTCPC (in dreams) attached to the call |
+| `value` | Native HONE (in dreams) attached to the call |
 
 **Fee:** `ENTRY_WEIGHT_HEAVY` (5) × base fee.
 
@@ -91,13 +91,13 @@ Contracts have access to a scoped key-value store via host functions.
 
 | Export | Signature | Description |
 |--------|-----------|-------------|
-| `btcpc_get(key_ptr, key_len) → (ptr, len)` | read | Read contract storage |
-| `btcpc_set(key_ptr, key_len, val_ptr, val_len)` | write | Write contract storage |
-| `btcpc_delete(key_ptr, key_len)` | write | Delete a storage key |
-| `btcpc_balance(account_ptr, account_len) → u64` | read | Read BTCPC balance |
-| `btcpc_transfer(from_ptr, from_len, to_ptr, to_len, amount: u64) → i32` | write | Transfer BTCPC |
-| `btcpc_emit(data_ptr, data_len)` | write | Emit a contract event |
-| `btcpc_caller(out_ptr)` | read | Write calling account name (≤ 64 bytes) to out_ptr |
+| `hone_get(key_ptr, key_len) → (ptr, len)` | read | Read contract storage |
+| `hone_set(key_ptr, key_len, val_ptr, val_len)` | write | Write contract storage |
+| `hone_delete(key_ptr, key_len)` | write | Delete a storage key |
+| `hone_balance(account_ptr, account_len) → u64` | read | Read HONE balance |
+| `hone_transfer(from_ptr, from_len, to_ptr, to_len, amount: u64) → i32` | write | Transfer HONE |
+| `hone_emit(data_ptr, data_len)` | write | Emit a contract event |
+| `hone_caller(out_ptr)` | read | Write calling account name (≤ 64 bytes) to out_ptr |
 
 Storage keys are namespaced by contract address. Contracts cannot read each other's storage
 (no cross-contract storage calls). Cross-contract *calls* via `ContractCall` entries
@@ -149,8 +149,8 @@ All parameters use the standard `ChainParameterSet` entry with 2-epoch timelock.
 - WASM execution is sandboxed by Wasmtime. Contracts cannot access the filesystem,
   network, or any OS resources.
 - Host functions are the only interface between contracts and chain state.
-  All host function calls are audited through the `btcpc-contract-runtime` crate.
-- `btcpc_transfer` is rate-limited to one cross-account transfer per contract call.
+  All host function calls are audited through the `hone-contract-runtime` crate.
+- `hone_transfer` is rate-limited to one cross-account transfer per contract call.
   This prevents re-entrancy patterns.
 - The contract address is deterministic and collision-resistant (SHA-256 based).
   There is no constructor-less `CREATE2`-style address prediction.

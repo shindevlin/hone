@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Verifier Engine
+ * HONE Verifier Engine
  * Shin Devlin
  *
  * Verifiers are independent nodes that:
@@ -41,9 +41,9 @@ const { computeRewards } = require("./rewardEngine");
 const { getBlockReward } = require("../services/emissionSchedule");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const VERIFICATION_TOLERANCE = parseFloat(process.env.BTCPC_VERIFY_TOLERANCE) || 0.20; // 20% token count variance allowed
-const OUTLIER_WORK_TOLERANCE = parseFloat(process.env.BTCPC_VERIFY_OUTLIER) || 0.30; // 30% from median → outlier
-const MIN_VERIFIER_AGREEMENT = parseFloat(process.env.BTCPC_VERIFY_QUORUM) || 0.51; // simple majority
+const VERIFICATION_TOLERANCE = parseFloat(process.env.HONE_VERIFY_TOLERANCE) || 0.20; // 20% token count variance allowed
+const OUTLIER_WORK_TOLERANCE = parseFloat(process.env.HONE_VERIFY_OUTLIER) || 0.30; // 30% from median → outlier
+const MIN_VERIFIER_AGREEMENT = parseFloat(process.env.HONE_VERIFY_QUORUM) || 0.51; // simple majority
 
 const emitter = new EventEmitter();
 
@@ -56,7 +56,7 @@ const proofPool = new Map();
 const verificationResults = new Map();
 
 // Our local verifier identity
-let VERIFIER_ACCOUNT = process.env.BTCPC_VERIFIER || process.env.BTCPC_MINER || null;
+let VERIFIER_ACCOUNT = process.env.HONE_VERIFIER || process.env.HONE_MINER || null;
 
 // Verifier accuracy scores — weighted by historical agreement with consensus
 // Map<verifierId, { score, agreed, disagreed, total_verified }>
@@ -78,7 +78,7 @@ function addToPool(proof) {
     verification_status: "pending",
   });
 
-  console.log("[BTCPC Verifier] Proof " + proof.id.slice(0, 12) + " from " + proof.node_id +
+  console.log("[HONE Verifier] Proof " + proof.id.slice(0, 12) + " from " + proof.node_id +
     " added to verification pool (claim: " + (proof.work_value || 0).toFixed(1) + " work_value)");
 
   emitter.emit("proof_available", proof);
@@ -110,7 +110,7 @@ async function verifyProof(proof) {
     const { verifyModelParams } = require("../mining/workGenerator");
     paramCount = await verifyModelParams(proof.model);
   } catch (err) {
-    console.warn("[BTCPC Verifier] Cannot verify model params for " + proof.model + ": " + err.message);
+    console.warn("[HONE Verifier] Cannot verify model params for " + proof.model + ": " + err.message);
     // Still proceed — use claimed work_value with penalty
     return {
       accepted: true,
@@ -137,7 +137,7 @@ async function verifyProof(proof) {
 
     verifiedTokens = response.data.eval_count || 0;
   } catch (err) {
-    console.warn("[BTCPC Verifier] Inference verification failed for " + proof.node_id +
+    console.warn("[HONE Verifier] Inference verification failed for " + proof.node_id +
       " proof " + proof.id.slice(0, 12) + ": " + err.message);
     return { accepted: false, reason: "inference_unreachable" };
   }
@@ -147,7 +147,7 @@ async function verifyProof(proof) {
   const deviation = claimed > 0 ? Math.abs(verifiedTokens - claimed) / claimed : 1;
 
   if (deviation > VERIFICATION_TOLERANCE) {
-    console.warn("[BTCPC Verifier] REJECTED proof from " + proof.node_id +
+    console.warn("[HONE Verifier] REJECTED proof from " + proof.node_id +
       " — token deviation " + (deviation * 100).toFixed(1) + "%" +
       " (claimed " + claimed + ", verified " + verifiedTokens + ")");
     return {
@@ -174,7 +174,7 @@ async function verifyProof(proof) {
         const tvResult = await verifyToolTrace(proof.tool_trace_hash, proof.tool_call_log);
         toolTraceValid = tvResult.valid;
         if (!tvResult.valid) {
-          console.warn("[BTCPC Verifier] Tool trace mismatch for " + proof.node_id +
+          console.warn("[HONE Verifier] Tool trace mismatch for " + proof.node_id +
             " proof " + (proof.id || "").slice(0, 12) + " — " + tvResult.reason);
           toolMultiplier = 1.0; // strip multiplier if trace is invalid
         }
@@ -186,7 +186,7 @@ async function verifyProof(proof) {
 
   const verified_work_value = verifiedTokens * paramCount * toolMultiplier;
 
-  console.log("[BTCPC Verifier] ACCEPTED proof from " + proof.node_id +
+  console.log("[HONE Verifier] ACCEPTED proof from " + proof.node_id +
     " | claimed_tokens=" + claimed + " verified_tokens=" + verifiedTokens +
     " | verified_work_value=" + verified_work_value.toFixed(1) +
     (toolMultiplier > 1 ? " | tool_mult=" + toolMultiplier.toFixed(2) : ""));
@@ -270,7 +270,7 @@ async function buildRewardProposal(epochNumber, allProofsForEpoch, clockNodes, s
   const myScore = verifierScores.get(VERIFIER_ACCOUNT) || { score: 100 };
   const proposal_weight = verifiedProofs.length * (myScore.score / 100);
 
-  console.log("[BTCPC Verifier] Reward proposal for epoch " + epochNumber +
+  console.log("[HONE Verifier] Reward proposal for epoch " + epochNumber +
     " | verified=" + verifiedProofs.length + "/" + (allProofsForEpoch || []).length +
     " | hash=" + reward_hash.slice(0, 12) + "..." +
     " | weight=" + proposal_weight.toFixed(2));
@@ -355,7 +355,7 @@ function reachConsensus(proposals) {
 
   // Must reach simple majority of total weight
   if (winnerWeight < totalWeight * MIN_VERIFIER_AGREEMENT) {
-    console.warn("[BTCPC Verifier] No consensus reached — max weight " +
+    console.warn("[HONE Verifier] No consensus reached — max weight " +
       winnerWeight.toFixed(2) + "/" + totalWeight.toFixed(2));
     return null;
   }
@@ -370,7 +370,7 @@ function reachConsensus(proposals) {
     _updateVerifierScore(p.verifier_id, p.reward_hash === winnerHash);
   }
 
-  console.log("[BTCPC Verifier] Consensus reached on epoch " + (winningProposal.epoch || "?") +
+  console.log("[HONE Verifier] Consensus reached on epoch " + (winningProposal.epoch || "?") +
     " | hash=" + winnerHash.slice(0, 12) + "..." +
     " | weight=" + winnerWeight.toFixed(2) + "/" + totalWeight.toFixed(2) +
     " | signers=" + signingVerifiers.join(", "));
@@ -410,7 +410,7 @@ function consensusWorkValue(proofId) {
 
   const consensusValue = inliers.reduce((s, v) => s + v, 0) / inliers.length;
 
-  console.log("[BTCPC Verifier] Proof " + proofId.slice(0, 12) + " consensus work_value=" +
+  console.log("[HONE Verifier] Proof " + proofId.slice(0, 12) + " consensus work_value=" +
     consensusValue.toFixed(1) + " (from " + inliers.length + " verifiers, " +
     (values.length - inliers.length) + " outliers excluded)");
 

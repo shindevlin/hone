@@ -1,0 +1,420 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * hone-gnss-relay — RTCM3 stream interceptor + HONE chain recorder
+ * Shin Devlin
+ *
+ * Intercepts the Hyfix GNSS base station's RTCM3 stream and records
+ * each frame on the HONE chain as an IoT sensor reading.
+ * Optionally forwards to NTRIP casters (onocoy, RTK Direct).
+ *
+ * HOW IT WORKS
+ * ────────────
+ * The Hyfix connects to GEODNET (52.8.236.207:2201) via NTRIP over TCP.
+ * If the device isn't registered on GEODNET (or is registered to someone
+ * else), the connection gets rejected — no data flows.
+ *
+ * We own the device, so we intercept it:
+ *
+ *  1. ARP spoof: tell the Hyfix "I'm the router" so its traffic passes
+ *     through this machine.
+ *  2. iptables DNAT: redirect Hyfix→GEODNET TCP connections to our local
+ *     NTRIP server on port 2201.
+ *  3. Fake GEODNET: accept the NTRIP handshake with "ICY 200 OK", receive
+ *     the raw RTCM3 stream, record frames on chain.
+ *
+ * Registration irrelevant — we accept unconditionally.
+ *
+ * FOR OTHERS
+ * ──────────
+ * Same setup works for any device that streams RTCM3 to a remote server.
+ * Set HONE_GNSS_GATEWAY_IP to your router's LAN IP and run as root.
+ * Or set HONE_GNSS_ARP_SPOOF=false if this machine is the device's gateway.
+ *
+ * Environment:
+ *   HONE_GNSS_DEVICE_IP      — Hyfix IP on the LAN (required)
+ *   HONE_GNSS_GATEWAY_IP     — LAN router IP (required for ARP spoof mode)
+ *   HONE_GNSS_GEODNET_IP     — GEODNET server (default: 52.8.236.207)
+ *   HONE_GNSS_GEODNET_PORT   — GEODNET port (default: 2201)
+ *   HONE_GNSS_LISTEN_PORT    — local NTRIP server port (default: same as GEODNET_PORT)
+ *   HONE_GNSS_IFACE          — interface (default: auto-detect)
+ *   HONE_GNSS_ARP_SPOOF      — "false" to disable (default: true when GATEWAY_IP set)
+ *   HONE_GNSS_MINER          — HONE account to earn sensor rewards
+ *   HONE_API_PORT            — local HONE API port (default: 4242)
+ *   HONE_AUTH_TOKEN          — JWT for local API
+ *   HONE_GNSS_FORWARD_CASTERS — "true" to also forward to onocoy/RTK Direct
+ *   HONE_ONOCOY_USER/PASS    — onocoy NTRIP credentials
+ *   HONE_RTK_USER/PASS/MOUNT — RTK Direct NTRIP credentials
+ */
+
+var { execSync, spawn } = require("child_process");
+var net  = require("net");
+var http = require("http");
+var path = require("path");
+
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+// ─── Config ──────────────────────────────────────────────────────
+
+var DEVICE_IP    = process.env.HONE_GNSS_DEVICE_IP || process.env.HONE_GNSS_HOST || "192.168.68.54";
+var GATEWAY_IP   = process.env.HONE_GNSS_GATEWAY_IP || "";
+var GEODNET_IP   = process.env.HONE_GNSS_GEODNET_IP  || "52.8.236.207";
+var GEODNET_PORT = parseInt(process.env.HONE_GNSS_GEODNET_PORT) || 2201;
+var LISTEN_PORT  = parseInt(process.env.HONE_GNSS_LISTEN_PORT)  || GEODNET_PORT;
+var MINER        = process.env.HONE_GNSS_MINER || process.env.HONE_MINER || "shindevlin";
+var API_PORT     = parseInt(process.env.HONE_API_PORT) || 4242;
+var AUTH_TOKEN   = process.env.HONE_AUTH_TOKEN || "";
+var FORWARD      = process.env.HONE_GNSS_FORWARD_CASTERS === "true";
+
+var _arpEnv  = process.env.HONE_GNSS_ARP_SPOOF;
+var ARP_SPOOF = _arpEnv === "false" ? false : !!GATEWAY_IP;
+
+var IFACE = process.env.HONE_GNSS_IFACE || process.env.HONE_GNSS_WIFI_IFACE || autoDetectIface();
+
+function autoDetectIface() {
+  try {
+    var out = execSync("ip route get " + DEVICE_IP + " 2>/dev/null", { encoding: "utf8" });
+    var m = out.match(/dev\s+(\S+)/);
+    if (m) return m[1];
+  } catch (_) {}
+  var prefix = DEVICE_IP.split(".").slice(0, 3).join(".");
+  var ifaces = require("os").networkInterfaces();
+  for (var name in ifaces) {
+    for (var info of ifaces[name]) {
+      if (info.family === "IPv4" && info.address.startsWith(prefix)) return name;
+    }
+  }
+  return "enp0s31f6";
+}
+
+var CASTERS = [
+  {
+    name: "onocoy",
+    host: process.env.HONE_ONOCOY_HOST || "servers.onocoy.com",
+    port: parseInt(process.env.HONE_ONOCOY_PORT) || 2121,
+    username: process.env.HONE_ONOCOY_USER || "",
+    password: process.env.HONE_ONOCOY_PASS || "",
+    mountpoint: process.env.HONE_ONOCOY_MOUNT || "",
+    enabled: FORWARD && !!(process.env.HONE_ONOCOY_USER),
+  },
+  {
+    name: "rtkdirect",
+    host: process.env.HONE_RTK_HOST || "ntrip.rtkdirect.com",
+    port: parseInt(process.env.HONE_RTK_PORT) || 2101,
+    username: process.env.HONE_RTK_USER || "",
+    password: process.env.HONE_RTK_PASS || "",
+    mountpoint: process.env.HONE_RTK_MOUNT || "",
+    enabled: FORWARD && !!(process.env.HONE_RTK_USER),
+  },
+];
+
+function log(msg)  { console.log("[gnss-relay] " + msg); }
+function warn(msg) { console.warn("[gnss-relay] WARN: " + msg); }
+
+// ─── ARP Spoof ───────────────────────────────────────────────────
+
+var arpProcs = [];
+
+function startArpSpoof() {
+  if (!ARP_SPOOF || !GATEWAY_IP) return;
+  try {
+    if (!execSync("which arpspoof 2>/dev/null", { encoding: "utf8" }).trim()) {
+      warn("arpspoof not found — apt-get install -y dsniff");
+      return;
+    }
+  } catch (_) { return; }
+
+  try { execSync("sysctl -w net.ipv4.ip_forward=1 2>/dev/null"); } catch (_) {}
+
+  log("ARP spoof: " + DEVICE_IP + " ↔ " + GATEWAY_IP + " on " + IFACE);
+
+  function spawnArp(target, host) {
+    var p = spawn("arpspoof", ["-i", IFACE, "-t", target, host], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    p.on("exit", function () { setTimeout(function () { spawnArp(target, host); }, 5000); });
+    arpProcs.push(p);
+  }
+  spawnArp(DEVICE_IP, GATEWAY_IP);
+  spawnArp(GATEWAY_IP, DEVICE_IP);
+}
+
+function stopArpSpoof() {
+  for (var p of arpProcs) { try { p.kill(); } catch (_) {} }
+  arpProcs = [];
+}
+
+// ─── iptables DNAT ───────────────────────────────────────────────
+// Redirect Hyfix's GEODNET-bound TCP connections to our local server.
+
+var _dnatInstalled = false;
+
+function installDnat() {
+  var rule = [
+    "-t", "nat", "-A", "PREROUTING",
+    "-i", IFACE,
+    "-p", "tcp",
+    "-s", DEVICE_IP,
+    "-d", GEODNET_IP,
+    "--dport", String(GEODNET_PORT),
+    "-j", "REDIRECT",
+    "--to-ports", String(LISTEN_PORT),
+  ];
+  try {
+    execSync("iptables " + rule.join(" ") + " 2>/dev/null");
+    _dnatInstalled = true;
+    log("DNAT: " + DEVICE_IP + "→" + GEODNET_IP + ":" + GEODNET_PORT + " → localhost:" + LISTEN_PORT);
+  } catch (e) {
+    warn("iptables DNAT failed: " + e.message);
+  }
+}
+
+function removeDnat() {
+  if (!_dnatInstalled) return;
+  var rule = [
+    "-t", "nat", "-D", "PREROUTING",
+    "-i", IFACE,
+    "-p", "tcp",
+    "-s", DEVICE_IP,
+    "-d", GEODNET_IP,
+    "--dport", String(GEODNET_PORT),
+    "-j", "REDIRECT",
+    "--to-ports", String(LISTEN_PORT),
+  ];
+  try { execSync("iptables " + rule.join(" ") + " 2>/dev/null"); } catch (_) {}
+}
+
+// ─── NTRIP Caster Forwarding ─────────────────────────────────────
+
+var casterConns = {};
+
+function buildNtripRequest(caster) {
+  var auth = Buffer.from(caster.username + ":" + caster.password).toString("base64");
+  var mp = caster.mountpoint ? "/" + caster.mountpoint : "/";
+  return "POST " + mp + " HTTP/1.1\r\n" +
+    "Host: " + caster.host + "\r\n" +
+    "Ntrip-Version: Ntrip/2.0\r\n" +
+    "Authorization: Basic " + auth + "\r\n" +
+    "User-Agent: HONE-GNSS-Relay/1.0\r\n" +
+    "Content-Type: application/octet-stream\r\n" +
+    "Transfer-Encoding: chunked\r\n\r\n";
+}
+
+function connectCaster(caster) {
+  if (!caster.enabled) return;
+  var key = caster.name;
+  if (casterConns[key] && !casterConns[key].destroyed) return;
+  log("Connecting to " + caster.name + " (" + caster.host + ":" + caster.port + ")");
+  var sock = net.createConnection({ host: caster.host, port: caster.port, timeout: 10000 });
+  sock.on("connect", function () {
+    sock.write(buildNtripRequest(caster));
+    casterConns[key] = sock;
+    sock.ready = false;
+  });
+  sock.on("data", function (d) {
+    var r = d.toString();
+    if (r.indexOf("200") !== -1 || r.indexOf("ICY 200") !== -1) {
+      log(caster.name + ": streaming ✓");
+      casterConns[key].ready = true;
+    } else if (r.indexOf("401") !== -1) {
+      warn(caster.name + ": auth failed");
+    }
+  });
+  sock.on("error",   function (e) { casterConns[key] = null; setTimeout(function () { connectCaster(caster); }, 30000); });
+  sock.on("close",   function ()  { casterConns[key] = null; setTimeout(function () { connectCaster(caster); }, 30000); });
+  sock.on("timeout", function ()  { sock.destroy(); });
+}
+
+function forwardToCasters(rtcmData) {
+  for (var c of CASTERS) {
+    var conn = casterConns[c.name];
+    if (conn && conn.ready && !conn.destroyed) {
+      try {
+        conn.write(rtcmData.length.toString(16) + "\r\n");
+        conn.write(rtcmData);
+        conn.write("\r\n");
+      } catch (e) {
+        warn(c.name + ": write error: " + e.message);
+      }
+    }
+  }
+}
+
+// ─── HONE Chain Recording ───────────────────────────────────────
+
+var sensorId        = MINER + "/gnss-base";
+var sensorIdEncoded = encodeURIComponent(sensorId);
+var _registered     = false;
+
+function apiPost(urlPath, payload, cb) {
+  var body = JSON.stringify(payload);
+  var headers = { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) };
+  if (AUTH_TOKEN) headers["Authorization"] = "Bearer " + AUTH_TOKEN;
+  var req = http.request({
+    hostname: "127.0.0.1", port: API_PORT, path: urlPath,
+    method: "POST", timeout: 8000, headers: headers,
+  }, function (res) {
+    var d = "";
+    res.on("data", function (c) { d += c; });
+    res.on("end",  function ()  { cb && cb(null, res.statusCode, d); });
+  });
+  req.on("error",   function (e) { cb && cb(e); });
+  req.on("timeout", function ()  { req.destroy(); });
+  req.write(body);
+  req.end();
+}
+
+function ensureRegistered(cb) {
+  if (_registered) return cb();
+  apiPost("/api/sensors", {
+    account: MINER, name: "gnss-base",
+    type: "gps", unit: "rtcm3_frame", decimals: 0,
+    region: "gnss-base/" + DEVICE_IP,
+    hardware_model: "Hyfix MobileCM",
+  }, function (err, status) {
+    if (!err && (status === 201 || status === 409)) {
+      _registered = true;
+      if (status === 201) log("sensor registered: " + sensorId);
+    }
+    cb();
+  });
+}
+
+function recordOnChain(rtcmType, payloadBytes) {
+  ensureRegistered(function () {
+    apiPost("/api/sensors/" + sensorIdEncoded + "/readings", {
+      account: MINER,
+      value: rtcmType,
+      metadata: {
+        type: "gps", unit: "rtcm3_frame", source: "hyfix-mobilecm",
+        rtcm_type: rtcmType, payload_bytes: payloadBytes, device_ip: DEVICE_IP,
+      },
+    }, function (err, status) {
+      if (err) { warn("chain error: " + err.message); return; }
+      if (status !== 201 && status !== 200 && status !== 422)
+        warn("chain HTTP " + status);
+    });
+  });
+}
+
+// ─── Fake GEODNET Server ─────────────────────────────────────────
+// Accepts the Hyfix's NTRIP source client connection, sends 200 OK,
+// then reads the raw RTCM3 byte stream.
+
+var stats = { frames: 0, bytes: 0, chain: 0 };
+var CHAIN_INTERVAL = 30;
+
+function parseRtcm3Stream(socket, remoteAddr) {
+  var buf = Buffer.alloc(0);
+
+  socket.on("data", function (chunk) {
+    buf = Buffer.concat([buf, chunk]);
+
+    // Skip NTRIP HTTP request header from client (ends with \r\n\r\n)
+    if (!socket._ntripAcked) {
+      var headerEnd = buf.indexOf("\r\n\r\n");
+      if (headerEnd === -1) return;
+      // Send NTRIP 200 OK — device will now stream RTCM3
+      socket.write("ICY 200 OK\r\n\r\n");
+      socket._ntripAcked = true;
+      log("NTRIP handshake complete with " + remoteAddr + " — streaming");
+      buf = buf.slice(headerEnd + 4);
+    }
+
+    // Parse RTCM3 frames: preamble 0xD3, 6-bit zero + 10-bit length, payload, 3-byte CRC
+    while (buf.length >= 3) {
+      if (buf[0] !== 0xd3) {
+        buf = buf.slice(1);
+        continue;
+      }
+      var msgLen = ((buf[1] & 0x03) << 8) | buf[2];
+      var frameLen = 3 + msgLen + 3; // header + payload + CRC
+      if (buf.length < frameLen) break;
+
+      var frame = buf.slice(0, frameLen);
+      var msgType = (buf[3] << 4) | (buf[4] >> 4);
+
+      stats.frames++;
+      stats.bytes += frameLen;
+
+      if (FORWARD) forwardToCasters(frame);
+
+      if (stats.frames % CHAIN_INTERVAL === 0) {
+        recordOnChain(msgType, frameLen);
+        stats.chain++;
+      }
+
+      buf = buf.slice(frameLen);
+    }
+  });
+
+  socket.on("error", function (e) { warn(remoteAddr + ": " + e.message); });
+  socket.on("close", function () { log(remoteAddr + ": disconnected"); });
+}
+
+function startNtripServer() {
+  var server = net.createServer(function (socket) {
+    var remote = socket.remoteAddress + ":" + socket.remotePort;
+    log("NTRIP connection from " + remote);
+    socket._ntripAcked = false;
+    socket.setTimeout(60000);
+    socket.on("timeout", function () { socket.destroy(); });
+    parseRtcm3Stream(socket, remote);
+  });
+
+  server.listen(LISTEN_PORT, "0.0.0.0", function () {
+    log("Fake GEODNET server listening on port " + LISTEN_PORT);
+  });
+
+  server.on("error", function (e) {
+    if (e.code === "EADDRINUSE") {
+      warn("Port " + LISTEN_PORT + " in use — retry in 5s");
+      setTimeout(startNtripServer, 5000);
+    } else {
+      warn("Server error: " + e.message);
+    }
+  });
+}
+
+// ─── Stats ───────────────────────────────────────────────────────
+
+function logStats() {
+  var casterStatus = CASTERS
+    .filter(function (c) { return c.enabled; })
+    .map(function (c) {
+      var conn = casterConns[c.name];
+      return c.name + "=" + (conn && conn.ready ? "live" : "offline");
+    }).join(" ");
+  log("frames=" + stats.frames +
+    " bytes=" + stats.bytes +
+    " chain=" + stats.chain +
+    (casterStatus ? " | " + casterStatus : ""));
+}
+
+// ─── Main ────────────────────────────────────────────────────────
+
+function main() {
+  log("HONE GNSS Relay");
+  log("device: " + DEVICE_IP + "  geodnet: " + GEODNET_IP + ":" + GEODNET_PORT);
+  log("interface: " + IFACE + "  miner: " + MINER);
+  log("sensor: " + sensorId);
+  log("mode: " + (ARP_SPOOF ? "arp-spoof + dnat (same-LAN intercept)" : "passive (gateway/tunnel)"));
+  if (FORWARD) {
+    log("caster forwarding: enabled");
+    for (var c of CASTERS) connectCaster(c);
+  } else {
+    log("caster forwarding: off (HONE_GNSS_FORWARD_CASTERS=true to enable)");
+  }
+  log("");
+
+  if (ARP_SPOOF) startArpSpoof();
+  installDnat();
+  startNtripServer();
+  setInterval(logStats, 60000);
+}
+
+process.on("SIGINT",  function () { removeDnat(); stopArpSpoof(); log("shutdown"); process.exit(0); });
+process.on("SIGTERM", function () { removeDnat(); stopArpSpoof(); log("shutdown"); process.exit(0); });
+
+main();

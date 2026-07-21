@@ -28,50 +28,50 @@ function validateNewUsername(username) {
   return { ok: true, username: clean };
 }
 
-function btcpcAddressFromOwnerPublicKey(ownerPublicKey) {
+function honeAddressFromOwnerPublicKey(ownerPublicKey) {
   const hash = crypto.createHash("sha256").update(Buffer.from(ownerPublicKey, "hex")).digest();
-  return "BTCPC" + hash.subarray(0, 20).toString("hex");
+  return "HONE" + hash.subarray(0, 20).toString("hex");
 }
 
 function chainValue(wallet, field) {
   return wallet && wallet[field] ? wallet[field] : null;
 }
 
-function buildWalletRows(username, mnemonic, roleKeys, chainWallets, btcpcAddress) {
+function buildWalletRows(username, mnemonic, roleKeys, chainWallets, honeAddress) {
   return [
     {
-      chain: "btcpc",
-      label: "BTCPC owner key",
+      chain: "hone",
+      label: "HONE owner key",
       purpose: "Rotate keys and recover account authority.",
       account: username,
-      address: btcpcAddress,
+      address: honeAddress,
       public_key: roleKeys.owner.publicKey,
       private_key: roleKeys.owner.privateKey,
     },
     {
-      chain: "btcpc",
-      label: "BTCPC active key",
+      chain: "hone",
+      label: "HONE active key",
       purpose: "Move tokens and authorize financial actions.",
       account: username,
-      address: btcpcAddress,
+      address: honeAddress,
       public_key: roleKeys.active.publicKey,
       private_key: roleKeys.active.privateKey,
     },
     {
-      chain: "btcpc",
-      label: "BTCPC posting key",
+      chain: "hone",
+      label: "HONE posting key",
       purpose: "Mine, post proofs, and run node operations.",
       account: username,
-      address: btcpcAddress,
+      address: honeAddress,
       public_key: roleKeys.posting.publicKey,
       private_key: roleKeys.posting.privateKey,
     },
     {
-      chain: "btcpc",
-      label: "BTCPC memo key",
+      chain: "hone",
+      label: "HONE memo key",
       purpose: "Reserved for encrypted memos and future message encryption.",
       account: username,
-      address: btcpcAddress,
+      address: honeAddress,
       public_key: roleKeys.memo.publicKey,
       private_key: roleKeys.memo.privateKey,
     },
@@ -122,13 +122,13 @@ function buildWalletRows(username, mnemonic, roleKeys, chainWallets, btcpcAddres
 
 function buildWalletExport(username, mnemonic, walletRows, balances) {
   const lines = [];
-  lines.push("BTCPC WALLET EXPORT");
+  lines.push("HONE WALLET EXPORT");
   lines.push("Shown once. Store offline. Anyone with these private keys or mnemonic can control the wallet.");
   lines.push("");
   lines.push("Account: " + username);
   lines.push("Mnemonic: " + mnemonic);
-  lines.push("Wallet balance BTCPC: " + (balances.wallet || 0));
-  lines.push("Delegated BTCPC for network services: " + (balances.delegated || 0));
+  lines.push("Wallet balance HONE: " + (balances.wallet || 0));
+  lines.push("Delegated HONE for network services: " + (balances.delegated || 0));
   lines.push("");
   for (const row of walletRows) {
     lines.push(row.label);
@@ -146,7 +146,7 @@ function buildWalletExport(username, mnemonic, walletRows, balances) {
 function flattenWalletFields(rows) {
   const flat = {};
   for (const row of rows) {
-    const prefix = row.chain + "_" + row.label.toLowerCase().replace(/^btcpc /, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    const prefix = row.chain + "_" + row.label.toLowerCase().replace(/^hone /, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     if (row.address) flat[prefix + "_address"] = row.address;
     if (row.link_address) flat[prefix + "_link_address"] = row.link_address;
     if (row.public_key) flat[prefix + "_public_key"] = row.public_key;
@@ -164,9 +164,9 @@ async function buildWalletMaterial(username, mnemonic, balances) {
     memo: roleKeys.memo.publicKey,
   };
   const chainWallets = await keyManager.deriveChainWallets(mnemonic);
-  const btcpcAddress = btcpcAddressFromOwnerPublicKey(publicKeys.owner);
+  const honeAddress = honeAddressFromOwnerPublicKey(publicKeys.owner);
   const chainAddresses = {
-    btcpc: btcpcAddress,
+    hone: honeAddress,
     evm: chainWallets.evm.address,
     solana: chainWallets.solana.address,
     bitcoin: chainWallets.bitcoin.address,
@@ -174,7 +174,7 @@ async function buildWalletMaterial(username, mnemonic, balances) {
     ton_link: chainWallets.ton.linkAddress || null,
     hive: username,
   };
-  const rows = buildWalletRows(username, mnemonic, roleKeys, chainWallets, btcpcAddress);
+  const rows = buildWalletRows(username, mnemonic, roleKeys, chainWallets, honeAddress);
   const walletExport = buildWalletExport(username, mnemonic, rows, balances || { wallet: 0, delegated: 0 });
   const flat = flattenWalletFields(rows);
 
@@ -214,7 +214,7 @@ async function maybeCreateMongoUser(fields) {
     if (await User.findOne({ username: fields.username })) return;
     await User.create({
       username: fields.username,
-      email: fields.email || fields.username + "@btcpc.local",
+      email: fields.email || fields.username + "@hone.local",
       password: fields.password_hash || bcrypt.hashSync(fields.password || crypto.randomBytes(32).toString("hex"), 10),
       twoFactorEnabled: !!fields.two_factor_public_key,
       authProfile: fields.auth_profile || "password",
@@ -295,7 +295,7 @@ async function createAccountForUser(options) {
   await maybeCreateMongoUser({
     username,
     password,
-    email: options.email || username + "@btcpc.local",
+    email: options.email || username + "@hone.local",
     telegram_id: options.telegramId || null,
     telegram_username: options.telegramUsername || null,
     auth_profile: password ? "password" : "none",
@@ -314,16 +314,16 @@ async function createAccountForUser(options) {
   if (options.claimFaucet !== false) {
     try {
       const amount = epoch <= 1000 ? 1 : epoch <= 10000 ? 0.1 : 0.01;
-      const faucetBalance = stateStore.getBalance("btcpc_faucet", "BTCPC");
+      const faucetBalance = stateStore.getBalance("hone_faucet", "HONE");
       if (faucetBalance >= amount) {
-        await ledger.recordDelegate("btcpc_faucet", username, amount, "faucet", epoch);
+        await ledger.recordDelegate("hone_faucet", username, amount, "faucet", epoch);
         delegatedBalance = amount;
         faucetClaimed = true;
       }
     } catch (_) {}
   }
 
-  const walletBalance = stateStore.getBalance ? stateStore.getBalance(username, "BTCPC") : 0;
+  const walletBalance = stateStore.getBalance ? stateStore.getBalance(username, "HONE") : 0;
   const balances = { wallet: walletBalance, delegated: delegatedBalance };
   const finalMaterial = await buildWalletMaterial(username, mnemonic, balances);
 
@@ -337,7 +337,7 @@ async function createAccountForUser(options) {
     delegated_balance: delegatedBalance,
     faucet_claimed: faucetClaimed,
     faucet_note: delegatedBalance > 0
-      ? "Delegated BTCPC can pay for direct network services. It cannot be transferred, sold, staked, or bridged."
+      ? "Delegated HONE can pay for direct network services. It cannot be transferred, sold, staked, or bridged."
       : null,
     public_keys: finalMaterial.public_keys,
     chain_addresses: finalMaterial.chain_addresses,

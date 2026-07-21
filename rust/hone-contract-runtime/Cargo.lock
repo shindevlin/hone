@@ -83,7 +83,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-contract-runtime"
+name = "hone-contract-runtime"
 version = "1.0.0"
 dependencies = [
  "anyhow",

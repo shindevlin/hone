@@ -5,7 +5,7 @@
  * Shin Devlin
  *
  * Buyers post browser jobs: a goal + starting URL. Each agentic turn the
- * miner takes a screenshot (stored as BTCPC-FS blob), sends available actions,
+ * miner takes a screenshot (stored as HONE-FS blob), sends available actions,
  * and the buyer (or an agent) submits the next action. Miner executes via
  * Playwright, loops until goal is reached or turn limit hit.
  *
@@ -32,7 +32,7 @@ const stateStore = require("../chain/stateStore");
 const ledger = require("../services/ledger");
 const { closeSession, deleteSessionBlobs } = require("../services/browserRunner");
 
-const PROTOCOL_FEE_ACCOUNT = "btcpc_fees";
+const PROTOCOL_FEE_ACCOUNT = "hone_fees";
 const PROTOCOL_FEE_PCT = 0.10;
 const MIN_BROWSER_FEE = 0.1;      // Higher minimum — browser jobs are resource-intensive
 const DEFAULT_MAX_TURNS = 20;
@@ -58,10 +58,10 @@ router.post("/", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "start_url must be a valid http/https URL" });
     }
     if (!maxFee || maxFee < MIN_BROWSER_FEE) {
-      return res.status(400).json({ error: `max_fee must be at least ${MIN_BROWSER_FEE} BTCPC` });
+      return res.status(400).json({ error: `max_fee must be at least ${MIN_BROWSER_FEE} HONE` });
     }
 
-    const balance = stateStore.getBalance(buyer, "BTCPC");
+    const balance = stateStore.getBalance(buyer, "HONE");
     if (balance < maxFee) {
       return res.status(402).json({ error: `Insufficient balance: have ${balance}, need ${maxFee}` });
     }

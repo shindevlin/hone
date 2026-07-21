@@ -41,7 +41,7 @@ describe('chainLink', () => {
     const challenge = chainLink.generateChallenge('alice', 'evm', '0x1111111111111111111111111111111111111111');
 
     expect(challenge.challengeId).toMatch(/^[0-9a-f]{32}$/);
-    expect(challenge.message).toContain('BTCPC-LINK:alice:evm:0x1111111111111111111111111111111111111111:');
+    expect(challenge.message).toContain('HONE-LINK:alice:evm:0x1111111111111111111111111111111111111111:');
     expect(challenge.expiresIn).toBe(600);
   });
 
@@ -49,7 +49,7 @@ describe('chainLink', () => {
     const chainLink = require('../src/services/chainLink');
     const privateKey = Buffer.from('1'.repeat(64), 'hex');
     const address = privateKeyToAddress(privateKey);
-    const message = 'BTCPC-LINK:alice:evm:' + address + ':test';
+    const message = 'HONE-LINK:alice:evm:' + address + ':test';
     const signature = signEVM(message, privateKey);
 
     expect(chainLink.recoverEVMAddress(message, signature)).toBe(address);

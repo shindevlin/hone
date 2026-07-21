@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Update the @btcpc Hive account's json_metadata with mainnet and testnet bootstrap peers.
+Update the @hone Hive account's json_metadata with mainnet and testnet bootstrap peers.
 
 Usage:
     python3 hive-register-peers.py --key 5K...WIF
 
-The posting key is the WIF for the @btcpc Hive account.
-Reads BTCPC_HIVE_POSTING_KEY from env if --key is not given.
+The posting key is the WIF for the @hone Hive account.
+Reads HONE_HIVE_POSTING_KEY from env if --key is not given.
 
 json_metadata structure:
   {
@@ -19,8 +19,8 @@ import sys, os, json, argparse
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--key", default=os.environ.get("BTCPC_HIVE_POSTING_KEY", ""),
-                        help="WIF posting key for @btcpc Hive account")
+    parser.add_argument("--key", default=os.environ.get("HONE_HIVE_POSTING_KEY", ""),
+                        help="WIF posting key for @hone Hive account")
     parser.add_argument("--mainnet-peers", nargs="*", default=[
         "/dns4/bootstrap1.honemesh.net/tcp/6942",
         "/dns4/bootstrap2.honemesh.net/tcp/6942",
@@ -33,7 +33,7 @@ def main():
     args = parser.parse_args()
 
     if not args.key and not args.dry_run:
-        print("Error: provide --key <WIF> or set BTCPC_HIVE_POSTING_KEY", file=sys.stderr)
+        print("Error: provide --key <WIF> or set HONE_HIVE_POSTING_KEY", file=sys.stderr)
         sys.exit(1)
 
     metadata = {
@@ -64,13 +64,13 @@ def main():
 
     # account_update2 writes posting_json_metadata — posting key is sufficient.
     op = Account_update2(**{
-        "account": "btcpc",
+        "account": "hone",
         "json_metadata": "",
         "posting_json_metadata": json.dumps(metadata),
         "extensions": [],
     })
-    hive.finalizeOp(op, "btcpc", "posting")
-    print("\nPosted to Hive. Verify at: https://hiveblocks.com/@btcpc")
+    hive.finalizeOp(op, "hone", "posting")
+    print("\nPosted to Hive. Verify at: https://hiveblocks.com/@hone")
 
 if __name__ == "__main__":
     main()

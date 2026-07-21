@@ -23,7 +23,7 @@ const stateStore = require("../chain/stateStore");
 const ledger = require("../services/ledger");
 const memoryService = require("../services/memoryService");
 
-const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const BLOB_DIR = process.env.HONE_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
 
 function _readBlob(cid) {
   if (!/^[a-f0-9]{64}$/.test(cid)) return null;

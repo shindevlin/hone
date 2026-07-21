@@ -10,7 +10,7 @@ const stateStore = require("../chain/stateStore");
 const lastAnnouncedEpochByTarget = new Map();
 
 function getCrossChainDir() {
-  return path.resolve(process.env.BTCPC_DATA_DIR || path.resolve(__dirname, "../../data"), "anchors/cross-chain");
+  return path.resolve(process.env.HONE_DATA_DIR || path.resolve(__dirname, "../../data"), "anchors/cross-chain");
 }
 
 function _round(n) {

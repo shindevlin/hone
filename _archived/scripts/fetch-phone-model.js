@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 /**
- * Fetches btcpc-phone-v1 (Xenova/all-MiniLM-L6-v2 encoder-only ONNX)
+ * Fetches hone-phone-v1 (Xenova/all-MiniLM-L6-v2 encoder-only ONNX)
  * from HuggingFace and registers it in the local blob store + model registry.
  * Run once: node scripts/fetch-phone-model.js
  */
@@ -12,9 +12,9 @@ const crypto = require('crypto');
 const os = require('os');
 
 const REGISTRY_PATH = path.resolve(__dirname, '../data/model-registry.json');
-const BLOB_ROOT = process.env.BTCPC_BLOB_DIR || path.join(os.homedir(), '.btcpc', 'blobs');
+const BLOB_ROOT = process.env.HONE_BLOB_DIR || path.join(os.homedir(), '.hone', 'blobs');
 
-const MODEL_ID = 'btcpc-phone-v1';
+const MODEL_ID = 'hone-phone-v1';
 const HF_REPO = 'Xenova/all-MiniLM-L6-v2';
 const FILES = [
   'config.json',
@@ -42,7 +42,7 @@ function putBlob(buf) {
 
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'btcpc-fetch/1.0' } }, (res) => {
+    https.get(url, { headers: { 'User-Agent': 'hone-fetch/1.0' } }, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode)) {
         let loc = res.headers.location;
         if (loc && loc.startsWith('/')) {
@@ -66,7 +66,7 @@ async function main() {
 
   if (registry[MODEL_ID] && registry[MODEL_ID].status === 'active' &&
       Object.keys(registry[MODEL_ID].files || {}).length >= FILES.length) {
-    console.log('[fetch-phone-model] btcpc-phone-v1 already active, nothing to do.');
+    console.log('[fetch-phone-model] hone-phone-v1 already active, nothing to do.');
     return;
   }
 

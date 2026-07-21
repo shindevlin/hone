@@ -1,10 +1,10 @@
-# Flipper Zero BTCPC Implementation Plan
+# Flipper Zero HONE Implementation Plan
 
 This repository currently contains:
-- the wallet-only Flipper binary in `website/btcpc_wallet.fap`
-- the new Flipper sensor app source under `flipper/btcpc_sensor/`
+- the wallet-only Flipper binary in `website/hone_wallet.fap`
+- the new Flipper sensor app source under `flipper/hone_sensor/`
 - the PC relay/listener scripts
-- the BTCPC chain API that accepts sensor readings
+- the HONE chain API that accepts sensor readings
 
 The remaining work is validation on actual Flipper firmware and making sure the generated
 `.fap` package is installed on-device.
@@ -15,9 +15,9 @@ The remaining work is validation on actual Flipper firmware and making sure the 
 
 Add a real Flipper FAP source tree, for example:
 
-- `flipper/btcpc_sensor/application.fam`
-- `flipper/btcpc_sensor/btcpc_sensor.c`
-- `flipper/btcpc_sensor/btcpc_sensor.h`
+- `flipper/hone_sensor/application.fam`
+- `flipper/hone_sensor/hone_sensor.c`
+- `flipper/hone_sensor/hone_sensor.h`
 
 Responsibilities:
 - collect Sub-GHz RSSI scans
@@ -30,15 +30,15 @@ Responsibilities:
 
 ### 2. Relay Fanout
 
-The PC side should try local BTCPC API first, then configured fallback listeners.
+The PC side should try local HONE API first, then configured fallback listeners.
 The reusable helper now lives in:
 
 - `src/services/flipperRelay.js`
 
 The updated callers are:
 
-- `bin/btcpc-flipper-listener`
-- `scripts/btcpc-flipper-bridge.js`
+- `bin/hone-flipper-listener`
+- `scripts/hone-flipper-bridge.js`
 
 ### 3. Validation
 

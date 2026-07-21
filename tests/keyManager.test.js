@@ -17,7 +17,7 @@ function ed25519PrivateKeyFromSeed(seedHex) {
 describe("keyManager mnemonic derivation", () => {
   const mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-  it("derives BTCPC role keys and EVM, Solana, TON, and Bitcoin wallets from the same mnemonic", async () => {
+  it("derives HONE role keys and EVM, Solana, TON, and Bitcoin wallets from the same mnemonic", async () => {
     const roleKeys = await keyManager.mnemonicToKeys(mnemonic);
     const wallets = await keyManager.deriveChainWallets(mnemonic);
 
@@ -44,7 +44,7 @@ describe("keyManager mnemonic derivation", () => {
   });
 
   it("produces a TON link target that chainLink can verify", async () => {
-    const message = "BTCPC-LINK:alice:ton:ton:placeholder:test";
+    const message = "HONE-LINK:alice:ton:ton:placeholder:test";
     const wallets = await keyManager.deriveChainWallets(mnemonic);
     const keyObject = ed25519PrivateKeyFromSeed(wallets.ton.privateKey);
     const signature = crypto.sign(null, Buffer.from(message), keyObject).toString("base64");

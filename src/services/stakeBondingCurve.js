@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Stake Bonding Curve — store capacity pricing.
+ * HONE Stake Bonding Curve — store capacity pricing.
  * Shin Devlin
  *
  * Linear bonding curve: the Nth slot costs more than the first.
@@ -20,13 +20,13 @@
  *
  * STAKE vs CAPACITY vs FEES (three separate things):
  *   - CAPACITY: how many products a store can list.
- *   - STAKE: BTCPC locked as collateral (slashable for fraud).
- *            capacity * STAKE_PER_SLOT_BTCPC locked.
- *   - FEES:  per-epoch BTCPC-FS hosting fees (pay-as-you-go, separate).
+ *   - STAKE: HONE locked as collateral (slashable for fraud).
+ *            capacity * STAKE_PER_SLOT_HONE locked.
+ *   - FEES:  per-epoch HONE-FS hosting fees (pay-as-you-go, separate).
  *
  * The bonding curve prices CAPACITY purchases in USD. The payment is made
  * in a wrapped stable (wUSDC/wUSDT/wDAI) on-chain, and the equivalent
- * BTCPC stake is locked from the seller's own BTCPC balance. The stable
+ * HONE stake is locked from the seller's own HONE balance. The stable
  * payment goes to the protocol treasury; the stake sits in escrow until
  * store close (minus any slashing).
  */
@@ -34,7 +34,7 @@
 // Default curve parameters. Tunable — can be overridden at call sites.
 var DEFAULT_BASE_USD = 1.00;       // first slot costs $1
 var DEFAULT_SLOPE_USD = 0.05;      // each additional slot adds $0.05 to price
-var DEFAULT_STAKE_PER_SLOT_BTCPC = 1; // 1 BTCPC locked per slot of capacity
+var DEFAULT_STAKE_PER_SLOT_HONE = 1; // 1 HONE locked per slot of capacity
 
 /**
  * Price in USD to add `units` slots on top of `currentCapacity`.
@@ -90,12 +90,12 @@ function capacityForPayment(currentCapacity, paymentUSD, opts) {
 }
 
 /**
- * BTCPC collateral required to hold `totalCapacity` slots active.
+ * HONE collateral required to hold `totalCapacity` slots active.
  * Separate from the USD bonding curve price — this is the slashable bond.
  */
 function stakeForCapacity(totalCapacity, opts) {
   opts = opts || {};
-  var perSlot = typeof opts.stakePerSlot === "number" ? opts.stakePerSlot : DEFAULT_STAKE_PER_SLOT_BTCPC;
+  var perSlot = typeof opts.stakePerSlot === "number" ? opts.stakePerSlot : DEFAULT_STAKE_PER_SLOT_HONE;
   return _round(totalCapacity * perSlot);
 }
 
@@ -106,7 +106,7 @@ function _round(n) {
 module.exports = {
   DEFAULT_BASE_USD: DEFAULT_BASE_USD,
   DEFAULT_SLOPE_USD: DEFAULT_SLOPE_USD,
-  DEFAULT_STAKE_PER_SLOT_BTCPC: DEFAULT_STAKE_PER_SLOT_BTCPC,
+  DEFAULT_STAKE_PER_SLOT_HONE: DEFAULT_STAKE_PER_SLOT_HONE,
   costForCapacity: costForCapacity,
   capacityForPayment: capacityForPayment,
   stakeForCapacity: stakeForCapacity,

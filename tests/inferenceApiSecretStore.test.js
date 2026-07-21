@@ -15,8 +15,8 @@ const os = require('os');
 const path = require('path');
 
 // Isolate secretStore per test run
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-inf-delta-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-inf-delta-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 
 // Mock everything the inference api.js requires that isn't under test
 jest.mock('../src/models/WorkProof', () => function (fields) { Object.assign(this, fields); this.save = jest.fn(async function() { this._id = 'proof-id'; return this; }); });
@@ -37,8 +37,8 @@ jest.mock('../src/models/InferenceJob', () => ({ countDocuments: jest.fn(async (
 jest.mock('../src/services/epochManager', () => ({ getCurrentEpoch: jest.fn(async () => 1) }));
 jest.mock('../src/mining/workGenerator', () => ({ getModelWeight: jest.fn(() => 1.0) }));
 jest.mock('../src/services/pricing', () => ({
-  calculateCost: jest.fn(async () => ({ cost: 0.001, pricing: { tokensPerBtcpc: 1000, modelWeight: 1.0, loadMultiplier: 1.0, totalMultiplier: 1.0, load: 0 } })),
-  getCurrentPricing: jest.fn(async () => ({ tokensPerBtcpc: 1000, costPerToken: 0.000001, loadMultiplier: 1.0, modelWeight: 1.0, totalMultiplier: 1.0, load: 0, baseRate: 0.000001 })),
+  calculateCost: jest.fn(async () => ({ cost: 0.001, pricing: { tokensPerHone: 1000, modelWeight: 1.0, loadMultiplier: 1.0, totalMultiplier: 1.0, load: 0 } })),
+  getCurrentPricing: jest.fn(async () => ({ tokensPerHone: 1000, costPerToken: 0.000001, loadMultiplier: 1.0, modelWeight: 1.0, totalMultiplier: 1.0, load: 0, baseRate: 0.000001 })),
   getAutoBid: jest.fn(async () => ({ bid: 0.01 })),
 }));
 jest.mock('../src/inference/p2pRouter', () => ({
@@ -69,7 +69,7 @@ describe('inference/api.js — secretStore project lookup (D.5-delta)', () => {
       owner: 'owner',
       repo: 'infrepo',
       repo_url: 'https://github.com/owner/infrepo',
-      wallet_address: 'btcpc_proj_infrwallet',
+      wallet_address: 'hone_proj_infrwallet',
     });
 
     const found = secretStore.getProjectByApiKey(apiKey);
@@ -80,13 +80,13 @@ describe('inference/api.js — secretStore project lookup (D.5-delta)', () => {
   });
 
   it('falls back to Mongo Project.findOne when secretStore misses', async () => {
-    const mongoKey = 'btcpc_mongoinf_key';
+    const mongoKey = 'hone_mongoinf_key';
     Project._projects['owner/mongoinf'] = {
       name: 'owner/mongoinf',
       apiKey: mongoKey,
       owner: 'owner',
       repo: 'mongoinf',
-      walletAddress: 'btcpc_proj_mongoinf',
+      walletAddress: 'hone_proj_mongoinf',
       verified: true,
       balance: 10,
       isActive: true,
@@ -110,13 +110,13 @@ describe('inference/api.js — secretStore project lookup (D.5-delta)', () => {
       owner: 'owner',
       repo: 'wrongkeyrepo',
       repo_url: 'https://github.com/owner/wrongkeyrepo',
-      wallet_address: 'btcpc_proj_wrongkey',
+      wallet_address: 'hone_proj_wrongkey',
     });
 
-    const notFound = secretStore.getProjectByApiKey('btcpc_wrong_key_here');
+    const notFound = secretStore.getProjectByApiKey('hone_wrong_key_here');
     expect(notFound).toBeNull();
 
-    const mongoNotFound = await Project.findOne({ apiKey: 'btcpc_wrong_key_here', isActive: true });
+    const mongoNotFound = await Project.findOne({ apiKey: 'hone_wrong_key_here', isActive: true });
     expect(mongoNotFound).toBeNull();
   });
 });

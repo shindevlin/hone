@@ -16,11 +16,11 @@ verified against the file/line cited; claims marked ⚠️ are design-judgment, 
 **Contract-initiated token transfers mutate consensus balance state on a single node and
 are never broadcast or sealed.** ✅ Verified.
 
-- `rust/btcpc-node/src/contracts.rs:174-199` — `ContractEngine::call()` iterates
+- `rust/hone-node/src/contracts.rs:174-199` — `ContractEngine::call()` iterates
   `result.pending_transfers`, builds a `LedgerEntry::Transfer`, and applies it directly via
   `self.chain.apply_entry(&entry)` (line 188). Balances are mutated locally.
 - Contrast: every user-facing mutation (`/api/transfer`, `/api/stake`, …) routes through
-  `apply_and_broadcast` in `rust/btcpc-node/src/api.rs` (e.g. lines 1663, 1681, 1699),
+  `apply_and_broadcast` in `rust/hone-node/src/api.rs` (e.g. lines 1663, 1681, 1699),
   which is where the **"zero peers MUST NOT apply an entry"** hardline gate lives.
 - The consensus state root is the **balance** Merkle root. A contract that moves a token
   therefore advances the originating node's state root while the network never sees the
@@ -43,7 +43,7 @@ applying contract `Transfer`s via a bare `apply_entry`.
 
 ### 1. Deterministic partition test for the no-fork hardline  *(was scan #8: turmoil/madsim)*
 **Verdict: BUILD (highest value in the entire scan).**
-- ✅ `rust/btcpc-node/src/sim.rs` is a **testnet fake-activity generator** (seeds founder
+- ✅ `rust/hone-node/src/sim.rs` is a **testnet fake-activity generator** (seeds founder
   accounts, fires random transfers every 30s), **not** deterministic simulation testing.
   There is no existing test that drives a network partition and asserts non-divergence.
 - The most safety-critical invariant in the system (zero-peers-never-apply) is currently
@@ -59,7 +59,7 @@ applying contract `Transfer`s via a bare `apply_entry`.
 
 ### 2. Pin WASM codegen determinism  *(was scan #1: wasmtime → wasmi — DOWNGRADED)*
 **Verdict: take the free one-liner now; defer the wasmi swap pending a design decision.**
-- ✅ `rust/btcpc-contract-runtime/src/executor.rs` builds its engine with `Config::new()` +
+- ✅ `rust/hone-contract-runtime/src/executor.rs` builds its engine with `Config::new()` +
   only `consume_fuel(true)` — **no** `cranelift_nan_canonicalization`, no strategy pin.
 - ⚠️ BUT the scan's headline premise ("every node must reach byte-identical contract
   results") is false for HONE: ✅ `ContractCall`/`ContractDeploy` are base-layer **no-ops on
@@ -78,14 +78,14 @@ applying contract `Transfer`s via a bare `apply_entry`.
 
 ### 3. Config-driven inference arch dispatch registry  *(was scan #3: qwen wiring)*
 **Verdict: BUILD (study Crane's pattern, do not depend on it) — and it must retire Ollama.**
-- ✅ `rust/btcpc-android/src/llm.rs` loads `Qwen2.5-0.5B-Instruct-GGUF` via
+- ✅ `rust/hone-android/src/llm.rs` loads `Qwen2.5-0.5B-Instruct-GGUF` via
   `candle_transformers::models::quantized_llama::ModelWeights` — the "wire qwen through the
   llama arch" hack. It works for **dense** Qwen only because dense GGUF is llama-shaped; it
   will **not** carry `qwen2_moe`/`qwen3_moe`, which is exactly where the "multi-arch unsolved"
   pain lives. So the scan is right: the missing piece is a config-driven dispatch registry,
   not a candle capability gap.
 - ⚠️ **Larger finding the scan missed:** ✅ the node worker path
-  (`rust/btcpc-node/src/worker.rs`, `call_ollama` / `OLLAMA_URL`) shells out to **Ollama** —
+  (`rust/hone-node/src/worker.rs`, `call_ollama` / `OLLAMA_URL`) shells out to **Ollama** —
   an external inference daemon. This contradicts the **embedded-candle-is-mandatory**
   anti-cheat mandate (an external service is the supervised-fallback hole the mandate closes).
 - **Scope:** build a registry routing `{llama, qwen2, qwen2_moe, qwen3, qwen3_moe}` GGUF to

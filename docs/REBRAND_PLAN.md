@@ -1,5 +1,5 @@
 ---
-title: BTCPC → [NEW_NAME] Rebrand — re-genesis plan
+title: HONE → [NEW_NAME] Rebrand — re-genesis plan
 description: Rebrand the chain to a new name via a fresh genesis (same July-4 anchor, same keys), and update the whitepaper + all docs
 author: Shin Devlin
 status: DRAFT — pending name decision (HONE under IP/crypto research)
@@ -16,8 +16,8 @@ status: DRAFT — pending name decision (HONE under IP/crypto research)
 
 | Element | New value | Was |
 |---|---|---|
-| **Project / brand** | **HONE** | BTCPC |
-| **Token / ticker** | **HONE** | BTCPC |
+| **Project / brand** | **HONE** | HONE |
+| **Token / ticker** | **HONE** | HONE |
 | **chain_id** | **`hone`** (no version number) | hone |
 | **Base unit (smallest)** | **hunit** (1 HONE = 10,000,000,000 hunits) | dream |
 | **Domain** | **honemesh.net** (register at registrar) | — |
@@ -27,10 +27,10 @@ status: DRAFT — pending name decision (HONE under IP/crypto research)
 
 **Constant renames:**
 - `MAINNET_CHAIN_ID = "hone"` → `"hone"`
-- `NATIVE_TOKEN = "BTCPC"` → `"HONE"`
+- `NATIVE_TOKEN = "HONE"` → `"HONE"`
 - `HUNITS_PER_HONE` → `HUNITS_PER_HONE` (value unchanged: 10^10)
 - the unit string `"dreams"` → `"hunits"`; `"dream"` → `"hunit"`
-- brand literal `BTCPC` → `HONE` (docs/user-facing); keep in historical/changelog context
+- brand literal `HONE` → `HONE` (docs/user-facing); keep in historical/changelog context
 
 **Research verdict (why HONE + HONE):** HONE ticker is clean on every check
 (no existing HONE token; you're the FIRST HONE chain). HONE brand: honemesh.net
@@ -54,13 +54,13 @@ allocation (they were near-zero-earned anyway; founder rewards restart).
   No new keystores, no key handling — the pubkeys are already known and in the
   current genesis.json. shindevlin `c97a9f20…`, natoshisakamoto `29e22bbd…`,
   josh `bcc9d57d…`, bullship `bc52f8fd…`, freeport, linkgit, verasens,
-  btcpc-market, btcpc-relay, btcpcbot, btcpcwalletbot.
+  hone-market, hone-relay, honebot, honewalletbot.
 - The 11 accounts + system funds (__treasury__, __recycle_fund__, __testnet_fund__).
 
 ## What changes
 - **chain_id:** `hone` → `[new-chain-id]` (in `crates/hone-types/src/lib.rs`
   MAINNET_CHAIN_ID, `genesis.json`, `config.rs` default, `CHAIN_CONSTANTS.md`).
-- **Genesis block payload:** the launch proclamation text (currently "BTCPC v2 …")
+- **Genesis block payload:** the launch proclamation text (currently "HONE v2 …")
   → "[NEW_NAME] …". This changes block-0 hash → a NEW canonical hash (expected;
   it's a new chain). Record it; all nodes must reproduce it.
 - **Project name** everywhere: whitepaper, README, all docs, the node's user-
@@ -78,8 +78,8 @@ allocation (they were near-zero-earned anyway; founder rewards restart).
 4. **Rebuild the node binary** (candle etc. already in).
 5. **Fresh-genesis smoke test** in a throwaway data dir → record the NEW block-0
    hash. Every node must reproduce it.
-6. **Whitepaper + docs rebrand:** global BTCPC → [NEW_NAME] where it's the brand
-   (keep "BTCPC" only in historical/changelog context). Update genesis section,
+6. **Whitepaper + docs rebrand:** global HONE → [NEW_NAME] where it's the brand
+   (keep "HONE" only in historical/changelog context). Update genesis section,
    ticker, one-pager, README, website.
 7. **Coordinated cutover:** all founder nodes (beastly/shindevlin, natoshisakamoto,
    Nebra/josh) stop, wipe data dir, restart on the new genesis. Confirm all
@@ -94,17 +94,17 @@ allocation (they were near-zero-earned anyway; founder rewards restart).
 - **Block-0 hash WILL change** (new proclamation + chain_id in payload) — that's
   correct for a new chain, but every node must rebuild + wipe + restart together,
   exactly like the July-4 launch. Reuse GENESIS_LAUNCH_RUNBOOK.md's verify steps.
-- **Balances reset.** If any account earned meaningful BTCPC on hone that must
+- **Balances reset.** If any account earned meaningful HONE on hone that must
   carry over, note it — a fresh genesis does NOT preserve balances (only keys +
   identities). shindevlin had ~1.3B dreams earned; decide if that matters
   (likely not — rewards restart).
 - **The integration manifest** hardcodes chain_id in places — regenerate it.
-- **Ticker/token rename** (if BTCPC the ticker changes too) touches emission
+- **Ticker/token rename** (if HONE the ticker changes too) touches emission
   docs + any exchange/bridge references.
 
 ## Open questions
 1. The NAME (HONE viability under research) + the TICKER symbol.
-2. Does the PROJECT rename fully (BTCPC → HONE everywhere) or does the chain get a
-   new name while some legacy "btcpc" identifiers stay? (Recommend full rename for
+2. Does the PROJECT rename fully (HONE → HONE everywhere) or does the chain get a
+   new name while some legacy "hone" identifiers stay? (Recommend full rename for
    a clean brand.)
 3. Preserve any hone balances, or clean genesis reset (recommend clean)?

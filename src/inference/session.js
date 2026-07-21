@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Encrypted Inference Sessions
+ * HONE Encrypted Inference Sessions
  * Shin Devlin
  *
  * SIK-bound session key exchange for private inference.
@@ -85,7 +85,7 @@ function deriveSessionKey(sessionId, clientPublicKeyHex) {
 
   // HKDF-SHA256
   const salt = Buffer.from(sessionId, "hex");
-  const info = Buffer.from("btcpc-inference-v1");
+  const info = Buffer.from("hone-inference-v1");
   const key = hkdf(ikm, salt, info, 32);
 
   // Store derived key, wipe intermediates

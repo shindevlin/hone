@@ -4,7 +4,7 @@
  * Recovery Routes
  * Shin Devlin
  *
- * REST endpoints for BTCPC account recovery (Whitepaper 2.3.3).
+ * REST endpoints for HONE account recovery (Whitepaper 2.3.3).
  */
 
 var express = require("express");

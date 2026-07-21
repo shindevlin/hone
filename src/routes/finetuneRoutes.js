@@ -6,7 +6,7 @@
  *
  * Buyers post training jobs: dataset CID + base model + hyperparameters.
  * Miners claim, run LoRA fine-tuning via Ollama (or custom trainer),
- * upload the adapter as a BTCPC-FS blob, and submit the adapter CID.
+ * upload the adapter as a HONE-FS blob, and submit the adapter CID.
  * Protocol takes 10%. Long TTL (2000 epochs ≈ 16 hours).
  *
  * Routes:
@@ -29,9 +29,9 @@ const { sanitizeString, sanitizeAmount } = require("../middlewares/validate");
 const stateStore = require("../chain/stateStore");
 const ledger = require("../services/ledger");
 
-const PROTOCOL_FEE_ACCOUNT = "btcpc_fees";
+const PROTOCOL_FEE_ACCOUNT = "hone_fees";
 const PROTOCOL_FEE_PCT = 0.10;
-const MIN_FINETUNE_FEE = 1.0;     // 1 BTCPC minimum (training is expensive)
+const MIN_FINETUNE_FEE = 1.0;     // 1 HONE minimum (training is expensive)
 const DEFAULT_TTL_EPOCHS = 2000;  // ~16 hours at 30s/epoch
 const MAX_TTL_EPOCHS = 10000;
 
@@ -56,10 +56,10 @@ router.post("/", authenticateToken, async (req, res) => {
     }
     if (!baseModel) return res.status(400).json({ error: "base_model required" });
     if (!maxFee || maxFee < MIN_FINETUNE_FEE) {
-      return res.status(400).json({ error: `max_fee must be at least ${MIN_FINETUNE_FEE} BTCPC` });
+      return res.status(400).json({ error: `max_fee must be at least ${MIN_FINETUNE_FEE} HONE` });
     }
 
-    const balance = stateStore.getBalance(buyer, "BTCPC");
+    const balance = stateStore.getBalance(buyer, "HONE");
     if (balance < maxFee) {
       return res.status(402).json({ error: `Insufficient balance: have ${balance}, need ${maxFee}` });
     }

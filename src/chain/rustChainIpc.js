@@ -1,17 +1,17 @@
 "use strict";
 
 /**
- * BTCPC Rust Chain IPC Client
+ * HONE Rust Chain IPC Client
  * Shin Devlin
  *
- * Synchronous JSON-RPC helper for btcpc-chain over a Unix domain socket.
+ * Synchronous JSON-RPC helper for hone-chain over a Unix domain socket.
  * Intended for blockStore integration where the existing callers are sync.
  */
 
 var fs = require("fs");
 var childProcess = require("child_process");
 
-var DEFAULT_SOCKET_PATH = "/tmp/btcpc-chain.sock";
+var DEFAULT_SOCKET_PATH = "/tmp/hone-chain.sock";
 var DEFAULT_TIMEOUT_MS = 5000;
 var MAX_BUFFER_BYTES = 70 * 1024 * 1024;
 
@@ -42,15 +42,15 @@ var PYTHON_BRIDGE = [
 ].join("\n");
 
 function isEnabled() {
-  return process.env.BTCPC_USE_RUST_CHAIN === "true";
+  return process.env.HONE_USE_RUST_CHAIN === "true";
 }
 
 function socketPath() {
-  return process.env.BTCPC_CHAIN_SOCK || DEFAULT_SOCKET_PATH;
+  return process.env.HONE_CHAIN_SOCK || DEFAULT_SOCKET_PATH;
 }
 
 function timeoutMs() {
-  var raw = Number(process.env.BTCPC_CHAIN_IPC_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
+  var raw = Number(process.env.HONE_CHAIN_IPC_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
   if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_TIMEOUT_MS;
   return Math.floor(raw);
 }
@@ -62,7 +62,7 @@ function isSocketAvailable() {
 function _toEpoch(epoch) {
   var n = Number(epoch);
   if (!Number.isInteger(n) || n < 0) {
-    throw new Error("[BTCPC Chain IPC] epoch must be a non-negative integer");
+    throw new Error("[HONE Chain IPC] epoch must be a non-negative integer");
   }
   return n;
 }
@@ -94,21 +94,21 @@ function _sendWithPython(requestLine) {
 function _unwrapTransportResult(transport, result) {
   if (result.error) {
     var transportErr = new Error(
-      "[BTCPC Chain IPC] " + transport + " transport failed: " + result.error.message
+      "[HONE Chain IPC] " + transport + " transport failed: " + result.error.message
     );
     transportErr.code = result.error.code;
     throw transportErr;
   }
   if (result.status !== 0) {
     throw new Error(
-      "[BTCPC Chain IPC] " + transport + " exited with code " + result.status +
+      "[HONE Chain IPC] " + transport + " exited with code " + result.status +
       (result.stderr ? (": " + String(result.stderr).trim()) : "")
     );
   }
   var out = String(result.stdout || "").trim();
   if (!out) {
     throw new Error(
-      "[BTCPC Chain IPC] " + transport + " returned an empty response" +
+      "[HONE Chain IPC] " + transport + " returned an empty response" +
       (result.stderr ? (": " + String(result.stderr).trim()) : "")
     );
   }
@@ -134,7 +134,7 @@ function _transportSend(requestLine) {
   }
 
   if (lastError) throw lastError;
-  throw new Error("[BTCPC Chain IPC] no transport available");
+  throw new Error("[HONE Chain IPC] no transport available");
 }
 
 function _parseRpcResponse(line, method) {
@@ -143,7 +143,7 @@ function _parseRpcResponse(line, method) {
     msg = JSON.parse(line);
   } catch (e) {
     throw new Error(
-      "[BTCPC Chain IPC] Invalid JSON response for " + method + ": " +
+      "[HONE Chain IPC] Invalid JSON response for " + method + ": " +
       line.slice(0, 240)
     );
   }
@@ -151,11 +151,11 @@ function _parseRpcResponse(line, method) {
   if (msg && msg.error) {
     var code = msg.error.code;
     var text = msg.error.message || "unknown error";
-    throw new Error("[BTCPC Chain IPC] " + method + " failed (" + code + "): " + text);
+    throw new Error("[HONE Chain IPC] " + method + " failed (" + code + "): " + text);
   }
 
   if (!msg || !Object.prototype.hasOwnProperty.call(msg, "result")) {
-    throw new Error("[BTCPC Chain IPC] " + method + " returned malformed response");
+    throw new Error("[HONE Chain IPC] " + method + " returned malformed response");
   }
 
   return msg.result;
@@ -163,7 +163,7 @@ function _parseRpcResponse(line, method) {
 
 function call(method, params) {
   if (!isSocketAvailable()) {
-    throw new Error("[BTCPC Chain IPC] socket unavailable: " + socketPath());
+    throw new Error("[HONE Chain IPC] socket unavailable: " + socketPath());
   }
 
   var request = {
@@ -177,12 +177,12 @@ function call(method, params) {
 }
 
 function writeBlock(epoch, dataBuf) {
-  if (!Buffer.isBuffer(dataBuf)) throw new Error("[BTCPC Chain IPC] writeBlock expects a Buffer");
+  if (!Buffer.isBuffer(dataBuf)) throw new Error("[HONE Chain IPC] writeBlock expects a Buffer");
   return call("block_write", { epoch: _toEpoch(epoch), data_b64: dataBuf.toString("base64") }) === true;
 }
 
 function writeFinality(epoch, dataBuf) {
-  if (!Buffer.isBuffer(dataBuf)) throw new Error("[BTCPC Chain IPC] writeFinality expects a Buffer");
+  if (!Buffer.isBuffer(dataBuf)) throw new Error("[HONE Chain IPC] writeFinality expects a Buffer");
   return call("block_write_finality", { epoch: _toEpoch(epoch), data_b64: dataBuf.toString("base64") }) === true;
 }
 

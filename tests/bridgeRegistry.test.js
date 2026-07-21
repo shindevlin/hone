@@ -17,8 +17,8 @@ function baseChainConfig(overrides) {
 }
 
 describe('bridgeRegistry — constants', () => {
-  it('exports the 4.2M wBTCPC hard cap per chain (NOT 42M)', () => {
-    expect(bridge.WBTCPC_SUPPLY_PER_CHAIN).toBe(4200000);
+  it('exports the 4.2M wHONE hard cap per chain (NOT 42M)', () => {
+    expect(bridge.WHONE_SUPPLY_PER_CHAIN).toBe(4200000);
   });
 
   it('exports 30-day minimum lock period', () => {
@@ -37,12 +37,12 @@ describe('bridgeRegistry — registerChain', () => {
     const rec = bridge.registerChain('base', baseChainConfig());
     expect(rec.chain_id).toBe('base');
     expect(rec.name).toBe('Base');
-    expect(rec.wbtcpc_supply).toBe(4200000);
+    expect(rec.whone_supply).toBe(4200000);
     expect(rec.fee_wrap_bps).toBe(5);
     expect(rec.lock_period_min_days).toBe(30);
     expect(rec.lock_period_max_days).toBe(1460);
-    expect(rec.total_locked_btcpc).toBe(0);
-    expect(rec.circulating_wbtcpc).toBe(0);
+    expect(rec.total_locked_hone).toBe(0);
+    expect(rec.circulating_whone).toBe(0);
   });
 
   it('returns the registered chain via getChain', () => {
@@ -74,25 +74,25 @@ describe('bridgeRegistry — registerChain', () => {
 
   it('rejects supply exceeding 4.2M hard cap', () => {
     expect(() =>
-      bridge.registerChain('base', baseChainConfig({ wbtcpc_supply: 42000000 }))
+      bridge.registerChain('base', baseChainConfig({ whone_supply: 42000000 }))
     ).toThrow(/hard cap/);
   });
 
   it('updates existing chain without resetting state', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 1000, 365);
-    // Re-register (update) — should preserve total_locked_btcpc
+    // Re-register (update) — should preserve total_locked_hone
     bridge.registerChain('base', baseChainConfig({ name: 'Base Chain Updated' }));
     const chain = bridge.getChain('base');
     expect(chain.name).toBe('Base Chain Updated');
-    expect(chain.total_locked_btcpc).toBe(1000);
+    expect(chain.total_locked_hone).toBe(1000);
   });
 });
 
 describe('bridgeRegistry — fundBridge', () => {
   beforeEach(() => bridge.resetForTests());
 
-  it('records a funder locking BTCPC and sets LP weight', () => {
+  it('records a funder locking HONE and sets LP weight', () => {
     bridge.registerChain('base', baseChainConfig());
     const rec = bridge.fundBridge('shindevlin', 'base', 1000, 365);
     expect(rec.funder).toBe('shindevlin');
@@ -107,8 +107,8 @@ describe('bridgeRegistry — fundBridge', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 500, 30);
     const chain = bridge.getChain('base');
-    expect(chain.total_locked_btcpc).toBe(500);
-    expect(chain.circulating_wbtcpc).toBe(500);
+    expect(chain.total_locked_hone).toBe(500);
+    expect(chain.circulating_whone).toBe(500);
   });
 
   it('additional funding adds to existing position', () => {
@@ -134,7 +134,7 @@ describe('bridgeRegistry — fundBridge', () => {
     expect(() => bridge.fundBridge('shindevlin', 'base', -100, 365)).toThrow();
   });
 
-  it('enforces 4.2M wBTCPC cap — rejects funding that would exceed it', () => {
+  it('enforces 4.2M wHONE cap — rejects funding that would exceed it', () => {
     bridge.registerChain('base', baseChainConfig());
     // Fund right up to the cap
     bridge.fundBridge('shindevlin', 'base', 4199999, 365);
@@ -142,7 +142,7 @@ describe('bridgeRegistry — fundBridge', () => {
     expect(() => bridge.fundBridge('natoshisakamoto', 'base', 2, 365)).toThrow(/cap/);
   });
 
-  it('allows up to exactly 4.2M wBTCPC circulating', () => {
+  it('allows up to exactly 4.2M wHONE circulating', () => {
     bridge.registerChain('base', baseChainConfig());
     expect(() => bridge.fundBridge('shindevlin', 'base', 4200000, 365)).not.toThrow();
   });
@@ -171,22 +171,22 @@ describe('bridgeRegistry — getLPWeight', () => {
 describe('bridgeRegistry — wrap', () => {
   beforeEach(() => bridge.resetForTests());
 
-  it('records a wrap with flat 0.05% fee in BTCPC', () => {
+  it('records a wrap with flat 0.05% fee in HONE', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 10000, 365);
     const result = bridge.wrap('alice', 'base', 1000);
     expect(result.gross_amount).toBe(1000);
     expect(result.fee).toBeCloseTo(0.5, 5);  // 0.05% of 1000
     expect(result.net_amount).toBeCloseTo(999.5, 5);
-    expect(result.fee_currency).toBe('BTCPC');
+    expect(result.fee_currency).toBe('HONE');
   });
 
-  it('increases circulating wBTCPC by net amount', () => {
+  it('increases circulating wHONE by net amount', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 10000, 365);
-    const before = bridge.getCirculatingWbtcpc('base');
+    const before = bridge.getCirculatingWhone('base');
     bridge.wrap('alice', 'base', 1000);
-    const after = bridge.getCirculatingWbtcpc('base');
+    const after = bridge.getCirculatingWhone('base');
     // net = 999.5, but circulating was already 10000 from fundBridge
     // wrap adds net to circulating on top of existing
     expect(after).toBeGreaterThan(before);
@@ -196,7 +196,7 @@ describe('bridgeRegistry — wrap', () => {
     expect(() => bridge.wrap('alice', 'unknown', 100)).toThrow(/unknown chainId/);
   });
 
-  it('throws if wrapping would exceed wBTCPC cap', () => {
+  it('throws if wrapping would exceed wHONE cap', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 4200000, 365);
     // Already at cap from fundBridge
@@ -207,12 +207,12 @@ describe('bridgeRegistry — wrap', () => {
 describe('bridgeRegistry — unwrap', () => {
   beforeEach(() => bridge.resetForTests());
 
-  it('records an unwrap with tiered fee in wBTCPC (small tier)', () => {
+  it('records an unwrap with tiered fee in wHONE (small tier)', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 10000, 365);
     const result = bridge.unwrap('alice', 'base', 500);
     expect(result.gross_amount).toBe(500);
-    expect(result.fee_currency).toBe('wBTCPC');
+    expect(result.fee_currency).toBe('wHONE');
     expect(result.tier).toBe('small');
     expect(result.fee).toBeCloseTo(500 * 0.002, 5);  // 0.20%
     expect(result.net_amount).toBeCloseTo(500 * 0.998, 5);
@@ -234,12 +234,12 @@ describe('bridgeRegistry — unwrap', () => {
     expect(result.fee).toBeCloseTo(150000 * 0.001, 5);  // 0.10%
   });
 
-  it('reduces circulating wBTCPC after unwrap', () => {
+  it('reduces circulating wHONE after unwrap', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 10000, 365);
-    const before = bridge.getCirculatingWbtcpc('base');
+    const before = bridge.getCirculatingWhone('base');
     bridge.unwrap('alice', 'base', 1000);
-    const after = bridge.getCirculatingWbtcpc('base');
+    const after = bridge.getCirculatingWhone('base');
     expect(after).toBeLessThan(before);
   });
 
@@ -250,16 +250,16 @@ describe('bridgeRegistry — unwrap', () => {
   });
 
   it('no-burn invariant: unwrap is a transfer-to-reserve, never a burn', () => {
-    // The unwrap operation reduces circulating_wbtcpc (wBTCPC goes back to reserve)
-    // but does NOT reduce total wbtcpc_supply — supply is always 4.2M hard cap
+    // The unwrap operation reduces circulating_whone (wHONE goes back to reserve)
+    // but does NOT reduce total whone_supply — supply is always 4.2M hard cap
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 1000, 365);
     bridge.unwrap('alice', 'base', 500);
     const chain = bridge.getChain('base');
     // Supply stays at 4.2M — never burned
-    expect(chain.wbtcpc_supply).toBe(4200000);
-    // Circulating decreased (wBTCPC moved back to reserve)
-    expect(chain.circulating_wbtcpc).toBeLessThan(1000);
+    expect(chain.whone_supply).toBe(4200000);
+    // Circulating decreased (wHONE moved back to reserve)
+    expect(chain.circulating_whone).toBeLessThan(1000);
   });
 });
 
@@ -310,7 +310,7 @@ describe('bridgeRegistry — smoothing buffer', () => {
   it('buffer is capped at 10% of total locked liquidity', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 1000, 365);
-    // 10% cap = 100 BTCPC. Try to add 500 — should be capped at 100.
+    // 10% cap = 100 HONE. Try to add 500 — should be capped at 100.
     bridge.accrueSmoothingBuffer('base', 500);
     const buf = bridge.getSmoothingBuffer('base');
     expect(buf).toBeLessThanOrEqual(100);
@@ -346,7 +346,7 @@ describe('bridgeRegistry — getWrapFee / getUnwrapFee', () => {
   });
 });
 
-describe('bridgeRegistry — getTotalLocked / getCirculatingWbtcpc', () => {
+describe('bridgeRegistry — getTotalLocked / getCirculatingWhone', () => {
   beforeEach(() => bridge.resetForTests());
 
   it('getTotalLocked returns 0 for empty chain', () => {
@@ -361,15 +361,15 @@ describe('bridgeRegistry — getTotalLocked / getCirculatingWbtcpc', () => {
     expect(bridge.getTotalLocked('base')).toBe(3000);
   });
 
-  it('getCirculatingWbtcpc returns 0 for empty chain', () => {
+  it('getCirculatingWhone returns 0 for empty chain', () => {
     bridge.registerChain('base', baseChainConfig());
-    expect(bridge.getCirculatingWbtcpc('base')).toBe(0);
+    expect(bridge.getCirculatingWhone('base')).toBe(0);
   });
 
-  it('getCirculatingWbtcpc never exceeds 4.2M hard cap', () => {
+  it('getCirculatingWhone never exceeds 4.2M hard cap', () => {
     bridge.registerChain('base', baseChainConfig());
     bridge.fundBridge('shindevlin', 'base', 1000000, 365);
-    const circ = bridge.getCirculatingWbtcpc('base');
+    const circ = bridge.getCirculatingWhone('base');
     expect(circ).toBeLessThanOrEqual(4200000);
   });
 });

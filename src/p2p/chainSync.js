@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Chain Sync
+ * HONE Chain Sync
  * Shin Devlin
  *
  * Synchronizes chain state with peers. Handles block validation,
@@ -174,7 +174,7 @@ async function loadFromDatabase() {
     const latestOnDisk = blockStore.getLatestBlockNumber();
 
     if (latestOnDisk >= 0) {
-      console.log("[BTCPC P2P] Loading chain from disk (blocks 0-" + latestOnDisk + ")...");
+      console.log("[HONE P2P] Loading chain from disk (blocks 0-" + latestOnDisk + ")...");
 
       // Find latest finality block for fast SMT restore
       const latestFinality = blockStore.getLatestFinalityNumber();
@@ -185,7 +185,7 @@ async function loadFromDatabase() {
         if (finData && finData.snapshot) {
           stateManager.loadFromFinality(finData.snapshot);
           replayFrom = latestFinality + 1;
-          console.log("[BTCPC P2P]   Loaded finality block at epoch " + latestFinality + " (" + (finData.snapshot.account_count || 0) + " accounts)");
+          console.log("[HONE P2P]   Loaded finality block at epoch " + latestFinality + " (" + (finData.snapshot.account_count || 0) + " accounts)");
         }
       }
 
@@ -211,15 +211,15 @@ async function loadFromDatabase() {
         blockchain.addBlock(block);
       });
 
-      console.log("[BTCPC P2P] Chain loaded from disk: " + blockCache.size + " blocks, height=" + chainHeight + " | state root: " + stateManager.getStateRoot().slice(0, 16) + "...");
+      console.log("[HONE P2P] Chain loaded from disk: " + blockCache.size + " blocks, height=" + chainHeight + " | state root: " + stateManager.getStateRoot().slice(0, 16) + "...");
       return;
     }
 
     // Phase E: MongoDB Epoch fallback removed — block files are the source of truth.
     // If no block files exist on disk, the chain starts fresh from genesis.
-    console.log("[BTCPC P2P] No block files on disk — chain starts fresh from genesis.");
+    console.log("[HONE P2P] No block files on disk — chain starts fresh from genesis.");
   } catch (err) {
-    console.error("[BTCPC P2P] Failed to load chain:", err.message);
+    console.error("[HONE P2P] Failed to load chain:", err.message);
   }
 }
 

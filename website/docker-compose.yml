@@ -71,8 +71,8 @@ services:
       # Bootstrap peers so a fresh container joins the real HONE chain
       # instead of starting a solo fork. The Cloudflare relay is a
       # public, always-on P2P gateway into the live network.
-      HONE_SEED_PEERS: ${HONE_SEED_PEERS:-wss://btcpc-relay.shindevlin.workers.dev/ws}
-      HONE_RELAY_URL: ${HONE_RELAY_URL:-wss://btcpc-relay.shindevlin.workers.dev/ws}
+      HONE_SEED_PEERS: ${HONE_SEED_PEERS:-wss://hone-relay.shindevlin.workers.dev/ws}
+      HONE_RELAY_URL: ${HONE_RELAY_URL:-wss://hone-relay.shindevlin.workers.dev/ws}
     ports:
       - "3000:3000"    # HTTP API (routes, wallet, commerce, services)
       - "4242:4242"    # Explorer

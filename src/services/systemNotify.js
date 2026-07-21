@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC System Notifications — Native OS notifications
+ * HONE System Notifications — Native OS notifications
  * Shin Devlin
  *
  * Uses whatever the OS provides. No Electron, no dependencies.
@@ -26,7 +26,7 @@ function notify(title, body, urgency) {
     if (platform === "linux") {
       execSync('notify-send ' +
         '--urgency=' + urgency + ' ' +
-        '--app-name=BTCPC ' +
+        '--app-name=HONE ' +
         JSON.stringify(title) + ' ' +
         JSON.stringify(body),
         { timeout: 5000, stdio: 'ignore' }
@@ -44,7 +44,7 @@ function notify(title, body, urgency) {
         '$xml="<toast><visual><binding template=\\"ToastText02\\"><text id=\\"1\\">' + title.replace(/"/g, '') + '</text>' +
         '<text id=\\"2\\">' + body.replace(/"/g, '') + '</text></binding></visual></toast>"; ' +
         '$t.Content.LoadXml($xml); ' +
-        '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("BTCPC").Show($t)';
+        '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("HONE").Show($t)';
       execSync('powershell -command "' + ps.replace(/"/g, '\\"') + '"',
         { timeout: 10000, stdio: 'ignore', windowsHide: true }
       );
@@ -60,7 +60,7 @@ function notify(title, body, urgency) {
  */
 function notifyUpdate(currentVersion, newVersion, commitCount) {
   notify(
-    "BTCPC Update Available",
+    "HONE Update Available",
     "v" + currentVersion + " → v" + newVersion + " (" + commitCount + " commits). Update to keep earning.",
     "normal"
   );
@@ -71,8 +71,8 @@ function notifyUpdate(currentVersion, newVersion, commitCount) {
  */
 function notifyMining(epoch, reward) {
   notify(
-    "BTCPC Mining",
-    "Epoch " + epoch + " — earned " + reward.toFixed(4) + " BTCPC",
+    "HONE Mining",
+    "Epoch " + epoch + " — earned " + reward.toFixed(4) + " HONE",
     "low"
   );
 }
@@ -82,7 +82,7 @@ function notifyMining(epoch, reward) {
  */
 function notifyThrottle(mode) {
   notify(
-    "BTCPC Miner",
+    "HONE Miner",
     mode === "full" ? "Full speed — PC is idle" : "Reduced mode — PC in use",
     "low"
   );

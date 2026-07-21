@@ -1,11 +1,11 @@
 "use strict";
 
 /**
- * BTCPC Service Host Runner — v2.13-beta
+ * HONE Service Host Runner — v2.13-beta
  * Shin Devlin
  *
  * Host-side execution layer for deployed services. Takes a deployment
- * record from serviceRegistry, downloads the binary from BTCPC-FS,
+ * record from serviceRegistry, downloads the binary from HONE-FS,
  * spawns the runtime as a child process (or container), monitors its
  * lifecycle, and reports heartbeats back to the chain.
  *
@@ -20,7 +20,7 @@
  *
  * Service lifecycle states:
  *   pending    — registered with the runner, binary not yet downloaded
- *   downloading — fetching binary from BTCPC-FS
+ *   downloading — fetching binary from HONE-FS
  *   ready      — binary on disk, not yet running
  *   running    — process spawned and healthy
  *   degraded   — process running but recent health checks failed
@@ -54,12 +54,12 @@ function defaultSpawner(command, args, options) {
   return child_process.spawn(command, args, options);
 }
 
-// Default blob fetcher: reads from local BTCPC-FS via blobStore.getBlob.
+// Default blob fetcher: reads from local HONE-FS via blobStore.getBlob.
 // Tests inject a mock that returns synthetic content.
 function defaultBlobFetcher(cid) {
   var blobStore = require("./blobStore");
   if (!blobStore.hasBlob(cid)) {
-    throw new Error("blob not in local BTCPC-FS: " + cid);
+    throw new Error("blob not in local HONE-FS: " + cid);
   }
   return blobStore.getBlob(cid);
 }
@@ -79,7 +79,7 @@ function createRunner(options) {
   options = options || {};
   var spawner = options.spawner || defaultSpawner;
   var blobFetcher = options.blobFetcher || defaultBlobFetcher;
-  var workDir = options.workDir || path.join(os.tmpdir(), "btcpc-services");
+  var workDir = options.workDir || path.join(os.tmpdir(), "hone-services");
   var onHeartbeat = options.onHeartbeat || function () {};
 
   // slug → runtime state
@@ -97,7 +97,7 @@ function createRunner(options) {
 
   /**
    * Register a deployed service for this runner. Pulls the binary
-   * from BTCPC-FS and prepares it for execution. Does not start
+   * from HONE-FS and prepares it for execution. Does not start
    * the process yet — call start() for that.
    */
   function register(deployment) {
@@ -129,7 +129,7 @@ function createRunner(options) {
   }
 
   /**
-   * Download the binary from BTCPC-FS and place it in the work dir.
+   * Download the binary from HONE-FS and place it in the work dir.
    * Synchronous because blobStore.getBlob is synchronous.
    */
   function prepareBinary(slug) {

@@ -4,7 +4,7 @@
  * Name Auction HTTP Routes — v3.6
  * Shin Devlin
  *
- * Reserved BTCPC names (held by shindevlin in genesis) can be auctioned for
+ * Reserved HONE names (held by shindevlin in genesis) can be auctioned for
  * USDC / USDT / DAI. Bidders pay on an external chain (Ethereum, Solana, TON),
  * provide their tx hash, and submit their desired public keys. shindevlin
  * verifies payment and settles, which transfers the name account to the winner
@@ -216,7 +216,7 @@ router.post('/open', async function(req, res) {
 
 // ─────────────────────────────────────────────────────────────────
 // POST /api/auctions/:name/bid — place a bid
-// Body: { bidder, bid_usd, chain, tx_hash, btcpc_account, btcpc_pubkeys: { owner, active, posting, memo } }
+// Body: { bidder, bid_usd, chain, tx_hash, hone_account, hone_pubkeys: { owner, active, posting, memo } }
 // ─────────────────────────────────────────────────────────────────
 router.post('/:name/bid', async function(req, res) {
   try {
@@ -269,11 +269,11 @@ router.post('/:name/bid', async function(req, res) {
       return res.status(400).json({ error: 'tx_hash is required (your stablecoin payment transaction hash)' });
     }
 
-    var btcpcAccount = String(body.btcpc_account || bidder).trim();
+    var honeAccount = String(body.hone_account || bidder).trim();
 
-    var btcpcPubkeys = body.btcpc_pubkeys || {};
-    if (!isValidPubkeys(btcpcPubkeys)) {
-      return res.status(400).json({ error: 'btcpc_pubkeys must include at least a posting key' });
+    var honePubkeys = body.hone_pubkeys || {};
+    if (!isValidPubkeys(honePubkeys)) {
+      return res.status(400).json({ error: 'hone_pubkeys must include at least a posting key' });
     }
 
     var epoch = await ledger.getCurrentEpoch();
@@ -283,8 +283,8 @@ router.post('/:name/bid', async function(req, res) {
       bidUsd,
       chain,
       txHash,
-      btcpcAccount,
-      btcpcPubkeys,
+      honeAccount,
+      honePubkeys,
       epoch
     );
 

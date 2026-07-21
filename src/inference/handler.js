@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Inference Handler — runs on miner nodes
+ * HONE Inference Handler — runs on miner nodes
  * Shin Devlin
  *
  * Listens for INFERENCE_REQUEST messages on the P2P network,
@@ -15,7 +15,7 @@ const axios = require("axios");
 const p2p = require("../p2p/network");
 const { createMessage } = require("../p2p/protocol");
 const { GENESIS_MINER } = require("../mining/genesisBlock");
-const MINER_NAME = process.env.BTCPC_MINER || GENESIS_MINER;
+const MINER_NAME = process.env.HONE_MINER || GENESIS_MINER;
 const { getModelWeight } = require("../mining/workGenerator");
 const stateStore = require("../chain/stateStore");
 const nodeRegistry = require("../chain/nodeRegistry");
@@ -32,7 +32,7 @@ let inferenceCount = 0;
 // Track request IDs we've already seen to ignore relay echoes
 const seenRequests = new Set();
 const SEEN_MAX = 1000;
-const MODEL_BUSY_THRESHOLD = parseInt(process.env.BTCPC_MODEL_BUSY_THRESHOLD, 10) || 3;
+const MODEL_BUSY_THRESHOLD = parseInt(process.env.HONE_MODEL_BUSY_THRESHOLD, 10) || 3;
 
 // Per-job state: which jobs have been claimed (by us or anyone), what's in flight on this miner
 // claimedJobs: Map<request_id, { miner, claimed_at, nudges_sent }> — every claim we've seen
@@ -41,11 +41,11 @@ const claimedJobs = new Map();
 const claimedJobsMax = 5000;
 const jobsClaimedByOthers = new Set(); // legacy alias for back-compat lookups
 let jobInFlight = null;
-const JOB_MAX_DURATION_MS = parseInt(process.env.BTCPC_JOB_MAX_DURATION_MS, 10) || 10 * 60 * 1000; // 10 min
-const CLAIM_DELAY_MS = parseInt(process.env.BTCPC_CLAIM_DELAY_MS, 10) || 800;
-const STALE_CLAIM_MS = parseInt(process.env.BTCPC_STALE_CLAIM_MS, 10) || 90 * 1000; // 90s before nudging
-const NUDGE_INTERVAL_MS = parseInt(process.env.BTCPC_NUDGE_INTERVAL_MS, 10) || 30 * 1000; // 30s between nudges
-const MAX_NUDGES = parseInt(process.env.BTCPC_MAX_NUDGES, 10) || 2; // 2 nudges before reclaim
+const JOB_MAX_DURATION_MS = parseInt(process.env.HONE_JOB_MAX_DURATION_MS, 10) || 10 * 60 * 1000; // 10 min
+const CLAIM_DELAY_MS = parseInt(process.env.HONE_CLAIM_DELAY_MS, 10) || 800;
+const STALE_CLAIM_MS = parseInt(process.env.HONE_STALE_CLAIM_MS, 10) || 90 * 1000; // 90s before nudging
+const NUDGE_INTERVAL_MS = parseInt(process.env.HONE_NUDGE_INTERVAL_MS, 10) || 30 * 1000; // 30s between nudges
+const MAX_NUDGES = parseInt(process.env.HONE_MAX_NUDGES, 10) || 2; // 2 nudges before reclaim
 
 function rememberClaim(reqId, miner) {
   if (!reqId) return;
@@ -74,7 +74,7 @@ function forgetClaim(reqId) {
 
 function clearJobInFlight(reason) {
   if (jobInFlight) {
-    console.log(`[BTCPC Inference] Job ${jobInFlight.request_id?.slice(0, 8)} cleared (${reason}) after ${Date.now() - jobInFlight.started_at}ms`);
+    console.log(`[HONE Inference] Job ${jobInFlight.request_id?.slice(0, 8)} cleared (${reason}) after ${Date.now() - jobInFlight.started_at}ms`);
     forgetClaim(jobInFlight.request_id);
     jobInFlight = null;
   }
@@ -83,7 +83,7 @@ function clearJobInFlight(reason) {
 // Local watchdog: clear our own jobs that exceed max duration
 setInterval(() => {
   if (jobInFlight && Date.now() - jobInFlight.started_at > JOB_MAX_DURATION_MS) {
-    console.log(`[BTCPC Inference] WATCHDOG: clearing stuck job ${jobInFlight.request_id?.slice(0, 8)}`);
+    console.log(`[HONE Inference] WATCHDOG: clearing stuck job ${jobInFlight.request_id?.slice(0, 8)}`);
     clearJobInFlight('watchdog timeout');
   }
 }, 30000);
@@ -115,7 +115,7 @@ setInterval(() => {
         age_ms: totalAge,
       }, p2p.NODE_ID);
       p2p.broadcast(reclaim);
-      console.log(`[BTCPC Inference] RECLAIM ${reqId.slice(0, 8)} — ${claim.miner} exceeded hard cap (${Math.round(totalAge/1000)}s, ${claim.refresh_count} refreshes)`);
+      console.log(`[HONE Inference] RECLAIM ${reqId.slice(0, 8)} — ${claim.miner} exceeded hard cap (${Math.round(totalAge/1000)}s, ${claim.refresh_count} refreshes)`);
       forgetClaim(reqId);
       continue;
     }
@@ -131,7 +131,7 @@ setInterval(() => {
         age_ms: totalAge,
       }, p2p.NODE_ID);
       p2p.broadcast(reclaim);
-      console.log(`[BTCPC Inference] RECLAIM ${reqId.slice(0, 8)} — ${claim.miner} silent for ${Math.round(ageSinceRefresh/1000)}s`);
+      console.log(`[HONE Inference] RECLAIM ${reqId.slice(0, 8)} — ${claim.miner} silent for ${Math.round(ageSinceRefresh/1000)}s`);
       forgetClaim(reqId);
       continue;
     }
@@ -148,7 +148,7 @@ setInterval(() => {
     }, p2p.NODE_ID);
     p2p.broadcast(nudge);
     claim.nudges_sent++;
-    console.log(`[BTCPC Inference] NUDGE ${reqId.slice(0, 8)} → ${claim.miner} (#${claim.nudges_sent}, silent: ${Math.round(ageSinceRefresh/1000)}s)`);
+    console.log(`[HONE Inference] NUDGE ${reqId.slice(0, 8)} → ${claim.miner} (#${claim.nudges_sent}, silent: ${Math.round(ageSinceRefresh/1000)}s)`);
   }
 }, 15000);
 
@@ -237,7 +237,7 @@ function recordModelResult(model, elapsedMs, tokens, success) {
       const successRate = s.requests ? ((s.successes / s.requests) * 100).toFixed(1) : "0.0";
       return `${name}: ${s.requests} req, ${successRate}% ok, ${Math.round(s.avgResponseMs)}ms avg, ${s.avgTokensPerSec.toFixed(2)} tok/s`;
     }).join(" | ");
-    console.log(`[BTCPC Inference] Model stats after ${inferenceCount} inferences: ${summary}`);
+    console.log(`[HONE Inference] Model stats after ${inferenceCount} inferences: ${summary}`);
   }
 }
 
@@ -280,7 +280,7 @@ function startInferenceHandler() {
     }
   });
 
-  console.log("[BTCPC Inference] Handler active, listening for requests");
+  console.log("[HONE Inference] Handler active, listening for requests");
 }
 
 /**
@@ -296,7 +296,7 @@ function handleInferenceClaim(msg) {
   rememberClaim(reqId, claimedBy);
 
   if (claimedBy && claimedBy !== MINER_NAME) {
-    console.log(`[BTCPC Inference] Job ${reqId.slice(0, 8)} claimed by ${claimedBy} — backing off`);
+    console.log(`[HONE Inference] Job ${reqId.slice(0, 8)} claimed by ${claimedBy} — backing off`);
   }
 }
 
@@ -313,7 +313,7 @@ function handleInferenceNudge(msg) {
   if (target === MINER_NAME && jobInFlight && jobInFlight.request_id === reqId) {
     // We're still working on it — refresh our claim by re-broadcasting
     const elapsed = Date.now() - jobInFlight.started_at;
-    console.log(`[BTCPC Inference] Got nudge for ${reqId.slice(0, 8)} — still working (${Math.round(elapsed/1000)}s)`);
+    console.log(`[HONE Inference] Got nudge for ${reqId.slice(0, 8)} — still working (${Math.round(elapsed/1000)}s)`);
     const refresh = createMessage("INFERENCE_CLAIM", {
       request_id: reqId,
       node_name: MINER_NAME,
@@ -336,7 +336,7 @@ function handleInferenceReclaim(msg) {
   const reqId = data.request_id;
   if (!reqId) return;
 
-  console.log(`[BTCPC Inference] RECLAIM received for ${reqId.slice(0, 8)} — ${data.original_miner} unresponsive`);
+  console.log(`[HONE Inference] RECLAIM received for ${reqId.slice(0, 8)} — ${data.original_miner} unresponsive`);
   forgetClaim(reqId);
   // Also drop from seenRequests so we can re-process the request if it comes around again
   seenRequests.delete(reqId);
@@ -393,7 +393,7 @@ async function handleInferenceRequest(msg) {
 
   // We're already processing a job
   if (jobInFlight) {
-    console.log(`[BTCPC Inference] Skipping ${reqId.slice(0, 8)} — busy with ${jobInFlight.request_id.slice(0, 8)}`);
+    console.log(`[HONE Inference] Skipping ${reqId.slice(0, 8)} — busy with ${jobInFlight.request_id.slice(0, 8)}`);
     return;
   }
 
@@ -449,7 +449,7 @@ async function handleInferenceRequest(msg) {
   }, p2p.NODE_ID);
 
   p2p.broadcast(claim);
-  console.log(`[BTCPC Inference] Claimed ${reqId.slice(0, 8)} (model: ${model}, waited: ${Math.round(jitter)}ms)`);
+  console.log(`[HONE Inference] Claimed ${reqId.slice(0, 8)} (model: ${model}, waited: ${Math.round(jitter)}ms)`);
 }
 
 /**
@@ -465,7 +465,7 @@ async function handleAssignment(msg) {
 
   if (!assigned) return; // not assigned to us
 
-  console.log(`[BTCPC Inference] Assigned to request ${data.request_id?.slice(0, 8)}`);
+  console.log(`[HONE Inference] Assigned to request ${data.request_id?.slice(0, 8)}`);
   activeJobs++;
 }
 
@@ -500,9 +500,9 @@ async function handlePayload(msg) {
     if (data.miner_account && data.miner_account !== MINER_NAME) return;
 
     try {
-      const mnemonic = process.env.BTCPC_MNEMONIC;
+      const mnemonic = process.env.HONE_MNEMONIC;
       if (!mnemonic) {
-        console.error("[BTCPC Inference] Encrypted job received but BTCPC_MNEMONIC not set — cannot decrypt");
+        console.error("[HONE Inference] Encrypted job received but HONE_MNEMONIC not set — cannot decrypt");
         return;
       }
       const keyManager = require("../wallet/keyManager");
@@ -511,9 +511,9 @@ async function handlePayload(msg) {
 
       sharedSecret = inferenceCrypto.computeSharedSecret(minerMemoPriv, data.user_memo_pubkey);
       prompt = inferenceCrypto.decrypt(data.prompt_encrypted, sharedSecret);
-      console.log(`[BTCPC Inference] Decrypted encrypted prompt for ${requestId?.slice(0, 8)} (${prompt.length} chars)`);
+      console.log(`[HONE Inference] Decrypted encrypted prompt for ${requestId?.slice(0, 8)} (${prompt.length} chars)`);
     } catch (decryptErr) {
-      console.error(`[BTCPC Inference] Failed to decrypt prompt for ${requestId?.slice(0, 8)}: ${decryptErr.message}`);
+      console.error(`[HONE Inference] Failed to decrypt prompt for ${requestId?.slice(0, 8)}: ${decryptErr.message}`);
       activeJobs = Math.max(0, activeJobs - 1);
       if (jobInFlight && jobInFlight.request_id === requestId) {
         clearJobInFlight('decrypt failed');
@@ -523,7 +523,7 @@ async function handlePayload(msg) {
   }
 
   if (!prompt) {
-    console.log(`[BTCPC Inference] No prompt in payload for ${requestId?.slice(0, 8)}`);
+    console.log(`[HONE Inference] No prompt in payload for ${requestId?.slice(0, 8)}`);
     activeJobs = Math.max(0, activeJobs - 1);
     if (jobInFlight && jobInFlight.request_id === requestId) {
       clearJobInFlight('no prompt');
@@ -531,7 +531,7 @@ async function handlePayload(msg) {
     return;
   }
 
-  console.log(`[BTCPC Inference] Processing request ${requestId?.slice(0, 8)} (${prompt.length} chars, model: ${model})`);
+  console.log(`[HONE Inference] Processing request ${requestId?.slice(0, 8)} (${prompt.length} chars, model: ${model})`);
 
   try {
     // Run inference via Ollama chat endpoint (works with both chat and completion models)
@@ -626,9 +626,9 @@ async function handlePayload(msg) {
     if (sharedSecret) {
       try {
         resultEncrypted = inferenceCrypto.encrypt(resultText, sharedSecret);
-        console.log(`[BTCPC Inference] Result encrypted for ${requestId?.slice(0, 8)}`);
+        console.log(`[HONE Inference] Result encrypted for ${requestId?.slice(0, 8)}`);
       } catch (encErr) {
-        console.error(`[BTCPC Inference] Failed to encrypt result for ${requestId?.slice(0, 8)}: ${encErr.message}`);
+        console.error(`[HONE Inference] Failed to encrypt result for ${requestId?.slice(0, 8)}: ${encErr.message}`);
       }
     }
 
@@ -666,13 +666,13 @@ async function handlePayload(msg) {
       }, p2p.NODE_ID);
       p2p.broadcast(verifyReq);
     } catch (verifyErr) {
-      console.error(`[BTCPC Inference] Failed to broadcast VERIFY_REQUEST: ${verifyErr.message}`);
+      console.error(`[HONE Inference] Failed to broadcast VERIFY_REQUEST: ${verifyErr.message}`);
     }
 
-    console.log(`[BTCPC Inference] Completed ${requestId?.slice(0, 8)}: ${tokensGenerated} tokens, ${elapsed}ms`);
+    console.log(`[HONE Inference] Completed ${requestId?.slice(0, 8)}: ${tokensGenerated} tokens, ${elapsed}ms`);
     recordModelResult(model, elapsed, tokensGenerated, true);
   } catch (err) {
-    console.error(`[BTCPC Inference] Failed ${requestId?.slice(0, 8)}:`, err.message);
+    console.error(`[HONE Inference] Failed ${requestId?.slice(0, 8)}:`, err.message);
     recordModelResult(model, 0, 0, false);
 
     // Broadcast failure so requester knows
@@ -697,7 +697,7 @@ async function handlePayload(msg) {
  */
 function handleModelDemand(msg) {
   const data = msg.data || msg;
-  console.log(`[BTCPC Inference] \u{1F4E2} MODEL DEMAND: "${data.model}" — ${data.demand} request(s) waiting. Pull this model to earn from unmet demand.`);
+  console.log(`[HONE Inference] \u{1F4E2} MODEL DEMAND: "${data.model}" — ${data.demand} request(s) waiting. Pull this model to earn from unmet demand.`);
 }
 
 module.exports = {

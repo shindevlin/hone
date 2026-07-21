@@ -1,0 +1,15 @@
+[Unit]
+Description=HONE Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=shindevlin
+WorkingDirectory=/home/shindevlin/repos/hone/telegram-bot
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/home/shindevlin/repos/hone/telegram-bot/.env
+
+[Install]
+WantedBy=multi-user.target

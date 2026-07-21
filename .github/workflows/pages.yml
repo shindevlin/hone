@@ -1,4 +1,4 @@
-name: Deploy BTCPC Market to GitHub Pages
+name: Deploy HONE Market to GitHub Pages
 
 on:
   push:

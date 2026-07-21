@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Multi-Provider Inference
+ * HONE Multi-Provider Inference
  * Shin Devlin
  *
  * Each provider exposes: name, baseUrl, formatRequest(), parseResponse()
@@ -28,16 +28,16 @@ const DEFAULT_MODEL = CODING_MODEL_PREFERENCE[0]; // gemma3:27b
 
 const providers = {
 
-  // ---- BTCPC native (local node running OpenAI-compatible API) ------------
+  // ---- HONE native (local node running OpenAI-compatible API) ------------
   // Uses the relay key so local tools can submit without a user JWT.
-  // Port is read from env at startup — matches BTCPC_API_PORT in .env.
-  btcpc: {
-    name: "btcpc",
-    baseUrl: `http://localhost:${process.env.BTCPC_API_PORT || 4242}/v1/chat/completions`,
+  // Port is read from env at startup — matches HONE_API_PORT in .env.
+  hone: {
+    name: "hone",
+    baseUrl: `http://localhost:${process.env.HONE_API_PORT || 4242}/v1/chat/completions`,
     getHeaders() {
       return {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.BTCPC_RELAY_API_KEY || "btcpc-local"}`
+        Authorization: `Bearer ${process.env.HONE_RELAY_API_KEY || "hone-local"}`
       };
     },
     formatRequest(prompt, model, options) {

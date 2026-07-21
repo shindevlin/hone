@@ -848,7 +848,7 @@
     },
     {
       "source": {
-        "path": "/src/android/rust/btcpc-miner/Cargo.lock",
+        "path": "/src/android/rust/hone-miner/Cargo.lock",
         "type": "lockfile"
       },
       "packages": [
@@ -2656,7 +2656,7 @@
     },
     {
       "source": {
-        "path": "/src/btcpc/package-lock.json",
+        "path": "/src/hone/package-lock.json",
         "type": "lockfile"
       },
       "packages": [
@@ -6175,7 +6175,7 @@
     },
     {
       "source": {
-        "path": "/src/rust/btcpc-android/Cargo.lock",
+        "path": "/src/rust/hone-android/Cargo.lock",
         "type": "lockfile"
       },
       "packages": [
@@ -6822,7 +6822,7 @@
     },
     {
       "source": {
-        "path": "/src/rust/btcpc-ble-tracker/Cargo.lock",
+        "path": "/src/rust/hone-ble-tracker/Cargo.lock",
         "type": "lockfile"
       },
       "packages": [
@@ -6990,7 +6990,7 @@
     },
     {
       "source": {
-        "path": "/src/rust/btcpc-bot/Cargo.lock",
+        "path": "/src/rust/hone-bot/Cargo.lock",
         "type": "lockfile"
       },
       "packages": [
@@ -7154,7 +7154,7 @@
     },
     {
       "source": {
-        "path": "/src/rust/btcpc-cli/Cargo.lock",
+        "path": "/src/rust/hone-cli/Cargo.lock",
         "type": "lockfile"
       },
       "packages": [
@@ -7240,7 +7240,7 @@
     },
     {
       "source": {
-        "path": "/src/rust/btcpc-contract-runtime/Cargo.lock",
+        "path": "/src/rust/hone-contract-runtime/Cargo.lock",
         "type": "lockfile"
       },
       "packages": [
@@ -10679,7 +10679,7 @@
     },
     {
       "source": {
-        "path": "/src/rust/btcpc-contract-sdk/Cargo.lock",
+        "path": "/src/rust/hone-contract-sdk/Cargo.lock",
         "type": "lockfile"
       },
       "packages": [
@@ -10836,7 +10836,7 @@
     },
     {
       "source": {
-        "path": "/src/rust/btcpc-node/Cargo.lock",
+        "path": "/src/rust/hone-node/Cargo.lock",
         "type": "lockfile"
       },
       "packages": [

@@ -1,7 +1,7 @@
 "use strict";
 
-// Registers the BTCPC skill/plugin into whichever agentic engines are present.
-// Called at the end of every install run so the user can talk to their BTCPC
+// Registers the HONE skill/plugin into whichever agentic engines are present.
+// Called at the end of every install run so the user can talk to their HONE
 // node through whatever AI assistant they already use.
 
 const hermes   = require("./engines/hermes");
@@ -19,35 +19,35 @@ const ADAPTERS = [
     check: () => spawnSync(process.env.HOME + "/.cargo/bin/zeroclaw", ["--version"], { encoding: "utf8" }).status === 0
                || spawnSync("zeroclaw", ["--version"], { encoding: "utf8" }).status === 0,
     register: () => _installZeroClawSkill(),
-    hint: "zeroclaw agent  →  'show my btcpc balance'",
+    hint: "zeroclaw agent  →  'show my hone balance'",
   },
   {
     id: "hermes",
     label: "Hermes Agent",
     check: () => hermes.isAvailable(),
     register: () => hermes.installSkill(),
-    hint: "hermes 'show my btcpc balance'",
+    hint: "hermes 'show my hone balance'",
   },
   {
     id: "openclaw",
     label: "OpenClaw",
     check: () => openclaw.isAvailable(),
     register: () => openclaw.installSkill(),
-    hint: "openclaw 'show my btcpc balance'",
+    hint: "openclaw 'show my hone balance'",
   },
   {
     id: "crewai",
     label: "CrewAI",
     check: () => spawnSync("python3", ["-c", "import crewai"], { encoding: "utf8" }).status === 0,
     register: () => _writeCrewAITool(),
-    hint: "See ~/.crewai/tools/btcpc_tool.py",
+    hint: "See ~/.crewai/tools/hone_tool.py",
   },
   {
     id: "autogen",
     label: "AutoGen",
     check: () => spawnSync("python3", ["-c", "import autogen"], { encoding: "utf8" }).status === 0,
     register: () => _writeAutoGenTool(),
-    hint: "See ~/.autogen/tools/btcpc.py",
+    hint: "See ~/.autogen/tools/hone.py",
   },
 ];
 
@@ -72,14 +72,14 @@ function registerAll() {
 function _writeCrewAITool() {
   const dir = path.join(os.homedir(), ".crewai", "tools");
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "btcpc_tool.py"), _crewaiPy(), "utf8");
+  fs.writeFileSync(path.join(dir, "hone_tool.py"), _crewaiPy(), "utf8");
   return true;
 }
 
 function _writeAutoGenTool() {
   const dir = path.join(os.homedir(), ".autogen", "tools");
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "btcpc.py"), _autogenPy(), "utf8");
+  fs.writeFileSync(path.join(dir, "hone.py"), _autogenPy(), "utf8");
   return true;
 }
 
@@ -89,7 +89,7 @@ function _installZeroClawSkill() {
   const bin = fs.existsSync(zc) ? zc : "zeroclaw";
   const r = spawnSync(bin, ["skills", "install", skillSrc], { encoding: "utf8" });
   if (r.status === 0) {
-    console.log("  ✓ BTCPC skill installed in ZeroClaw");
+    console.log("  ✓ HONE skill installed in ZeroClaw");
     console.log("  Try: zeroclaw agent  then ask about your balance");
     return true;
   }
@@ -98,55 +98,55 @@ function _installZeroClawSkill() {
 }
 
 function _crewaiPy() {
-  const btcpcDir = path.resolve(__dirname, "../..");
+  const honeDir = path.resolve(__dirname, "../..");
   return `from crewai_tools import tool
 import subprocess, json
 
-BTCPC_DIR = "${btcpcDir}"
+HONE_DIR = "${honeDir}"
 
-@tool("btcpc_balance")
-def btcpc_balance(account: str = "") -> str:
-    """Show BTCPC token balance for an account."""
-    cmd = ["node", f"{BTCPC_DIR}/bin/btcpc-cli", "balance"] + ([account] if account else [])
+@tool("hone_balance")
+def hone_balance(account: str = "") -> str:
+    """Show HONE token balance for an account."""
+    cmd = ["node", f"{HONE_DIR}/bin/hone-cli", "balance"] + ([account] if account else [])
     return subprocess.check_output(cmd, text=True)
 
-@tool("btcpc_status")
-def btcpc_status() -> str:
-    """Show status of BTCPC nodes running on this device."""
-    return subprocess.check_output(["node", f"{BTCPC_DIR}/bin/btcpc-cli", "status"], text=True)
+@tool("hone_status")
+def hone_status() -> str:
+    """Show status of HONE nodes running on this device."""
+    return subprocess.check_output(["node", f"{HONE_DIR}/bin/hone-cli", "status"], text=True)
 
-@tool("btcpc_send")
-def btcpc_send(to: str, amount: float) -> str:
-    """Send BTCPC tokens to another account."""
+@tool("hone_send")
+def hone_send(to: str, amount: float) -> str:
+    """Send HONE tokens to another account."""
     return subprocess.check_output(
-        ["node", f"{BTCPC_DIR}/bin/btcpc-cli", "transfer", to, str(amount)], text=True
+        ["node", f"{HONE_DIR}/bin/hone-cli", "transfer", to, str(amount)], text=True
     )
 `;
 }
 
 function _autogenPy() {
-  const btcpcDir = path.resolve(__dirname, "../..");
+  const honeDir = path.resolve(__dirname, "../..");
   return `import subprocess
 
-BTCPC_DIR = "${btcpcDir}"
+HONE_DIR = "${honeDir}"
 
-def btcpc_balance(account: str = "") -> str:
-    """Show BTCPC token balance."""
-    cmd = ["node", f"{BTCPC_DIR}/bin/btcpc-cli", "balance"] + ([account] if account else [])
+def hone_balance(account: str = "") -> str:
+    """Show HONE token balance."""
+    cmd = ["node", f"{HONE_DIR}/bin/hone-cli", "balance"] + ([account] if account else [])
     return subprocess.check_output(cmd, text=True)
 
-def btcpc_status() -> str:
-    """Show BTCPC node status."""
-    return subprocess.check_output(["node", f"{BTCPC_DIR}/bin/btcpc-cli", "status"], text=True)
+def hone_status() -> str:
+    """Show HONE node status."""
+    return subprocess.check_output(["node", f"{HONE_DIR}/bin/hone-cli", "status"], text=True)
 
-def btcpc_send(to: str, amount: float) -> str:
-    """Send BTCPC tokens."""
+def hone_send(to: str, amount: float) -> str:
+    """Send HONE tokens."""
     return subprocess.check_output(
-        ["node", f"{BTCPC_DIR}/bin/btcpc-cli", "transfer", to, str(amount)], text=True
+        ["node", f"{HONE_DIR}/bin/hone-cli", "transfer", to, str(amount)], text=True
     )
 
 # Register with AutoGen function map:
-# function_map = {"btcpc_balance": btcpc_balance, "btcpc_status": btcpc_status, "btcpc_send": btcpc_send}
+# function_map = {"hone_balance": hone_balance, "hone_status": hone_status, "hone_send": hone_send}
 `;
 }
 

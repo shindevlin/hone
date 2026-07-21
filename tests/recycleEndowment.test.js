@@ -1,11 +1,11 @@
 "use strict";
 
 /**
- * btcpc_recycle Perpetual Endowment — v3.3
+ * hone_recycle Perpetual Endowment — v3.3
  * Shin Devlin
  *
  * Tests for Phase 2 activation, recycle rate computation, and
- * distribution from btcpc_recycle balance.
+ * distribution from hone_recycle balance.
  */
 
 const stateStore = require('../src/chain/stateStore');
@@ -316,20 +316,20 @@ describe('computeRewards — stateStore unavailable fallback', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// btcpc_recycle balance integration (live stateStore)
+// hone_recycle balance integration (live stateStore)
 // ──────────────────────────────────────────────────────────────────────────────
 
-describe('btcpc_recycle balance in live stateStore', () => {
+describe('hone_recycle balance in live stateStore', () => {
   test('recycle account accumulates from reserve pool entries', () => {
     creditRecycle(500);
-    expect(stateStore.getBalance(RECYCLE_ACCOUNT, 'BTCPC')).toBe(500);
+    expect(stateStore.getBalance(RECYCLE_ACCOUNT, 'HONE')).toBe(500);
   });
 
   test('multiple credits accumulate correctly', () => {
     creditRecycle(100);
     creditRecycle(200);
     creditRecycle(300);
-    expect(stateStore.getBalance(RECYCLE_ACCOUNT, 'BTCPC')).toBeCloseTo(600, 5);
+    expect(stateStore.getBalance(RECYCLE_ACCOUNT, 'HONE')).toBeCloseTo(600, 5);
   });
 
   test('recycle balance does not contribute to totalSupplyDistributed', () => {

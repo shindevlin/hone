@@ -11,7 +11,7 @@ const {
 describe("p2p address normalization", () => {
   afterEach(() => {
     jest.restoreAllMocks();
-    delete process.env.BTCPC_PUBLIC_ADDRESS;
+    delete process.env.HONE_PUBLIC_ADDRESS;
     delete process.env.P2P_ADVERTISE_IP;
     delete process.env.P2P_PORT;
   });
@@ -34,8 +34,8 @@ describe("p2p address normalization", () => {
     expect(normalizeP2PAddress("wss://node.example:9443/ws")).toBe("wss://node.example:9443/ws");
   });
 
-  test("prefers BTCPC_PUBLIC_ADDRESS when it is valid", () => {
-    process.env.BTCPC_PUBLIC_ADDRESS = "wss://node.example:9443/ws";
+  test("prefers HONE_PUBLIC_ADDRESS when it is valid", () => {
+    process.env.HONE_PUBLIC_ADDRESS = "wss://node.example:9443/ws";
     expect(getAdvertisedP2PAddress()).toBe("wss://node.example:9443/ws");
   });
 

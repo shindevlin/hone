@@ -6,12 +6,12 @@ const { finalizeEpoch, EPOCH_DURATION_MS } = require('../services/epochManager')
 const { generateWork, getEpochMetadata } = require('./workGenerator');
 const { computeStateHash } = require('./stateHash');
 const { createGenesisBlock, GENESIS_MINER } = require('./genesisBlock');
-const MINER_ACCOUNT = process.env.BTCPC_MINER || GENESIS_MINER;
+const MINER_ACCOUNT = process.env.HONE_MINER || GENESIS_MINER;
 const { filterInscription } = require('../services/contentFilter');
 const { generateAllClaimProofs } = require('../claims/claimProofGenerator');
 const axios = require('axios');
-const p2p = process.env.BTCPC_USE_RUST_P2P === 'true'
-  ? require('../../../btcpc-p2p/js/ipc_client')
+const p2p = process.env.HONE_USE_RUST_P2P === 'true'
+  ? require('../../../hone-p2p/js/ipc_client')
   : require('../p2p/network');
 const { createBlockMessage, createMessage } = require('../p2p/protocol');
 const { loadFromDatabase: loadChainFromDB, cacheBlock } = require('../p2p/chainSync');
@@ -33,15 +33,15 @@ const mempool = require('../p2p/mempool');
 const finalityAnchoring = require('../chain/finalityAnchoring');
 const { applyFinalization: _applyFinalizationShared, FINALITY_INTERVAL } = require('../chain/epochFinalizer');
 
-// BTCPC_MINER_CLOCK=false disables block-proposal broadcasting from the miner.
-// Set this when running a dedicated btcpc-clock node so the clock owns proposals.
+// HONE_MINER_CLOCK=false disables block-proposal broadcasting from the miner.
+// Set this when running a dedicated hone-clock node so the clock owns proposals.
 // Default true for single-node genesis compatibility.
-const MINER_ACTS_AS_CLOCK = process.env.BTCPC_MINER_CLOCK !== 'false';
-const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
+const MINER_ACTS_AS_CLOCK = process.env.HONE_MINER_CLOCK !== 'false';
+const WORK_ITEMS_PER_EPOCH = parseInt(process.env.HONE_WORK_PER_EPOCH) || 3;
 const resourceManager = require('../services/resourceManager');
 const { notifyUpdate, notifyMining } = require('../services/systemNotify');
-// BTCPC_MODEL may be unset — resolveWorkingModel will auto-pick the best local model
-const MODEL = process.env.BTCPC_MODEL || null;
+// HONE_MODEL may be unset — resolveWorkingModel will auto-pick the best local model
+const MODEL = process.env.HONE_MODEL || null;
 const http = require('http');
 const { resolveWorkingModel } = require('./modelHealer');
 
@@ -50,7 +50,7 @@ function sendAlert(severity, message, details) {
   const url = process.env.ALERTBOT_URL;
   const key = process.env.ALERTBOT_API_KEY;
   if (!url || !key) return;
-  const body = JSON.stringify({ project: 'btcpc', severity, message, service: 'miner', details });
+  const body = JSON.stringify({ project: 'hone', severity, message, service: 'miner', details });
   const parsed = new URL('/alert', url);
   const req = http.request({
     hostname: parsed.hostname, port: parsed.port, path: '/alert',
@@ -73,12 +73,12 @@ async function ensureOllamaReachable() {
   for (let attempt = 1; ; attempt++) {
     try {
       await axios.get(url, { timeout: 5000 });
-      console.log('[BTCPC] Ollama reachable');
+      console.log('[HONE] Ollama reachable');
       ollamaReachable = true;
       return true;
     } catch (e) {
       if (attempt === 1) {
-        console.warn('[BTCPC] Ollama unreachable — will retry every 10s. Running as clock-only contributor until it responds.');
+        console.warn('[HONE] Ollama unreachable — will retry every 10s. Running as clock-only contributor until it responds.');
       }
       await new Promise(r => setTimeout(r, 10000));
     }
@@ -92,23 +92,23 @@ let _devicePubKey  = null; // hex — sent as device_id in proposals
 /**
  * Set up the signing identity for this miner.
  *
- * Preferred: BTCPC_POSTING_KEY — the posting key can't move funds, so a compromised
+ * Preferred: HONE_POSTING_KEY — the posting key can't move funds, so a compromised
  * mining machine can't drain the wallet. Use the same posting key on every machine
  * you want to mine as this account.
  *
- * Fallback: BTCPC_ACTIVE_KEY — accepted for backwards compatibility. Miners should
+ * Fallback: HONE_ACTIVE_KEY — accepted for backwards compatibility. Miners should
  * switch to the posting key.
  *
  * Peers verify via messageAuth.verifyDeviceOrAccountSignature which checks posting
  * key first (Path B), then active key (Path C).
  */
 async function _ensureDeviceKey() {
-  const signingPriv = process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
-  const keyLabel    = process.env.BTCPC_POSTING_KEY ? 'posting' : 'active';
+  const signingPriv = process.env.HONE_POSTING_KEY || process.env.HONE_ACTIVE_KEY;
+  const keyLabel    = process.env.HONE_POSTING_KEY ? 'posting' : 'active';
 
   if (!signingPriv) {
-    console.warn('[BTCPC] No BTCPC_POSTING_KEY set — block proposals will be unsigned and rejected by peers.');
-    console.warn('[BTCPC] Add BTCPC_POSTING_KEY=<64-hex-chars> to your .env to mine as ' + MINER_ACCOUNT + '.');
+    console.warn('[HONE] No HONE_POSTING_KEY set — block proposals will be unsigned and rejected by peers.');
+    console.warn('[HONE] Add HONE_POSTING_KEY=<64-hex-chars> to your .env to mine as ' + MINER_ACCOUNT + '.');
     return;
   }
 
@@ -118,12 +118,12 @@ async function _ensureDeviceKey() {
     const pubHex   = Buffer.from(pubBytes).toString('hex');
     _devicePrivKey = signingPriv;
     _devicePubKey  = pubHex;
-    console.log(`[BTCPC] Signing proposals as ${MINER_ACCOUNT} using ${keyLabel} key (${pubHex.slice(0, 16)}...)`);
+    console.log(`[HONE] Signing proposals as ${MINER_ACCOUNT} using ${keyLabel} key (${pubHex.slice(0, 16)}...)`);
     if (keyLabel === 'active') {
-      console.warn('[BTCPC] Using active (spending) key to sign proposals. Switch to BTCPC_POSTING_KEY for better security.');
+      console.warn('[HONE] Using active (spending) key to sign proposals. Switch to HONE_POSTING_KEY for better security.');
     }
   } catch (err) {
-    console.warn('[BTCPC] Signing key is not a valid secp256k1 private key:', err.message);
+    console.warn('[HONE] Signing key is not a valid secp256k1 private key:', err.message);
   }
 }
 
@@ -131,7 +131,7 @@ async function _ensureDeviceKey() {
 // Finalization waits until ALL active miners have submitted proofs for the epoch.
 // The LAST miner to submit triggers finalization (they see all proofs).
 // Max wait prevents hanging if a miner goes offline.
-const MAX_FINALIZATION_WAIT_MS = parseInt(process.env.BTCPC_MAX_FINALIZATION_WAIT_MS) || 180000; // 3 min max
+const MAX_FINALIZATION_WAIT_MS = parseInt(process.env.HONE_MAX_FINALIZATION_WAIT_MS) || 180000; // 3 min max
 const PROOF_POLL_INTERVAL_MS = 10000; // check every 10s
 const pendingFinalizations = new Set();
 
@@ -151,7 +151,7 @@ async function scheduleFinalization(epochNumber) {
   const { getIdleMiners } = require('../p2p/protocol');
   const activeMiners = nodeRegistry.getRegisteredNodes()
     .filter(n => n.type === 'miner').length;
-  console.log(`[BTCPC] Epoch ${epochNumber}: waiting for proofs from ${activeMiners} active miner(s)...`);
+  console.log(`[HONE] Epoch ${epochNumber}: waiting for proofs from ${activeMiners} active miner(s)...`);
 
   // Poll until all active miners have submitted proofs OR announced idle
   const startTime = Date.now();
@@ -161,7 +161,7 @@ async function scheduleFinalization(epochNumber) {
     const accountedFor = proofCount + idleCount;
 
     if (accountedFor >= activeMiners) {
-      console.log(`[BTCPC] Epoch ${epochNumber}: all miners accounted for (${proofCount} proofs, ${idleCount} idle). Finalizing.`);
+      console.log(`[HONE] Epoch ${epochNumber}: all miners accounted for (${proofCount} proofs, ${idleCount} idle). Finalizing.`);
       break;
     }
 
@@ -175,7 +175,7 @@ async function scheduleFinalization(epochNumber) {
 
     const elapsed = Math.round((Date.now() - startTime) / 1000);
     if (elapsed % 30 === 0 && elapsed > 0) {
-      console.log(`[BTCPC] Epoch ${epochNumber}: ${proofCount} proofs + ${idleCount} idle = ${accountedFor}/${activeMiners} after ${elapsed}s...`);
+      console.log(`[HONE] Epoch ${epochNumber}: ${proofCount} proofs + ${idleCount} idle = ${accountedFor}/${activeMiners} after ${elapsed}s...`);
     }
 
     await new Promise(r => setTimeout(r, PROOF_POLL_INTERVAL_MS));
@@ -186,7 +186,7 @@ async function scheduleFinalization(epochNumber) {
     const result = await finalizeAndSplitRewards(epochNumber);
     return result;
   } catch (err) {
-    console.error(`[BTCPC] Finalization error for epoch ${epochNumber}:`, err.message);
+    console.error(`[HONE] Finalization error for epoch ${epochNumber}:`, err.message);
     return null;
   } finally {
     pendingFinalizations.delete(epochNumber);
@@ -242,7 +242,7 @@ async function computeFinalization(epochNumber) {
   // Phase E: settled jobs count comes from compute proofs (each proof = 1 settled job)
   const settledJobsCount = stateStore.getComputeProofs(epochNumber).length;
   if (settledJobsCount > 0) {
-    console.log(`[BTCPC] Epoch ${epochNumber}: ${settledJobsCount} compute proof(s) will be rewarded`);
+    console.log(`[HONE] Epoch ${epochNumber}: ${settledJobsCount} compute proof(s) will be rewarded`);
   }
 
   // Phase D: synthetic mining proofs live exclusively in stateStore
@@ -303,7 +303,7 @@ async function computeFinalization(epochNumber) {
       }
     }
   } catch (e) {
-    console.error('[BTCPC] Could not read gossiped work:', e.message);
+    console.error('[HONE] Could not read gossiped work:', e.message);
   }
 
   const miners = Object.keys(minerWork);
@@ -325,7 +325,7 @@ async function computeFinalization(epochNumber) {
   //
   // Utilization = min(1, totalEDU / BASELINE_EDU=500)
   // Claimable   = utilization × blockReward
-  // Recycled    = (1 − utilization) × blockReward → btcpc_recycle
+  // Recycled    = (1 − utilization) × blockReward → hone_recycle
   //
   // Examples:
   //   Idle (0 EDU): 0% claimed, 100% recycled
@@ -351,7 +351,7 @@ async function computeFinalization(epochNumber) {
   const activeClocks = rawClockNodes.filter(a =>
     a && !a.startsWith('clock-') && !/^[a-f0-9]{32,}$/i.test(a) && /^[a-z0-9][a-z0-9-]{2,19}$/.test(a)
   );
-  console.log(`[BTCPC] Epoch ${epochNumber} clock nodes raw=${JSON.stringify(rawClockNodes)} filtered=${JSON.stringify(activeClocks)}`);
+  console.log(`[HONE] Epoch ${epochNumber} clock nodes raw=${JSON.stringify(rawClockNodes)} filtered=${JSON.stringify(activeClocks)}`);
 
   // Verifiers: any account that submitted a VERIFY_RESPONSE this epoch.
   const activeVerifiers = getActiveVerifiers(epochNumber).filter(a =>
@@ -399,7 +399,7 @@ async function computeFinalization(epochNumber) {
 
   if (totalEDU === 0) {
     // Network completely idle
-    rewards.push({ miner: 'btcpc_recycle', amount: parseFloat(blockReward.toFixed(10)), type: 'recycle' });
+    rewards.push({ miner: 'hone_recycle', amount: parseFloat(blockReward.toFixed(10)), type: 'recycle' });
     return rewards;
   }
 
@@ -472,7 +472,7 @@ async function computeFinalization(epochNumber) {
       if (iotRemainder > 0.000000001) recycledAmount += iotRemainder;
     } catch (iotErr) {
       recycledAmount += iotPoolReward;
-      console.error('[BTCPC] IoT reward computation failed:', iotErr.message);
+      console.error('[HONE] IoT reward computation failed:', iotErr.message);
     }
   }
 
@@ -484,7 +484,7 @@ async function computeFinalization(epochNumber) {
 
   if (finalRecycle > 0) {
     rewards.push({
-      miner: 'btcpc_recycle',
+      miner: 'hone_recycle',
       amount: finalRecycle,
       type: 'recycle',
     });
@@ -515,7 +515,7 @@ async function computeFinalization(epochNumber) {
       }
     }
   } catch (slashErr) {
-    console.error('[BTCPC] Clock slashing check failed:', slashErr.message);
+    console.error('[HONE] Clock slashing check failed:', slashErr.message);
   }
 
   const consensusHash = finConsensus.hashRewards(rewards, totalWorkValue, settledJobs.length);
@@ -556,7 +556,7 @@ async function mineEpoch(epochNumber) {
   const startTime = Date.now();
   const ts = new Date().toISOString();
 
-  console.log(`\n[BTCPC] ${ts} -- Epoch ${epochNumber} mining started`);
+  console.log(`\n[HONE] ${ts} -- Epoch ${epochNumber} mining started`);
 
   // Miner account is tracked via stateStore (blockchain source of truth).
   // Mongo is not consulted — it may not be running.
@@ -567,19 +567,19 @@ async function mineEpoch(epochNumber) {
   const node = {
     _id: MINER_ACCOUNT,
     account: user ? user._id : MINER_ACCOUNT,
-    hive_account: process.env.BTCPC_HIVE_ACCOUNT,
-    base_wallet: process.env.BTCPC_BASE_WALLET,
-    arbitrum_wallet: process.env.BTCPC_ARBITRUM_WALLET,
-    optimism_wallet: process.env.BTCPC_OPTIMISM_WALLET,
-    solana_wallet: process.env.BTCPC_SOLANA_WALLET,
-    ton_wallet: process.env.BTCPC_TON_WALLET,
-    bitcoin_wallet: process.env.BTCPC_BITCOIN_WALLET,
+    hive_account: process.env.HONE_HIVE_ACCOUNT,
+    base_wallet: process.env.HONE_BASE_WALLET,
+    arbitrum_wallet: process.env.HONE_ARBITRUM_WALLET,
+    optimism_wallet: process.env.HONE_OPTIMISM_WALLET,
+    solana_wallet: process.env.HONE_SOLANA_WALLET,
+    ton_wallet: process.env.HONE_TON_WALLET,
+    bitcoin_wallet: process.env.HONE_BITCOIN_WALLET,
     last_epoch_commitment: nodeEntry ? nodeEntry.registeredEpoch : 0,
   };
 
   // Account existence check via stateStore.
   if (!stateStore.hasAccount(MINER_ACCOUNT)) {
-    console.warn('[BTCPC] Miner account not yet in chain state (pre-genesis replay is normal)');
+    console.warn('[HONE] Miner account not yet in chain state (pre-genesis replay is normal)');
   }
 
   // Phase D: epoch metadata lives in stateStore + block payload, not Mongo.
@@ -599,7 +599,7 @@ async function mineEpoch(epochNumber) {
   if (!epoch.commitments) epoch.commitments = [];
 
   if (epoch.status === 'finalized') {
-    console.log(`[BTCPC] Epoch ${epochNumber} already finalized, skipping`);
+    console.log(`[HONE] Epoch ${epochNumber} already finalized, skipping`);
     return;
   }
 
@@ -619,14 +619,14 @@ async function mineEpoch(epochNumber) {
 
   // Guard: skip inference if Ollama isn't reachable yet
   if (!ollamaReachable) {
-    console.log('[BTCPC] Ollama not yet reachable — skipping inference this epoch');
+    console.log('[HONE] Ollama not yet reachable — skipping inference this epoch');
     return;
   }
 
   // Resolve working model — auto-heals via pull + fallback chain; never crashes
   const workingModel = await resolveWorkingModel(MODEL);
   if (!workingModel) {
-    console.error(`[BTCPC] No verifiable model available — broadcasting MINER_IDLE, staying alive`);
+    console.error(`[HONE] No verifiable model available — broadcasting MINER_IDLE, staying alive`);
     const idleMsg = createMessage('MINER_IDLE', {
       block_number: epochNumber,
       miner: MINER_ACCOUNT,
@@ -651,9 +651,9 @@ async function mineEpoch(epochNumber) {
     const startedEpoch = epochNumber;
 
     if (isGenesisFirstWork) {
-      console.log(`[BTCPC]   GENESIS INFERENCE -- the first dream computed into reality`);
+      console.log(`[HONE]   GENESIS INFERENCE -- the first dream computed into reality`);
     } else {
-      console.log(`[BTCPC]   Work item ${itemNum}/${syntheticCount} -- sending to Ollama (${workingModel}) [fire-and-forget]`);
+      console.log(`[HONE]   Work item ${itemNum}/${syntheticCount} -- sending to Ollama (${workingModel}) [fire-and-forget]`);
     }
 
     // Fire-and-forget with a generous timeout — inference may take minutes on CPU
@@ -677,7 +677,7 @@ async function mineEpoch(epochNumber) {
       };
       stateStore.addComputeProof(creditEpoch, proof);
 
-      console.log(`[BTCPC]   Work item ${itemNum} complete: ${work.tokens_generated} tokens, value=${work.work_value.toFixed(1)} (started epoch ${startedEpoch}, credited epoch ${creditEpoch})`);
+      console.log(`[HONE]   Work item ${itemNum} complete: ${work.tokens_generated} tokens, value=${work.work_value.toFixed(1)} (started epoch ${startedEpoch}, credited epoch ${creditEpoch})`);
 
       // Record in protocol so next block proposal counts it
       try {
@@ -723,7 +723,7 @@ async function mineEpoch(epochNumber) {
         p2p.broadcast(verifyMsg);
       } catch (_) {}
     }).catch((err) => {
-      console.error(`[BTCPC]   Work item ${itemNum} failed: ${err.message}`);
+      console.error(`[HONE]   Work item ${itemNum} failed: ${err.message}`);
     });
   }
 
@@ -740,11 +740,11 @@ async function mineEpoch(epochNumber) {
         totalTokens += proof.tokens_generated || 0;
         totalWorkValue += proof.work_value || 0;
       }
-      console.log(`[BTCPC]   ${myProofs.length} inference proof(s) this epoch: ${totalTokens} tokens, work_value=${totalWorkValue}`);
+      console.log(`[HONE]   ${myProofs.length} inference proof(s) this epoch: ${totalTokens} tokens, work_value=${totalWorkValue}`);
     }
 
     if (totalWorkValue === 0) {
-      console.log(`[BTCPC] No work this epoch — announcing idle to network`);
+      console.log(`[HONE] No work this epoch — announcing idle to network`);
       const idleMsg = createMessage('MINER_IDLE', {
         block_number: epochNumber,
         miner: MINER_ACCOUNT,
@@ -783,10 +783,10 @@ async function mineEpoch(epochNumber) {
     const filteredTag = tagResult.filtered_text;
     const filteredProject = projectResult.filtered_text;
     if (tagResult.was_redacted || projectResult.was_redacted) {
-      console.log(`[BTCPC]   Content filter: inscription text redacted`);
+      console.log(`[HONE]   Content filter: inscription text redacted`);
     }
     // Dream metadata is stored on the block payload (not in Mongo)
-    console.log(`[BTCPC]   Dream #${epochNumber}: "${filteredTag}" [${filteredProject}] work_hash=${workHash.slice(0, 16)}...`);
+    console.log(`[HONE]   Dream #${epochNumber}: "${filteredTag}" [${filteredProject}] work_hash=${workHash.slice(0, 16)}...`);
   }
 
   // Step 4b: Record this miner's proof for the epoch.
@@ -803,7 +803,7 @@ async function mineEpoch(epochNumber) {
     work_value: totalWorkValue,
     state_hash: stateHash,
   });
-  console.log(`[BTCPC]   Mining Proof #${epochNumber}: submitted by ${MINER_ACCOUNT} (work_value: ${totalWorkValue})`);
+  console.log(`[HONE]   Mining Proof #${epochNumber}: submitted by ${MINER_ACCOUNT} (work_value: ${totalWorkValue})`);
 
   // ALWAYS broadcast proof via P2P — even if DB save failed or proof already existed
   // Other nodes need this to finalize the epoch
@@ -818,7 +818,7 @@ async function mineEpoch(epochNumber) {
       state_hash: stateHash
     }, p2p.NODE_ID);
     p2p.broadcast(proofMsg);
-    console.log(`[BTCPC]   Proof broadcast to P2P network`);
+    console.log(`[HONE]   Proof broadcast to P2P network`);
   }
 
   // Step 5: Finalization — ONLY the epoch authority finalizes
@@ -826,7 +826,7 @@ async function mineEpoch(epochNumber) {
   const isAuthority = (MINER_ACCOUNT === GENESIS_MINER);
   let finalized = null;
   if (!isAuthority) {
-    console.log(`[BTCPC] Proof submitted. Waiting for authority to finalize epoch ${epochNumber}.`);
+    console.log(`[HONE] Proof submitted. Waiting for authority to finalize epoch ${epochNumber}.`);
     // Follower does not finalize — authority handles it at EPOCH_END
   }
 
@@ -847,7 +847,7 @@ async function mineEpoch(epochNumber) {
     const myProof = myProofs.find(p => p.miner === MINER_ACCOUNT);
     const myReward = myProof ? (myProof.reward_earned || 0) : 0;
 
-    const postingKey = process.env.BTCPC_POSTING_KEY;
+    const postingKey = process.env.HONE_POSTING_KEY;
     if (postingKey && myReward > 0) {
       try {
         claimProofs = generateAllClaimProofs(
@@ -859,12 +859,12 @@ async function mineEpoch(epochNumber) {
         );
         // Phase D: cross-chain claim proofs are not persisted to Mongo.
         // They're signed and gossiped as needed; claim state lives on the
-        // target chain, not on BTCPC.
+        // target chain, not on HONE.
         if (claimProofs.length > 0) {
-          console.log('[BTCPC]   Cross-chain proofs: ' + claimProofs.map(function (p) { return p.chain; }).join(', '));
+          console.log('[HONE]   Cross-chain proofs: ' + claimProofs.map(function (p) { return p.chain; }).join(', '));
         }
       } catch (err) {
-        console.error('[BTCPC]   Cross-chain proof generation error: ' + err.message);
+        console.error('[HONE]   Cross-chain proof generation error: ' + err.message);
       }
     }
   }
@@ -875,22 +875,22 @@ async function mineEpoch(epochNumber) {
   node.last_epoch_commitment = epochNumber;
 
   // Step 6: Log results — read updated balance from chain state (stateStore)
-  const currentBalance = stateStore.getBalance(MINER_ACCOUNT, 'BTCPC');
+  const currentBalance = stateStore.getBalance(MINER_ACCOUNT, 'HONE');
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const reward = finalized ? finalized.block_reward : 0;
 
-  console.log('[BTCPC] ------------------------------------------------');
-  console.log(`[BTCPC] Epoch ${epochNumber} complete`);
-  console.log(`[BTCPC]   Reward:       +${reward} BTCPC`);
-  console.log(`[BTCPC]   Balance:      ${currentBalance.toFixed(10)} BTCPC`);
-  console.log(`[BTCPC]   Work items:   ${workProofs.length}`);
-  console.log(`[BTCPC]   Tokens:       ${totalTokens}`);
-  console.log(`[BTCPC]   Work value:   ${totalWorkValue.toFixed(1)}`);
-  console.log(`[BTCPC]   State hash:   ${stateHash.slice(0, 16)}...`);
-  console.log(`[BTCPC]   Claims:       ${claimProofs.length} chain(s)`);
-  console.log(`[BTCPC]   Duration:     ${elapsed}s`);
-  console.log('[BTCPC] ------------------------------------------------');
+  console.log('[HONE] ------------------------------------------------');
+  console.log(`[HONE] Epoch ${epochNumber} complete`);
+  console.log(`[HONE]   Reward:       +${reward} HONE`);
+  console.log(`[HONE]   Balance:      ${currentBalance.toFixed(10)} HONE`);
+  console.log(`[HONE]   Work items:   ${workProofs.length}`);
+  console.log(`[HONE]   Tokens:       ${totalTokens}`);
+  console.log(`[HONE]   Work value:   ${totalWorkValue.toFixed(1)}`);
+  console.log(`[HONE]   State hash:   ${stateHash.slice(0, 16)}...`);
+  console.log(`[HONE]   Claims:       ${claimProofs.length} chain(s)`);
+  console.log(`[HONE]   Duration:     ${elapsed}s`);
+  console.log('[HONE] ------------------------------------------------');
 
   // Collect earners for this epoch so the alertbot can DM only those who earned
   // rather than broadcasting to all linked users.
@@ -904,7 +904,7 @@ async function mineEpoch(epochNumber) {
   if (MINER_ACCOUNT && !earnerUsernames.includes(MINER_ACCOUNT)) {
     earnerUsernames.push(MINER_ACCOUNT);
   }
-  sendAlert('ok', `Epoch ${epochNumber} mined: +${reward} BTCPC (${totalTokens} tokens, ${elapsed}s)`, { earners: earnerUsernames, epoch: epochNumber });
+  sendAlert('ok', `Epoch ${epochNumber} mined: +${reward} HONE (${totalTokens} tokens, ${elapsed}s)`, { earners: earnerUsernames, epoch: epochNumber });
 
   // Broadcast finalized epoch to P2P network
   try {
@@ -921,7 +921,7 @@ async function mineEpoch(epochNumber) {
     const blockMsg = createBlockMessage(blockData, p2p.NODE_ID);
     p2p.broadcast(blockMsg);
   } catch (err) {
-    console.error('[BTCPC] P2P broadcast error:', err.message);
+    console.error('[HONE] P2P broadcast error:', err.message);
   }
 }
 
@@ -931,28 +931,28 @@ async function mineEpoch(epochNumber) {
  */
 async function startMiner() {
   if (running) {
-    console.log('[BTCPC] Miner already running');
+    console.log('[HONE] Miner already running');
     return;
   }
 
-  console.log('[BTCPC] ================================================');
-  console.log('[BTCPC]    BTCPC Mining Daemon Starting');
-  console.log('[BTCPC] ================================================');
-  console.log(`[BTCPC] Ollama:     ${process.env.OLLAMA_URL || 'http://100.122.145.60:11434'}`);
-  console.log(`[BTCPC] Model:      ${MODEL || '(auto-select on first epoch)'}`);
-  console.log(`[BTCPC] Work/epoch: ${WORK_ITEMS_PER_EPOCH}`);
-  console.log(`[BTCPC] Epoch:      ${EPOCH_DURATION_MS / 1000}s`);
-  console.log('[BTCPC] ================================================');
+  console.log('[HONE] ================================================');
+  console.log('[HONE]    HONE Mining Daemon Starting');
+  console.log('[HONE] ================================================');
+  console.log(`[HONE] Ollama:     ${process.env.OLLAMA_URL || 'http://100.122.145.60:11434'}`);
+  console.log(`[HONE] Model:      ${MODEL || '(auto-select on first epoch)'}`);
+  console.log(`[HONE] Work/epoch: ${WORK_ITEMS_PER_EPOCH}`);
+  console.log(`[HONE] Epoch:      ${EPOCH_DURATION_MS / 1000}s`);
+  console.log('[HONE] ================================================');
 
   // Start P2P network
   try {
     await loadChainFromDB();
     p2p.startServer();
     p2p.connectToSeeds();
-    console.log(`[BTCPC] P2P network started on port ${process.env.P2P_PORT || 6942}`);
-    console.log(`[BTCPC] Node ID: ${p2p.NODE_ID}`);
+    console.log(`[HONE] P2P network started on port ${process.env.P2P_PORT || 6942}`);
+    console.log(`[HONE] Node ID: ${p2p.NODE_ID}`);
 
-    // Connect to all configured relays (BTCPC_RELAY_URLS or BTCPC_RELAY_URL)
+    // Connect to all configured relays (HONE_RELAY_URLS or HONE_RELAY_URL)
     p2p.connectToRelays();
 
     // Start inference handler — listen for jobs on P2P
@@ -968,7 +968,7 @@ async function startMiner() {
           p2p.connectToPeer(addr);
         }
         if (discoveredPeers.length > 0) {
-          console.log(`[BTCPC] Discovered ${discoveredPeers.length} peer(s) from registry`);
+          console.log(`[HONE] Discovered ${discoveredPeers.length} peer(s) from registry`);
         }
 
         // Register ourselves
@@ -980,52 +980,52 @@ async function startMiner() {
             gpu: null,
           }, { timeout: 5000 }).catch(() => {});
         } else {
-          console.warn('[BTCPC] Skipping peer-registry registration — no routable P2P address available');
+          console.warn('[HONE] Skipping peer-registry registration — no routable P2P address available');
         }
       } catch (err) {
-        console.warn('[BTCPC] Peer registry unreachable:', err.message);
+        console.warn('[HONE] Peer registry unreachable:', err.message);
       }
     }
   } catch (err) {
-    console.error('[BTCPC] P2P startup error (mining continues):', err.message);
+    console.error('[HONE] P2P startup error (mining continues):', err.message);
   }
 
   // Probe GPU silicon fingerprint
   try {
     const sik = await silicon.getFingerprint();
-    console.log(`[BTCPC] Silicon ID: ${sik.sik_hash.slice(0, 16)}...`);
-    console.log(`[BTCPC] GPU: ${sik.gpu} (${sik.vram_mb} MB)`);
+    console.log(`[HONE] Silicon ID: ${sik.sik_hash.slice(0, 16)}...`);
+    console.log(`[HONE] GPU: ${sik.gpu} (${sik.vram_mb} MB)`);
     if (sik.software_only) {
-      console.log('[BTCPC] WARNING: Software-only fingerprint. Compile CUDA probe for silicon-bound identity.');
+      console.log('[HONE] WARNING: Software-only fingerprint. Compile CUDA probe for silicon-bound identity.');
     }
     // Phase E: Node model deleted — SIK hash stored in nodeRegistry in-memory
     const sikEntry = nodeRegistry.getNode(MINER_ACCOUNT);
     if (sikEntry && sikEntry.sik_hash !== sik.sik_hash) {
       sikEntry.sik_hash = sik.sik_hash;
       sikEntry.sik_type = sik.software_only ? 'software' : 'silicon';
-      console.log(`[BTCPC] SIK registered: ${sik.sik_hash.slice(0, 16)}... (${sikEntry.sik_type})`);
+      console.log(`[HONE] SIK registered: ${sik.sik_hash.slice(0, 16)}... (${sikEntry.sik_type})`);
     }
   } catch (err) {
-    console.warn('[BTCPC] SIK probe skipped:', err.message);
+    console.warn('[HONE] SIK probe skipped:', err.message);
   }
 
   // Sync local Ollama models (Phase E: Node model deleted, pass null nodeId)
   try {
     const { syncLocalModels } = require('../services/modelRegistry');
     const models = await syncLocalModels(null);
-    console.log(`[BTCPC] Models synced: ${models.join(', ') || 'none'}`);
+    console.log(`[HONE] Models synced: ${models.join(', ') || 'none'}`);
 
     // Verify all models against Ollama registry
     const verResults = await verifyAllModels();
     for (const v of verResults) {
       if (v.verified) {
-        console.log(`[BTCPC] Model ${v.model}: VERIFIED`);
+        console.log(`[HONE] Model ${v.model}: VERIFIED`);
       } else {
-        console.error(`[BTCPC] Model ${v.model}: REJECTED — ${v.reason}`);
+        console.error(`[HONE] Model ${v.model}: REJECTED — ${v.reason}`);
       }
     }
   } catch (err) {
-    console.warn('[BTCPC] Model sync skipped:', err.message);
+    console.warn('[HONE] Model sync skipped:', err.message);
   }
 
   // Create genesis block if needed
@@ -1051,23 +1051,23 @@ async function startMiner() {
   }
 
   if (!minerAccountExists) {
-    console.log(`[BTCPC] Account '${MINER_ACCOUNT}' not found — creating...`);
+    console.log(`[HONE] Account '${MINER_ACCOUNT}' not found — creating...`);
     try {
       // Try the full wallet creation path (generates mnemonic + keys).
       // This calls accountManager.createAccount which writes to Mongo IF
       // available, but we don't depend on it — the ledger entry below is
       // what actually puts the account on chain.
       const { createAccount } = require('../wallet/accountManager');
-      const savedMnemonic = process.env.BTCPC_MNEMONIC || process.env[`BTCPC_MNEMONIC_${MINER_ACCOUNT.toUpperCase().replace(/-/g, '_')}`] || null;
+      const savedMnemonic = process.env.HONE_MNEMONIC || process.env[`HONE_MNEMONIC_${MINER_ACCOUNT.toUpperCase().replace(/-/g, '_')}`] || null;
       let account;
       try {
         account = await createAccount(MINER_ACCOUNT, savedMnemonic, `${MINER_ACCOUNT}-miner`);
-        console.log(`[BTCPC] Miner account created: ${MINER_ACCOUNT}`);
-        if (savedMnemonic) console.log(`[BTCPC] Using saved mnemonic`);
+        console.log(`[HONE] Miner account created: ${MINER_ACCOUNT}`);
+        if (savedMnemonic) console.log(`[HONE] Using saved mnemonic`);
       } catch (createErr) {
         // createAccount may fail if Mongo is down (it tries to create a User doc).
         // Fall back to a minimal on-chain-only creation via ledger entry.
-        console.warn(`[BTCPC] Full account creation failed (${createErr.message}), using chain-only path`);
+        console.warn(`[HONE] Full account creation failed (${createErr.message}), using chain-only path`);
         account = null;
       }
 
@@ -1077,7 +1077,7 @@ async function startMiner() {
       const publicKeys = account ? account.publicKeys : {};
       const chainWallets = account ? account.chainWallets : {};
       await ledger.recordAccountCreate(MINER_ACCOUNT, publicKeys, chainWallets, 0);
-      console.log(`[BTCPC] Account announced to ledger (permanent)`);
+      console.log(`[HONE] Account announced to ledger (permanent)`);
 
       // Broadcast to all nodes so they have the account immediately
       // (ACCOUNT_ANNOUNCE updates stateStore in memory on every peer)
@@ -1089,25 +1089,25 @@ async function startMiner() {
           epoch: 0
         }, p2p.NODE_ID);
         p2p.broadcast(announceMsg);
-        console.log(`[BTCPC] Account broadcast to P2P network`);
+        console.log(`[HONE] Account broadcast to P2P network`);
       } catch (_) {}
 
       minerAccountExists = true;
     } catch (err) {
-      console.error(`[BTCPC] Failed to create miner account: ${err.message}`);
+      console.error(`[HONE] Failed to create miner account: ${err.message}`);
       // Continue anyway — the miner can still participate as a clock/verifier
       // even without a fully-created account. The account will auto-create
       // on the next MINING_REWARD that credits this username.
       minerAccountExists = true; // don't block startup
     }
   } else {
-    console.log(`[BTCPC] Miner account '${MINER_ACCOUNT}' found on chain`);
+    console.log(`[HONE] Miner account '${MINER_ACCOUNT}' found on chain`);
   }
 
   // Phase E: Node model deleted — register in nodeRegistry in-memory
   if (!nodeRegistry.isRegistered(MINER_ACCOUNT)) {
     nodeRegistry.registerNode(MINER_ACCOUNT, 'miner', 1000, getAdvertisedP2PAddress(), 0, MINER_ACCOUNT === GENESIS_MINER);
-    console.log(`[BTCPC] Mining node registered for ${MINER_ACCOUNT} (nodeRegistry)`);
+    console.log(`[HONE] Mining node registered for ${MINER_ACCOUNT} (nodeRegistry)`);
   }
 
   // ── Device key setup (auto, zero-touch) ────────────────────────────────
@@ -1157,7 +1157,7 @@ async function startMiner() {
     currentEpoch = Math.max(timeBased, dbBased, p2pHeight);
     if (currentEpoch < 1) currentEpoch = 1;
 
-    console.log(`[BTCPC] Epoch sync: time=${timeBased}, store=${dbBased}, p2p=${p2pHeight} → starting at ${currentEpoch}`);
+    console.log(`[HONE] Epoch sync: time=${timeBased}, store=${dbBased}, p2p=${p2pHeight} → starting at ${currentEpoch}`);
   } else {
     currentEpoch = 0;
   }
@@ -1190,7 +1190,7 @@ async function startMiner() {
     MINER_ACCOUNT === GENESIS_MINER,
     currentEpoch
   ).catch((err) => {
-    console.warn(`[BTCPC] Miner node registration record failed: ${err.message}`);
+    console.warn(`[HONE] Miner node registration record failed: ${err.message}`);
   });
   if (typeof ledger.recordNodeAnnounce === 'function') {
     ledger.recordNodeAnnounce(
@@ -1199,7 +1199,7 @@ async function startMiner() {
       currentEpoch,
       { node_types: ['miner'], permissioned: MINER_ACCOUNT === GENESIS_MINER }
     ).catch((err) => {
-      console.warn(`[BTCPC] Miner node announce failed: ${err.message}`);
+      console.warn(`[HONE] Miner node announce failed: ${err.message}`);
     });
     setInterval(() => {
       Promise.resolve(ledger.getCurrentEpoch ? ledger.getCurrentEpoch() : currentEpoch)
@@ -1220,17 +1220,17 @@ async function startMiner() {
   try {
     const replay = require('../chain/replay');
     const replayResult = await replay.replayFromDisk({ verbose: true });
-    console.log('[BTCPC] stateStore replay (miner): ' + replayResult.replayed + ' blocks, ' +
+    console.log('[HONE] stateStore replay (miner): ' + replayResult.replayed + ' blocks, ' +
       replayResult.accounts + ' accounts, ' + replayResult.durationMs + 'ms');
   } catch (err) {
-    console.error('[BTCPC] stateStore replay error:', err.message);
+    console.error('[HONE] stateStore replay error:', err.message);
   }
 
   // Bootstrap: ensure the account's posting public key is in stateStore so
   // peers can verify block proposal signatures. Must run AFTER replay so
   // replayed blocks don't overwrite the bootstrapped key.
   {
-    const postingKeyPriv = process.env.BTCPC_POSTING_KEY;
+    const postingKeyPriv = process.env.HONE_POSTING_KEY;
     if (postingKeyPriv) {
       try {
         const { secp256k1 } = require('@noble/curves/secp256k1');
@@ -1240,10 +1240,10 @@ async function startMiner() {
           const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(postingKeyPriv, 'hex'), true);
           const postingPubKey = Buffer.from(pubKeyBytes).toString('hex');
           stateStore.bootstrapAccountKey(MINER_ACCOUNT, 'posting', postingPubKey);
-          console.log(`[BTCPC] Bootstrap: posting public key set for ${MINER_ACCOUNT}: ${postingPubKey.slice(0, 16)}...`);
+          console.log(`[HONE] Bootstrap: posting public key set for ${MINER_ACCOUNT}: ${postingPubKey.slice(0, 16)}...`);
         }
       } catch (keyRegErr) {
-        console.warn(`[BTCPC] Could not bootstrap posting key: ${keyRegErr.message}`);
+        console.warn(`[HONE] Could not bootstrap posting key: ${keyRegErr.message}`);
       }
     }
   }
@@ -1259,9 +1259,9 @@ async function startMiner() {
 
   // ── Miner is NEVER the clock — clocks drive timing, miners do work ──
   // Miner listens for EPOCH_START from clock nodes, mines, and finalizes.
-  // Clock nodes (btcpc-clock) handle EPOCH_START/END timing.
+  // Clock nodes (hone-clock) handle EPOCH_START/END timing.
 
-  console.log(`[BTCPC] Miner ${MINER_ACCOUNT} — waiting for EPOCH_START from clock nodes...`);
+  console.log(`[HONE] Miner ${MINER_ACCOUNT} — waiting for EPOCH_START from clock nodes...`);
 
   // Seed lastEpoch from startup currentEpoch so we never regress to a
   // genesis-derived epoch when block files already have a higher chain tip.
@@ -1272,7 +1272,7 @@ async function startMiner() {
   // P2P network consensus epoch — so the miner stays in sync with the live
   // chain even when early block files (epoch 0–N) aren't stored locally.
   const GENESIS_TIME = 1776184020000;
-  console.log(`[BTCPC] Self-tick timer registered (interval: ${EPOCH_DURATION_MS * 2}ms)`);
+  console.log(`[HONE] Self-tick timer registered (interval: ${EPOCH_DURATION_MS * 2}ms)`);
   setInterval(() => {
     const now = Date.now();
     const timeDerived = Math.floor((now - GENESIS_TIME) / EPOCH_DURATION_MS);
@@ -1281,7 +1281,7 @@ async function startMiner() {
     const chainTip = stateStore.getChainHeight();
     const targetEpoch = Math.max(timeDerived, networkEpoch > 0 ? networkEpoch : 0, chainTip >= 0 ? chainTip + 1 : 0);
     if (targetEpoch > 0 && targetEpoch > lastEpoch) {
-      console.log(`[BTCPC] Self-tick: epoch ${targetEpoch} (time=${timeDerived}, network=${networkEpoch}, chain=${chainTip})`);
+      console.log(`[HONE] Self-tick: epoch ${targetEpoch} (time=${timeDerived}, network=${networkEpoch}, chain=${chainTip})`);
       lastEpoch = targetEpoch;
       currentEpoch = targetEpoch;
       setImmediate(async () => {
@@ -1290,7 +1290,7 @@ async function startMiner() {
           syncLocalModels(null).catch(() => {});
           await mineEpoch(targetEpoch);
         } catch (err) {
-          console.error(`[BTCPC] Epoch ${targetEpoch} mining error:`, err.message);
+          console.error(`[HONE] Epoch ${targetEpoch} mining error:`, err.message);
         }
       });
     }
@@ -1304,7 +1304,7 @@ async function startMiner() {
 
       lastEpoch = data.epoch_number;
       currentEpoch = data.epoch_number;
-      console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (from ${data.authority || 'clock'})`);
+      console.log(`[HONE] Epoch ${currentEpoch} STARTED (from ${data.authority || 'clock'})`);
 
       const epochToMine = currentEpoch;
       setImmediate(async () => {
@@ -1314,7 +1314,7 @@ async function startMiner() {
 
           await mineEpoch(epochToMine);
         } catch (err) {
-          console.error(`[BTCPC] Epoch ${epochToMine} mining error:`, err.message);
+          console.error(`[HONE] Epoch ${epochToMine} mining error:`, err.message);
         }
       });
     }
@@ -1325,19 +1325,19 @@ async function startMiner() {
   });
 
   // ── Consensus resolution + block proposal: only when acting as clock ──
-  // Set BTCPC_MINER_CLOCK=false to run miner-only (pure inference).
-  // Leave unset or BTCPC_MINER_CLOCK=true for single-node genesis (default).
+  // Set HONE_MINER_CLOCK=false to run miner-only (pure inference).
+  // Leave unset or HONE_MINER_CLOCK=true for single-node genesis (default).
   const finConsensus = require('../chain/finalizationConsensus');
   if (MINER_ACTS_AS_CLOCK) {
     finConsensus.onResolved(async (epochNumber, winner) => {
       try {
         // Only the designated broadcaster applies and broadcasts
         if (!finConsensus.amIBroadcaster(epochNumber, MINER_ACCOUNT)) {
-          console.log(`[BTCPC] Epoch ${epochNumber} consensus reached — ${winner.proposer} will broadcast`);
+          console.log(`[HONE] Epoch ${epochNumber} consensus reached — ${winner.proposer} will broadcast`);
           return;
         }
 
-        console.log(`[BTCPC] Epoch ${epochNumber} consensus reached — I am the broadcaster`);
+        console.log(`[HONE] Epoch ${epochNumber} consensus reached — I am the broadcaster`);
 
         const epoch = await applyFinalization(epochNumber, winner);
         if (!epoch) return;
@@ -1345,7 +1345,7 @@ async function startMiner() {
         const bd = epoch._blockData || {};
 
         let blockSignature = null;
-        const activeKeyForSign = process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
+        const activeKeyForSign = process.env.HONE_POSTING_KEY || process.env.HONE_ACTIVE_KEY;
         if (activeKeyForSign) {
           try {
             const messageAuth = require('../p2p/messageAuth');
@@ -1382,30 +1382,30 @@ async function startMiner() {
           is_finality: bd.is_finality || false
         }, p2p.NODE_ID);
         p2p.broadcast(blockMsg);
-        console.log(`[BTCPC] Block ${epochNumber} broadcast to network (consensus)`);
+        console.log(`[HONE] Block ${epochNumber} broadcast to network (consensus)`);
 
         try {
           const myReward = (winner.rewards || []).find(r => r.miner === MINER_ACCOUNT);
           if (myReward && myReward.amount > 0) {
             const { submitAllClaims } = require('../claims/evmClaimSubmitter');
-            const postingKey = process.env.BTCPC_SHIN_POSTING_KEY || process.env.BTCPC_POSTING_KEY;
+            const postingKey = process.env.HONE_SHIN_POSTING_KEY || process.env.HONE_POSTING_KEY;
             if (postingKey) {
-              const linkedChains = { evm: process.env.BTCPC_EVM_ADDRESS };
+              const linkedChains = { evm: process.env.HONE_EVM_ADDRESS };
               submitAllClaims(MINER_ACCOUNT, epochNumber, myReward.amount, linkedChains, postingKey)
                 .then(results => {
-                  if (results.length > 0) console.log(`[BTCPC] Cross-chain claims: ${results.length} submitted`);
+                  if (results.length > 0) console.log(`[HONE] Cross-chain claims: ${results.length} submitted`);
                 })
                 .catch(() => {});
             }
           }
         } catch (_) {}
       } catch (err) {
-        console.error(`[BTCPC] Consensus apply error for epoch ${epochNumber}:`, err.message);
+        console.error(`[HONE] Consensus apply error for epoch ${epochNumber}:`, err.message);
       }
     });
 
     // Block proposal loop — runs only when miner acts as clock.
-    // Correct multi-node setup: btcpc-clock proposes, miner just does inference.
+    // Correct multi-node setup: hone-clock proposes, miner just does inference.
     const blockProposal = require('../chain/blockProposal');
     let lastProposedEpoch = -1;
     let highestFinalizedEpoch = currentEpoch - 1;
@@ -1430,7 +1430,7 @@ async function startMiner() {
           protocol: protocolModule,
         });
 
-        const signingKey = _devicePrivKey || process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
+        const signingKey = _devicePrivKey || process.env.HONE_POSTING_KEY || process.env.HONE_ACTIVE_KEY;
         if (signingKey) {
           try {
             const messageAuth = require('../p2p/messageAuth');
@@ -1445,15 +1445,15 @@ async function startMiner() {
             proposal.proposal_signature = sig.signature;
             if (_devicePubKey) proposal.device_id = _devicePubKey;
           } catch (sigErr) {
-            console.warn(`[BTCPC] Failed to sign block proposal: ${sigErr.message}`);
+            console.warn(`[HONE] Failed to sign block proposal: ${sigErr.message}`);
           }
         } else {
-          console.warn('[BTCPC] No signing key available — block proposal will be unsigned (rejected by peers)');
+          console.warn('[HONE] No signing key available — block proposal will be unsigned (rejected by peers)');
         }
 
         const msg = createMessage('BLOCK_PROPOSAL', proposal, p2p.NODE_ID);
         p2p.broadcast(msg);
-        console.log(`[BTCPC] Block proposal for epoch ${targetEpoch}: ${proposal.miners_active} miner(s), ${proposal.verifiers_active} verifier(s), ${proposal.clocks_active} clock(s), work=${proposal.total_work}`);
+        console.log(`[HONE] Block proposal for epoch ${targetEpoch}: ${proposal.miners_active} miner(s), ${proposal.verifiers_active} verifier(s), ${proposal.clocks_active} clock(s), work=${proposal.total_work}`);
 
         const { getAdvertisedP2PAddress } = require('../p2p/address');
         let _localSourceTag = "self";
@@ -1471,7 +1471,7 @@ async function startMiner() {
           timestamp: proposal.timestamp,
         }, _localSourceTag);
       } catch (err) {
-        console.error(`[BTCPC] Block proposal error for epoch ${targetEpoch}:`, err.message);
+        console.error(`[HONE] Block proposal error for epoch ${targetEpoch}:`, err.message);
       }
     }, 5000);
 
@@ -1479,9 +1479,9 @@ async function startMiner() {
       if (epochNumber > highestFinalizedEpoch) highestFinalizedEpoch = epochNumber;
     });
 
-    console.log(`[BTCPC] Clock loop active — checking every 5s, epoch duration ${EPOCH_DURATION_MS / 1000}s`);
+    console.log(`[HONE] Clock loop active — checking every 5s, epoch duration ${EPOCH_DURATION_MS / 1000}s`);
   } else {
-    console.log('[BTCPC] BTCPC_MINER_CLOCK=false — miner-only mode, block proposals handled by btcpc-clock');
+    console.log('[HONE] HONE_MINER_CLOCK=false — miner-only mode, block proposals handled by hone-clock');
   }
 
   // Start auto-updater (checks GitHub every 15min, stages + notifies)
@@ -1516,7 +1516,7 @@ async function startMarketplacePoller() {
   const browserRunner = require('../services/browserRunner');
   const fsSync = require('fs');
   const pathMod = require('path');
-  const BLOB_DATA_DIR = process.env.BTCPC_BLOB_DIR || pathMod.resolve(__dirname, '../../data/blobs');
+  const BLOB_DATA_DIR = process.env.HONE_BLOB_DIR || pathMod.resolve(__dirname, '../../data/blobs');
   const capabilityService = require('../services/capabilityService');
 
   // Detect and broadcast capabilities on startup, then every 100 epochs
@@ -1596,16 +1596,16 @@ async function startMarketplacePoller() {
   function pickModel(job) {
     // Vision jobs need a multi-modal model
     if (job.image_cids && job.image_cids.length > 0) {
-      return job.model || process.env.BTCPC_VISION_MODEL || 'llava:7b';
+      return job.model || process.env.HONE_VISION_MODEL || 'llava:7b';
     }
     const tier = job.tier || 'standard';
     if (tier === 'reasoning') {
-      return job.model || process.env.BTCPC_REASONING_MODEL || 'qwq:32b' ||
-             process.env.BTCPC_MODEL || MODEL || 'qwen3:4b';
+      return job.model || process.env.HONE_REASONING_MODEL || 'qwq:32b' ||
+             process.env.HONE_MODEL || MODEL || 'qwen3:4b';
     }
     if (tier === 'fast') {
-      return job.model || process.env.BTCPC_FAST_MODEL || 'qwen3:0.6b' ||
-             process.env.BTCPC_MODEL || MODEL || 'qwen3:4b';
+      return job.model || process.env.HONE_FAST_MODEL || 'qwen3:0.6b' ||
+             process.env.HONE_MODEL || MODEL || 'qwen3:4b';
     }
     return job.model || MODEL || 'qwen3:4b';
   }
@@ -1670,7 +1670,7 @@ async function startMarketplacePoller() {
         if (servable.length === 0) return;
         const best = servable[0];
 
-        console.log(`[Marketplace] Claiming job ${best.job_id} (${best.max_fee} BTCPC, model: ${best.model || 'any'})`);
+        console.log(`[Marketplace] Claiming job ${best.job_id} (${best.max_fee} HONE, model: ${best.model || 'any'})`);
         const claimed = await market.claimJob(best.job_id, MINER_ACCOUNT);
         job = storeRef.getInferenceJob(best.job_id);
         if (!job) return;
@@ -1680,7 +1680,7 @@ async function startMarketplacePoller() {
 
       if (!job) return;
 
-      // RAG: retrieve context from BTCPC-FS blobs before first turn
+      // RAG: retrieve context from HONE-FS blobs before first turn
       if (job.rag_cids && job.rag_cids.length > 0 && (job.current_turn || 0) === 0) {
         try {
           const ragContext = await ragService.retrieveContext(job.prompt, job.rag_cids);
@@ -1772,7 +1772,7 @@ async function startMarketplacePoller() {
         }
       }
 
-      console.log(`[Marketplace] Job ${job.job_id} complete — ${totalTokens} tokens, ${elapsed}s, ${actualCost.toFixed(4)} BTCPC earned`);
+      console.log(`[Marketplace] Job ${job.job_id} complete — ${totalTokens} tokens, ${elapsed}s, ${actualCost.toFixed(4)} HONE earned`);
     } catch (err) {
       if (err.message && !err.message.includes('not open') && !err.message.includes('expired')) {
         console.warn(`[Marketplace] Poll error: ${err.message}`);
@@ -1797,8 +1797,8 @@ async function startMarketplacePoller() {
  * Runs every 20s. Requires Playwright to be installed.
  */
 async function startBrowserPoller() {
-  if (process.env.BTCPC_BROWSER_ENABLED === "false") {
-    console.log('[BrowserPoller] Browser jobs disabled (BTCPC_BROWSER_ENABLED=false)');
+  if (process.env.HONE_BROWSER_ENABLED === "false") {
+    console.log('[BrowserPoller] Browser jobs disabled (HONE_BROWSER_ENABLED=false)');
     return;
   }
   const browserRunner = require('../services/browserRunner');
@@ -1841,13 +1841,13 @@ async function startBrowserPoller() {
             const currentUrl = session.currentUrl();
             const pageTitle = await session.pageTitle();
 
-            await axios.post(`http://localhost:${process.env.BTCPC_API_PORT || 3000}/api/browser/${job.job_id}/screenshot`, {
+            await axios.post(`http://localhost:${process.env.HONE_API_PORT || 3000}/api/browser/${job.job_id}/screenshot`, {
               screenshot_cid: screenshotCid,
               current_url: currentUrl,
               page_title: pageTitle,
               accessibility_tree: accessibilityTree,
               available_actions: ['click', 'type', 'navigate', 'scroll', 'key', 'wait', 'done'],
-            }, { headers: { Authorization: `Bearer ${process.env.BTCPC_MINER_JWT}` } });
+            }, { headers: { Authorization: `Bearer ${process.env.HONE_MINER_JWT}` } });
           } catch (err) {
             console.warn(`[BrowserPoller] Action error for ${job.job_id}: ${err.message}`);
           }
@@ -1866,8 +1866,8 @@ async function startBrowserPoller() {
 
       console.log(`[BrowserPoller] Claiming browser job ${job.job_id} — goal: ${(job.goal || '').slice(0, 60)}`);
 
-      await axios.post(`http://localhost:${process.env.BTCPC_API_PORT || 3000}/api/browser/${job.job_id}/claim`, {},
-        { headers: { Authorization: `Bearer ${process.env.BTCPC_MINER_JWT}` } });
+      await axios.post(`http://localhost:${process.env.HONE_API_PORT || 3000}/api/browser/${job.job_id}/claim`, {},
+        { headers: { Authorization: `Bearer ${process.env.HONE_MINER_JWT}` } });
 
       // Launch browser session
       const session = await browserRunner.createSession(job.job_id, { viewport: job.viewport });
@@ -1879,13 +1879,13 @@ async function startBrowserPoller() {
       const currentUrl = session.currentUrl();
       const pageTitle = await session.pageTitle();
 
-      await axios.post(`http://localhost:${process.env.BTCPC_API_PORT || 3000}/api/browser/${job.job_id}/screenshot`, {
+      await axios.post(`http://localhost:${process.env.HONE_API_PORT || 3000}/api/browser/${job.job_id}/screenshot`, {
         screenshot_cid: screenshotCid,
         current_url: currentUrl,
         page_title: pageTitle,
         accessibility_tree: accessibilityTree,
         available_actions: ['click', 'type', 'navigate', 'scroll', 'key', 'wait', 'done'],
-      }, { headers: { Authorization: `Bearer ${process.env.BTCPC_MINER_JWT}` } });
+      }, { headers: { Authorization: `Bearer ${process.env.HONE_MINER_JWT}` } });
 
       console.log(`[BrowserPoller] Initial screenshot for ${job.job_id}: ${screenshotCid.slice(0, 12)}… — waiting for buyer action`);
     } catch (err) {
@@ -1917,7 +1917,7 @@ function stopMiner() {
     clearInterval(miningInterval);
     miningInterval = null;
   }
-  console.log('[BTCPC] Mining daemon stopped');
+  console.log('[HONE] Mining daemon stopped');
 }
 
 module.exports = {

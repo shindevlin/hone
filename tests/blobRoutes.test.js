@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS HTTP route tests — v2.11.0
+ * HONE-FS HTTP route tests — v2.11.0
  */
 
 const fs = require('fs');
@@ -10,8 +10,8 @@ const os = require('os');
 const http = require('http');
 const crypto = require('crypto');
 
-const TEST_ROOT = path.join(os.tmpdir(), 'btcpc-test-blob-routes-' + process.pid);
-process.env.BTCPC_BLOB_DIR = TEST_ROOT;
+const TEST_ROOT = path.join(os.tmpdir(), 'hone-test-blob-routes-' + process.pid);
+process.env.HONE_BLOB_DIR = TEST_ROOT;
 
 jest.mock('../src/p2p/mempool', () => ({
   submit: jest.fn().mockReturnValue({ accepted: true }),
@@ -132,7 +132,7 @@ describe('blob routes (v2.11.0)', () => {
 
   describe('POST /api/blobs', () => {
     test('upload returns CID and records chain commit', async () => {
-      const content = Buffer.from('hello BTCPC-FS');
+      const content = Buffer.from('hello HONE-FS');
       const r = await request(port, 'POST', '/api/blobs', content, { user: 'alice' });
       expect(r.status).toBe(201);
       expect(r.body.cid).toBe(blobStore.computeCid(content));
@@ -182,7 +182,7 @@ describe('blob routes (v2.11.0)', () => {
       expect(download.status).toBe(200);
       expect(download.body.equals(content)).toBe(true);
       expect(download.headers['content-type']).toContain('application/octet-stream');
-      expect(download.headers['x-btcpc-cid']).toBe(upload.body.cid);
+      expect(download.headers['x-hone-cid']).toBe(upload.body.cid);
       expect(download.headers['cache-control']).toContain('immutable');
     });
 
@@ -204,7 +204,7 @@ describe('blob routes (v2.11.0)', () => {
       const head = await request(port, 'HEAD', '/api/blobs/' + upload.body.cid);
       expect(head.status).toBe(200);
       expect(head.headers['content-length']).toBe(String(content.length));
-      expect(head.headers['x-btcpc-cid']).toBe(upload.body.cid);
+      expect(head.headers['x-hone-cid']).toBe(upload.body.cid);
     });
 
     test('returns 404 for unknown CID', async () => {

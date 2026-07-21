@@ -21,7 +21,7 @@
 | Headings | System UI | -apple-system, Segoe UI, sans-serif |
 | Body | System UI | Same as headings |
 
-BTCPC uses monospace fonts extensively — it reinforces the technical, engineering-first identity.
+HONE uses monospace fonts extensively — it reinforces the technical, engineering-first identity.
 
 ## Logo
 
@@ -40,17 +40,17 @@ No official logo has been finalized. When creating one:
 
 ## The Number 42
 
-42 appears throughout BTCPC as a design signature:
+42 appears throughout HONE as a design signature:
 - 42,000,000 total supply
 - Port 4242 for the block explorer (42 x 101)
-- 42 BTCPC fee to create a custom token
+- 42 HONE fee to create a custom token
 - 4,200 character limit for block inscriptions (42 x 100)
 
 Use this in marketing — it's a recognizable cultural reference that makes the brand memorable and approachable.
 
 ## Screenshots & UI
 
-The block explorer (btcpcscan) at `localhost:4242` is the primary visual reference:
+The block explorer (honescan) at `localhost:4242` is the primary visual reference:
 - Dark theme with Bitcoin orange accents
 - Stats cards showing chain metrics
 - Block detail pages with hash chains, state roots, ledger entries

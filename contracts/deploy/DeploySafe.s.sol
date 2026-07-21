@@ -33,7 +33,7 @@ contract DeploySafe is Script {
     address constant SAFE_SINGLETON  = 0x29fcB43b46531BcA003ddC8FCB67FFE91900C762;
     address constant FALLBACK_HANDLER = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99;
 
-    // BTCPC bridge multisig — 2-of-3
+    // HONE bridge multisig — 2-of-3
     address constant SIGNER_1 = 0xD3675710dADF62a7a7bd321b17cA79A1Cd7CF699;
     address constant SIGNER_2 = 0x54f3BBb1406dED7eD7ee618fc342A7E9A0B83A2d;
     address constant SIGNER_3 = 0xA14f25D98FD5B03c361e2C95f5CbBDd7Ebb96d6c;
@@ -43,7 +43,7 @@ contract DeploySafe is Script {
     address constant USDT   = 0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2;
     address constant USDC   = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address constant DAI    = 0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb;
-    address constant WBTCPC = 0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47;
+    address constant WHONE = 0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47;
 
     // Relayer address — set via RELAYER_ADDRESS env var or default to deployer
     address relayer;
@@ -79,7 +79,7 @@ contract DeploySafe is Script {
         vm.stopBroadcast();
 
         // ── 5. Print summary ──────────────────────────────────────────────
-        console.log("\n=== BTCPC Bridge Deployment Summary ===");
+        console.log("\n=== HONE Bridge Deployment Summary ===");
         console.log("Network:        Base Mainnet (8453)");
         console.log("Safe (2-of-3): ", safe);
         console.log("  Signer 1:    ", SIGNER_1);
@@ -88,7 +88,7 @@ contract DeploySafe is Script {
         console.log("BridgeLock:    ", address(lock));
         console.log("BridgeReserve: ", address(reserve));
         console.log("Relayer:       ", relayer);
-        console.log("\nNext: verify on Basescan, fund BridgeReserve, set BTCPC_BRIDGE_LOCK and BTCPC_BRIDGE_RESERVE in .env");
+        console.log("\nNext: verify on Basescan, fund BridgeReserve, set HONE_BRIDGE_LOCK and HONE_BRIDGE_RESERVE in .env");
     }
 
     function _deploySafe() internal returns (address) {
@@ -111,9 +111,9 @@ contract DeploySafe is Script {
             )
         );
 
-        // Salt: hash of signers + threshold + btcpc tag — deterministic address
+        // Salt: hash of signers + threshold + hone tag — deterministic address
         uint256 salt = uint256(keccak256(abi.encode(
-            SIGNER_1, SIGNER_2, SIGNER_3, THRESHOLD, "btcpc-bridge-v1"
+            SIGNER_1, SIGNER_2, SIGNER_3, THRESHOLD, "hone-bridge-v1"
         )));
 
         return ISafeProxyFactory(SAFE_FACTORY).createProxyWithNonce(

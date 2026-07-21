@@ -33,7 +33,7 @@ async function authenticateToken(req, res, next) {
 
   let decoded;
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET);
+    decoded = jwt.verify(token, process.env.JWT_SECRET || process.env.HONE_JWT_SECRET);
   } catch (err) {
     return res.status(403).json({ error: 'Invalid token.' });
   }

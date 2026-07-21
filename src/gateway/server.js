@@ -1,23 +1,23 @@
 "use strict";
 
 /**
- * BTCPC Gateway Server — v2.10.2
+ * HONE Gateway Server — v2.10.2
  * Shin Devlin
  *
  * HTTP server that turns the commerce stateStore into human-viewable
  * pages and a JSON resolve API. Runs alongside (or independently of)
- * the main BTCPC API server.
+ * the main HONE API server.
  *
  * Usage:
- *   BTCPC_GATEWAY_ENABLED=true node src/index.js   (starts with main API)
- *   BTCPC_GATEWAY_PORT=4343 node bin/btcpc-gateway (standalone)
+ *   HONE_GATEWAY_ENABLED=true node src/index.js   (starts with main API)
+ *   HONE_GATEWAY_PORT=4343 node bin/hone-gateway (standalone)
  *
  * The gateway is READ-ONLY. It never writes to the chain. All mutations
  * happen via the existing /api/commerce routes. The gateway just
  * renders the current state.
  *
  * Trust model: local mode reads from the in-process stateStore. Future
- * remote mode (gated on BTCPC_GATEWAY_REMOTE_RPC_URL) will query a
+ * remote mode (gated on HONE_GATEWAY_REMOTE_RPC_URL) will query a
  * remote full node via JSON-RPC.
  */
 
@@ -36,7 +36,7 @@ function createGatewayRouter(options) {
 
   // Health check — always 200 if the process is up
   router.get('/health', function (_req, res) {
-    res.json({ status: 'ok', gateway: 'btcpc', version: require('../../package.json').version });
+    res.json({ status: 'ok', gateway: 'hone', version: require('../../package.json').version });
   });
 
   // JSON resolve API — programmatic access to the same lookups the HTML
@@ -97,7 +97,7 @@ function createGatewayRouter(options) {
       var html = storefront.renderResolved(resolved);
       res.status(resolved.status).type('text/html').send(html);
     } catch (err) {
-      console.error('[BTCPC Gateway] resolve error:', err);
+      console.error('[HONE Gateway] resolve error:', err);
       res
         .status(500)
         .type('text/html')
@@ -115,8 +115,8 @@ function createGatewayRouter(options) {
  */
 function startGateway(options) {
   options = options || {};
-  var port = options.port || parseInt(process.env.BTCPC_GATEWAY_PORT || '4343', 10);
-  var host = options.host || process.env.BTCPC_GATEWAY_HOST || '0.0.0.0';
+  var port = options.port || parseInt(process.env.HONE_GATEWAY_PORT || '4343', 10);
+  var host = options.host || process.env.HONE_GATEWAY_HOST || '0.0.0.0';
 
   var app = express();
   app.use(express.json());
@@ -126,7 +126,7 @@ function startGateway(options) {
     var server = app.listen(port, host, function () {
       var addr = server.address();
       console.log(
-        '[BTCPC Gateway] listening on ' + addr.address + ':' + addr.port + ' (read-only)'
+        '[HONE Gateway] listening on ' + addr.address + ':' + addr.port + ' (read-only)'
       );
       resolve({ server: server, app: app, port: addr.port });
     });

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS serve proof tests — v2.11.1
+ * HONE-FS serve proof tests — v2.11.1
  *
  * Exercises the BLOB_SERVE_PROOF ledger entry type and stateStore
  * dispatcher. Tests chain invariants:

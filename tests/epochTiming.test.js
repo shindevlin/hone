@@ -31,14 +31,14 @@ describe("epoch timing (v3.0 — 30s epochs)", () => {
     expect(getEpochsPerMonth()).toBe(86400);
   });
 
-  test("genesis reward per epoch is ~24.306 BTCPC (1/10 of old 243.06)", () => {
+  test("genesis reward per epoch is ~24.306 HONE (1/10 of old 243.06)", () => {
     const reward = getBlockReward(0);
-    // Period 1: 2,100,000 BTCPC / 86400 epochs ≈ 24.3056
+    // Period 1: 2,100,000 HONE / 86400 epochs ≈ 24.3056
     expect(reward).toBeGreaterThan(24.0);
     expect(reward).toBeLessThan(25.0);
   });
 
-  test("genesis reward is approximately 24.306 BTCPC (within 0.01)", () => {
+  test("genesis reward is approximately 24.306 HONE (within 0.01)", () => {
     const expected = 2100000 / 86400;
     const actual = getBlockReward(0);
     expect(Math.abs(actual - expected)).toBeLessThan(0.01);
@@ -68,7 +68,7 @@ describe("epoch timing (v3.0 — 30s epochs)", () => {
     expect(reward).toBe(0);
   });
 
-  test("total supply across all periods is 42,000,000 BTCPC", () => {
+  test("total supply across all periods is 42,000,000 HONE", () => {
     const table = getPeriodTable();
     const totalMined = table.reduce((sum, p) => sum + p.allotment, 0);
     // Should be within floating point rounding of TOTAL_SUPPLY

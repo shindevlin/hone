@@ -27,18 +27,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-contract-sdk"
+name = "hone-contract-sdk"
 version = "1.0.0"
 dependencies = [
  "borsh",
- "btcpc-contract-sdk-macros",
+ "hone-contract-sdk-macros",
  "serde",
  "serde_json",
  "wee_alloc",
 ]
 
 [[package]]
-name = "btcpc-contract-sdk-macros"
+name = "hone-contract-sdk-macros"
 version = "1.0.0"
 dependencies = [
  "darling",
@@ -48,31 +48,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-ft-example"
+name = "hone-ft-example"
 version = "1.0.0"
 dependencies = [
  "borsh",
- "btcpc-contract-sdk",
+ "hone-contract-sdk",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "btcpc-nft-example"
+name = "hone-nft-example"
 version = "1.0.0"
 dependencies = [
  "borsh",
- "btcpc-contract-sdk",
+ "hone-contract-sdk",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "btcpc-registry"
+name = "hone-registry"
 version = "1.0.0"
 dependencies = [
  "borsh",
- "btcpc-contract-sdk",
+ "hone-contract-sdk",
  "serde",
  "serde_json",
 ]

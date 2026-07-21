@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC IoT Chain Wiring Tests — v3.0-pre
+ * HONE IoT Chain Wiring Tests — v3.0-pre
  * Shin Devlin
  *
  * Tests for:
@@ -10,7 +10,7 @@
  *   - stateStore dispatcher cases for all IoT + bridge entry types
  *   - IoT reward pool in computeFinalization (6th pool)
  *   - Bridge ledger entries (BRIDGE_WRAP, BRIDGE_UNWRAP, BRIDGE_FUND, BRIDGE_UNLOCK)
- *   - Sensor data → BTCPC-FS blob persistence via sensorRoutes /finalize
+ *   - Sensor data → HONE-FS blob persistence via sensorRoutes /finalize
  *
  * Target: adds ≥ 20 tests. All existing 1,151 tests must still pass.
  */
@@ -267,7 +267,7 @@ describe('nanoRewards.computeIoTRewards — IoT pool split', () => {
 describe('ledger.recordBridgeWrap', () => {
   it('creates a BRIDGE_WRAP entry', async () => {
     stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'shindevlin', epoch: 0, account_data: {} });
-    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'shindevlin', token: 'BTCPC', amount: 1000, epoch: 0 });
+    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'shindevlin', token: 'HONE', amount: 1000, epoch: 0 });
 
     const entry = await ledger.recordBridgeWrap('shindevlin', 'base', 100, 0.05, 10);
     expect(entry.type).toBe('BRIDGE_WRAP');
@@ -276,13 +276,13 @@ describe('ledger.recordBridgeWrap', () => {
     expect(entry.bridge_data.direction).toBe('wrap');
   });
 
-  it('debits user BTCPC on BRIDGE_WRAP', async () => {
+  it('debits user HONE on BRIDGE_WRAP', async () => {
     stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'shindevlin', epoch: 0, account_data: {} });
-    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'shindevlin', token: 'BTCPC', amount: 500, epoch: 0 });
-    const before = stateStore.getBalance('shindevlin', 'BTCPC');
+    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'shindevlin', token: 'HONE', amount: 500, epoch: 0 });
+    const before = stateStore.getBalance('shindevlin', 'HONE');
 
     await ledger.recordBridgeWrap('shindevlin', 'ethereum', 200, 0, 1);
-    const after = stateStore.getBalance('shindevlin', 'BTCPC');
+    const after = stateStore.getBalance('shindevlin', 'HONE');
     expect(after).toBe(before - 200);
   });
 
@@ -299,18 +299,18 @@ describe('ledger.recordBridgeUnwrap', () => {
     expect(entry.bridge_data.direction).toBe('unwrap');
   });
 
-  it('credits user BTCPC on BRIDGE_UNWRAP', async () => {
+  it('credits user HONE on BRIDGE_UNWRAP', async () => {
     stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'natoshisakamoto', epoch: 0, account_data: {} });
-    const before = stateStore.getBalance('natoshisakamoto', 'BTCPC');
+    const before = stateStore.getBalance('natoshisakamoto', 'HONE');
     await ledger.recordBridgeUnwrap('natoshisakamoto', 'arbitrum', 100, 0.2, 5);
-    expect(stateStore.getBalance('natoshisakamoto', 'BTCPC')).toBe(before + 100);
+    expect(stateStore.getBalance('natoshisakamoto', 'HONE')).toBe(before + 100);
   });
 });
 
 describe('ledger.recordBridgeFund', () => {
   it('creates a BRIDGE_FUND entry', async () => {
     stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'shindevlin', epoch: 0, account_data: {} });
-    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'shindevlin', token: 'BTCPC', amount: 10000, epoch: 0 });
+    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'shindevlin', token: 'HONE', amount: 10000, epoch: 0 });
 
     const entry = await ledger.recordBridgeFund('shindevlin', 'base', 1000, 90, 2);
     expect(entry.type).toBe('BRIDGE_FUND');
@@ -319,10 +319,10 @@ describe('ledger.recordBridgeFund', () => {
 
   it('debits funder on BRIDGE_FUND and records LP position', async () => {
     stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'lp-user', epoch: 0, account_data: {} });
-    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'lp-user', token: 'BTCPC', amount: 5000, epoch: 0 });
+    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'lp-user', token: 'HONE', amount: 5000, epoch: 0 });
 
     await ledger.recordBridgeFund('lp-user', 'ethereum', 2000, 365, 3);
-    const balance = stateStore.getBalance('lp-user', 'BTCPC');
+    const balance = stateStore.getBalance('lp-user', 'HONE');
     expect(balance).toBe(3000);
 
     const pos = stateStore.getBridgeFunder('lp-user', 'ethereum');
@@ -346,7 +346,7 @@ describe('ledger.recordBridgeUnlock', () => {
 
   it('transitions LP position status from locked to queued', async () => {
     stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'lp2', epoch: 0, account_data: {} });
-    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'lp2', token: 'BTCPC', amount: 3000, epoch: 0 });
+    stateStore.applyEntry({ type: 'MINING_REWARD', to: 'lp2', token: 'HONE', amount: 3000, epoch: 0 });
 
     await ledger.recordBridgeFund('lp2', 'base', 1500, 30, 1);
     await ledger.recordBridgeUnlock('lp2', 'base', 50);

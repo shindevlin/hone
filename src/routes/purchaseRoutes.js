@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Purchase Routes — stablecoin → BTCPC
+ * HONE Purchase Routes — stablecoin → HONE
  * Shin Devlin
  *
  * Endpoints:
@@ -45,19 +45,19 @@ const SUPPORTED_TOKENS = {
 };
 
 function getPrice() {
-  return parseFloat(process.env.BTCPC_PRICE_USD || "0.001");
+  return parseFloat(process.env.HONE_PRICE_USD || "0.001");
 }
 function getMinUsd() {
-  return parseFloat(process.env.BTCPC_PURCHASE_MIN_USD || "10");
+  return parseFloat(process.env.HONE_PURCHASE_MIN_USD || "10");
 }
 function getMaxUsd() {
-  return parseFloat(process.env.BTCPC_PURCHASE_MAX_USD || "10000");
+  return parseFloat(process.env.HONE_PURCHASE_MAX_USD || "10000");
 }
 
 function getPaymentAddress(chain) {
-  if (chain === "ethereum") return process.env.BTCPC_PURCHASE_ETH_ADDRESS || null;
-  if (chain === "solana")   return process.env.BTCPC_PURCHASE_SOL_ADDRESS || null;
-  if (chain === "ton")      return process.env.BTCPC_PURCHASE_TON_ADDRESS || null;
+  if (chain === "ethereum") return process.env.HONE_PURCHASE_ETH_ADDRESS || null;
+  if (chain === "solana")   return process.env.HONE_PURCHASE_SOL_ADDRESS || null;
+  if (chain === "ton")      return process.env.HONE_PURCHASE_TON_ADDRESS || null;
   return null;
 }
 
@@ -150,7 +150,7 @@ router.get("/quote", (req, res) => {
   }
 
   const price = getPrice();
-  const btcpcAmount = usdAmount / price;
+  const honeAmount = usdAmount / price;
   const paymentAddress = getPaymentAddress(chain);
   const tokenContract = getTokenContract(chain, token);
 
@@ -162,8 +162,8 @@ router.get("/quote", (req, res) => {
   }
 
   res.json({
-    btcpc_amount: btcpcAmount,
-    price_per_btcpc_usd: price,
+    hone_amount: honeAmount,
+    price_per_hone_usd: price,
     payment_address: paymentAddress,
     token_contract: tokenContract,
     min_usd: getMinUsd(),
@@ -175,13 +175,13 @@ router.get("/quote", (req, res) => {
 
 router.post("/submit", submitLimiter, (req, res) => {
   const body = req.body || {};
-  const { btcpc_account, btcpc_pubkeys, usd_amount, chain, token } = body;
+  const { hone_account, hone_pubkeys, usd_amount, chain, token } = body;
 
-  if (!btcpc_account || typeof btcpc_account !== "string") {
-    return res.status(400).json({ error: "btcpc_account is required" });
+  if (!hone_account || typeof hone_account !== "string") {
+    return res.status(400).json({ error: "hone_account is required" });
   }
-  if (!btcpc_pubkeys || typeof btcpc_pubkeys !== "object") {
-    return res.status(400).json({ error: "btcpc_pubkeys is required (owner, active, posting, memo)" });
+  if (!hone_pubkeys || typeof hone_pubkeys !== "object") {
+    return res.status(400).json({ error: "hone_pubkeys is required (owner, active, posting, memo)" });
   }
   if (!usd_amount || isNaN(parseFloat(usd_amount))) {
     return res.status(400).json({ error: "usd_amount is required" });
@@ -217,7 +217,7 @@ router.post("/submit", submitLimiter, (req, res) => {
 
   const purchaseId = crypto.randomBytes(8).toString("hex");
   const price = getPrice();
-  const btcpcAmount = amount / price;
+  const honeAmount = amount / price;
 
   // Chain-specific memo instructions
   let memoRequired = false;
@@ -241,10 +241,10 @@ router.post("/submit", submitLimiter, (req, res) => {
 
   const order = {
     purchase_id: purchaseId,
-    btcpc_account,
-    btcpc_pubkeys,
+    hone_account,
+    hone_pubkeys,
     usd_amount: amount,
-    btcpc_amount: btcpcAmount,
+    hone_amount: honeAmount,
     chain: chainNorm,
     token: tokenNorm,
     payment_address: paymentAddress,
@@ -266,7 +266,7 @@ router.post("/submit", submitLimiter, (req, res) => {
     purchase_id: purchaseId,
     payment_address: paymentAddress,
     amount_usd: amount,
-    btcpc_amount: btcpcAmount,
+    hone_amount: honeAmount,
     token: tokenNorm,
     chain: chainNorm,
     memo_required: memoRequired,
@@ -293,7 +293,7 @@ router.get("/:purchase_id/status", (req, res) => {
       status: "fulfilled",
       purchase_id,
       tx_hash: fulfilled.tx_hash,
-      btcpc_amount: fulfilled.btcpc_amount,
+      hone_amount: fulfilled.hone_amount,
       fulfilled_epoch: fulfilled.fulfilled_epoch,
       fulfilled_at: fulfilled.fulfilled_at,
     });
@@ -310,7 +310,7 @@ router.get("/:purchase_id/status", (req, res) => {
     chain: order.chain,
     token: order.token,
     usd_amount: order.usd_amount,
-    btcpc_amount: order.btcpc_amount,
+    hone_amount: order.hone_amount,
     created_at: order.created_at,
     expires_at: order.expires_at,
   });
@@ -341,8 +341,8 @@ router.post("/fulfill", localhostOnly, async (req, res) => {
 
   const usdAmount = confirmed_usd || order.usd_amount;
   const price = getPrice();
-  const btcpcAmount = usdAmount / price;
-  const fulfillerAccount = process.env.BTCPC_FULFILLER_ACCOUNT || "shindevlin";
+  const honeAmount = usdAmount / price;
+  const fulfillerAccount = process.env.HONE_FULFILLER_ACCOUNT || "shindevlin";
 
   try {
     const ledger = require("../services/ledger");
@@ -351,22 +351,22 @@ router.post("/fulfill", localhostOnly, async (req, res) => {
 
     // Create account if needed
     const stateBackend = require("../chain/stateBackend");
-    const accountExists = stateBackend.getAccount(order.btcpc_account);
+    const accountExists = stateBackend.getAccount(order.hone_account);
     if (!accountExists) {
       await ledger.recordAccountCreate(
-        order.btcpc_account,
-        order.btcpc_pubkeys || {},
+        order.hone_account,
+        order.hone_pubkeys || {},
         {},
         epoch
       );
     }
 
-    // Transfer BTCPC to buyer
+    // Transfer HONE to buyer
     await ledger.recordTransfer(
       fulfillerAccount,
-      order.btcpc_account,
-      btcpcAmount,
-      "BTCPC",
+      order.hone_account,
+      honeAmount,
+      "HONE",
       null,
       epoch,
       `Purchase: ${usdAmount} USD via ${chain || order.chain}`
@@ -378,8 +378,8 @@ router.post("/fulfill", localhostOnly, async (req, res) => {
       chain: chain || order.chain,
       token: order.token,
       confirmed_usd: usdAmount,
-      btcpc_amount: btcpcAmount,
-      btcpc_account: order.btcpc_account,
+      hone_amount: honeAmount,
+      hone_account: order.hone_account,
       fulfilled_epoch: epoch,
       fulfilled_at: Date.now(),
     };
@@ -387,13 +387,13 @@ router.post("/fulfill", localhostOnly, async (req, res) => {
     appendJsonl(HISTORY_FILE, histRecord);
     updateOrderStatus(purchase_id, { status: "fulfilled", tx_hash, fulfilled_at: Date.now() });
 
-    console.log(`[purchase] Fulfilled ${purchase_id}: ${btcpcAmount} BTCPC → ${order.btcpc_account} (tx: ${tx_hash})`);
+    console.log(`[purchase] Fulfilled ${purchase_id}: ${honeAmount} HONE → ${order.hone_account} (tx: ${tx_hash})`);
 
     return res.json({
       ok: true,
       purchase_id,
-      btcpc_amount: btcpcAmount,
-      btcpc_account: order.btcpc_account,
+      hone_amount: honeAmount,
+      hone_account: order.hone_account,
       fulfilled_epoch: epoch,
     });
   } catch (err) {

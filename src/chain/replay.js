@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Chain Replay
+ * HONE Chain Replay
  * Shin Devlin
  *
  * Reconstructs in-memory chain state (stateStore + stateManager SMT +
@@ -41,7 +41,7 @@ async function replayFromDisk(options) {
 
   var latestOnDisk = blockStore.getLatestBlockNumber();
   if (latestOnDisk < 0) {
-    if (verbose) console.log("[BTCPC Replay] No blocks on disk — fresh chain");
+    if (verbose) console.log("[HONE Replay] No blocks on disk — fresh chain");
     return { replayed: 0, from: 0, to: -1, chainHeight: -1, accounts: 0, durationMs: 0 };
   }
 
@@ -58,11 +58,11 @@ async function replayFromDisk(options) {
         stateStore.assertBalanceIntegrity("replay finality snapshot");
         replayFrom = latestFinality + 1;
         if (verbose) {
-          console.log("[BTCPC Replay] Loaded finality snapshot at epoch " + latestFinality +
+          console.log("[HONE Replay] Loaded finality snapshot at epoch " + latestFinality +
             " (" + (finality.snapshot.account_count || 0) + " accounts)");
         }
       } catch (e) {
-        if (verbose) console.log("[BTCPC Replay] Failed to load finality " + latestFinality + ": " + e.message + " — replaying from genesis");
+        if (verbose) console.log("[HONE Replay] Failed to load finality " + latestFinality + ": " + e.message + " — replaying from genesis");
         stateStore.resetAll();
         stateManager.reset();
         replayFrom = 0;
@@ -134,7 +134,7 @@ async function replayFromDisk(options) {
 
   var duration = Date.now() - startTime;
   if (verbose) {
-    console.log("[BTCPC Replay] Done: " + blocksSeen + " blocks (from " + replayFrom +
+    console.log("[HONE Replay] Done: " + blocksSeen + " blocks (from " + replayFrom +
       " to " + latestOnDisk + "), " + entriesSeen + " ledger entries, " +
       stateStore.getAccountCount() + " accounts, " + duration + "ms");
   }

@@ -10,8 +10,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "btcpc-account-creation-"));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, "secrets.json");
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hone-account-creation-"));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, "secrets.json");
 
 const mockUsers = {};
 jest.mock("../src/models/User", () => ({
@@ -30,7 +30,7 @@ jest.mock("../src/services/ledger", () => ({
 jest.mock("../src/chain/stateStore", () => ({
   getAccount: jest.fn(() => null),
   getChainHeight: jest.fn(() => 0),
-  getBalance: jest.fn((account) => account === "btcpc_faucet" ? 100 : 0),
+  getBalance: jest.fn((account) => account === "hone_faucet" ? 100 : 0),
 }));
 
 const ledger = require("../src/services/ledger");
@@ -61,12 +61,12 @@ describe("accountCreation canonical wallet export", () => {
     expect(username).toBe("alice");
     expect(publicKeys.owner).toBeTruthy();
     expect(publicKeys.public_keys).toBeUndefined();
-    expect(chainAddresses.btcpc).toMatch(/^BTCPC[0-9a-f]{40}$/);
+    expect(chainAddresses.hone).toMatch(/^HONE[0-9a-f]{40}$/);
     expect(chainAddresses.hive).toBe("alice");
     expect(epoch).toBe(0);
 
     expect(result.wallet_export).toContain("Mnemonic:");
-    expect(result.wallet_export).toContain("BTCPC active key");
+    expect(result.wallet_export).toContain("HONE active key");
     expect(result.wallet_export).toContain("Private key:");
   });
 
@@ -84,7 +84,7 @@ describe("accountCreation canonical wallet export", () => {
     expect(stored.posting_public_key).toBe(result.public_keys.posting);
     expect(stored.memo_public_key).toBe(result.public_keys.memo);
 
-    expect(ledger.recordDelegate).toHaveBeenCalledWith("btcpc_faucet", "bob", 1, "faucet", 0);
+    expect(ledger.recordDelegate).toHaveBeenCalledWith("hone_faucet", "bob", 1, "faucet", 0);
     expect(result.wallet_balance).toBe(0);
     expect(result.delegated_balance).toBe(1);
   });

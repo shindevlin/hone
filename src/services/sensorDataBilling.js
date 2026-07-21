@@ -44,11 +44,11 @@ const DEFAULT_RATE_CARD = {
   splits_bps: {
     sensor_operators: 6000,
     relay_nodes: 2500,
-    btcpc_treasury: 500,
+    hone_treasury: 500,
     recycle: 1000,
   },
   protocol_accounts: [
-    { account: "btcpc_treasury", share_bps: 10000 },
+    { account: "hone_treasury", share_bps: 10000 },
   ],
   minimum_fee: 0,
 };
@@ -171,7 +171,7 @@ function quoteSensorQuery(query, context) {
     estimated_readings: estimatedReadings,
     price_per_reading: pricePerReading,
     max_cost: maxCost,
-    currency: "BTCPC",
+    currency: "HONE",
     type: normalized.type,
     resolution: normalized.resolution,
     age_hours: normalized.age_hours,
@@ -267,8 +267,8 @@ function calculatePayouts(readings, totalFee, options) {
   }
 
   var sensorPool = roundAmount(fee * ((splits.sensor_operators || 0) / 10000));
-  // btcpc_treasury gets a fixed 500 bps cut regardless of relay
-  var treasuryPool = roundAmount(fee * ((splits.btcpc_treasury || 0) / 10000));
+  // hone_treasury gets a fixed 500 bps cut regardless of relay
+  var treasuryPool = roundAmount(fee * ((splits.hone_treasury || 0) / 10000));
   // Relay pool: witness-scaled; unused relay → extra recycle
   var relayPool = roundAmount(fee * (relayTotalBps / 10000));
   var extraRecyclePool = roundAmount(fee * (extraRecycleBps / 10000));
@@ -292,7 +292,7 @@ function calculatePayouts(readings, totalFee, options) {
     };
   });
 
-  // Treasury goes to btcpc_treasury (protocol fee)
+  // Treasury goes to hone_treasury (protocol fee)
   var protocolPayouts = [];
   var totalProtocolBps = protocolAccounts.reduce(function (sum, item) { return sum + (item.share_bps || 0); }, 0) || 10000;
   for (var j = 0; j < protocolAccounts.length; j++) {
@@ -384,7 +384,7 @@ async function settleSensorDataPayment(input, options) {
     if (shouldUseEscrow) {
       await ledger.recordEscrowRefund(payer, queryId, fullRefundAmount, epoch);
     } else if (fullRefundAmount > 0) {
-      await ledger.recordTransfer("btcpc_treasury", payer, fullRefundAmount, "BTCPC", null, epoch, "Sensor data refund — no data");
+      await ledger.recordTransfer("hone_treasury", payer, fullRefundAmount, "HONE", null, epoch, "Sensor data refund — no data");
     }
     return {
       query_id: queryId,
@@ -429,8 +429,8 @@ async function settleSensorDataPayment(input, options) {
       }
     }
     if (payouts.recycle_pool > 0) {
-      await ledger.recordEscrowRelease("btcpc_recycle", queryId, payouts.recycle_pool, epoch, "Sensor data recycle share");
-      transfers.push({ to: "btcpc_recycle", amount: payouts.recycle_pool, kind: "recycle" });
+      await ledger.recordEscrowRelease("hone_recycle", queryId, payouts.recycle_pool, epoch, "Sensor data recycle share");
+      transfers.push({ to: "hone_recycle", amount: payouts.recycle_pool, kind: "recycle" });
     }
   }
 
@@ -439,7 +439,7 @@ async function settleSensorDataPayment(input, options) {
     if (shouldUseEscrow) {
       await ledger.recordEscrowRefund(payer, queryId, refund, epoch);
     } else {
-      await ledger.recordTransfer("btcpc_treasury", payer, refund, "BTCPC", null, epoch, "Sensor data refund");
+      await ledger.recordTransfer("hone_treasury", payer, refund, "HONE", null, epoch, "Sensor data refund");
     }
   }
 
@@ -599,9 +599,9 @@ async function executePaidSensorQuery(queryBody, options) {
   var quote = quoteSensorQuery(quoteQuery, { account: account });
 
   // Check balance
-  var balance = stateStore.getBalance(account, "BTCPC");
+  var balance = stateStore.getBalance(account, "HONE");
   if ((balance || 0) < quote.max_cost && quote.max_cost > 0) {
-    throw new Error("Insufficient balance: need " + quote.max_cost.toFixed(10) + " BTCPC, have " + (balance || 0).toFixed(10));
+    throw new Error("Insufficient balance: need " + quote.max_cost.toFixed(10) + " HONE, have " + (balance || 0).toFixed(10));
   }
 
   // Collect witnesses across all matching sensors for the queried epoch range
@@ -637,7 +637,7 @@ async function executePaidSensorQuery(queryBody, options) {
     payment: {
       query_id: receipt.query_id,
       total_fee: receipt.total_fee,
-      currency: "BTCPC",
+      currency: "HONE",
       per_sensor: receipt.payouts.owner_payouts,
       protocol: receipt.payouts.protocol_payouts,
     },

@@ -10,7 +10,7 @@ const path = require("path");
 const os = require("os");
 
 // Point blockStore at a temp directory so we don't touch real chain data.
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "btcpc-blockstore-test-"));
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hone-blockstore-test-"));
 
 // Patch BLOCKS_DIR before requiring the module.
 jest.mock("../src/chain/block", () => {
@@ -59,7 +59,7 @@ const TEST_EPOCH_BASE = 9000000; // well above any real chain epoch
 
 function makePayload(epoch, recipient, amount) {
   return {
-    ledger_entries: [{ type: "MINING_REWARD", to: recipient, amount, epoch, token: "BTCPC" }],
+    ledger_entries: [{ type: "MINING_REWARD", to: recipient, amount, epoch, token: "HONE" }],
     rewards: [{ amount }],
     compute_proofs: [],
     mining_proofs: [],

@@ -72,7 +72,7 @@ router.use((req, res, next) => {
 });
 
 /**
- * GET /public/machine-status — live status of this machine's btcpc processes.
+ * GET /public/machine-status — live status of this machine's hone processes.
  * No auth required — intended for the desktop app's Node tab.
  */
 router.get('/machine-status', async (req, res) => {
@@ -87,24 +87,24 @@ router.get('/machine-status', async (req, res) => {
     const freeMem = Math.round(os.freemem() / 1024 / 1024);
     const totalMem = Math.round(os.totalmem() / 1024 / 1024);
 
-    // Detect running btcpc processes by scanning /proc/*/cmdline.
+    // Detect running hone processes by scanning /proc/*/cmdline.
     // Only role names are returned — no PIDs or memory stats.
-    const btcpcRoles = {
+    const honeRoles = {
       'src/index.js': 'api',
-      'btcpc-mine': 'mine',
-      'btcpc-clock': 'clock',
-      'btcpc-storage': 'storage',
-      'btcpc-chain-monitor': 'chain-monitor',
-      'btcpc-auto-update': 'auto-update',
-      'btcpc-gnss-bridge': 'gnss-bridge',
-      'btcpc-nebra': 'nebra',
-      'btcpc-all': 'all',
-      'btcpc-gateway': 'gateway',
-      'btcpc-verifier': 'verifier',
+      'hone-mine': 'mine',
+      'hone-clock': 'clock',
+      'hone-storage': 'storage',
+      'hone-chain-monitor': 'chain-monitor',
+      'hone-auto-update': 'auto-update',
+      'hone-gnss-bridge': 'gnss-bridge',
+      'hone-nebra': 'nebra',
+      'hone-all': 'all',
+      'hone-gateway': 'gateway',
+      'hone-verifier': 'verifier',
     };
-    const btcpcBins = Object.keys(btcpcRoles);
+    const honeBins = Object.keys(honeRoles);
     const runningRoles = new Set();
-    function matchesBtcpcProcess(parts, binName) {
+    function matchesHoneProcess(parts, binName) {
       if (!parts.length) return false;
       if (parts[0] === binName || path.basename(parts[0]) === binName) return true;
       const exe = path.basename(parts[0]);
@@ -119,8 +119,8 @@ router.get('/machine-status', async (req, res) => {
         try {
           const cmd = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\0/g, ' ').trim();
           const parts = cmd.split(/\s+/).filter(Boolean);
-          const match = btcpcBins.find(b => matchesBtcpcProcess(parts, b));
-          if (match) runningRoles.add(btcpcRoles[match]);
+          const match = honeBins.find(b => matchesHoneProcess(parts, b));
+          if (match) runningRoles.add(honeRoles[match]);
         } catch (_) {}
       }
     } catch (_) {}
@@ -399,7 +399,7 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
 });
 
 /**
- * GET /public/leaderboard — top 20 accounts by BTCPC balance.
+ * GET /public/leaderboard — top 20 accounts by HONE balance.
  * Returns role breakdown (miner, clock, storage, etc.) for each account.
  * No auth required.
  */
@@ -410,7 +410,7 @@ router.get('/leaderboard', async (_req, res) => {
 
     const allAccounts = stateStore.getAllAccounts();
     const entries = allAccounts.map(function(acc) {
-      var balance = stateStore.getBalance(acc.username, 'BTCPC');
+      var balance = stateStore.getBalance(acc.username, 'HONE');
       return { username: acc.username, balance: balance, created_epoch: acc.created_epoch };
     });
 
@@ -469,7 +469,7 @@ router.post('/signup', publicSignupLimiter, async (req, res) => {
     });
 
     const jwt = require('jsonwebtoken');
-    const jwtSecret = process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET;
+    const jwtSecret = process.env.JWT_SECRET || process.env.HONE_JWT_SECRET;
     const token = jwtSecret
       ? jwt.sign({ username: result.username, src: 'public' }, jwtSecret, { expiresIn: '30d' })
       : null;
@@ -518,12 +518,12 @@ router.post('/login', publicAuthLimiter, async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'wrong password' });
 
     const jwt = require('jsonwebtoken');
-    const jwtSecret = process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET;
+    const jwtSecret = process.env.JWT_SECRET || process.env.HONE_JWT_SECRET;
     if (!jwtSecret) return res.status(503).json({ error: 'JWT secret not initialized' });
     const token = jwt.sign({ username: username.trim().toLowerCase() }, jwtSecret, { expiresIn: '30d' });
 
     const stateStore = require('../chain/stateStore');
-    const balance = stateStore.getBalance(username.trim().toLowerCase(), 'BTCPC');
+    const balance = stateStore.getBalance(username.trim().toLowerCase(), 'HONE');
 
     res.json({ success: true, username: username.trim().toLowerCase(), token, balance });
   } catch (err) {
@@ -727,7 +727,7 @@ setInterval(function() {
 const ANDROID_RELEASE = {
   version_code: 3,
   version_name: require('../../package.json').version,
-  apk_url: 'https://btcpc.net/public/android-apk',
+  apk_url: 'https://hone.net/public/android-apk',
   changelog: 'Full sensor array (GPS, battery, temperature, humidity + 5 more), model picker from chain registry, storage quota, on-chain credit for all earn activities, auto-restart on update',
   min_sdk: 26,
 };
@@ -737,18 +737,18 @@ router.get('/android-version', function(req, res) {
 });
 
 /**
- * GET /downloads/btcpc-android.apk — serve the latest release APK.
- * File is placed at website/downloads/btcpc-android.apk by the release script.
+ * GET /downloads/hone-android.apk — serve the latest release APK.
+ * File is placed at website/downloads/hone-android.apk by the release script.
  */
 router.get('/android-apk', function(req, res) {
   const path = require('path');
   const fs = require('fs');
-  const apkPath = path.join(process.cwd(), 'website', 'downloads', 'btcpc-android.apk');
+  const apkPath = path.join(process.cwd(), 'website', 'downloads', 'hone-android.apk');
   if (!fs.existsSync(apkPath)) {
-    return res.status(404).json({ error: 'APK not yet published — check btcpc.net/downloads' });
+    return res.status(404).json({ error: 'APK not yet published — check hone.net/downloads' });
   }
   res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-  res.setHeader('Content-Disposition', 'attachment; filename="btcpc-android.apk"');
+  res.setHeader('Content-Disposition', 'attachment; filename="hone-android.apk"');
   fs.createReadStream(apkPath).pipe(res);
 });
 
@@ -764,21 +764,21 @@ const agentChatLimiter = rateLimit({
   message: { error: 'Too many messages. Wait a minute.' },
 });
 
-const AGENT_SYSTEM_PROMPT = `You are the BTCPC setup assistant on btcpc.net. BTCPC is a sovereign blockchain where miners earn by running AI inference via Ollama — no gatekeepers, no cloud.
+const AGENT_SYSTEM_PROMPT = `You are the HONE setup assistant on hone.net. HONE is a sovereign blockchain where miners earn by running AI inference via Ollama — no gatekeepers, no cloud.
 
 Keep every reply under 3 sentences. Be direct and actionable. Give exact commands when asked.
 
 Platform setup:
-- Windows: download start-windows.bat from btcpc.net, double-click it. Handles Ollama binding and Docker automatically.
-- Linux / Ubuntu / WSL: download start.sh from btcpc.net, run: bash start.sh
+- Windows: download start-windows.bat from hone.net, double-click it. Handles Ollama binding and Docker automatically.
+- Linux / Ubuntu / WSL: download start.sh from hone.net, run: bash start.sh
 - Docker only (advanced): set OLLAMA_URL=http://host.docker.internal:11434 in .env, then: docker compose up -d
-- Android: install the BTCPC app from btcpc.net/android
+- Android: install the HONE app from hone.net/android
 
 Requirements: Docker Desktop (Windows/Mac) or Docker Engine (Linux), plus Ollama installed on the host.
 Recommended first model: qwen3:4b (run: ollama pull qwen3:4b)
 
 Mining starts automatically once the node is running and a model is loaded.
-Explorer: btcpc.net/explorer — wallet: btcpc.net/app`;
+Explorer: hone.net/explorer — wallet: hone.net/app`;
 
 /**
  * POST /public/agent-chat
@@ -803,7 +803,7 @@ router.post('/agent-chat', agentChatLimiter, async (req, res) => {
     const userContent = platform ? `[User platform: ${platform}]\n${message}` : message;
 
     const body = {
-      model: process.env.BTCPC_MODEL || 'qwen3:4b',
+      model: process.env.HONE_MODEL || 'qwen3:4b',
       messages: [
         { role: 'system', content: AGENT_SYSTEM_PROMPT },
         { role: 'user', content: userContent },

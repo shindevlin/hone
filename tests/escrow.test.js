@@ -68,7 +68,7 @@ describe('escrow service', () => {
     const result = await escrow.releaseForJob('req-2', 'miner-a', 3, 'qwen3:4b');
 
     expect(ledger.recordEscrowRelease).toHaveBeenCalledWith('miner-a', 'req-2', 3, 42, 'Inference settlement');
-    expect(ledger.updateWalletCache).toHaveBeenCalledWith('miner-a', 'BTCPC', 3);
+    expect(ledger.updateWalletCache).toHaveBeenCalledWith('miner-a', 'HONE', 3);
     expect(ledger.recordEscrowRefund).toHaveBeenCalledWith('alice', 'req-2', 2, 42);
     expect(result.status).toBe('released');
   });

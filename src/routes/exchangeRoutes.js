@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
-const BtcpcNativeExchange = require('../chain/BtcpcNativeExchange');
+const HoneNativeExchange = require('../chain/HoneNativeExchange');
 const oracleFeeds = require('../services/oracleFeeds');
 
 /**
@@ -13,20 +13,20 @@ const oracleFeeds = require('../services/oracleFeeds');
  */
 router.get('/quote', (req, res) => {
     const exchangeStats = stateStore.getExchangeStats ? stateStore.getExchangeStats() : { total_volume: 0 };
-    const price = BtcpcNativeExchange.calculatePrice(exchangeStats.total_volume, oracleFeeds);
-    const available = stateStore.availableWbtcpcInQueue ? stateStore.availableWbtcpcInQueue() : 0;
+    const price = HoneNativeExchange.calculatePrice(exchangeStats.total_volume, oracleFeeds);
+    const available = stateStore.availableWhoneInQueue ? stateStore.availableWhoneInQueue() : 0;
 
     res.json({
         ok: true,
         price_usd: price,
-        available_btcpc: available,
+        available_hone: available,
         queue_length: stateStore.getExchangeQueueLength ? stateStore.getExchangeQueueLength() : 0
     });
 });
 
 /**
  * POST /api/exchange/deposit
- * User deposits BTCPC into the FIFO queue.
+ * User deposits HONE into the FIFO queue.
  */
 router.post('/deposit', async (req, res) => {
     const { seller, amount } = req.body;
@@ -46,7 +46,7 @@ router.post('/deposit', async (req, res) => {
 
 /**
  * POST /api/exchange/buy
- * User buys BTCPC using stablecoins.
+ * User buys HONE using stablecoins.
  */
 router.post('/buy', async (req, res) => {
     const { buyer, token, amount } = req.body;

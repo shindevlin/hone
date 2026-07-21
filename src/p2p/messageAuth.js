@@ -1,14 +1,14 @@
 "use strict";
 
 /**
- * BTCPC P2P Message Authentication
+ * HONE P2P Message Authentication
  * Shin Devlin
  *
  * Centralized cryptographic authentication for P2P messages.
  * Provides signing, verification, allowlists, and key-ownership proofs.
  *
  * Signatures are required by default. Unsigned messages are rejected unless
- * BTCPC_REQUIRE_SIGNATURES=false is set explicitly for local legacy/test use.
+ * HONE_REQUIRE_SIGNATURES=false is set explicitly for local legacy/test use.
  */
 
 const crypto = require("crypto");
@@ -16,7 +16,7 @@ const crypto = require("crypto");
 // Signature enforcement only applies to value-moving operations (spend, stake,
 // delegation, escrow). Mining, clock heartbeats, and block proposals do NOT
 // require signatures — their security comes from VRF rotation and verification.
-const REQUIRE_SIGNATURES = process.env.BTCPC_REQUIRE_SIGNATURES !== "false";
+const REQUIRE_SIGNATURES = process.env.HONE_REQUIRE_SIGNATURES !== "false";
 
 // Entry types that MUST be signed — these move value or delegate authority.
 // All other operations (heartbeats, proposals, sensor readings) are unsigned.
@@ -86,7 +86,7 @@ function verifyMessage(data, signature, publicKey) {
 
 /**
  * Verify a message data payload against an on-chain account's public key.
- * @param {string} username — BTCPC account name
+ * @param {string} username — HONE account name
  * @param {Object} data     — message data
  * @param {string} signature
  * @param {string} keyRole  — "owner" | "active" | "posting" | "memo" (default "active")
@@ -174,7 +174,7 @@ const BLOCK_ONLY_TYPES = [
  *   (a) a device key that is registered on-chain as a delegate for proposer, OR
  *   (b) the proposer's own active key (backwards-compat, single-device mode).
  *
- * @param {string} proposer   — BTCPC account name (e.g. 'natoshisakamoto')
+ * @param {string} proposer   — HONE account name (e.g. 'natoshisakamoto')
  * @param {string} deviceId   — hex device public key that signed (may equal proposer's active key)
  * @param {Object} data       — message data that was signed
  * @param {string} signature  — hex ECDSA signature
@@ -204,7 +204,7 @@ function verifyDeviceOrAccountSignature(proposer, deviceId, data, signature) {
   }
 
   // Path C: active key fallback — accepted for backwards compatibility but
-  // miners should rotate to BTCPC_POSTING_KEY.
+  // miners should rotate to HONE_POSTING_KEY.
   var activePub = account.public_keys.active;
   if (!activePub) return false;
   if (deviceId && deviceId !== activePub) return false;

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Dynamic Reward Engine
+ * HONE Dynamic Reward Engine
  * Shin Devlin
  *
  * Computes epoch reward distributions based on actual proven contributions.
@@ -16,11 +16,11 @@
  *                          Makes it worth coming online even before data is purchased.
  *                          Purchase rewards come on top via sensorRewards.processPurchase().
  *    6%  Service         — equal split among service hosts (future)
- *    2%  Protocol reserve → btcpc_recycle always
- *   recycled → btcpc_recycle when any pool has no participants
+ *    2%  Protocol reserve → hone_recycle always
+ *   recycled → hone_recycle when any pool has no participants
  *
  * Design principles:
- *   - Pools with no participants → btcpc_recycle (never burned)
+ *   - Pools with no participants → hone_recycle (never burned)
  *   - Sensor base reward: small but enough to incentivize coming online
  *   - Sensor purchase reward: separate, triggered by data query payment
  *   - Compute proof must include result_hash to be counted
@@ -28,8 +28,8 @@
  *   - All amounts rounded to 10 decimal places for determinism
  */
 
-const RECYCLE_ACCOUNT = "btcpc_recycle";
-const TOTAL_SUPPLY = 42000000; // 42M BTCPC hard cap
+const RECYCLE_ACCOUNT = "hone_recycle";
+const TOTAL_SUPPLY = 42000000; // 42M HONE hard cap
 const { computeToolMultiplier } = require("../mcp/toolRegistry");
 
 // Pool percentages — must sum to 1.0
@@ -40,7 +40,7 @@ const POOL = {
   storage:  0.15,
   sensor:   0.07, // base participation reward — equal split among active sensors this epoch
   service:  0.06,
-  reserve:  0.02, // always → btcpc_recycle
+  reserve:  0.02, // always → hone_recycle
 };
 
 function round(n) {
@@ -63,7 +63,7 @@ function round(n) {
  *
  * @returns {object} { rewards, recycled, summary, phase2 }
  *   rewards: [{ to, amount, type, meta }]  — all non-zero reward entries
- *   recycled: number                        — amount routed to btcpc_recycle
+ *   recycled: number                        — amount routed to hone_recycle
  *   summary: object                         — stats for logging/explorer
  *   phase2: boolean                         — true if this epoch ran under Phase 2
  */
@@ -81,14 +81,14 @@ function computeRewards(input) {
 
   // ── Phase 2 check: post-supply endowment ───────────────────────────────────
   // When total distributed supply has reached 42M, blockReward comes from
-  // btcpc_recycle balance × r (computed at activation), not from mining schedule.
+  // hone_recycle balance × r (computed at activation), not from mining schedule.
   let effectiveBlockReward = blockReward;
   let isPhase2Epoch = false;
   try {
     const ss = input.stateStore || require("./stateStore");
     if (ss.isPhase2()) {
       isPhase2Epoch = true;
-      const recycleBalance = ss.getBalance(RECYCLE_ACCOUNT, "BTCPC");
+      const recycleBalance = ss.getBalance(RECYCLE_ACCOUNT, "HONE");
       if (!ss.isPhase2Activated()) {
         // First Phase 2 epoch: compute r = last Phase 1 blockReward / recycleBalance
         // r targets parity with the last Phase 1 epoch reward
@@ -96,7 +96,7 @@ function computeRewards(input) {
         ss.setRecycleRate(r, epochNumber);
       }
       const r = ss.getRecycleRate() || 0;
-      const recycleBalance2 = ss.getBalance(RECYCLE_ACCOUNT, "BTCPC");
+      const recycleBalance2 = ss.getBalance(RECYCLE_ACCOUNT, "HONE");
       effectiveBlockReward = round(recycleBalance2 * r);
     }
   } catch (_) {
@@ -208,9 +208,9 @@ function computeRewards(input) {
   //
   // Device yield staking split (v3.4):
   //   If a device has an active yield staker:
-  //     60% → device owner, 30% → top staker, 10% → btcpc_recycle
+  //     60% → device owner, 30% → top staker, 10% → hone_recycle
   //   Otherwise:
-  //     90% → device owner, 10% → btcpc_recycle
+  //     90% → device owner, 10% → hone_recycle
   const sensorPool = round(effectiveBlockReward * POOL.sensor);
   const activeSensorList = (activeSensors || []).filter(s => s.account && (s.readings_count || 0) > 0);
   if (activeSensorList.length === 0) {
@@ -311,7 +311,7 @@ function computeRewards(input) {
     }
   }
 
-  // ── Protocol reserve (2%): always to btcpc_recycle ──────────────────────────
+  // ── Protocol reserve (2%): always to hone_recycle ──────────────────────────
   recycled += round(effectiveBlockReward * POOL.reserve);
 
   // Recycle entry

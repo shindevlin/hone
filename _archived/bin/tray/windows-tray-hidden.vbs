@@ -1,4 +1,4 @@
-' BTCPC Windows Tray — Hidden launcher
+' HONE Windows Tray — Hidden launcher
 ' Starts the PowerShell tray script with NO console window at all.
 ' Place this in shell:startup to autostart on login.
 '

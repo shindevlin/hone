@@ -1,4 +1,4 @@
-# BTCPC Execution Plan
+# HONE Execution Plan
 
 Plan date: 2026-04-08
 
@@ -24,7 +24,7 @@ This plan is built from the repository state, `docs/ROADMAP.md`, recent git hist
 - Registration and login use compatible password verification
 - Login accepts username or email
 - Legacy password hashes can still be read and upgraded on successful login
-- User-facing token terminology consistently says BTCPC where applicable
+- User-facing token terminology consistently says HONE where applicable
 
 ### Exit criteria
 

@@ -1,6 +1,6 @@
-# BTCPC Smart Contract Developer Guide
+# HONE Smart Contract Developer Guide
 
-> **Version 1.0** — SDK `btcpc-contract-sdk = "1.0"` — Chain epoch model, wasmtime sandbox
+> **Version 1.0** — SDK `hone-contract-sdk = "1.0"` — Chain epoch model, wasmtime sandbox
 
 ---
 
@@ -22,19 +22,19 @@
 
 ## 1. Introduction
 
-### What are BTCPC smart contracts?
+### What are HONE smart contracts?
 
-BTCPC smart contracts are programs that run directly on the BTCPC blockchain. They are written in **Rust**, compiled to **WebAssembly (WASM)**, deployed on-chain, and called by submitting signed transactions. Once deployed, a contract's code is immutable and its execution is deterministic.
+HONE smart contracts are programs that run directly on the HONE blockchain. They are written in **Rust**, compiled to **WebAssembly (WASM)**, deployed on-chain, and called by submitting signed transactions. Once deployed, a contract's code is immutable and its execution is deterministic.
 
-Contracts on BTCPC are first-class citizens of the network — they can hold BTCPC balances, own on-chain assets, emit indexed events, and call other contracts.
+Contracts on HONE are first-class citizens of the network — they can hold HONE balances, own on-chain assets, emit indexed events, and call other contracts.
 
 ### WASM Execution Model
 
-Every contract is compiled to the `wasm32-unknown-unknown` target and stored as a WASM binary in the chain state. When a method is called, the BTCPC node:
+Every contract is compiled to the `wasm32-unknown-unknown` target and stored as a WASM binary in the chain state. When a method is called, the HONE node:
 
 1. Loads the contract WASM into a fresh **wasmtime** sandbox.
 2. Injects host functions (the Environment API) as WASM imports.
-3. Calls the single exported entry point: `__btcpc_dispatch()`.
+3. Calls the single exported entry point: `__hone_dispatch()`.
 4. The dispatch function reads the method name and JSON arguments from host registers, calls the correct Rust method, writes mutated state back to storage, and returns any result value.
 5. All state writes are atomic — a panic reverts everything.
 
@@ -48,7 +48,7 @@ State persists across calls. There is no garbage collection — storage you writ
 
 ### Gas Model
 
-Every operation in a contract call consumes **EB (Epoch Bandwidth)** — BTCPC's unit of computational cost.
+Every operation in a contract call consumes **EB (Epoch Bandwidth)** — HONE's unit of computational cost.
 
 | Unit | Equivalent |
 |------|-----------|
@@ -65,7 +65,7 @@ Gas is prepaid by the caller and deducted from their account. If execution exhau
 
 - Rust stable (1.75+)
 - The `wasm32-unknown-unknown` compilation target
-- The BTCPC CLI (for deployment)
+- The HONE CLI (for deployment)
 
 ```bash
 # Install Rust
@@ -94,7 +94,7 @@ edition = "2021"
 crate-type = ["cdylib"]  # Required: compile to a dynamic library for WASM
 
 [dependencies]
-btcpc-contract-sdk = "1.0"
+hone-contract-sdk = "1.0"
 borsh = { version = "1", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -109,15 +109,15 @@ panic = "abort"        # Smaller WASM — panics abort rather than unwind
 ### Hello World: A Counter Contract
 
 ```rust
-use btcpc_contract_sdk::*;
+use hone_contract_sdk::*;
 
-#[btcpc_contract]
+#[hone_contract]
 pub struct Counter {
     count: u64,
     owner: AccountId,
 }
 
-#[btcpc_impl]
+#[hone_impl]
 impl Counter {
     /// Deploy a new counter. Called once at deploy time.
     #[init]
@@ -161,33 +161,33 @@ The compiled WASM is at `target/wasm32-unknown-unknown/release/my_contract.wasm`
 ### Deploy via API
 
 ```bash
-btcpc contract deploy my_contract.wasm \
+hone contract deploy my_contract.wasm \
   --args '{"start": 0}' \
   --account myaccount
 ```
 
-On success, the CLI prints the contract address (`BTCPCsc…`). Save it — you will need it to call the contract.
+On success, the CLI prints the contract address (`HONEsc…`). Save it — you will need it to call the contract.
 
 ### Call and View
 
 ```bash
 # State-mutating call
-btcpc contract call BTCPCsc<address> increment --account myaccount
+hone contract call HONEsc<address> increment --account myaccount
 
 # Read-only view (free, no gas)
-btcpc contract view BTCPCsc<address> get
+hone contract view HONEsc<address> get
 ```
 
 ---
 
 ## 3. Contract Structure
 
-### `#[btcpc_contract]` — The State Struct
+### `#[hone_contract]` — The State Struct
 
 Place this attribute on the struct that holds all persistent contract state. Under the hood it derives `BorshSerialize` and `BorshDeserialize` and generates `__load()` / `__save()` helpers that read and write the entire struct from the `__state` storage key.
 
 ```rust
-#[btcpc_contract]
+#[hone_contract]
 pub struct MyContract {
     owner: AccountId,
     value: u64,
@@ -197,18 +197,18 @@ pub struct MyContract {
 
 Every field must implement `BorshSerialize + BorshDeserialize`. All SDK collection types (`LookupMap`, `UnorderedMap`, `Vector`, `LazyOption`) satisfy this requirement.
 
-### `#[btcpc_impl]` — The Dispatch Table
+### `#[hone_impl]` — The Dispatch Table
 
-Place this attribute on the `impl` block that defines your contract's callable methods. It generates the `__btcpc_dispatch()` WASM entry point that routes incoming calls to the correct Rust method.
+Place this attribute on the `impl` block that defines your contract's callable methods. It generates the `__hone_dispatch()` WASM entry point that routes incoming calls to the correct Rust method.
 
 ```rust
-#[btcpc_impl]
+#[hone_impl]
 impl MyContract {
     // methods go here
 }
 ```
 
-There must be exactly one `#[btcpc_impl]` block per contract.
+There must be exactly one `#[hone_impl]` block per contract.
 
 ### `#[init]` — Constructor
 
@@ -389,7 +389,7 @@ let balances: LookupMap<AccountId, u128> = LookupMap::new(StorageKey::Balances);
 
 ## 5. Environment API
 
-The `env` module exposes the BTCPC runtime's host functions. On-chain these are `extern "C"` imports; in tests, the mock implementation is used automatically.
+The `env` module exposes the HONE runtime's host functions. On-chain these are `extern "C"` imports; in tests, the mock implementation is used automatically.
 
 ### Full Reference
 
@@ -397,9 +397,9 @@ The `env` module exposes the BTCPC runtime's host functions. On-chain these are 
 |----------|-----------|-------------|-------------|
 | `env::signer()` | `() -> AccountId` | The account that signed the originating transaction | `AccountId` (`String`) |
 | `env::predecessor()` | `() -> AccountId` | The immediate caller (same as signer unless called from another contract) | `AccountId` |
-| `env::current_contract()` | `() -> AccountId` | This contract's own address (`BTCPCsc…`) | `AccountId` |
+| `env::current_contract()` | `() -> AccountId` | This contract's own address (`HONEsc…`) | `AccountId` |
 | `env::epoch()` | `() -> Epoch` | Current chain epoch number. One epoch = 30 seconds | `u64` |
-| `env::balance_of(account)` | `(&AccountId) -> Balance` | On-chain BTCPC balance of any account, in dreams | `u128` |
+| `env::balance_of(account)` | `(&AccountId) -> Balance` | On-chain HONE balance of any account, in dreams | `u128` |
 | `env::transfer(to, amount)` | `(&AccountId, Balance) -> bool` | Transfer dreams from this contract's balance to `to`. Panics if insufficient funds | `bool` |
 | `env::log(msg)` | `(&str)` | Emit a log string. Visible in transaction receipts; not stored in state | `()` |
 | `env::panic_str(msg)` | `(&str) -> !` | Abort execution. All state changes are rolled back | `!` (never) |
@@ -427,15 +427,15 @@ require!(env::predecessor() == PROXY_CONTRACT_ID, "use the proxy");
 
 ### Balance and Transfer
 
-`Balance` is denominated in **dreams** (1 BTCPC = 10,000,000,000 dreams). The constant `HUNITS_PER_HONE` is provided for convenience.
+`Balance` is denominated in **dreams** (1 HONE = 10,000,000,000 dreams). The constant `HUNITS_PER_HONE` is provided for convenience.
 
 ```rust
-use btcpc_contract_sdk::types::HUNITS_PER_HONE;
+use hone_contract_sdk::types::HUNITS_PER_HONE;
 
 let my_balance = env::balance_of(&env::current_contract());
 let caller_balance = env::balance_of(&env::signer());
 
-// Send 0.5 BTCPC to the caller
+// Send 0.5 HONE to the caller
 env::transfer(&env::signer(), HUNITS_PER_HONE / 2);
 ```
 
@@ -459,12 +459,12 @@ emit!(&MyEvent { from, to, amount });
 
 ## 6. Events
 
-Events are structured, JSON-serialized records emitted during contract execution. They are included in block receipts, indexed by the BTCPC explorer, and queryable via the API. Events do **not** affect contract state and do not cost storage.
+Events are structured, JSON-serialized records emitted during contract execution. They are included in block receipts, indexed by the HONE explorer, and queryable via the API. Events do **not** affect contract state and do not cost storage.
 
 ### Emitting Events
 
 ```rust
-use btcpc_contract_sdk::event;
+use hone_contract_sdk::event;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -511,12 +511,12 @@ Events are emitted as raw JSON bytes. The convention for standard events is:
 
 ### Built-in Standard Events
 
-The SDK provides pre-built event structs in `btcpc_contract_sdk::event`:
+The SDK provides pre-built event structs in `hone_contract_sdk::event`:
 
 #### `TransferEvent` (BSP-20)
 
 ```rust
-use btcpc_contract_sdk::event::TransferEvent;
+use hone_contract_sdk::event::TransferEvent;
 
 emit!(&TransferEvent::new(
     sender.clone(),
@@ -540,7 +540,7 @@ Serializes to:
 #### `NftMintEvent` (BSP-721)
 
 ```rust
-use btcpc_contract_sdk::event::NftMintEvent;
+use hone_contract_sdk::event::NftMintEvent;
 
 emit!(&NftMintEvent::new(owner.clone(), token_id.clone()));
 ```
@@ -559,7 +559,7 @@ Serializes to:
 ### Querying Events
 
 ```bash
-btcpc events --contract BTCPCsc<address> --event ft_transfer --from-epoch 3200
+hone events --contract HONEsc<address> --event ft_transfer --from-epoch 3200
 ```
 
 ---
@@ -571,10 +571,10 @@ Cross-contract calls allow a contract to schedule a method call on another contr
 ### `Promise::new(...).call(...)`
 
 ```rust
-use btcpc_contract_sdk::promise::{self, Promise};
+use hone_contract_sdk::promise::{self, Promise};
 
 // Inside a #[call] method:
-Promise::new("BTCPCsc<other-contract>")
+Promise::new("HONEsc<other-contract>")
     .call(
         "ft_on_transfer",
         serde_json::json!({
@@ -624,7 +624,7 @@ pub fn on_ft_transfer_complete(&mut self, succeeded: bool) {
 
 | Term | Definition |
 |------|-----------|
-| **EB (Epoch Bandwidth)** | BTCPC's human-readable gas unit. 1 EB = 1,000,000 fuel units |
+| **EB (Epoch Bandwidth)** | HONE's human-readable gas unit. 1 EB = 1,000,000 fuel units |
 | **Fuel unit** | One unit of wasmtime metered WASM execution |
 | **TGAS** | Tera-gas (10^12 fuel units) — used in the `promise::gas` constants |
 
@@ -668,7 +668,7 @@ The `Gas` type alias is `u64` and represents raw fuel units throughout the SDK. 
 
 ## 9. BSP Standards
 
-**BTCPC Standard Proposals (BSPs)** define shared interfaces for common contract patterns — analogous to Ethereum's ERCs or Solana's SPL.
+**HONE Standard Proposals (BSPs)** define shared interfaces for common contract patterns — analogous to Ethereum's ERCs or Solana's SPL.
 
 Implementing a BSP standard makes your contract interoperable with wallets, explorers, DEXes, and other infrastructure that recognizes these interfaces.
 
@@ -764,13 +764,13 @@ The reference BSP-20 implementation uses explicit underflow checks via `require!
 
 ### Reentrancy
 
-Reentrancy attacks are **not possible** in BTCPC. WASM execution is synchronous — a contract method runs to completion before any cross-contract call is dispatched. There is no way for a callee to re-enter the caller mid-execution.
+Reentrancy attacks are **not possible** in HONE. WASM execution is synchronous — a contract method runs to completion before any cross-contract call is dispatched. There is no way for a callee to re-enter the caller mid-execution.
 
 Cross-contract calls via `Promise` are scheduled and execute in a subsequent step, after all state changes from the current call have been committed. Design callback handlers (`#[private]`) defensively, but traditional reentrancy guards are unnecessary.
 
 ### Validating Deposits
 
-If your contract accepts native BTCPC transfers alongside calls, always validate the deposit amount explicitly:
+If your contract accepts native HONE transfers alongside calls, always validate the deposit amount explicitly:
 
 ```rust
 // Example: payable deposit gate
@@ -819,7 +819,7 @@ require!(!self.paused, "contract is paused");
 The following is the complete BSP-20 reference implementation with all methods documented inline. This contract is production-grade and passes the BSP-20 compliance test suite.
 
 ```rust
-use btcpc_contract_sdk::*;
+use hone_contract_sdk::*;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -830,14 +830,14 @@ use serde::{Deserialize, Serialize};
 pub struct FtMetadata {
     pub name:      String,        // Human-readable token name, e.g. "MyToken"
     pub symbol:    String,        // Ticker symbol, e.g. "MTK"
-    pub decimals:  u8,            // Decimal places. 10 matches BTCPC dreams precision (1 BTCPC = 10^10 dreams).
+    pub decimals:  u8,            // Decimal places. 10 matches HONE dreams precision (1 HONE = 10^10 dreams).
     pub icon:      Option<String>,     // Data URL for a token icon (optional)
     pub reference: Option<String>,     // URL to a JSON metadata reference (optional)
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
 
-#[btcpc_contract]
+#[hone_contract]
 pub struct FungibleToken {
     pub metadata:     FtMetadata,
     pub total_supply: u128,
@@ -849,7 +849,7 @@ pub struct FungibleToken {
 
 // ── Methods ──────────────────────────────────────────────────────────────────
 
-#[btcpc_impl]
+#[hone_impl]
 impl FungibleToken {
     /// Deploy the token. Called once via CONTRACT_DEPLOY.
     ///
@@ -1039,20 +1039,20 @@ impl FungibleToken {
 
 ```bash
 # Deploy with 1 billion tokens at 8 decimals
-btcpc contract deploy ft.wasm \
+hone contract deploy ft.wasm \
   --args '{"name":"MyToken","symbol":"MTK","decimals":8,"total_supply":"100000000000000000"}' \
   --account natoshisakamoto
 
 # Transfer 10 tokens (10 * 10^8 = 1_000_000_000)
-btcpc contract call BTCPCsc<address> ft_transfer \
+hone contract call HONEsc<address> ft_transfer \
   --args '{"receiver_id":"alice","amount":"1000000000","memo":null}' \
   --account natoshisakamoto
 
 # Check balance
-btcpc contract view BTCPCsc<address> ft_balance_of \
+hone contract view HONEsc<address> ft_balance_of \
   --args '{"account_id":"alice"}'
 ```
 
 ---
 
-*BTCPC Contract SDK — MIT OR Apache-2.0 — [github.com/btcpc-network/btcpc-contract-sdk](https://github.com/btcpc-network/btcpc-contract-sdk)*
+*HONE Contract SDK — MIT OR Apache-2.0 — [github.com/hone-network/hone-contract-sdk](https://github.com/hone-network/hone-contract-sdk)*

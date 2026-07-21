@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BTCPC Amazon store scraper — camoufox backend
+HONE Amazon store scraper — camoufox backend
 Shin Devlin
 
 Accepts a single Amazon URL as argv[1].

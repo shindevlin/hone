@@ -28,12 +28,12 @@ echo "  Node $(node --version) installed"
 
 # Clone or update repo
 echo "[3/5] Downloading HONE..."
-if [ -d "$HOME/btcpc" ]; then
-  cd "$HOME/btcpc"
+if [ -d "$HOME/hone" ]; then
+  cd "$HOME/hone"
   git pull --ff-only 2>/dev/null || true
 else
-  git clone https://github.com/shindevlin/btcpc.git "$HOME/btcpc"
-  cd "$HOME/btcpc"
+  git clone https://github.com/shindevlin/hone.git "$HOME/hone"
+  cd "$HOME/hone"
 fi
 
 # Install dependencies
@@ -42,7 +42,7 @@ npm install --production 2>/dev/null
 
 # Setup account
 echo "[5/5] Setting up account..."
-if [ ! -f "$HOME/btcpc/.env" ]; then
+if [ ! -f "$HOME/hone/.env" ]; then
   echo ""
   echo "Enter your HONE username:"
   read -r HONE_USER
@@ -51,7 +51,7 @@ if [ ! -f "$HOME/btcpc/.env" ]; then
   read -rs HONE_PASS
   echo ""
 
-  cat > "$HOME/btcpc/.env" << ENVEOF
+  cat > "$HOME/hone/.env" << ENVEOF
 HONE_MINER=$HONE_USER
 HONE_PASSWORD=$HONE_PASS
 HONE_ROLES=clock
@@ -71,7 +71,7 @@ echo ""
 echo "========================================="
 echo "  HONE installed!"
 echo ""
-echo "  Start:   cd ~/btcpc && node bin/btcpc-all"
+echo "  Start:   cd ~/hone && node bin/hone-all"
 echo "  Or just:  hone"
 echo "========================================="
 
@@ -79,7 +79,7 @@ echo "========================================="
 mkdir -p "$HOME/.shortcuts" 2>/dev/null || true
 cat > "$PREFIX/bin/hone" << 'CMDEOF'
 #!/data/data/com.termux/files/usr/bin/bash
-cd "$HOME/btcpc" && exec node bin/btcpc-all
+cd "$HOME/hone" && exec node bin/hone-all
 CMDEOF
 chmod +x "$PREFIX/bin/hone"
 

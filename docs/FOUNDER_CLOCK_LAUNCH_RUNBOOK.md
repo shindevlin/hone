@@ -198,7 +198,7 @@ Gossipsub publish on 'hone/entries' failed: NoPeersSubscribedToTopic
    heartbeats earn real Layer-B rewards.
 2. Run the public-surface checks in `docs/GO_LIVE_CHECKLIST.md` (that checklist tests
    *serving traffic* and only becomes meaningful once state is live; it is also stale — still
-   says "BTCPC" — refresh it).
+   says "HONE" — refresh it).
 3. Address the **verifier-bond bug** (`reports/research/BUG-verifier-zero-bond-2026-07-09.md`)
    before the inference marketplace carries real value — on a state-live mainnet it is a live
    economic hole, not a testnet one.

@@ -142,8 +142,8 @@ const os = require('os');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-sec-auth-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-sec-auth-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 process.env.JWT_SECRET = 'security-fix-test-secret';
 
 const mockMongoUsers = {};

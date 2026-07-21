@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Compute-Verified Proofs
+ * HONE Compute-Verified Proofs
  * Shin Devlin
  *
  * Layer 2 of the three-layer chain storage model.
@@ -77,12 +77,12 @@ function verifyAccountState(username) {
 async function submitComputeVerification(username, claimedBalance) {
   // Build the verification prompt
   var prompt = [
-    "BTCPC BALANCE VERIFICATION REQUEST",
+    "HONE BALANCE VERIFICATION REQUEST",
     "Account: " + username,
-    "Claimed balance: " + claimedBalance + " BTCPC",
+    "Claimed balance: " + claimedBalance + " HONE",
     "",
     "Instructions: Replay the permanent ledger for this account.",
-    "Compute: sum(incoming) - sum(outgoing) for token BTCPC.",
+    "Compute: sum(incoming) - sum(outgoing) for token HONE.",
     "Return: VERIFIED if balance matches, REJECTED with actual balance if not.",
     "Include the current state root from your SMT."
   ].join("\n");

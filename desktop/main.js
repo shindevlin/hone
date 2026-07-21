@@ -5,8 +5,8 @@ const { spawn } = require("child_process");
 const { app, BrowserWindow, shell } = require("electron");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
-const WEBSITE_PORT = process.env.BTCPC_DESKTOP_PORT || "4243";
-const START_WEBSITE = process.env.BTCPC_DESKTOP_WEBSITE !== "0";
+const WEBSITE_PORT = process.env.HONE_DESKTOP_PORT || "4243";
+const START_WEBSITE = process.env.HONE_DESKTOP_WEBSITE !== "0";
 
 let websiteProcess = null;
 
@@ -17,9 +17,9 @@ function startWebsite() {
     cwd: REPO_ROOT,
     env: Object.assign({}, process.env, {
       PORT: WEBSITE_PORT,
-      BTCPC_API_PORT: process.env.BTCPC_API_PORT || "3000",
+      HONE_API_PORT: process.env.HONE_API_PORT || "3000",
     }),
-    stdio: process.env.BTCPC_DESKTOP_DEV ? "inherit" : "ignore",
+    stdio: process.env.HONE_DESKTOP_DEV ? "inherit" : "ignore",
   });
 
   websiteProcess.on("exit", () => {
@@ -34,7 +34,7 @@ function createWindow() {
     minWidth: 360,
     minHeight: 640,
     backgroundColor: "#0a0e17",
-    title: "BTCPC",
+    title: "HONE",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

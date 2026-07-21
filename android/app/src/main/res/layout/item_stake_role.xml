@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="12dp"
-    style="@style/BtcpcCard">
+    style="@style/HoneCard">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -25,7 +25,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Role"
-                android:textColor="@color/btcpc_text"
+                android:textColor="@color/hone_text"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -39,7 +39,7 @@
                 android:paddingTop="3dp"
                 android:paddingBottom="3dp"
                 android:text="OPEN"
-                android:textColor="@color/btcpc_orange"
+                android:textColor="@color/hone_orange"
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
@@ -53,7 +53,7 @@
             android:layout_marginTop="6dp"
             android:layout_marginBottom="12dp"
             android:text="Description"
-            android:textColor="@color/btcpc_muted"
+            android:textColor="@color/hone_muted"
             android:textSize="13sp" />
 
         <!-- Min stake + unlock row -->
@@ -73,7 +73,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Min. Stake"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp" />
 
                 <TextView
@@ -81,15 +81,15 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="--"
-                    android:textColor="@color/btcpc_orange"
+                    android:textColor="@color/hone_orange"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="BTCPC"
-                    android:textColor="@color/btcpc_muted"
+                    android:text="HONE"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp" />
 
             </LinearLayout>
@@ -104,7 +104,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Unlock Period"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="11sp" />
 
                 <TextView
@@ -112,7 +112,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="-- days"
-                    android:textColor="@color/btcpc_text"
+                    android:textColor="@color/hone_text"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
@@ -127,7 +127,7 @@
             android:layout_height="44dp"
             android:text="Stake"
             android:textColor="@android:color/black"
-            android:backgroundTint="@color/btcpc_orange"
+            android:backgroundTint="@color/hone_orange"
             android:textSize="14sp"
             android:textStyle="bold" />
 

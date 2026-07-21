@@ -1,4 +1,4 @@
-# Nebra Raspberry Pi — BTCPC Hardware Reference
+# Nebra Raspberry Pi — HONE Hardware Reference
 
 ## Device Info
 - **Model**: Nebra Indoor Helium Hotspot (repurposed)
@@ -10,7 +10,7 @@
 - **SSH**: pi@192.168.68.75 (password in env)
 - **WiFi**: disabled (unreliable, wired instead)
 - **Node**: /usr/local/bin/node v20.20.2
-- **BTCPC Account**: shindevlin
+- **HONE Account**: shindevlin
 - **Roles**: clock, storage, gateway
 
 ## Hardware Interfaces
@@ -19,7 +19,7 @@
 - **SPI**: /dev/spidev0.0 or /dev/spidev0.1
 - **Frequencies**: US915 (915 MHz), EU868, AU915, AS923
 - **Status**: detected but no sensors deployed yet
-- **BTCPC daemon**: btcpc-nebra (gateway role)
+- **HONE daemon**: hone-nebra (gateway role)
 - **Packet format**: Cayenne LPP via Semtech UDP on port 1700
 
 ### GPIO
@@ -37,20 +37,20 @@
 
 ### Storage
 - microSD (boot) + optional USB SSD
-- BTCPC-FS blob storage on port 4243
+- HONE-FS blob storage on port 4243
 
 ### Network
 - Ethernet: 100Mbps (wired, static IP)
 - WiFi: disabled (was unreliable)
 
-## BTCPC Services (systemd)
+## HONE Services (systemd)
 
 ```
-/etc/systemd/system/btcpc.service
+/etc/systemd/system/hone.service
 - Type: simple
 - User: pi
-- WorkingDirectory: /home/pi/btcpc
-- ExecStart: /usr/local/bin/node bin/btcpc-all
+- WorkingDirectory: /home/pi/hone
+- ExecStart: /usr/local/bin/node bin/hone-all
 - Restart: always (10s delay)
 - Auto-start on boot: enabled
 ```
@@ -59,16 +59,16 @@
 
 ### Clock (5% reward pool)
 - Sends CLOCK_HEARTBEAT every epoch (30s)
-- Connected to relay: wss://btcpc-relay.shindevlin.workers.dev/ws
+- Connected to relay: wss://hone-relay.shindevlin.workers.dev/ws
 - P2P port: 6943
 
 ### Storage (12% reward pool)
-- BTCPC-FS blob host on port 4243
+- HONE-FS blob host on port 4243
 - Capacity: 10GB configured
 - Heartbeats sent each epoch
 
 ### Gateway (10% IoT pool)
-- btcpc-nebra daemon running
+- hone-nebra daemon running
 - Listens on UDP port 1700 for LoRa packets
 - Reports onboard sensors to chain every 30s:
   - CPU temperature (/sys/class/thermal/thermal_zone0/temp)
@@ -80,13 +80,13 @@
 
 ## Auto-Update
 - Core account (shindevlin) — checks every 5 minutes
-- btcpc-update-source daemon pulls from GitHub
+- hone-update-source daemon pulls from GitHub
 - Health check + rollback on failure
 
 ## Self-Heal Watchdog
 - Checks every 5 minutes if latest block is >10 minutes old
 - Restarts all children if chain is stalled
-- systemd restarts btcpc.service if process crashes
+- systemd restarts hone.service if process crashes
 
 ## Sensor Expansion (what can be plugged in)
 
@@ -126,9 +126,9 @@ To receive Flipper Zero sensor data directly via Sub-GHz radio (no USB/BLE neede
 **Note:** The LoRa concentrator uses SPI0 (/dev/spidev0.0). The CC1101 must use SPI1 (/dev/spidev1.0) or bitbang SPI on different GPIO pins to avoid conflict.
 
 ### Software
-btcpc-nebra daemon needs a CC1101 listener that:
+hone-nebra daemon needs a CC1101 listener that:
 1. Listens on 915 MHz FSK (matching Flipper's Sub-GHz TX format)
-2. Parses BTCPC sensor packets (the format defined in the Flipper plan)
+2. Parses HONE sensor packets (the format defined in the Flipper plan)
 3. Submits readings to the chain via POST /api/sensors/:id/readings
 
 ### Flipper TX format (already implemented)

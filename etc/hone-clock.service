@@ -1,0 +1,16 @@
+[Unit]
+Description=HONE Clock Node
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntclaw/repos/hone
+ExecStart=/usr/bin/node bin/hone-clock
+Restart=on-failure
+RestartSec=15
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntclaw/repos/hone/.env
+Environment=P2P_PORT=6943
+
+[Install]
+WantedBy=default.target

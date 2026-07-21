@@ -1,9 +1,9 @@
-all: btcpc-sik
+all: hone-sik
 
-btcpc-sik: fingerprint.cu
-	nvcc -O2 -o btcpc-sik fingerprint.cu
+hone-sik: fingerprint.cu
+	nvcc -O2 -o hone-sik fingerprint.cu
 
 clean:
-	rm -f btcpc-sik
+	rm -f hone-sik
 
 .PHONY: all clean

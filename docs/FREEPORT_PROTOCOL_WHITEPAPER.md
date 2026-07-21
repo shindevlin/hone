@@ -7,23 +7,23 @@
 
 ---
 
-> **Note (2026):** Freeport Protocol is now a native protocol within BTCPC, deployed at genesis block 0. All entry types described in this whitepaper are natively supported by the BTCPC chain. No separate deployment required. See [NATIVE_PROTOCOLS.md](NATIVE_PROTOCOLS.md) for the full native protocol overview.
+> **Note (2026):** Freeport Protocol is now a native protocol within HONE, deployed at genesis block 0. All entry types described in this whitepaper are natively supported by the HONE chain. No separate deployment required. See [NATIVE_PROTOCOLS.md](NATIVE_PROTOCOLS.md) for the full native protocol overview.
 
 ---
 
 ## Abstract
 
 Freeport Protocol (FP) is a sovereign blockchain where block rewards are earned
-by machines performing verifiable, useful work. The native token — **BTCPC** — is
+by machines performing verifiable, useful work. The native token — **HONE** — is
 the unit of settlement for all work and commerce on the chain. Five categories of work
 produce emissions each epoch: AI inference, data storage, service hosting, IoT sensor
 reporting, and epoch timing. Five categories of work produce emissions
 each epoch: AI inference, data storage, service hosting, IoT sensor reporting, and epoch
 timing. Each category has its own reward pool. Every pool with active participants pays
 out pro-rata to those participants. Pools with no claimants are recycled — never burned —
-back into future block rewards via the `btcpc_recycle` system account.
+back into future block rewards via the `hone_recycle` system account.
 
-Total supply is fixed at **42,000,000 BTCPC** with 10 decimal places. Epochs run every
+Total supply is fixed at **42,000,000 HONE** with 10 decimal places. Epochs run every
 **30 seconds**, driven by permissionless clock nodes. There is no proof-of-work puzzle,
 no staking barrier to entry, and no synthetic work. If nobody submits an AI inference
 job today, the miner pool recycles. The chain's value is entirely derived from the
@@ -62,7 +62,7 @@ uses?**
 Freeport Protocol applies Bitcoin's core insight — costly, verifiable work can secure a
 network and back a scarce asset — to a domain where the work itself has market value.
 
-Miners on BTCPC earn by completing AI inference jobs that real users submitted through
+Miners on HONE earn by completing AI inference jobs that real users submitted through
 the API. The inference result is the proof of work. The job was something the user
 actually wanted. The token earned is payment for a real service, not a reward for solving
 an artificial puzzle.
@@ -83,7 +83,7 @@ The computational output is discarded by design.
 Smart contracts are the product. The chain is the platform.
 
 **Freeport Protocol** is the digital labor market and sovereign commerce layer. Proof of
-Compute means the mining IS the product. Every BTCPC token represents real work done:
+Compute means the mining IS the product. Every HONE token represents real work done:
 an AI prompt answered, a file stored, a sensor reading verified, an application served,
 a clock heartbeat delivered. Commerce on Freeport requires no middleman — the chain is
 the marketplace, the escrow, and the reputation system.
@@ -94,7 +94,7 @@ the marketplace, the escrow, and the reputation system.
 
 ### 2.1 Epochs
 
-BTCPC operates on fixed 30-second epoch intervals. At each epoch boundary:
+HONE operates on fixed 30-second epoch intervals. At each epoch boundary:
 
 1. Clock nodes submit a heartbeat transaction with their local timestamp
 2. The median of all heartbeats within a tolerance window establishes the canonical
@@ -116,9 +116,9 @@ peer availability. This prevents any single node from controlling block producti
 
 ### 2.2 Mining: Real Inference Only
 
-Miners earn BTCPC by completing AI inference jobs. There is no make-work puzzle. A
+Miners earn HONE by completing AI inference jobs. There is no make-work puzzle. A
 miner that has no pending jobs to complete earns nothing for that epoch. The entire
-miner reward pool for an epoch with no submitted jobs is recycled to `btcpc_recycle`.
+miner reward pool for an epoch with no submitted jobs is recycled to `hone_recycle`.
 
 The inference pipeline:
 
@@ -135,7 +135,7 @@ The inference pipeline:
 9. Invalid or missing results: miner earns nothing for that job; verifiers flag the
    discrepancy; stake may be slashed on repeated fraud
 
-Ollama is the inference backend. BTCPC is model-agnostic: miners run any model that
+Ollama is the inference backend. HONE is model-agnostic: miners run any model that
 Ollama supports (qwen, llama, mistral, gemma, deepseek, etc.). Work value scales with
 the verified parameter count from Ollama's `/api/show` endpoint, not the model name.
 A miner running a 70B model earns more per job than one running a 7B model, because
@@ -160,7 +160,7 @@ earns 10% of each epoch's block reward, split pro-rata by verification count.
 
 ### 2.4 P2P Security
 
-All P2P messages in BTCPC are signed with ECDSA using the sender's Active key. Unsigned
+All P2P messages in HONE are signed with ECDSA using the sender's Active key. Unsigned
 messages are rejected. Message types that require signatures:
 
 - `BLOCK_PROPOSAL` — signed by the broadcasting node
@@ -193,7 +193,7 @@ consensus-critical operations.
 
 ### 2.6 Dynamic Block Cap
 
-BTCPC uses an adaptive block size cap that responds to demand. The cap starts at 1 MB
+HONE uses an adaptive block size cap that responds to demand. The cap starts at 1 MB
 and adjusts each epoch:
 
 - If the current block is more than 50% full: next cap = min(current × 1.25, 32 MB)
@@ -210,16 +210,16 @@ sustained demand.
 
 ### 3.1 Key Hierarchy
 
-Every BTCPC account is derived from a single BIP-39 mnemonic (12 words). The mnemonic
+Every HONE account is derived from a single BIP-39 mnemonic (12 words). The mnemonic
 derives four secp256k1 key pairs with distinct permission levels:
 
 ```
 12-Word BIP-39 Mnemonic
   │
-  ├── m/44'/btcpc'/0'/0/0  → Owner Key
-  ├── m/44'/btcpc'/0'/1/0  → Active Key
-  ├── m/44'/btcpc'/0'/2/0  → Posting Key
-  └── m/44'/btcpc'/0'/3/0  → Memo Key
+  ├── m/44'/hone'/0'/0/0  → Owner Key
+  ├── m/44'/hone'/0'/1/0  → Active Key
+  ├── m/44'/hone'/0'/2/0  → Posting Key
+  └── m/44'/hone'/0'/3/0  → Memo Key
 ```
 
 **Owner key** — cold storage, account recovery. Used only for recovery operations and
@@ -251,7 +251,7 @@ exploitable: the attacker needs both the key and access to the TOTP device.
 
 Account names are 3–20 characters, lowercase letters and numbers only, no leading or
 trailing hyphens. 420 premium names were reserved at genesis for controlled release.
-Name registration costs a flat fee that routes to `btcpc_recycle`. Names are permanent
+Name registration costs a flat fee that routes to `hone_recycle`. Names are permanent
 once registered — there is no expiry, no renewal fee, and no squatter protection beyond
 first-come-first-served.
 
@@ -268,14 +268,14 @@ registration does not require a fee; it is included in the account creation tran
 
 ### 4.1 Supply
 
-Total supply: **42,000,000 BTCPC** — fixed forever. No inflation beyond the emission
+Total supply: **42,000,000 HONE** — fixed forever. No inflation beyond the emission
 schedule. No governance-adjustable issuance. No pre-mine. No founder allocation. No VC
 allocation. Every token in existence has been (or will be) earned through work on the
 live chain.
 
-Denomination: **1 BTCPC = 10,000,000,000 dreams** (10^10 base units). Dreams are the
+Denomination: **1 HONE = 10,000,000,000 dreams** (10^10 base units). Dreams are the
 base unit for internal calculations. All on-chain amounts are rounded to 10 decimal
-places. The dream denomination future-proofs the chain: even at $100,000 per BTCPC, one
+places. The dream denomination future-proofs the chain: even at $100,000 per HONE, one
 dream is worth $0.00001 — fine-grained enough for microtransactions in commerce,
 sensor markets, and inference pricing.
 
@@ -283,29 +283,29 @@ sensor markets, and inference pricing.
 
 | Year | Reward/epoch | Yearly emission | Cumulative |
 |------|-------------|-----------------|------------|
-| 1    | 24.306 BTCPC | ~25,560,000     | 25,560,000 |
-| 2    | 12.153 BTCPC | ~12,780,000     | 38,340,000 |
-| 3    | 6.077 BTCPC  | ~6,390,000      | ~42,000,000 (capped) |
+| 1    | 24.306 HONE | ~25,560,000     | 25,560,000 |
+| 2    | 12.153 HONE | ~12,780,000     | 38,340,000 |
+| 3    | 6.077 HONE  | ~6,390,000      | ~42,000,000 (capped) |
 
-Emission halts when cumulative reaches 42,000,000 BTCPC. Post-emission, block rewards
-are funded entirely from `btcpc_recycle` (fee flows + recycled unclaimed rewards).
+Emission halts when cumulative reaches 42,000,000 HONE. Post-emission, block rewards
+are funded entirely from `hone_recycle` (fee flows + recycled unclaimed rewards).
 Since all fees recycle, block rewards remain meaningful indefinitely — the pool is
 continuously replenished.
 
 The 30-second epoch produces 2,880 epochs per day and ~1,051,200 epochs per year.
-The genesis reward of 24.306 BTCPC/epoch produces approximately 25.5M BTCPC in year one.
+The genesis reward of 24.306 HONE/epoch produces approximately 25.5M HONE in year one.
 
 ### 4.3 Six Reward Pools
 
 Each epoch's block reward is split among six pools. Unclaimed shares of any pool
-(because no eligible participants were active) flow to `btcpc_recycle`.
+(because no eligible participants were active) flow to `hone_recycle`.
 
 | Pool | Share | What earns it |
 |------|-------|---------------|
 | Miners | 55% | Completing real AI inference jobs via Ollama |
 | Verifiers | 10% | Validating inference results and issuing spot-checks |
 | Clocks | 5% | Delivering epoch heartbeats (any device, always paid if active) |
-| Storage Hosts | 12% | Hosting and serving BTCPC-FS blobs |
+| Storage Hosts | 12% | Hosting and serving HONE-FS blobs |
 | Service Hosts | 8% | Running compute workloads (stateless or stateful) |
 | IoT / Sensors | 10% | Relaying sensor readings via LoRa gateways |
 
@@ -333,10 +333,10 @@ regardless of work done. This gates out sybil attacks without slashing stake.
 
 ### 4.5 No Burn, All Recycle
 
-**BTCPC will never implement a token burn mechanism, under any circumstances.**
+**HONE will never implement a token burn mechanism, under any circumstances.**
 
 Every fee, every slashed stake, every unclaimed pool share, every escrow that expires
-without a valid claim flows to `btcpc_recycle` — a system account that is steadily
+without a valid claim flows to `hone_recycle` — a system account that is steadily
 drained back into block rewards over time. This is a hard architectural commitment,
 equivalent in permanence to the 42,000,000 supply cap.
 
@@ -351,16 +351,16 @@ Why recycle instead of burn?
    recycle flow, block rewards approach zero. With it, they remain meaningful forever.
 
 The canonical positioning: *"Bitcoin is the digital gold chain. Ethereum is the
-burn-fees-for-scarcity chain. BTCPC is the No Burn, All Recycle chain — 42 million
+burn-fees-for-scarcity chain. HONE is the No Burn, All Recycle chain — 42 million
 tokens, forever, in perpetual circulation, earned by doing real work."*
 
 ---
 
-## 5. Storage: BTCPC-FS
+## 5. Storage: HONE-FS
 
 ### 5.1 Content-Addressed Blob Store
 
-BTCPC-FS is a decentralized, content-addressed file system built on the BTCPC chain.
+HONE-FS is a decentralized, content-addressed file system built on the HONE chain.
 Files are identified by SHA-256 content identifiers (CIDs). Every CID commitment is
 recorded on-chain as a `BLOB_STORE_COMMIT` entry, creating an immutable provenance
 trail for every piece of data stored on the network.
@@ -422,13 +422,13 @@ the host recovers.
 Blob storage fees split:
 
 - 90% to storage hosts (pro-rata by commitment share)
-- 9% to `btcpc_recycle`
+- 9% to `hone_recycle`
 - 1% to reputation bonus pool (highest challenge pass rate hosts)
 
 Bandwidth fees split:
 
 - 95% to the serving host
-- 5% to `btcpc_recycle`
+- 5% to `hone_recycle`
 
 ---
 
@@ -436,11 +436,11 @@ Bandwidth fees split:
 
 ### 6.1 Stateless Services
 
-Service hosts deploy and run applications on the BTCPC network. A stateless service
+Service hosts deploy and run applications on the HONE network. A stateless service
 is defined by a deployment spec:
 
 - Runtime type: HTTP, TCP, WASM, or static
-- Container image or WASM binary CID (from BTCPC-FS)
+- Container image or WASM binary CID (from HONE-FS)
 - Minimum replicas
 - Price per session-hour
 - Resource requirements (CPU, memory)
@@ -457,12 +457,12 @@ and recycled.
 ### 6.2 Stateful Services
 
 Stateful services add periodic snapshot persistence. The host serializes the running
-service state, uploads it to BTCPC-FS, and records the snapshot CID on-chain via a
+service state, uploads it to HONE-FS, and records the snapshot CID on-chain via a
 `SERVICE_SNAPSHOT` entry. If the host goes offline, a replacement host can download the
 latest snapshot and resume the service with minimal data loss.
 
 Snapshot frequency is configurable by the deployer. Higher snapshot frequency means
-smaller recovery windows but higher BTCPC-FS storage costs. The deployer sets the
+smaller recovery windows but higher HONE-FS storage costs. The deployer sets the
 trade-off at deployment time.
 
 ### 6.3 Service Fees
@@ -470,7 +470,7 @@ trade-off at deployment time.
 Session fees split:
 
 - 90% to the service host
-- 9% to `btcpc_recycle`
+- 9% to `hone_recycle`
 - 1% to reputation bonus pool
 
 Hosts are not slashed for downtime. They stop earning for the portion of the session
@@ -483,13 +483,13 @@ fraudulent session proofs (claiming sessions that did not exist).
 
 ### 7.1 LoRa Gateways and Sensor Packets
 
-The BTCPC IoT layer aggregates sensor data from physical devices via LoRa radio
+The HONE IoT layer aggregates sensor data from physical devices via LoRa radio
 gateways. This is designed around the Helium miner hardware fleet (400,000+ devices
 globally) but works with any hardware running a LoRa packet forwarder.
 
-A gateway running `btcpc-nebra` (the BTCPC gateway daemon) listens for inbound LoRa
+A gateway running `hone-nebra` (the HONE gateway daemon) listens for inbound LoRa
 packets from registered sensors, formats them as Cayenne LPP payloads, and submits
-them to the BTCPC chain via `SENSOR_READING` entries signed by the gateway's Posting
+them to the HONE chain via `SENSOR_READING` entries signed by the gateway's Posting
 key.
 
 ### 7.2 On-Chain Sensor Registration
@@ -502,8 +502,8 @@ Sensors register on-chain via `SENSOR_REGISTER` entries specifying:
 - Reporting interval
 - Attached gateway
 
-Registered sensors have a stake of 0.1 BTCPC locked at registration to discourage
-spam. Gateways have a stake of 1 BTCPC per registered gateway. Neither stake is ever
+Registered sensors have a stake of 0.1 HONE locked at registration to discourage
+spam. Gateways have a stake of 1 HONE per registered gateway. Neither stake is ever
 slashed for simple absence.
 
 ### 7.3 Reading Finalization
@@ -517,7 +517,7 @@ Per-epoch readings from all sensors go through median consensus:
 3. Readings more than a configurable deviation band from the median are flagged as
    outliers
 4. The finalized median reading is recorded on-chain via a `SENSOR_FINALIZE` entry
-5. Finalized reading batches are persisted to BTCPC-FS as blobs, with the CID
+5. Finalized reading batches are persisted to HONE-FS as blobs, with the CID
    recorded on-chain for subscriber access
 
 ### 7.4 IoT Reward Distribution
@@ -530,7 +530,7 @@ The IoT pool (10% of epoch reward) splits:
 
 ### 7.5 Helium Miner Reuse
 
-A repurposed Helium Indoor or Outdoor Hotspot running `btcpc-nebra` can simultaneously
+A repurposed Helium Indoor or Outdoor Hotspot running `hone-nebra` can simultaneously
 participate as:
 
 1. Clock node (clock pool, 5% of rewards)
@@ -538,7 +538,7 @@ participate as:
 3. LoRa gateway (IoT pool, 10% of rewards, plus sensor subscription fees)
 4. Verifier (verifier pool, 10% of rewards)
 
-Four concurrent income streams on hardware the owner already owns. The `btcpc-nebra`
+Four concurrent income streams on hardware the owner already owns. The `hone-nebra`
 installer handles LoRa packet forwarder configuration, gateway registration, and
 systemd service setup with a single command.
 
@@ -546,17 +546,17 @@ systemd service setup with a single command.
 
 GNSS (Global Navigation Satellite System) base stations produce high-precision
 correction data used by surveying, agriculture, and autonomous vehicles. A base
-station running `btcpc-gnss-bridge` polls the device for status and submits
+station running `hone-gnss-bridge` polls the device for status and submits
 `SENSOR_READING` entries to the chain every 30 seconds.
 
 The same correction stream can simultaneously earn from multiple networks:
 
-- **BTCPC** — IoT pool rewards for every epoch with valid GNSS data
+- **HONE** — IoT pool rewards for every epoch with valid GNSS data
 - **GEODNET** — GEOD token rewards for RTK correction contributions
 - **RTK Direct** — RTK token rewards for NTRIP correction streaming
 - **onocoy** — ONO token rewards for GNSS observation data
 
-The `btcpc-gnss-relay` daemon intercepts RTCM3 correction data from the base
+The `hone-gnss-relay` daemon intercepts RTCM3 correction data from the base
 station and forwards copies to all configured NTRIP casters simultaneously.
 One antenna, one base station, four income streams.
 
@@ -565,14 +565,14 @@ One antenna, one base station, four income streams.
 A USB ADS-B receiver connected to a gateway (such as a Nebra hotspot) can track
 aircraft transponder signals and earn from flight tracking networks like Wingbits.
 The gateway forwards ADS-B data to the tracking network while simultaneously
-submitting coverage proofs to the BTCPC chain as sensor readings.
+submitting coverage proofs to the HONE chain as sensor readings.
 
 ### 7.8 Hardware Wallets
 
-BTCPC accounts are derived from standard BIP-39 mnemonics (12 words), making them
+HONE accounts are derived from standard BIP-39 mnemonics (12 words), making them
 natively compatible with hardware wallets:
 
-- **Ledger** — store BTCPC mnemonic on a Ledger device for cold storage. The
+- **Ledger** — store HONE mnemonic on a Ledger device for cold storage. The
   owner key never touches a networked machine. Key rotation and recovery
   operations are signed on the device and submitted via `honemesh.net/rotate`.
 - **Flipper Zero** — a portable hardware wallet and mobile sensor node. Sub-GHz
@@ -585,7 +585,7 @@ day-to-day signing. The memo key enables end-to-end encrypted inference.
 
 ### 7.9 Self-Build Nodes
 
-A Raspberry Pi (or any ARM/x86 single-board computer) running the standard BTCPC
+A Raspberry Pi (or any ARM/x86 single-board computer) running the standard HONE
 installer becomes a full node capable of all roles: clock, storage, gateway, and
 verifier. The minimum viable setup:
 
@@ -593,14 +593,14 @@ verifier. The minimum viable setup:
 - **Pi + LoRa HAT** — add gateway role for IoT sensor relay
 - **Pi + USB GNSS receiver** — native GNSS corrections without ARP spoofing
 - **Pi + USB ADS-B dongle** — flight tracking via Wingbits
-- **Pi + external SSD** — high-capacity BTCPC-FS storage host
+- **Pi + external SSD** — high-capacity HONE-FS storage host
 
 The `install.sh` one-liner handles Node.js, systemd services, and account setup.
 No Docker required. Self-build nodes earn the same rewards as commercial hardware.
 
 ### 7.10 Supported Sensor Types
 
-The BTCPC sensor registry accepts any hardware that can produce a signed reading.
+The HONE sensor registry accepts any hardware that can produce a signed reading.
 Currently supported sensor types:
 
 | Type | Example Hardware | Data Produced |
@@ -632,12 +632,12 @@ schema. No protocol upgrade required. Any hardware that can reach a gateway
 Beyond physical sensors, nodes can earn by providing network infrastructure:
 
 - **VPN exit nodes** — route traffic for subscribers, earn per-GB via escrow
-- **CDN edge caching** — serve BTCPC-FS blobs from local storage, earn per-request
+- **CDN edge caching** — serve HONE-FS blobs from local storage, earn per-request
 - **WiFi hotspot sharing** — metered bandwidth access, paid per-session
 - **Mesh relay** — forward LoRa or Meshtastic packets between nodes that cannot
   reach each other directly, earn relay fees from the IoT pool
 
-These services use the same stake-escrow-reputation primitive as all other BTCPC
+These services use the same stake-escrow-reputation primitive as all other HONE
 services. The protocol does not prescribe which hardware or service to run. If a
 node can prove it did useful work, it earns.
 
@@ -710,7 +710,7 @@ commercial value across multiple industries:
 
 **How it works.** The Flipper scans continuously during normal carry. Readings are
 buffered to microSD with GPS coordinates and Unix timestamps. When the user connects
-to a BTCPC gateway (via USB or BLE), buffered readings sync to the chain. Each reading
+to a HONE gateway (via USB or BLE), buffered readings sync to the chain. Each reading
 is signed with the user's memo key for attestation — the same key hierarchy described
 in Section 10 (Security). Gateway nodes that relay Flipper readings co-sign the
 submission, providing a second attestation layer.
@@ -737,7 +737,7 @@ product the chain can sell.
 
 ### 7.14 Earn Where You Are
 
-BTCPC does not require specialized hardware or a data center. The design principle
+HONE does not require specialized hardware or a data center. The design principle
 is: **earn where you are, not where we want you to be.**
 
 - A phone in your pocket earns from GPS, motion, and orientation sensors while you
@@ -755,7 +755,7 @@ For users who want maximum earnings, the CLI provides full GPU access, larger mo
 and always-on operation.
 
 Every device contributes what it can. A phone's GPS reading is as valuable to the
-network as a GPU's inference result — both are real work, both earn BTCPC. The
+network as a GPU's inference result — both are real work, both earn HONE. The
 protocol does not privilege one type of hardware over another. It rewards useful work,
 wherever and however it happens.
 
@@ -767,7 +767,7 @@ wherever and however it happens.
 
 ### 8.1 Scientific Compute as a First-Class Workload
 
-BTCPC supports long-running distributed inference jobs targeting domains where
+HONE supports long-running distributed inference jobs targeting domains where
 computation directly generates scientific value: protein structure prediction,
 small-molecule drug discovery, genomic variant analysis, and climate simulation.
 These workloads are structurally different from real-time chat inference. They
@@ -815,9 +815,9 @@ the full-model case. Nodes with no shard assignment earn nothing from that job.
 ### 8.3 Open Science Discount
 
 Requesters who designate their results as open-source — permanently stored on
-the BTCPC chain, owned by no one, readable by anyone — receive a **40% reduction
+the HONE chain, owned by no one, readable by anyone — receive a **40% reduction
 in fees**. This is not a subsidy paid by the protocol treasury. It is funded from
-`btcpc_recycle`: the discount lowers the requester's payment, while miners who
+`hone_recycle`: the discount lowers the requester's payment, while miners who
 process open-science jobs earn a **25% bonus** on top of their standard work
 value. The spread is covered by the recycled fee pool.
 
@@ -828,7 +828,7 @@ open research.
 Results are stored permanently on-chain as `SCIENTIFIC_RESULT` ledger entries.
 The entry records the job title, type, model, requester account, input hash, and
 result hash. For large results — defined as more than 50 KB of raw output — the
-result bytes are stored in BTCPC-FS and the on-chain entry holds the
+result bytes are stored in HONE-FS and the on-chain entry holds the
 content-addressed CID. The chain itself holds the proof of existence and
 attribution; the blob store holds the bytes.
 
@@ -841,15 +841,15 @@ fields:
 - **title** — human-readable description supplied by the requester
 - **type** — job domain (see §8.5)
 - **model** — Ollama model name and parameter count at time of execution
-- **requester** — BTCPC account name permanently linked to the discovery
+- **requester** — HONE account name permanently linked to the discovery
 - **input_hash** — SHA-256 of the input data (sequence, SMILES string, grid
   parameters, or other domain-specific encoding)
 - **result_hash** — SHA-256 of the result bytes, regardless of storage location
-- **result_blob_cid** — BTCPC-FS CID if the result exceeded the inline threshold
+- **result_blob_cid** — HONE-FS CID if the result exceeded the inline threshold
 - **epoch** — block at which the result was finalized
 
 Records are immutable once written. No operator, validator, or governance vote
-can delete or alter a `SCIENTIFIC_RESULT` entry. The BTCPC chain does not
+can delete or alter a `SCIENTIFIC_RESULT` entry. The HONE chain does not
 interpret the science — it timestamps and attributes it. Whether the result is
 a correct protein fold or a false lead in drug discovery is outside the
 protocol's scope; the chain only guarantees that the computation happened,
@@ -866,7 +866,7 @@ novel variant enables targeted drug design and viral escape prediction.
 candidate small molecule. Output includes binding affinity predictions, ADMET
 property estimates (absorption, distribution, metabolism, excretion, toxicity),
 and selectivity scores against a target protein. A single drug candidate screen
-may involve millions of molecules; BTCPC makes it practical to distribute those
+may involve millions of molecules; HONE makes it practical to distribute those
 screens across thousands of independent nodes.
 
 **climate_modeling** — Input is a grid of initial atmospheric or oceanic state
@@ -874,7 +874,7 @@ variables. Output is a forward simulation of that state over a specified time
 horizon. Climate models are among the most computationally intensive scientific
 workloads in existence; distributing them across heterogeneous hardware requires
 a coordination layer that tolerates node failures and partial results, which the
-BTCPC shard pipeline provides.
+HONE shard pipeline provides.
 
 **genomics** — Input is a raw sequencing read set or variant call file. Output
 includes alignment, variant annotation, population stratification, or expression
@@ -902,11 +902,11 @@ requester and are not stored on chain unless the requester separately calls
 
 **Open-science job.** The requester pays 60% of the quoted fee (40% discount).
 Nodes earn 125% of their standard work value (25% bonus). The differential is
-funded by `btcpc_recycle` — consistent with the protocol rule that fees never
+funded by `hone_recycle` — consistent with the protocol rule that fees never
 burn, they recirculate. Results are written permanently to the chain as described
 in §8.4.
 
-**Fee denomination.** All fees are quoted and paid in BTCPC. Current price
+**Fee denomination.** All fees are quoted and paid in HONE. Current price
 discovery happens through the DEX bridge (§10). There is no minimum job size
 and no minimum node count — a single CPU machine can hold one or two transformer
 layers of a small model and earn proportionally.
@@ -953,39 +953,39 @@ via reputation decay.
 
 ### 10.1 Lock-and-Recycle, Not Burn-and-Mint
 
-The BTCPC bridge connects native BTCPC to wrapped wBTCPC on destination chains
+The HONE bridge connects native HONE to wrapped wHONE on destination chains
 (Base, Arbitrum, Ethereum, Bitcoin) via a **lock-and-recycle** mechanism. There
 is no mint function and no burn function. The bridge contract on each destination
-chain holds a fixed pre-minted reserve of 4,200,000 wBTCPC (10% of native supply).
+chain holds a fixed pre-minted reserve of 4,200,000 wHONE (10% of native supply).
 All wrap and unwrap operations are plain ERC-20 transfers between user wallets and
 the bridge reserve address.
 
-**Wrap flow (BTCPC → wBTCPC):**
-1. User locks BTCPC in the source-chain bridge contract via `lockForWrap(amount, destChainId)`
+**Wrap flow (HONE → wHONE):**
+1. User locks HONE in the source-chain bridge contract via `lockForWrap(amount, destChainId)`
 2. Bridge relay detects the lock event
-3. Destination-chain bridge contract transfers wBTCPC from the reserve to the user
+3. Destination-chain bridge contract transfers wHONE from the reserve to the user
 4. No minting occurs
 
-**Unwrap flow (wBTCPC → BTCPC):**
-1. User transfers wBTCPC from their wallet back to the bridge reserve address
+**Unwrap flow (wHONE → HONE):**
+1. User transfers wHONE from their wallet back to the bridge reserve address
 2. Bridge relay detects the transfer
-3. Source-chain bridge contract releases the locked BTCPC back to the user
+3. Source-chain bridge contract releases the locked HONE back to the user
 4. No burning occurs
 
 ### 10.2 Supply Cap per Chain
 
-Each destination chain has a hard cap of **4,200,000 wBTCPC** pre-minted in the
+Each destination chain has a hard cap of **4,200,000 wHONE** pre-minted in the
 contract constructor. This is the only mint operation that ever occurs. The contract
 has no `mint()` function, no `burn()` function, no admin key, no upgrade proxy, and
 no pause mechanism. It is immutable from deployment.
 
-The maximum wBTCPC circulating on any destination chain at any given time equals the
-cumulative BTCPC native locked into the source bridge for that destination, capped at
+The maximum wHONE circulating on any destination chain at any given time equals the
+cumulative HONE native locked into the source bridge for that destination, capped at
 4,200,000. This maintains a strict 1:1 backing relationship.
 
 ### 10.3 Bridge Liquidity: Permissionless LPs
 
-The bridge reserve is funded by permissionless LPs who lock BTCPC native into the
+The bridge reserve is funded by permissionless LPs who lock HONE native into the
 source-chain contract with a variable time commitment (30 to 1,460 days). Funders
 earn a pro-rata share of all bridge fees proportional to their lock weight:
 
@@ -1002,13 +1002,13 @@ concentration. The LP roster rotates organically as locks expire and new LPs ent
 | Direction | Volume | Fee |
 |-----------|--------|-----|
 | Wrap (any size) | All | 0.05% |
-| Unwrap | < 1,000 BTCPC | 0.20% |
-| Unwrap | 1,000–100,000 BTCPC | 0.15% |
-| Unwrap | > 100,000 BTCPC | 0.10% |
+| Unwrap | < 1,000 HONE | 0.20% |
+| Unwrap | 1,000–100,000 HONE | 0.15% |
+| Unwrap | > 100,000 HONE | 0.10% |
 
-Wrap fees are charged in BTCPC. Unwrap fees are charged in wBTCPC. Fees are
+Wrap fees are charged in HONE. Unwrap fees are charged in wHONE. Fees are
 distributed to active LPs pro-rata by current weight. The asymmetric
-wrap/unwrap fee structure creates a bias toward keeping wBTCPC circulating on
+wrap/unwrap fee structure creates a bias toward keeping wHONE circulating on
 destination chains rather than constant round-trips.
 
 ### 10.5 Withdrawal Queue
@@ -1026,7 +1026,7 @@ dynamics of pure auto-redemption schemes.
 
 ### 10.6 Destination Chains
 
-| Chain | wBTCPC Supply | Contract Type |
+| Chain | wHONE Supply | Contract Type |
 |-------|--------------|---------------|
 | Base | 4,200,000 | Immutable ERC-20 |
 | Arbitrum | 4,200,000 | Immutable ERC-20 |
@@ -1039,13 +1039,13 @@ dynamics of pure auto-redemption schemes.
 
 ### 11.1 Architecture
 
-BTCPC state is anchored to external chains for independent verification. Anchoring
-is additive — BTCPC's consensus continues working even if every external anchor
+HONE state is anchored to external chains for independent verification. Anchoring
+is additive — HONE's consensus continues working even if every external anchor
 chain is offline. Anchors provide verifiability, not dependency.
 
 | Tier | Chain | Cadence | Purpose |
 |------|-------|---------|---------|
-| Native | BTCPC | Every epoch (30s) | Working consensus |
+| Native | HONE | Every epoch (30s) | Working consensus |
 | L2 | Base, Arbitrum | Every 100 epochs (~50 min) | Fast cross-chain verification |
 | Mainnet | Ethereum | Every 1,000 epochs (~8.3 hrs) | Deep DeFi finality |
 | Deep Seal | Bitcoin | Every 10,000 epochs (~3.5 days) | Ultimate permanence |
@@ -1072,17 +1072,17 @@ gas costs by approximately 98% compared to one-epoch-per-on-chain-write.
 
 Tier 3 (Ethereum) anchors use EIP-4844 blob storage: 1,000 epoch anchors fit into a
 single 128 KB blob, costing approximately $1–3 per anchor batch. Blob data is
-available for 18 days on Ethereum; permanent storage is provided by BTCPC-FS mirror
+available for 18 days on Ethereum; permanent storage is provided by HONE-FS mirror
 nodes that store the full anchor history as on-chain blobs.
 
 ### 11.4 Bitcoin Deep Seal
 
-Bitcoin anchoring uses OP_RETURN to inscribe the BTCPC state root hash (~32 bytes)
+Bitcoin anchoring uses OP_RETURN to inscribe the HONE state root hash (~32 bytes)
 into a Bitcoin transaction. The rich anchor blob (account counts, epoch statistics,
-miner records) lives in BTCPC-FS at a CID referenced by the OP_RETURN data —
+miner records) lives in HONE-FS at a CID referenced by the OP_RETURN data —
 dogfooding the chain's own storage layer.
 
-Each Deep Seal mints a Soulbound NFT to the `btcpc_genesis_seals` system account as
+Each Deep Seal mints a Soulbound NFT to the `hone_genesis_seals` system account as
 a publicly browsable historical artifact. These are the chain's milestones.
 
 ### 11.5 Cost Baseline
@@ -1183,62 +1183,62 @@ building a block. This queue is wiped after each successful block write.
 
 | Property | Value |
 |----------|-------|
-| Symbol | BTCPC |
+| Symbol | HONE |
 | Total supply | 42,000,000 (fixed forever) |
-| Base unit | Dream (1 BTCPC = 10^10 dreams) |
+| Base unit | Dream (1 HONE = 10^10 dreams) |
 | Decimals | 10 |
-| Genesis reward | 24.306 BTCPC/epoch (30-second epochs) |
+| Genesis reward | 24.306 HONE/epoch (30-second epochs) |
 | Halving cadence | Every ~4 years |
 | Emission timeline | ~3 years to exhaust 42M cap |
-| Post-emission rewards | From `btcpc_recycle` + fee market |
+| Post-emission rewards | From `hone_recycle` + fee market |
 
 ### 13.2 User-Created Tokens
 
-BTCPC enforces a chain-wide token standard for all user-created tokens:
+HONE enforces a chain-wide token standard for all user-created tokens:
 
-- Fixed supply at creation: 42,000,000 max (matching BTCPC)
-- 10 decimal places (same as BTCPC)
+- Fixed supply at creation: 42,000,000 max (matching HONE)
+- 10 decimal places (same as HONE)
 - No in-protocol mint after creation
 - No in-protocol burn
 
-Token creation fees route entirely to `btcpc_recycle`:
+Token creation fees route entirely to `hone_recycle`:
 
 | Tier | Max Supply | Fee |
 |------|-----------|-----|
-| Micro | ≤ 1,000,000 | 21 BTCPC |
-| Standard | ≤ 42,000,000 | 42 BTCPC |
-| Mega | ≤ 1,000,000,000 | 84 BTCPC |
-| Custom | Unbounded | 168 BTCPC |
+| Micro | ≤ 1,000,000 | 21 HONE |
+| Standard | ≤ 42,000,000 | 42 HONE |
+| Mega | ≤ 1,000,000,000 | 84 HONE |
+| Custom | Unbounded | 168 HONE |
 
-NFT collection creation fee: 10 BTCPC → `btcpc_recycle`.
+NFT collection creation fee: 10 HONE → `hone_recycle`.
 
 ### 13.3 Commerce Platform Fees
 
 Order platform fee (1% of order total):
 
-- 0.5% → `btcpc_recycle`
+- 0.5% → `hone_recycle`
 - 0.4% → store stakers (pro-rata by stake)
 - 0.1% → reputation bonus pool
 
 Store opening (bonding curve, paid in wrapped stables):
 
-- 50% → `btcpc_recycle`
-- 50% → `btcpc_treasury` (protocol development fund)
+- 50% → `hone_recycle`
+- 50% → `hone_treasury` (protocol development fund)
 
 ### 13.4 Stake Requirements
 
 | Role | Minimum Stake | Slashable Condition |
 |------|--------------|---------------------|
-| Mining node | 100 BTCPC | Forged inference, failed challenges |
-| Verifier | 100 BTCPC | Voting against consensus |
-| Clock node | 10 BTCPC | Extended missed heartbeats |
-| Store operator | 1 BTCPC/slot | Fraud, non-fulfillment |
-| Storage host | 1 BTCPC/GB | Active deception on challenges |
-| Service host | 10 BTCPC/CPU-epoch | Fraudulent session proofs |
-| LoRa gateway | 1 BTCPC | Fraudulent readings |
+| Mining node | 100 HONE | Forged inference, failed challenges |
+| Verifier | 100 HONE | Voting against consensus |
+| Clock node | 10 HONE | Extended missed heartbeats |
+| Store operator | 1 HONE/slot | Fraud, non-fulfillment |
+| Storage host | 1 HONE/GB | Active deception on challenges |
+| Service host | 10 HONE/CPU-epoch | Fraudulent session proofs |
+| LoRa gateway | 1 HONE | Fraudulent readings |
 
 Stakes are collateral, not consumed. All slashing routes 50% to honest participants
-and 50% to `btcpc_recycle`. No stake is ever burned.
+and 50% to `hone_recycle`. No stake is ever burned.
 
 The 14-epoch unbonding period (~7 minutes at 30-second epochs) applies to all
 stake withdrawals.
@@ -1247,7 +1247,7 @@ stake withdrawals.
 
 ## 14. Privacy Roadmap
 
-BTCPC's current architecture is fully transparent: all transactions, balances, and
+HONE's current architecture is fully transparent: all transactions, balances, and
 account activity are visible on-chain. The following privacy capabilities are planned
 for future releases:
 
@@ -1276,7 +1276,7 @@ exposing their IP address.
 
 ### 15.1 Genesis Phase
 
-BTCPC is currently in its genesis phase. Founder-operated by Shin Devlin. Protocol
+HONE is currently in its genesis phase. Founder-operated by Shin Devlin. Protocol
 parameters (epoch duration, block cap bounds, reward pool splits, fee rates) are set
 by the genesis operator. The genesis phase exists to allow fast iteration on the
 technical foundations before the user base grows large enough to make governance
@@ -1305,12 +1305,12 @@ Parameter changes will eventually require:
 
 ### 15.3 The Design Goal
 
-BTCPC was not built to be run. It was built to let go of. Every architectural decision
+HONE was not built to be run. It was built to let go of. Every architectural decision
 — permissionless clocks, demand-driven anchoring, no admin keys on bridge contracts,
 permissionless LP, oracle feeds, sensor registration — follows this principle. The
 chain should be able to operate without its creators.
 
-*"We didn't build BTCPC to run it. We built it to let go of it."*
+*"We didn't build HONE to run it. We built it to let go of it."*
 
 ---
 
@@ -1348,7 +1348,7 @@ Every token earned. Every machine welcome. Every trade sovereign.
 ### M.1 Architecture
 
 All commerce state — stores, products, orders, shipping accounts, reputation votes — flows
-through the same append-only ledger as every other chain entry. Every BTCPC node that
+through the same append-only ledger as every other chain entry. Every HONE node that
 replays the ledger from genesis holds a complete, verifiable copy of the market. Commerce
 state is not a separate database: it is a projection of ledger entries, rebuilt deterministically
 from blocks on startup, identical across all nodes that have processed the same chain.
@@ -1358,25 +1358,25 @@ Reads are served locally from each node's in-memory state store, derived from le
 Because the data is on-chain, catalog responses from any node are independently verifiable
 against the Merkle root in the corresponding block header.
 
-`btcpc-market` is a Rust service (port 7042) that vendors run as an optional sidecar for
+`hone-market` is a Rust service (port 7042) that vendors run as an optional sidecar for
 full seller operations: order management, carrier label generation, flash sale scheduling,
 and Tor hidden service registration. Read-only catalog access — browsing stores and
-products — requires only a standard BTCPC node. Buyers do not need to run `btcpc-market`.
+products — requires only a standard HONE node. Buyers do not need to run `hone-market`.
 
 ### M.2 Public Access Without a Node
 
 The store frontend (`website/store.html`) is a static HTML file with no server-side
-dependencies. It can be served from any web host, IPFS gateway, or BTCPC-FS CID. The
+dependencies. It can be served from any web host, IPFS gateway, or HONE-FS CID. The
 same file serves as the vendor control panel (`website/vendor.html`) when accessed with
 a signing key.
 
 `API_BASE` is configurable at runtime:
 
-- Default: same-origin (for operators running a local BTCPC node on port 6942)
+- Default: same-origin (for operators running a local HONE node on port 6942)
 - Override via `?node=https://node.example.com` query parameter
 - Override persisted in `localStorage` for returning users
 
-A user without a local node points at any public BTCPC gateway. The gateway serves the
+A user without a local node points at any public HONE gateway. The gateway serves the
 catalog from its local ledger. Because catalog data is verifiable on-chain (hashes are
 committed to block headers), the user does not need to trust the gateway's responses —
 any discrepancy is detectable against the public chain state. Gateway nodes have no
@@ -1390,7 +1390,7 @@ replay. The vendor's server IP is not involved in catalog delivery. A vendor doe
 to be online for buyers to browse their listings.
 
 **Order placement.** Order transactions are P2P ledger entries signed by the buyer and
-broadcast to the network. The vendor's `btcpc-market` instance receives the order by
+broadcast to the network. The vendor's `hone-market` instance receives the order by
 monitoring for `ORDER_PLACE` entries addressed to their store. Optionally, the vendor
 registers a Tor hidden service (`.onion` address) on-chain via a `STORE_UPDATE` entry.
 Buyers running Tor Browser detect the `.onion` address and route order communication
@@ -1400,10 +1400,10 @@ through it automatically, without the buyer or vendor exposing their IP to each 
 API keys) are stored on-chain under the store record. The API masks account numbers in
 responses — only the last four characters are visible in any JSON output. The full value
 lives in the ledger, readable only by the store's Active key. At order fulfillment, the
-`btcpc-market` service decrypts the shipping account and auto-populates the carrier
+`hone-market` service decrypts the shipping account and auto-populates the carrier
 dropdown, eliminating manual credential entry per shipment.
 
-**Blob delivery.** Digital products reference a BTCPC-FS content identifier (`delivery_cid`).
+**Blob delivery.** Digital products reference a HONE-FS content identifier (`delivery_cid`).
 The blob is content-addressed: its SHA-256 hash is both its identifier and its integrity
 proof. Multiple storage hosts replicate each CID. The vendor's server IP is not in the
 download path once the blob has been replicated to other storage hosts. Buyers download
@@ -1417,7 +1417,7 @@ not by the vendor, not by a third party — until the order resolves.
 **Auto-deliver.** Digital products with a `delivery_cid` set in the product record fulfill
 instantly upon order placement. The protocol writes an `ORDER_FULFILL` entry in the same
 block that contains the `ORDER_PLACE`. No seller action is required. The buyer receives
-the BTCPC-FS CID immediately. Escrow releases to the vendor in the same block.
+the HONE-FS CID immediately. Escrow releases to the vendor in the same block.
 
 **Manual fulfill.** Physical goods and services require the vendor to ship and record a
 tracking number via `ORDER_FULFILL`. The seller has 4,800 epochs (~40 hours at 30-second
@@ -1425,7 +1425,7 @@ epochs) to fulfill after order placement. Unfulfilled orders auto-cancel after t
 deadline: the protocol writes an `ORDER_CANCEL` entry and returns escrow to the buyer.
 
 **Buyer confirmation.** On receipt of physical goods, the buyer submits `ORDER_DELIVER`.
-Escrow releases to the vendor minus the 1% platform fee (0.5% to `btcpc_recycle`,
+Escrow releases to the vendor minus the 1% platform fee (0.5% to `hone_recycle`,
 0.4% to store stakers pro-rata, 0.1% to reputation bonus pool).
 
 **Disputes.** Either party may open a dispute before `ORDER_DELIVER` is submitted by
@@ -1471,7 +1471,7 @@ deterministic replay rules as all other entries.
 
 ### N.1 Key Types
 
-Every BTCPC account has six cryptographic key roles arranged in a strict privilege hierarchy. Each key is a 64-character hex-encoded Ed25519 private key. They are separated by purpose so that compromising any lower-privilege key does not expose higher-privilege operations.
+Every HONE account has six cryptographic key roles arranged in a strict privilege hierarchy. Each key is a 64-character hex-encoded Ed25519 private key. They are separated by purpose so that compromising any lower-privilege key does not expose higher-privilege operations.
 
 | Key | Privilege | One job | Lives on |
 |-----|-----------|---------|---------|
@@ -1496,7 +1496,7 @@ The posting key is the only key required for Phase G operations.
 
 1. Buyer places order — active key signs an `ESCROW_LOCK` entry, debiting the buyer's wallet balance into the protocol escrow pool.
 2. Seller ships — `ORDER_FULFILL` entry signed with seller's posting key (tracking number included).
-3. Buyer confirms receipt — buyer's active key signs `ORDER_DELIVER`; protocol writes `ESCROW_RELEASE` sending funds to the seller minus the 1% fee split (0.5% to `btcpc_recycle`, 0.4% to store stakers pro-rata, 0.1% to reputation bonus pool).
+3. Buyer confirms receipt — buyer's active key signs `ORDER_DELIVER`; protocol writes `ESCROW_RELEASE` sending funds to the seller minus the 1% fee split (0.5% to `hone_recycle`, 0.4% to store stakers pro-rata, 0.1% to reputation bonus pool).
 4. Auto-cancel after 4,800 epochs if seller does not fulfill — protocol writes `ESCROW_REFUND` returning the full amount to the buyer.
 5. Dispute before ORDER_DELIVER — `ORDER_DISPUTE` entry freezes escrow; arbiters (staked validators) resolve; `ESCROW_RELEASE` or `ESCROW_REFUND` is written by the protocol with the arbiter decision attached.
 
@@ -1511,7 +1511,7 @@ After ORDER_DELIVERED, both parties may write a `REPUTATION_MEMO` entry. Memos a
 | `from` | account name | Writer of the memo |
 | `to` | account name | Subject of the memo |
 | `order_id` | string | The ORDER_PLACE entry ID this memo relates to |
-| `memo_cid` | sha256 CID | BTCPC-FS blob containing the memo text, encrypted with the subject's memo key |
+| `memo_cid` | sha256 CID | HONE-FS blob containing the memo text, encrypted with the subject's memo key |
 | `vote` | +1 / -1 / 0 | Public sentiment signal; 0 means neutral/no vote |
 | `sig` | hex | Posting key signature over the above fields |
 
@@ -1525,7 +1525,7 @@ Per-transaction active key signing creates UX friction for high-frequency buyers
 
 **Mechanism:**
 
-1. Buyer submits a `STAKE_LOCK` entry signed with their active key, specifying an amount of BTCPC.
+1. Buyer submits a `STAKE_LOCK` entry signed with their active key, specifying an amount of HONE.
 2. The staked balance is held in the protocol stake pool, not the buyer's liquid wallet.
 3. Subsequent ORDER_PLACE entries reference the buyer's stake pool. The protocol deducts the order amount from the stake pool without requiring an active key signature per order — the initial STAKE_LOCK acts as standing authorization.
 4. To withdraw staked funds, the buyer submits `STAKE_UNLOCK` signed with their active key. A 4,800-epoch (~40-hour) cooldown applies. Funds return to the liquid wallet after the cooldown.
@@ -1541,7 +1541,7 @@ The service key is a fresh Ed25519 keypair generated by the vendor and delegated
 ```
 SERVICE_KEY_DELEGATE
   service_key_pubkey:   <Ed25519 pubkey of the service node>
-  service_image_cid:    sha256:<WASM binary in BTCPC-FS>  (optional — binds key to exact binary)
+  service_image_cid:    sha256:<WASM binary in HONE-FS>  (optional — binds key to exact binary)
   expires_epoch:        <epoch after which the delegation is void>
   signed_by:            posting_key
 ```
@@ -1560,7 +1560,7 @@ The `service_image_cid` binding is optional but significant: if set, the service
 
 #### N.5.2 Fulfill Key Construction
 
-The fulfill key is an Ed25519 keypair whose private half is stored encrypted in BTCPC-FS. The encryption uses ECDH between the vendor's fulfill keypair and the authorized service key:
+The fulfill key is an Ed25519 keypair whose private half is stored encrypted in HONE-FS. The encryption uses ECDH between the vendor's fulfill keypair and the authorized service key:
 
 ```
 Setup (vendor's device, once):
@@ -1571,7 +1571,7 @@ Setup (vendor's device, once):
 
 FULFILL_KEY_REGISTER (signed by posting_key):
   fulfill_pubkey:           <pubkey>
-  encrypted_blob_cid:       sha256:<blob in BTCPC-FS>
+  encrypted_blob_cid:       sha256:<blob in HONE-FS>
   bound_service_key:        <service_pubkey>
   scopes:                   ["ORDER_FULFILL"]
   only_auto_deliver:        true
@@ -1594,7 +1594,7 @@ The vendor's device is required only for the one-time setup. After that the serv
 
 ### N.6 Digital Goods Delivery Encryption
 
-Digital goods are stored as encrypted blobs in BTCPC-FS. Three buyer paths are supported, unified by a single ECDH construction at the fulfill service.
+Digital goods are stored as encrypted blobs in HONE-FS. Three buyer paths are supported, unified by a single ECDH construction at the fulfill service.
 
 The fulfill service has one code path regardless of buyer type:
 
@@ -1616,7 +1616,7 @@ The buyer's memo key is their universal encryption inbox. The `buyer_delivery_pu
 ```
 Fulfill:
   shared_secret = ECDH(fulfill_privkey, buyer_memo_pubkey)
-  → encrypted blob in BTCPC-FS
+  → encrypted blob in HONE-FS
 
 Buyer decrypts:
   shared_secret = ECDH(buyer_memo_privkey, fulfill_pubkey)
@@ -1632,7 +1632,7 @@ The buyer enters a password at checkout. The browser derives an Ed25519 keypair 
 ```
 // In buyer's browser at checkout:
 salt             = order_id  ← on-chain, unique per purchase
-derived_seed     = HKDF(ikm=password, salt=order_id, info="btcpc-delivery-v1")
+derived_seed     = HKDF(ikm=password, salt=order_id, info="hone-delivery-v1")
 derived_keypair  = Ed25519.from_seed(derived_seed)
 
 ORDER_PLACE includes: buyer_delivery_pubkey = derived_keypair.pubkey
@@ -1643,7 +1643,7 @@ The fulfill service sees only the derived public key and performs the same ECDH.
 
 ```
 Buyer decrypts:
-  derived_seed    = HKDF(password, order_id, "btcpc-delivery-v1")
+  derived_seed    = HKDF(password, order_id, "hone-delivery-v1")
   derived_privkey = Ed25519.from_seed(derived_seed).privkey
   shared_secret   = ECDH(derived_privkey, fulfill_pubkey)
   file            = AES_decrypt(shared_secret, blob)
@@ -1657,7 +1657,7 @@ Buyer decrypts:
 
 #### N.6.3 Guest Buyer (No Key, No Account)
 
-For buyers who provide neither a BTCPC account nor a password, the fulfill service issues a signed time-limited download token:
+For buyers who provide neither a HONE account nor a password, the fulfill service issues a signed time-limited download token:
 
 ```
 token = {
@@ -1683,7 +1683,7 @@ After `expires_epoch` the token is rejected. The seller may issue a new token at
 
 #### N.6.5 Content Encryption at Rest
 
-Products with `auto_deliver = true` store their delivery content encrypted in BTCPC-FS at listing time. The fulfill key decrypts the raw content at order time, then re-encrypts it addressed to the buyer's specific delivery pubkey. The plaintext content never exists on any network node after the initial upload from the vendor's device.
+Products with `auto_deliver = true` store their delivery content encrypted in HONE-FS at listing time. The fulfill key decrypts the raw content at order time, then re-encrypts it addressed to the buyer's specific delivery pubkey. The plaintext content never exists on any network node after the initial upload from the vendor's device.
 
 ---
 
@@ -1725,7 +1725,7 @@ The table below maps the core design choices that separate FP from the UCP model
 | Property | Universal Commerce Protocol | Freeport Protocol |
 |---|---|---|
 | **Ledger custody** | Hosted by platform operator | Replicated across all nodes; no operator |
-| **Payment rails** | Credit cards, PayPal, USDT on third-party chains | BTCPC native token; settlement is on-chain and final |
+| **Payment rails** | Credit cards, PayPal, USDT on third-party chains | HONE native token; settlement is on-chain and final |
 | **Escrow** | Held by the platform (Stripe, PayPal, Shopify Payments) | Held by the protocol in a deterministic escrow pool; no intermediary |
 | **Account identity** | KYC/email-gated, controlled by the platform | Ed25519 key hierarchy; pseudonymous by default |
 | **Deplatforming** | Platform can remove vendor, product, or buyer at will | No platform operator exists to remove anyone |
@@ -1735,7 +1735,7 @@ The table below maps the core design choices that separate FP from the UCP model
 | **Catalog availability** | Dependent on platform uptime | Replicated across every full node; readable locally with no internet connection |
 | **Vendor privacy** | Vendor's IP, session data, and inventory logged by platform | Vendor IP not in catalog delivery path; order communication optionally via .onion |
 | **Settlement finality** | Chargebacks possible 90–180 days post-transaction | Cryptographic finality after challenge window; no chargebacks, no reversals |
-| **Network participation** | Merchants pay rent to join the network | Store opening is a bonding curve fee that funds `btcpc_recycle`; no ongoing rent |
+| **Network participation** | Merchants pay rent to join the network | Store opening is a bonding curve fee that funds `hone_recycle`; no ongoing rent |
 | **Compute layer** | None — commerce only | Commerce and compute are the same chain; miners earn by powering the market |
 
 ### O.3 The Integration Point: Compute Funds Commerce
@@ -1750,14 +1750,14 @@ participants have no claim on either outcome.
 
 In Freeport Protocol, the network is self-funding:
 
-1. **Miners** run AI inference jobs and earn BTCPC.
-2. **Storage hosts** store product blobs and earn BTCPC.
-3. **Verifiers** audit inference results and earn BTCPC.
-4. **Clock nodes** keep epoch timing and earn BTCPC.
-5. **Service hosts** run buyer-facing applications and earn BTCPC.
-6. **Sensor gateways** relay real-world data and earn BTCPC.
+1. **Miners** run AI inference jobs and earn HONE.
+2. **Storage hosts** store product blobs and earn HONE.
+3. **Verifiers** audit inference results and earn HONE.
+4. **Clock nodes** keep epoch timing and earn HONE.
+5. **Service hosts** run buyer-facing applications and earn HONE.
+6. **Sensor gateways** relay real-world data and earn HONE.
 
-Commerce on the chain generates fee flow into `btcpc_recycle`. Recycled fees fund future
+Commerce on the chain generates fee flow into `hone_recycle`. Recycled fees fund future
 block rewards alongside the emission schedule. The more commerce happens, the more the
 reward pool is replenished. The network does not need external funding; the work is the
 funding mechanism.
@@ -1782,7 +1782,7 @@ the atoms. This is a deliberate boundary — physical logistics are not a blockc
 responsible for their own regulatory compliance. The chain records the transaction;
 the jurisdiction enforces the obligation.
 
-**Fiat on/off ramps.** BTCPC is not pegged. Buyers who need to convert fiat to BTCPC
+**Fiat on/off ramps.** HONE is not pegged. Buyers who need to convert fiat to HONE
 use exchange infrastructure outside the protocol. FP provides no native exchange — this
 is a deliberate sovereignty choice. The chain is not a custodian.
 
@@ -1816,7 +1816,7 @@ sure the dock is always open.
 
 *Freeport Protocol v3.1 — April 2026*
 *Shin Devlin — shindevlin@proton.me*
-*Native token: BTCPC*
+*Native token: HONE*
 *License: AGPL-3.0*
-*GitHub: https://github.com/shindevlin/btcpc*
+*GitHub: https://github.com/shindevlin/hone*
 *Website: https://honemesh.net*

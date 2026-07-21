@@ -1,11 +1,11 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# BTCPC Termux Installer — one command, zero questions
-# Usage: curl -fsSL https://btcpc.net/install-termux.sh | bash
+# HONE Termux Installer — one command, zero questions
+# Usage: curl -fsSL https://hone.net/install-termux.sh | bash
 
 set -e
 
 echo "========================================="
-echo "  BTCPC — Bitcoin Proof of Compute"
+echo "  HONE — Bitcoin Proof of Compute"
 echo "  Termux Installer (clock node)"
 echo "========================================="
 echo ""
@@ -27,13 +27,13 @@ fi
 echo "  Node $(node --version) installed"
 
 # Clone or update repo
-echo "[3/5] Downloading BTCPC..."
-if [ -d "$HOME/btcpc" ]; then
-  cd "$HOME/btcpc"
+echo "[3/5] Downloading HONE..."
+if [ -d "$HOME/hone" ]; then
+  cd "$HOME/hone"
   git pull --ff-only 2>/dev/null || true
 else
-  git clone https://github.com/shindevlin/btcpc.git "$HOME/btcpc"
-  cd "$HOME/btcpc"
+  git clone https://github.com/shindevlin/hone.git "$HOME/hone"
+  cd "$HOME/hone"
 fi
 
 # Install dependencies
@@ -42,24 +42,24 @@ npm install --production 2>/dev/null
 
 # Setup account
 echo "[5/5] Setting up account..."
-if [ ! -f "$HOME/btcpc/.env" ]; then
+if [ ! -f "$HOME/hone/.env" ]; then
   echo ""
-  echo "Enter your BTCPC username:"
-  read -r BTCPC_USER
+  echo "Enter your HONE username:"
+  read -r HONE_USER
   echo ""
   echo "Enter a password:"
-  read -rs BTCPC_PASS
+  read -rs HONE_PASS
   echo ""
 
-  cat > "$HOME/btcpc/.env" << ENVEOF
-BTCPC_MINER=$BTCPC_USER
-BTCPC_PASSWORD=$BTCPC_PASS
-BTCPC_ROLES=clock
-BTCPC_MONGO_MODE=disabled
+  cat > "$HOME/hone/.env" << ENVEOF
+HONE_MINER=$HONE_USER
+HONE_PASSWORD=$HONE_PASS
+HONE_ROLES=clock
+HONE_MONGO_MODE=disabled
 PORT=3000
 ENVEOF
 
-  echo "  Account configured: $BTCPC_USER (clock node)"
+  echo "  Account configured: $HONE_USER (clock node)"
 else
   echo "  .env already exists, keeping current config"
 fi
@@ -69,19 +69,19 @@ termux-wake-lock 2>/dev/null || true
 
 echo ""
 echo "========================================="
-echo "  BTCPC installed!"
+echo "  HONE installed!"
 echo ""
-echo "  Start:   cd ~/btcpc && node bin/btcpc-all"
-echo "  Or just:  btcpc"
+echo "  Start:   cd ~/hone && node bin/hone-all"
+echo "  Or just:  hone"
 echo "========================================="
 
 # Create shortcut command
 mkdir -p "$HOME/.shortcuts" 2>/dev/null || true
-cat > "$PREFIX/bin/btcpc" << 'CMDEOF'
+cat > "$PREFIX/bin/hone" << 'CMDEOF'
 #!/data/data/com.termux/files/usr/bin/bash
-cd "$HOME/btcpc" && exec node bin/btcpc-all
+cd "$HOME/hone" && exec node bin/hone-all
 CMDEOF
-chmod +x "$PREFIX/bin/btcpc"
+chmod +x "$PREFIX/bin/hone"
 
 echo ""
-echo "Type 'btcpc' to start your node."
+echo "Type 'hone' to start your node."

@@ -1,15 +1,15 @@
-# BTCPC Agent Orchestration Layer
+# HONE Agent Orchestration Layer
 
 ## Decision
-Agent Lightning is useful to BTCPC as a reference architecture, not as code to import into the Rust node.
+Agent Lightning is useful to HONE as a reference architecture, not as code to import into the Rust node.
 
-BTCPC needs the same general control-plane concepts, but implemented in Rust with BTCPC identity, signed attestations, verifier challenges, and reward safety.
+HONE needs the same general control-plane concepts, but implemented in Rust with HONE identity, signed attestations, verifier challenges, and reward safety.
 
 ## Rust Crate
 Path:
 
 ```text
-rust/btcpc-orchestrator
+rust/hone-orchestrator
 ```
 
 The crate defines:
@@ -24,22 +24,22 @@ The crate defines:
 Binary:
 
 ```text
-btcpc-orchestratord
+hone-orchestratord
 ```
 
 Current command:
 
 ```bash
-cargo run --manifest-path rust/btcpc-orchestrator/Cargo.toml -- \
+cargo run --manifest-path rust/hone-orchestrator/Cargo.toml -- \
   run-api-tool \
   --catalog /mnt/btcpc-storage/catalogs/public-apis.snapshot.json \
   --category Weather \
   --query Open-Meteo \
-  --out /tmp/btcpc-api-tool-report.json
+  --out /tmp/hone-api-tool-report.json
 ```
 
 This command:
-- loads a `btcpc-api-catalog` snapshot
+- loads a `hone-api-catalog` snapshot
 - selects a no-auth HTTPS API candidate
 - publishes the catalog snapshot as a `RuntimeResource`
 - enqueues an `ApiTool` `RuntimeJob`
@@ -49,18 +49,18 @@ This command:
 - emits a `RuntimeAttestation` when the HTTP result is successful
 
 ## Agent Lightning Mapping
-| Agent Lightning Concept | BTCPC Rust Equivalent | BTCPC Difference |
+| Agent Lightning Concept | HONE Rust Equivalent | HONE Difference |
 |---|---|---|
 | LightningStore | Orchestration store / chain-backed runtime store | Must be challengeable and eventually consensus-aware |
 | Rollout | RuntimeJob | Covers inference, API tools, services, background work |
 | Attempt | RuntimeAttempt | Bound to worker identity and reward/slash policy |
 | Span | RuntimeSpan | Hashable, privacy-aware, signer-bound trace event |
 | Resource | RuntimeResource | CID/hash-backed prompt/model/catalog/runtime artifact |
-| Reward emitter | RuntimeSpan::RewardSignal / RuntimeAttestation | Must settle through BTCPC economics, not local trainer state |
+| Reward emitter | RuntimeSpan::RewardSignal / RuntimeAttestation | Must settle through HONE economics, not local trainer state |
 | Runner | RuntimeWorker | Must advertise capabilities and stake/slash status |
 
 ## Integration Path
-1. Keep `btcpc-orchestrator` as a standalone Rust model until the branch is clean enough to wire into `btcpc-node`.
+1. Keep `hone-orchestrator` as a standalone Rust model until the branch is clean enough to wire into `hone-node`.
 2. Use it to define API-compatible JSON for jobs, attempts, spans, and attestations.
 3. Add node-side ledger entries for these objects only after invariants are finalized.
 4. Add a worker sidecar that pulls jobs, runs local tools/models/services, emits spans, and submits attestations.
@@ -83,7 +83,7 @@ Minimum required before rewards:
 Agent Lightning can still be useful as an optional Python sidecar for experimentation:
 - train prompts or agents off-chain
 - run local eval loops
-- produce traces that BTCPC converts into `RuntimeSpan`
+- produce traces that HONE converts into `RuntimeSpan`
 - submit signed outputs back to the Rust orchestrator
 
-It should not control BTCPC rewards or consensus state directly.
+It should not control HONE rewards or consensus state directly.

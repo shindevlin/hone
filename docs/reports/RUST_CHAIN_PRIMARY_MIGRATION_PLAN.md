@@ -17,7 +17,7 @@ Node.js may remain for UI, CLI, and peripheral services, but it should not be th
 
 - New genesis starts every wallet at zero.
 - No wallet balance may ever go negative.
-- Unearned or unallocatable value routes to `btcpc_recycle`.
+- Unearned or unallocatable value routes to `hone_recycle`.
 - Valid user balances are never trimmed.
 - Replay must fail fast on corrupt state instead of normalizing it.
 - A node joining at later epochs must be able to trust balances as live chain state, not UI cache.
@@ -30,7 +30,7 @@ The current replay path is able to hydrate invalid state from persisted snapshot
 
 - Keep the newly added no-negative-balance checks in the existing runtime.
 - Add regression tests for corrupt finality snapshots.
-- Document the exact meaning of `btcpc_recycle`, reward pools, and zero-balance genesis.
+- Document the exact meaning of `hone_recycle`, reward pools, and zero-balance genesis.
 
 ## Phase 2: Create a Rust chain-core crate
 

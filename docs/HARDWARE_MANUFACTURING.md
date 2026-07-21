@@ -1,4 +1,4 @@
-# BTCPC Hardware Manufacturing Analysis
+# HONE Hardware Manufacturing Analysis
 **Component Sourcing, JIT Feasibility, and Unit Economics**
 *Shin Devlin — April 2026*
 
@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-All three BTCPC hardware tiers (Micro, General, Macro) can be built entirely from off-the-shelf, commercially available components. No custom silicon is required. PCB fabrication and SMT assembly can be outsourced to contract manufacturers with 2–5 week lead times at prototype volumes, scaling to 1–2 week turnaround at production volumes.
+All three HONE hardware tiers (Micro, General, Macro) can be built entirely from off-the-shelf, commercially available components. No custom silicon is required. PCB fabrication and SMT assembly can be outsourced to contract manufacturers with 2–5 week lead times at prototype volumes, scaling to 1–2 week turnaround at production volumes.
 
 True JIT (just-in-time) is partially achievable — PCB assembly is fast, but two sensor components (Sensirion SPS30 particulate, SCD40/41 CO2) carry 8–12 week lead times at volume and must be managed with safety stock. Everything else is commodity.
 
@@ -87,7 +87,7 @@ True JIT (just-in-time) is partially achievable — PCB assembly is fast, but tw
 
 **Risk: Raspberry Pi CM4 and Sensirion sensors.** CM4 availability has improved significantly since 2023 but still requires ordering through approved distributors. Maintain 8-week safety stock. SPS30 and SCD41 are the same single-source risk as SCD40 on the General — manage with 12-week safety stock.
 
-**Alternative compute:** If CM4 supply is constrained, the Radxa CM3 (CM4-compatible form factor, RK3566 SoC) or Orange Pi CM4 are pin-compatible drop-in replacements at $22–28. The BTCPC node software runs on any ARM Linux board.
+**Alternative compute:** If CM4 supply is constrained, the Radxa CM3 (CM4-compatible form factor, RK3566 SoC) or Orange Pi CM4 are pin-compatible drop-in replacements at $22–28. The HONE node software runs on any ARM Linux board.
 
 ---
 
@@ -145,7 +145,7 @@ Split production into three stages:
 | 2. PCB bare board fab | JLCPCB/PCBWay in batches of 100–500 | 3–5 days | Yes |
 | 3. SMT assembly | EMS picks and places all components | 5–10 days | Yes, at reasonable volume |
 | 4. Final assembly + test | Enclosure, battery, firmware flash, QC | 1–2 days | Yes |
-| 5. eSIM provisioning + device key generation | BTCPC chain registration | Hours | Yes |
+| 5. eSIM provisioning + device key generation | HONE chain registration | Hours | Yes |
 
 **Result:** Once components are in stock, a new device can go from bare PCB to shipped in 7–14 days. This is fast enough for most sales channels (direct website, Amazon FBA with buffer stock).
 
@@ -302,7 +302,7 @@ This is the right Year 1 Macro strategy: sell a kit that users assemble, using a
 - **General**: JLCPCB PCBA run of 200 units. $125 BOM. Sell at $180 developer price.
 - **Macro**: Raspberry Pi 5 + Pimoroni HATs + Hammond enclosure + 18650 sled. Off-the-shelf kit. $285 BOM. Sell at $450 developer price.
 - **Begin FCC/CE certification testing in parallel** — submit to lab in Month 2.
-- **Target channels**: BTCPC website direct, Crowd Supply (hardware crowdfunding), Hackaday community.
+- **Target channels**: HONE website direct, Crowd Supply (hardware crowdfunding), Hackaday community.
 
 ### Phase 2 — Consumer Launch (Months 7–12)
 *Goal: 5,000 units, certified hardware, Amazon listing*
@@ -320,7 +320,7 @@ This is the right Year 1 Macro strategy: sell a kit that users assemble, using a
 - Shenzhen EMS for all three tiers.
 - Negotiate direct with Sensirion for annual purchase agreement (reduces SCD40/SPS30 lead time to 4 weeks).
 - Flipper Zero-style open hardware release — community builds drive organic demand.
-- Introduce bundle pricing: "BTCPC Starter Pack" (1 General + 3 Micros, $450).
+- Introduce bundle pricing: "HONE Starter Pack" (1 General + 3 Micros, $450).
 
 ---
 

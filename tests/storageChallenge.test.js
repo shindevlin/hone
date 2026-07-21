@@ -4,8 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const TEST_ROOT = path.join(os.tmpdir(), "btcpc-storage-challenge-" + process.pid);
-process.env.BTCPC_BLOB_DIR = TEST_ROOT;
+const TEST_ROOT = path.join(os.tmpdir(), "hone-storage-challenge-" + process.pid);
+process.env.HONE_BLOB_DIR = TEST_ROOT;
 
 const blobStore = require("../src/services/blobStore");
 const storageChallenge = require("../src/services/storageChallenge");

@@ -1,4 +1,4 @@
-# BTCPC Roadmap
+# HONE Roadmap
 
 ## Versioning Scheme
 
@@ -80,7 +80,7 @@ signatures, verified-work proofs, storage challenges, fee controls, and audit-re
 ### Tier 5 — Interoperability
 
 - [x] **T5-1** Bridge single-signer. **Fixed: 3-of-5 multisig; daily volume limits; pause/unpause; signer rotation. Trust model in `docs/BRIDGE_TRUST_MODEL.md`.**
-- [x] **T5-2** No EIP-712 typed data on bridge contracts. **Fixed: `wBTCPCBridge.sol` v2 uses EIP-712 structured data for all signer operations.**
+- [x] **T5-2** No EIP-712 typed data on bridge contracts. **Fixed: `wHONEBridge.sol` v2 uses EIP-712 structured data for all signer operations.**
 - [x] **T5-3** Solana Ed25519 signature recovery not implemented. **Fixed: `sol_sign` case in `recover_chain_address` (ed25519-dalek, base58 pubkey format).**
 - [x] **T5-4** Bitcoin BIP-322 message verification not implemented. **Fixed: `btc_legacy` case — SHA256d prefix hash, secp256k1 ECDSA recovery, P2PKH address derivation.**
 - [x] **T5-5** TON and Bitcoin Ordinals peer discovery stubs — not deployed. **Addressed: stubs documented with deployment checklist in `docs/BRIDGE_TRUST_MODEL.md`; both fall back to Hive.**
@@ -89,7 +89,7 @@ signatures, verified-work proofs, storage challenges, fee controls, and audit-re
 
 - [x] **T6-1** Constants conflict across docs, code, JS, and website. **Fixed: `docs/CHAIN_CONSTANTS.md` is now the canonical source; CI workflow fails on drift.**
 - [x] **T6-2** Node.js chain (port 3001) still serves public-looking API alongside Rust chain. **Fixed: `src/index.js` already carries DEPRECATED header.**
-- [x] **T6-3** WASM contract runtime: `btcpc-contract-runtime` (Wasmtime) is active and supported. `ContractDeploy`/`ContractCall` are live entry types. **Resolved: contracts are intentionally kept per D12 update.**
+- [x] **T6-3** WASM contract runtime: `hone-contract-runtime` (Wasmtime) is active and supported. `ContractDeploy`/`ContractCall` are live entry types. **Resolved: contracts are intentionally kept per D12 update.**
 - [x] **T6-4** Liveness rewards (long-dormant balance recycling) not yet documented on website or whitepaper. **Fixed: `docs/HONE_WHITEPAPER.md` §1.2.1 "Perpetual Tail Emission — The Recycle Era" added. Explains what fills the fund (fees, mandatory 1.5% reserve, surplus, slash proceeds, rounding remainders), the 0.001%/epoch draw rate, the self-correcting equilibrium equation, and why this is not new-supply inflation.**
 - [x] **T6-5** Explorer shows no `pending | sealed | finalized | experimental` distinction. **Fixed: `epoch_status()` in `chain.rs`; `GET /api/chain/block/:epoch`, `/api/chain/latest`, `/api/chain/epoch/:epoch` all return `"status"` field. Explorer UI labels deferred (frontend work, not a chain gate).**
 - [x] **T6-6** No protocol primitives doc (account, entry, epoch, signing, reward model). **Fixed: `docs/PROTOCOL.md` — full reference covering account model, token units, entry format, signing spec, epoch lifecycle, reward model, emission schedule, staking/unbonding, consensus/finality, all proof models, replay protections, API summary.**
@@ -100,7 +100,7 @@ signatures, verified-work proofs, storage challenges, fee controls, and audit-re
 
 | ID | Decision |
 |----|----------|
-| D1 | Inference proof pruning window = 100 epochs after `InferenceJobPay`. Payload fields (`compute_proof`, `input_hash`, `result_hash`) are pruneable. Reward and verdict records stay forever. Perma-memory is a paid opt-in: `InferenceJobPost { persist_on_fs: true, fs_fee: Dreams }` → stored on btcpc-fs. |
+| D1 | Inference proof pruning window = 100 epochs after `InferenceJobPay`. Payload fields (`compute_proof`, `input_hash`, `result_hash`) are pruneable. Reward and verdict records stay forever. Perma-memory is a paid opt-in: `InferenceJobPost { persist_on_fs: true, fs_fee: Dreams }` → stored on hone-fs. |
 | D2 | **Liveness Rewards** (formerly "chain entropy"): active accounts earn rewards funded by long-dormant balances re-entering circulation. No token is ever permanently lost. Schedule: years 0–3 nothing, years 3–5 warning/countdown only, year 5+ dormant accounts contribute 10%/year — split 50% to active live wallets (pro-rata to accounts with a liveness proof in the epoch) and 50% to `__recycle_fund__` (flows back through normal reward distribution). The feature is positive — it rewards activity, not punishes inactivity. Website page and whitepaper section required before enabling. `LIVENESS_REWARDS_ENABLED = false` until documentation ships. Open: confirm the 50/50 split ratio or adjust. |
 | D3 | Chain ID signing: clean cutover, no migration window. Only shindevlin and core nodes on network now. Canonical message becomes `"{chain_id}\n{canonical_json}"`. |
 | D4 | **Stake = trust. Black and white.** Staking adds trust. Removing stake removes trust. No lock period, no gradual decay, no time dimension. `trust_score = stake_amount` (in dreams). When you unstake, trust drops immediately and proportionally. Reward weight and finality appeal window are functions of current stake, not historical commitment. |
@@ -111,7 +111,7 @@ signatures, verified-work proofs, storage challenges, fee controls, and audit-re
 | D9 | Verifier randomness: deterministic hash-based assignment. `verifier_eligible = sha256(epoch_entropy || job_id || verifier_account)[0] < VERIFIER_THRESHOLD`. Epoch entropy built from XOR of clock node seal hashes (Stage 1), VRF per clock node (Stage 2 when 3+ nodes). Analogous to Cloudflare's lava lamp model — unpredictable from multiple independent sources, verifiable after the fact. |
 | D10 | Storage challenge frequency: every epoch. Challenge derived deterministically from `sha256(seal_hash || node_id || epoch)` — no extra communication, reproducible by any peer. |
 | D11 | Entry fees: dynamic, mathematically derived from network usage. All fees route to `__recycle_fund__`. No burn. New user `AccountCreate` fee-subsidized from `__testnet_fund__` when account balance is zero. |
-| D12 | WASM contract runtime (`btcpc-contract-runtime`, Wasmtime) is kept and supported. `ContractDeploy` and `ContractCall` ledger entry types remain. User-deployed WASM contracts coexist with native protocol entry types. Governance controls which entry types are enabled; contracts are one tool available to builders. |
+| D12 | WASM contract runtime (`hone-contract-runtime`, Wasmtime) is kept and supported. `ContractDeploy` and `ContractCall` ledger entry types remain. User-deployed WASM contracts coexist with native protocol entry types. Governance controls which entry types are enabled; contracts are one tool available to builders. |
 | D13 | State proofs: full Patricia Merkle Trie (not just accumulator). Worth doing right. |
 | D14 | External security audit: Zellic, OtterSec, or Trail of Bits. After Phase 0–6 complete. |
 | D15 | No burn. Ever. All fees, slashes, and unclaimed rewards recycle to `__recycle_fund__`. |
@@ -291,9 +291,9 @@ base_fee[n+1] = base_fee[n] × (1 + 0.1 × (actual_weight − target_weight) / t
 
 | Task | File | Closes |
 |------|------|--------|
-| ~~Bridge: EIP-712 typed data~~ ✓ | `contracts/wBTCPCBridge.sol` v2 | T5-2 |
-| ~~Bridge: 3-of-5 multisig (shindevlin, natoshisakamoto, josh + 2 hardware)~~ ✓ | `wBTCPCBridge.sol` | T5-1 |
-| ~~Bridge: daily volume limits, pause control, signer rotation~~ ✓ | `wBTCPCBridge.sol` | T5-1 |
+| ~~Bridge: EIP-712 typed data~~ ✓ | `contracts/wHONEBridge.sol` v2 | T5-2 |
+| ~~Bridge: 3-of-5 multisig (shindevlin, natoshisakamoto, josh + 2 hardware)~~ ✓ | `wHONEBridge.sol` | T5-1 |
+| ~~Bridge: daily volume limits, pause control, signer rotation~~ ✓ | `wHONEBridge.sol` | T5-1 |
 | ~~`docs/BRIDGE_TRUST_MODEL.md` — V2 assumptions, risk register, V3 light-client path~~ ✓ | new | T5-1 |
 | ~~Solana Ed25519 signature recovery in `chain.rs`~~ ✓ | `chain.rs` | T5-3 |
 | ~~Bitcoin BIP-322 (legacy P2PKH) verification in `chain.rs`~~ ✓ | `chain.rs` | T5-4 |
@@ -368,7 +368,7 @@ These phases built the foundation the hardening plan sits on.
 ### Phase Genesis — Rust Chain Live (v0.3.x)
 - [x] Single Rust binary: libp2p, sled, Axum HTTP API
 - [x] 42M supply, 10 decimal precision, epoch-duration-doubling emission model
-- [x] BIP-39 mnemonic with 6 BTCPC role keys (owner, active, posting, memo, hide, seek)
+- [x] BIP-39 mnemonic with 6 HONE role keys (owner, active, posting, memo, hide, seek)
 - [x] Multi-chain wallet derivation (EVM, BTC, SOL, TON) from single seed
 - [x] Clock consensus: gossipsub EpochSeal, quorum collection, reward emission
 - [x] Proof of Useful Work: `Mine` entry with Ollama inference backend
@@ -389,9 +389,9 @@ These phases built the foundation the hardening plan sits on.
 - [x] Five-layer peer discovery: sled cache → Cloudflare DNS → Hive → TON → Bitcoin Ordinals
 
 ### Phase G — Commerce Foundation (v0.2.x)
-- [x] btcpc-market sidecar with Freeport protocol
-- [x] BTCPC-FS content-addressed blob storage
-- [x] Telegram bots (btcpcbot, btcpcwalletbot)
+- [x] hone-market sidecar with Freeport protocol
+- [x] HONE-FS content-addressed blob storage
+- [x] Telegram bots (honebot, honewalletbot)
 - [x] Role-based key architecture with posting key auth
 
 ### Phase 0 — Node.js Prototype (v0.1.x — archived)

@@ -1,5 +1,5 @@
 ---
-title: BTCPC Embedded Inference — implementation spec (non-fragile, embedded candle)
+title: HONE Embedded Inference — implementation spec (non-fragile, embedded candle)
 description: One inference module, embedded candle GGUF engine, no external daemon — so a node can never 503 because "the model server is down"
 author: Shin Devlin
 status: spec / ready to build
@@ -21,7 +21,7 @@ fragility.
 
 **Why candle, not llama.cpp:** the node already links C/C++ (rocksdb, openssl),
 so "avoid FFI" was a false premise — but candle wins anyway because **we already
-run it**: `rust/btcpc-android/src/llm.rs` is a complete, working candle GGUF impl
+run it**: `rust/hone-android/src/llm.rs` is a complete, working candle GGUF impl
 (Qwen2.5-0.5B). Using candle in the node means ONE Rust inference engine across
 phone + node. The migration is largely a PORT of llm.rs, not new code. Full
 reasoning in INFERENCE_ENGINE_ANALYSIS.md §3 and the notes doc §2.
@@ -67,7 +67,7 @@ module, so callers change minimally.
 `inference.rs` selects a backend once, at startup, in priority order:
 
 1. **Embedded candle GGUF (default, the non-fragile path).** Pure-Rust candle
-   loads a GGUF model in-process at boot (port of `btcpc-android/src/llm.rs`:
+   loads a GGUF model in-process at boot (port of `hone-android/src/llm.rs`:
    `candle_transformers::models::quantized_llama::ModelWeights::from_gguf`) and
    serves `chat`/`chat_stream` as direct function calls. **No daemon, no port,
    no 503, no C++ FFI.**
@@ -89,7 +89,7 @@ Rationale for embedded-default over pure-Rust-node-calls-external-server:
 the external-server option is simpler to *write*, but it **reintroduces the exact
 fragility we're removing** (there must be a server up somewhere). Shin's directive
 is "not fragile" → embedded wins. And candle makes embedded *cheap* because we
-already have the working impl in btcpc-android — the node just reuses it. One
+already have the working impl in hone-android — the node just reuses it. One
 Rust engine, phone + node.
 
 ## 4. Model management (also non-fragile)
@@ -98,7 +98,7 @@ Rust engine, phone + node.
   (`HONE_MODEL_PATH`), default a small model to match the phone tier
   (`qwen2.5-0.5b` GGUF). Small = fast cold start, runs on CPU/ARM (the Nebra).
 - On boot, if the model file is missing, the node **downloads it once** from a
-  content-addressed store (BTCPC-FS or a pinned URL) and caches it. Missing model
+  content-addressed store (HONE-FS or a pinned URL) and caches it. Missing model
   is a one-time fetch, not a per-request failure.
 - `inference::available()` returns true once the model is resident — the
   node/info `has_ollama` field becomes `has_inference` and reflects real
@@ -110,7 +110,7 @@ Rust engine, phone + node.
 |---|---|---|
 | Ordinary device (phone-adjacent, Nebra, laptop) | **Embedded candle GGUF** (default) | nothing — just works |
 | GPU revenue node (high throughput) | **vLLM** external | `INFERENCE_URL=http://<vllm-host>:8000` |
-| Phone micronode | **candle GGUF** (btcpc-android/src/llm.rs — already candle) | already proven; the node reuses this |
+| Phone micronode | **candle GGUF** (hone-android/src/llm.rs — already candle) | already proven; the node reuses this |
 
 One node type never has to think about inference infra; the heavy node opts into
 vLLM with one env var. Ollama is dropped as a concept.
@@ -122,7 +122,7 @@ vLLM with one env var. Ollama is dropped as a concept.
    Rewrite all ~6 call sites to use it. Now there's ONE inference path. Ship.
    *(This alone removes the scattered-duplication fragility and is low-risk.)*
 2. **Add the embedded backend** behind a cargo feature `inference-embedded`
-   (candle, porting `btcpc-android/src/llm.rs`). `inference.rs` picks Embedded when
+   (candle, porting `hone-android/src/llm.rs`). `inference.rs` picks Embedded when
    built with the feature and no `INFERENCE_URL` is set. Verify parity: existing
    callers get identical output shape.
 3. **Model bootstrap:** GGUF path + one-time download + `available()` wired to
@@ -147,14 +147,14 @@ vLLM with one env var. Ollama is dropped as a concept.
 - **Embedded, not fragile.** Engine runs in-process; no external daemon in the
   default path.
 - **Embedded candle GGUF** (pure Rust) — reuse the proven
-  `btcpc-android/src/llm.rs` impl; one inference engine across phone + node.
+  `hone-android/src/llm.rs` impl; one inference engine across phone + node.
 - **vLLM stays available** as the opt-in GPU throughput tier via `INFERENCE_URL`.
 - **Ollama is dropped** as the default/recommended path (kept only as an HTTP
   alias for back-compat).
 
 ## 9. Open watch-items (candle-specific — see notes doc §8)
 1. **rustc 1.90 pin:** the node is pinned to 1.90.0 (ICE). Verify candle-core 0.10
-   + deps compile on 1.90 before committing. (btcpc-android uses candle 0.10 —
+   + deps compile on 1.90 before committing. (hone-android uses candle 0.10 —
    check its toolchain.)
 2. **aarch64 Nebra cross-compile:** confirm candle's CPU backend cross-compiles
    clean for `aarch64-linux-gnu` (pure Rust should help vs a C++ engine).

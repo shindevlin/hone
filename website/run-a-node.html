@@ -208,7 +208,7 @@
   <a href="/store">Store</a>
   <a href="/buy">Buy HONE</a>
   <a href="/dashboard">Explorer</a>
-  <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+  <a href="https://t.me/honebot" target="_blank">Telegram</a>
 </div>
 
 <div class="page">
@@ -263,7 +263,7 @@
         <div class="step-num">1</div>
         <h3>Install</h3>
         <p class="step-desc">Clone the repo and install dependencies. Takes about 60 seconds.</p>
-        <div class="code-block" id="cmd1">git clone https://github.com/shindevlin/btcpc.git &amp;&amp; cd btcpc &amp;&amp; npm install<button class="copy-btn" onclick="copyCmd('cmd1')">copy</button></div>
+        <div class="code-block" id="cmd1">git clone https://github.com/shindevlin/hone.git &amp;&amp; cd hone &amp;&amp; npm install<button class="copy-btn" onclick="copyCmd('cmd1')">copy</button></div>
       </div>
 
       <div class="step">
@@ -272,14 +272,14 @@
         <p class="step-desc">Copy the example config and edit your username in. Run the interactive setup to register your account on-chain. <a href="/setup.html" class="step-link">Full setup guide &rarr;</a></p>
         <div class="code-block" id="cmd2"><span class="comment"># Copy the template, then open .env and set HONE_MINER to your username</span>
 cp .env.example .env
-node bin/btcpc-setup<button class="copy-btn" onclick="copyCmd('cmd2')">copy</button></div>
+node bin/hone-setup<button class="copy-btn" onclick="copyCmd('cmd2')">copy</button></div>
       </div>
 
       <div class="step">
         <div class="step-num">3</div>
         <h3>Mine</h3>
         <p class="step-desc">Start the mining daemon. Rewards arrive every 30-second epoch, scaled to your model's parameter count.</p>
-        <div class="code-block" id="cmd3">node bin/btcpc-mine --miner &lt;yourname&gt;<button class="copy-btn" onclick="copyCmd('cmd3')">copy</button></div>
+        <div class="code-block" id="cmd3">node bin/hone-mine --miner &lt;yourname&gt;<button class="copy-btn" onclick="copyCmd('cmd3')">copy</button></div>
       </div>
 
     </div>
@@ -379,7 +379,7 @@ node bin/btcpc-setup<button class="copy-btn" onclick="copyCmd('cmd2')">copy</but
       <a href="/name-auction.html" class="btn-primary">Get your username first</a>
       <a href="#cmd3" class="btn-secondary">Already have one? Start mining</a>
     </div>
-    <div class="mine-cmd">node bin/btcpc-mine --miner &lt;yourname&gt;</div>
+    <div class="mine-cmd">node bin/hone-mine --miner &lt;yourname&gt;</div>
   </div>
 
 </div><!-- /page -->

@@ -11,14 +11,14 @@ const GREEN  = "\x1b[32m";
 const BOLD   = "\x1b[1m";
 const RESET  = "\x1b[0m";
 
-function say(msg) { console.log(`${ORANGE}[btcpc]${RESET} ${msg}`); }
+function say(msg) { console.log(`${ORANGE}[hone]${RESET} ${msg}`); }
 function ok(msg)  { console.log(`${GREEN}✓${RESET} ${msg}`); }
 function hr()     { console.log("\n" + "─".repeat(60)); }
 
 async function run() {
   hr();
   console.log(`${BOLD}  Bitcoin Proof of Compute — Node Setup${RESET}`);
-  console.log("  btcpc.net  •  sovereign chain for AI inference\n");
+  console.log("  hone.net  •  sovereign chain for AI inference\n");
   say("Let's figure out what you'd like to run on this device.");
   say("I'll ask about each node type. You choose what fits your hardware.\n");
 
@@ -32,7 +32,7 @@ async function run() {
     "node-" + require("os").hostname().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10)
   );
   username = username.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20);
-  tools.write_config("BTCPC_MINER", username, "your node identity on the chain");
+  tools.write_config("HONE_MINER", username, "your node identity on the chain");
 
   const chosen = [];
 
@@ -74,14 +74,14 @@ async function run() {
 
   hr();
   if (chosen.length === 0) {
-    say("No nodes configured. Run btcpc-install again whenever you're ready.");
+    say("No nodes configured. Run hone-install again whenever you're ready.");
     return;
   }
 
   console.log(`\n${BOLD}  Setup complete!${RESET}`);
   say(`Configured: ${chosen.map(n => n.name).join(", ")}`);
-  say("Check status any time:  node bin/btcpc-cli status");
-  say("View miner logs:        journalctl --user -u btcpc-miner -n 50\n");
+  say("Check status any time:  node bin/hone-cli status");
+  say("View miner logs:        journalctl --user -u hone-miner -n 50\n");
 }
 
 function _meetsRequirements(hw, requires) {
@@ -113,54 +113,54 @@ function _stepsFor(node, hw, username) {
     const steps = [];
     if (!hw.ollamaRunning) {
       steps.push({
-        desc: "install Ollama (the AI model runner BTCPC uses for inference)",
+        desc: "install Ollama (the AI model runner HONE uses for inference)",
         cmd: "curl -fsSL https://ollama.com/install.sh | sh",
       });
       steps.push({ desc: "start Ollama service", cmd: "ollama serve &>/dev/null &" });
     }
     const model = hw.gpuInfo ? "qwen3:8b" : "qwen3:4b";
     steps.push({ desc: `pull ${model} as your default mining model`, cmd: `ollama pull ${model}` });
-    tools.write_config("BTCPC_MODEL", model, "default inference model");
+    tools.write_config("HONE_MODEL", model, "default inference model");
     steps.push({
       desc: "install the miner as a systemd user service",
-      cmd: `cp ${repoDir}/etc/btcpc-miner.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now btcpc-miner`,
+      cmd: `cp ${repoDir}/etc/hone-miner.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now hone-miner`,
       required: false,
     });
     return steps;
   }
 
   if (node.id === "clock") {
-    tools.write_config("BTCPC_CLOCK_ACCOUNT", username, "your clock node identity");
+    tools.write_config("HONE_CLOCK_ACCOUNT", username, "your clock node identity");
     return [{
       desc: "install the clock node as a systemd user service",
-      cmd: `cp ${repoDir}/etc/btcpc-clock.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now btcpc-clock`,
+      cmd: `cp ${repoDir}/etc/hone-clock.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now hone-clock`,
       required: false,
     }];
   }
 
   if (node.id === "storage") {
     return [
-      { desc: "create blob storage directory at ~/.btcpc/blobs", cmd: "mkdir -p ~/.btcpc/blobs", required: false },
+      { desc: "create blob storage directory at ~/.hone/blobs", cmd: "mkdir -p ~/.hone/blobs", required: false },
       {
         desc: "install the storage daemon as a systemd user service",
-        cmd: `cp ${repoDir}/etc/btcpc-storage.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now btcpc-storage`,
+        cmd: `cp ${repoDir}/etc/hone-storage.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now hone-storage`,
         required: false,
       },
     ];
   }
 
   if (node.id === "verifier") {
-    tools.write_config("BTCPC_ROLES", "verifier", "enables verifier role");
+    tools.write_config("HONE_ROLES", "verifier", "enables verifier role");
     return [];
   }
 
   if (node.id === "sensor") {
     // Install the GNSS relay as a system service (needs root for ARP spoof + tcpdump).
     // auto-detect: interface and GEODNET destination are derived at runtime from .env.
-    var relayServicePath = "/etc/systemd/system/btcpc-gnss-relay.service";
+    var relayServicePath = "/etc/systemd/system/hone-gnss-relay.service";
     var relayServiceContent = [
       "[Unit]",
-      "Description=BTCPC GNSS Relay — Hyfix RTCM3 intercept + chain recording",
+      "Description=HONE GNSS Relay — Hyfix RTCM3 intercept + chain recording",
       "After=network-online.target",
       "Wants=network-online.target",
       "",
@@ -168,7 +168,7 @@ function _stepsFor(node, hw, username) {
       "Type=simple",
       "User=root",
       `WorkingDirectory=${repoDir}`,
-      "ExecStart=/usr/bin/node bin/btcpc-gnss-relay",
+      "ExecStart=/usr/bin/node bin/hone-gnss-relay",
       "Restart=on-failure",
       "RestartSec=15",
       `EnvironmentFile=${repoDir}/.env`,
@@ -183,8 +183,8 @@ function _stepsFor(node, hw, username) {
         required: false,
       },
       {
-        desc: "create btcpc-gnss-relay system service (runs as root for ARP spoof)",
-        cmd: `sudo bash -c 'printf "${relayServiceContent}" > ${relayServicePath} && systemctl daemon-reload && systemctl enable --now btcpc-gnss-relay'`,
+        desc: "create hone-gnss-relay system service (runs as root for ARP spoof)",
+        cmd: `sudo bash -c 'printf "${relayServiceContent}" > ${relayServicePath} && systemctl daemon-reload && systemctl enable --now hone-gnss-relay'`,
         required: false,
       },
     ];
@@ -193,7 +193,7 @@ function _stepsFor(node, hw, username) {
   if (node.id === "flipper") {
     return [{
       desc: "install the Flipper Zero bridge as a systemd user service",
-      cmd: `cp ${repoDir}/etc/btcpc-flipper.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now btcpc-flipper`,
+      cmd: `cp ${repoDir}/etc/hone-flipper.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now hone-flipper`,
       required: false,
     }];
   }

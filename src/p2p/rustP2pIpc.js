@@ -1,11 +1,11 @@
 "use strict";
 
 /**
- * BTCPC Rust P2P IPC Client
+ * HONE Rust P2P IPC Client
  * Shin Devlin
  *
- * Connects Node.js chain process to the btcpc-p2p Rust sidecar via Unix socket.
- * Drop-in replacement for network.js when BTCPC_USE_RUST_P2P=true.
+ * Connects Node.js chain process to the hone-p2p Rust sidecar via Unix socket.
+ * Drop-in replacement for network.js when HONE_USE_RUST_P2P=true.
  *
  * Exports the same interface as network.js:
  *   startServer()         — launches the sidecar subprocess
@@ -22,9 +22,9 @@
  *   getKnownPeerKeys()    — returns empty (sidecar owns key registry)
  *
  * Binary resolution order:
- *   1. BTCPC_P2P_BIN env var
- *   2. /usr/local/bin/btcpc-p2p (installed via install.sh)
- *   3. ../../../btcpc-p2p/target/release/btcpc-p2p (dev: sibling repo)
+ *   1. HONE_P2P_BIN env var
+ *   2. /usr/local/bin/hone-p2p (installed via install.sh)
+ *   3. ../../../hone-p2p/target/release/hone-p2p (dev: sibling repo)
  */
 
 const net = require("net");
@@ -33,14 +33,14 @@ const { EventEmitter } = require("events");
 const { spawn } = require("child_process");
 const path = require("path");
 
-const SOCKET_PATH = process.env.BTCPC_P2P_IPC_SOCKET || "/tmp/btcpc-p2p.sock";
+const SOCKET_PATH = process.env.HONE_P2P_IPC_SOCKET || "/tmp/hone-p2p.sock";
 const RECONNECT_DELAY_MS = 2000;
 
 function _resolveBin() {
-  if (process.env.BTCPC_P2P_BIN) return process.env.BTCPC_P2P_BIN;
-  if (fs.existsSync("/usr/local/bin/btcpc-p2p")) return "/usr/local/bin/btcpc-p2p";
-  // Dev: repos/btcpc/src/p2p/ → ../../.. → repos/ → btcpc-p2p/target/release/btcpc-p2p
-  return path.resolve(__dirname, "../../../btcpc-p2p/target/release/btcpc-p2p");
+  if (process.env.HONE_P2P_BIN) return process.env.HONE_P2P_BIN;
+  if (fs.existsSync("/usr/local/bin/hone-p2p")) return "/usr/local/bin/hone-p2p";
+  // Dev: repos/hone/src/p2p/ → ../../.. → repos/ → hone-p2p/target/release/hone-p2p
+  return path.resolve(__dirname, "../../../hone-p2p/target/release/hone-p2p");
 }
 
 const SIDECAR_BIN = _resolveBin();
@@ -64,24 +64,24 @@ class RustP2PClient extends EventEmitter {
     this._stopping = false;
 
     if (!fs.existsSync(SIDECAR_BIN)) {
-      console.error("[BTCPC P2P] Rust sidecar binary not found: " + SIDECAR_BIN);
-      console.error("[BTCPC P2P] Build it: cd repos/btcpc-p2p && cargo build --release");
+      console.error("[HONE P2P] Rust sidecar binary not found: " + SIDECAR_BIN);
+      console.error("[HONE P2P] Build it: cd repos/hone-p2p && cargo build --release");
       return this;
     }
 
-    console.log("[BTCPC P2P] Starting Rust sidecar:", SIDECAR_BIN);
+    console.log("[HONE P2P] Starting Rust sidecar:", SIDECAR_BIN);
     this._sidecar = spawn(SIDECAR_BIN, [], {
       env: { ...process.env },
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });
 
-    this._sidecar.stdout.on("data", (d) => process.stdout.write("[btcpc-p2p] " + d));
-    this._sidecar.stderr.on("data", (d) => process.stderr.write("[btcpc-p2p] " + d));
+    this._sidecar.stdout.on("data", (d) => process.stdout.write("[hone-p2p] " + d));
+    this._sidecar.stderr.on("data", (d) => process.stderr.write("[hone-p2p] " + d));
     this._sidecar.on("exit", (code, signal) => {
       this._sidecar = null;
       if (!this._stopping) {
-        console.warn("[BTCPC P2P] Sidecar exited (code=" + code + " signal=" + signal + ") — restarting in 5s");
+        console.warn("[HONE P2P] Sidecar exited (code=" + code + " signal=" + signal + ") — restarting in 5s");
         setTimeout(() => this.startServer(), 5000);
       }
     });
@@ -96,7 +96,7 @@ class RustP2PClient extends EventEmitter {
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     if (this._socket) { this._socket.destroy(); this._socket = null; }
     if (this._sidecar) { this._sidecar.kill("SIGTERM"); this._sidecar = null; }
-    console.log("[BTCPC P2P] Rust sidecar stopped");
+    console.log("[HONE P2P] Rust sidecar stopped");
   }
 
   // ── IPC connection ─────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ class RustP2PClient extends EventEmitter {
     this._buf = "";
 
     socket.on("connect", () => {
-      console.log("[BTCPC P2P] Connected to Rust sidecar via", SOCKET_PATH);
+      console.log("[HONE P2P] Connected to Rust sidecar via", SOCKET_PATH);
       if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     });
 
@@ -122,14 +122,14 @@ class RustP2PClient extends EventEmitter {
         try {
           this._handlePush(JSON.parse(line));
         } catch (e) {
-          console.error("[BTCPC P2P] IPC parse error:", e.message);
+          console.error("[HONE P2P] IPC parse error:", e.message);
         }
       }
     });
 
     socket.on("close", () => {
       if (!this._stopping) {
-        console.warn("[BTCPC P2P] IPC socket closed — reconnecting in " + RECONNECT_DELAY_MS + "ms");
+        console.warn("[HONE P2P] IPC socket closed — reconnecting in " + RECONNECT_DELAY_MS + "ms");
         this._reconnectTimer = setTimeout(() => this._connect(), RECONNECT_DELAY_MS);
       }
     });
@@ -137,7 +137,7 @@ class RustP2PClient extends EventEmitter {
     socket.on("error", (err) => {
       // ENOENT = sidecar not ready yet; ECONNREFUSED = socket exists but nobody listening
       if (err.code !== "ENOENT" && err.code !== "ECONNREFUSED") {
-        console.error("[BTCPC P2P] IPC socket error:", err.message);
+        console.error("[HONE P2P] IPC socket error:", err.message);
       }
     });
   }
@@ -158,7 +158,7 @@ class RustP2PClient extends EventEmitter {
         };
         for (const handler of this._handlers) {
           try { handler(data, peer); } catch (e) {
-            console.error("[BTCPC P2P] Message handler error:", e.message);
+            console.error("[HONE P2P] Message handler error:", e.message);
           }
         }
         break;
@@ -181,7 +181,7 @@ class RustP2PClient extends EventEmitter {
     try {
       this._socket.write(JSON.stringify(cmd) + "\n");
     } catch (e) {
-      console.error("[BTCPC P2P] IPC write error:", e.message);
+      console.error("[HONE P2P] IPC write error:", e.message);
     }
   }
 
@@ -216,7 +216,7 @@ class RustP2PClient extends EventEmitter {
   }
 
   getNodeId() {
-    return process.env.BTCPC_NODE_ID || "rust-sidecar";
+    return process.env.HONE_NODE_ID || "rust-sidecar";
   }
 
   getKnownPeerKeys() { return {}; }

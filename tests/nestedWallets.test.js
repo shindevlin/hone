@@ -14,7 +14,7 @@ beforeEach(() => {
   // Create accounts needed for tests
   stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'shindevlin', epoch: 0, account_data: { public_keys: { posting: '03ead081' }, chain_addresses: {} } });
   stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'josh', epoch: 0, account_data: { public_keys: {}, chain_addresses: {} } });
-  stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'btcpc', epoch: 0, account_data: { public_keys: { posting: '03ead081' }, chain_addresses: {} } });
+  stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'hone', epoch: 0, account_data: { public_keys: { posting: '03ead081' }, chain_addresses: {} } });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ describe('WALLET_UNNEST applyEntry', () => {
           posting: 'posting-pub',
           memo: 'memo-pub',
         },
-        chain_addresses: { btcpc: 'BTCPCbob' },
+        chain_addresses: { hone: 'HONEbob' },
       },
     });
 
@@ -177,7 +177,7 @@ describe('WALLET_UNNEST applyEntry', () => {
     expect(stateStore.getParent('shindevlin/bob')).toBeNull();
     expect(stateStore.getChildren('shindevlin')).not.toContain('shindevlin/bob');
     expect(stateStore.getAccount('bob').public_keys.owner).toBe('owner-pub');
-    expect(stateStore.getAccount('bob').chain_addresses.btcpc).toBe('BTCPCbob');
+    expect(stateStore.getAccount('bob').chain_addresses.hone).toBe('HONEbob');
   });
 
   test('allows one and two letter reserved names to un-nest', () => {
@@ -292,77 +292,77 @@ describe('getParent / getChildren', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// btcpc root + btcpc/treasury wiring (genesis simulation)
+// hone root + hone/treasury wiring (genesis simulation)
 // ──────────────────────────────────────────────────────────────────────────────
 
-describe('btcpc root namespace (genesis wiring)', () => {
-  test('btcpc/treasury created as child of btcpc', () => {
+describe('hone root namespace (genesis wiring)', () => {
+  test('hone/treasury created as child of hone', () => {
     // Simulate genesis entries
-    stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'btcpc_treasury', epoch: 0, account_data: { public_keys: {}, chain_addresses: {} } });
+    stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'hone_treasury', epoch: 0, account_data: { public_keys: {}, chain_addresses: {} } });
     stateStore.applyEntry({
       type: 'WALLET_CREATE_CHILD',
-      from: 'btcpc',
-      to: 'btcpc/treasury',
+      from: 'hone',
+      to: 'hone/treasury',
       epoch: 0,
-      wallet_data: { parent: 'btcpc', child_name: 'treasury' },
+      wallet_data: { parent: 'hone', child_name: 'treasury' },
     });
-    expect(stateStore.hasAccount('btcpc/treasury')).toBe(true);
-    expect(stateStore.getParent('btcpc/treasury')).toBe('btcpc');
-    expect(stateStore.getChildren('btcpc')).toContain('btcpc/treasury');
+    expect(stateStore.hasAccount('hone/treasury')).toBe(true);
+    expect(stateStore.getParent('hone/treasury')).toBe('hone');
+    expect(stateStore.getChildren('hone')).toContain('hone/treasury');
   });
 
-  test('btcpc is authorized to act for btcpc/treasury', () => {
+  test('hone is authorized to act for hone/treasury', () => {
     stateStore.applyEntry({
       type: 'WALLET_CREATE_CHILD',
-      from: 'btcpc',
-      to: 'btcpc/treasury',
+      from: 'hone',
+      to: 'hone/treasury',
       epoch: 0,
-      wallet_data: { parent: 'btcpc', child_name: 'treasury' },
+      wallet_data: { parent: 'hone', child_name: 'treasury' },
     });
-    expect(stateStore.isAuthorizedBy('btcpc/treasury', 'btcpc')).toBe(true);
+    expect(stateStore.isAuthorizedBy('hone/treasury', 'hone')).toBe(true);
   });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// btcpc_recycle keyless enforcement
+// hone_recycle keyless enforcement
 // ──────────────────────────────────────────────────────────────────────────────
 
-describe('btcpc_recycle key guard', () => {
-  test('btcpc_recycle account exists after resetAll', () => {
-    expect(stateStore.hasAccount('btcpc_recycle')).toBe(true);
+describe('hone_recycle key guard', () => {
+  test('hone_recycle account exists after resetAll', () => {
+    expect(stateStore.hasAccount('hone_recycle')).toBe(true);
   });
 
-  test('ACCOUNT_CREATE with keys for btcpc_recycle is rejected', () => {
+  test('ACCOUNT_CREATE with keys for hone_recycle is rejected', () => {
     stateStore.applyEntry({
       type: 'ACCOUNT_CREATE',
-      to: 'btcpc_recycle',
+      to: 'hone_recycle',
       epoch: 0,
       account_data: { public_keys: { posting: 'deadbeef' }, chain_addresses: {} },
     });
-    const acc = stateStore.getAccount('btcpc_recycle');
+    const acc = stateStore.getAccount('hone_recycle');
     // Keys must remain empty
     expect(Object.keys(acc.public_keys || {})).toHaveLength(0);
   });
 
-  test('KEY_ROTATE targeting btcpc_recycle is rejected', () => {
+  test('KEY_ROTATE targeting hone_recycle is rejected', () => {
     stateStore.applyEntry({
       type: 'KEY_ROTATE',
-      to: 'btcpc_recycle',
+      to: 'hone_recycle',
       epoch: 1,
       key_rotate_data: { new_public_keys: { posting: 'deadbeef' } },
     });
-    const acc = stateStore.getAccount('btcpc_recycle');
+    const acc = stateStore.getAccount('hone_recycle');
     expect(Object.keys(acc.public_keys || {})).toHaveLength(0);
   });
 
-  test('btcpc_recycle can receive balance (credit)', () => {
+  test('hone_recycle can receive balance (credit)', () => {
     stateStore.applyEntry({
       type: 'MINING_REWARD',
-      to: 'btcpc_recycle',
+      to: 'hone_recycle',
       amount: 100,
       epoch: 1,
     });
-    expect(stateStore.getBalance('btcpc_recycle', 'BTCPC')).toBe(100);
+    expect(stateStore.getBalance('hone_recycle', 'HONE')).toBe(100);
   });
 });
 

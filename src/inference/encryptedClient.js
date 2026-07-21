@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Encrypted Inference Client Helper
+ * HONE Encrypted Inference Client Helper
  * Shin Devlin
  *
  * Client-side helper for submitting end-to-end encrypted inference requests.
@@ -26,7 +26,7 @@ const { computeSharedSecret, encrypt, decrypt } = require("./crypto");
  * Prepare an encrypted inference payload for submission.
  *
  * @param {string} prompt        — Plaintext prompt to encrypt
- * @param {string} minerAccount  — BTCPC account name of the target miner
+ * @param {string} minerAccount  — HONE account name of the target miner
  * @param {string} userMnemonic  — User's BIP-39 mnemonic (stays local, never sent)
  * @returns {Promise<{ prompt_encrypted: {ciphertext, iv, tag}, user_memo_pubkey: string }>}
  */
@@ -72,7 +72,7 @@ async function submitEncryptedInference(prompt, minerAccount, userMnemonic) {
  * Decrypt an encrypted inference result returned by the miner.
  *
  * @param {{ ciphertext: string, iv: string, tag: string }} encryptedResult
- * @param {string} minerAccount  — BTCPC account name of the miner that answered
+ * @param {string} minerAccount  — HONE account name of the miner that answered
  * @param {string} userMnemonic  — User's BIP-39 mnemonic
  * @returns {Promise<string>} Plaintext result
  */

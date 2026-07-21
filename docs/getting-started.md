@@ -1,4 +1,4 @@
-# Getting Started with BTCPC
+# Getting Started with HONE
 
 ## Prerequisites
 - Node.js (v20+ recommended)
@@ -9,8 +9,8 @@
 ## Installation
 
 ```bash
-git clone https://github.com/shindevlin/btcpc.git
-cd btcpc
+git clone https://github.com/shindevlin/hone.git
+cd hone
 npm install
 cp .env.example .env   # edit with your config
 ```
@@ -23,7 +23,7 @@ npm start              # API on :3000
 
 To mine (requires GPU):
 ```bash
-node bin/btcpc-mine
+node bin/hone-mine
 ```
 
 ## Create an Account
@@ -36,9 +36,9 @@ curl -X POST http://localhost:3000/api/user/register \
 
 ## Get Your First Tokens
 
-New accounts start with 0 BTCPC. There are three ways to get tokens:
+New accounts start with 0 HONE. There are three ways to get tokens:
 
-1. **Faucet (easiest)** — claim 1 free BTCPC per account:
+1. **Faucet (easiest)** — claim 1 free HONE per account:
    ```bash
    # Via API (requires JWT from login)
    curl -X POST http://localhost:3000/api/faucet/claim \
@@ -46,13 +46,13 @@ New accounts start with 0 BTCPC. There are three ways to get tokens:
    ```
    Or via Telegram: `/claim` (after linking your account with `/link yourname`)
 
-2. **Mine** — run a GPU miner node and earn BTCPC per epoch. See [install-miner.md](install-miner.md).
+2. **Mine** — run a GPU miner node and earn HONE per epoch. See [install-miner.md](install-miner.md).
 
 3. **Request more** — email **shindevlin@proton.me** with your username for additional tokens.
 
 ## Link Telegram (Optional)
 
-Use [@btcpcbot](https://t.me/btcpcbot) to check balances, mining stats, and submit AI tasks:
+Use [@honebot](https://t.me/honebot) to check balances, mining stats, and submit AI tasks:
 
 1. Message the bot: `/link yourname`
 2. Claim starter tokens: `/claim`
@@ -70,11 +70,11 @@ curl -X POST http://localhost:3000/v1/chat/completions \
   -d '{"model": "qwen3.5:27b", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-Cost: 0.001 BTCPC per completion token.
+Cost: 0.001 HONE per completion token.
 
 ## What's Next
 
-- [Mining Guide](install-miner.md) — earn BTCPC with your GPU
+- [Mining Guide](install-miner.md) — earn HONE with your GPU
 - [API Reference](api.md) — full endpoint docs
 - [Whitepaper](HONE_WHITEPAPER.md) — how Proof of Compute works
 - [FAQ](faq.md) — common issues

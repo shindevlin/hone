@@ -1,6 +1,6 @@
 const path = require('path');
 
-console.log('\n===== BTCPC INFRASTRUCTURE TEST =====\n');
+console.log('\n===== HONE INFRASTRUCTURE TEST =====\n');
 
 // 1. Test Ollama integration
 console.log('1. OLLAMA INTEGRATION:');

@@ -3,7 +3,7 @@
 Verasens sensor pipeline monitor.
 
 Watches for SensorDataCommit -> SensorReward (and GatewayRewardSplit) events
-on the BTCPC node at NODE_URL.  Polls /api/explorer/activity every epoch
+on the HONE node at NODE_URL.  Polls /api/explorer/activity every epoch
 and checks sealed blocks for raw sensor entries.
 
 Usage:
@@ -15,7 +15,7 @@ To submit a test SensorDataCommit (requires PyNaCl: pip install PyNaCl):
 How to sign a SensorDataCommit manually (all other tools):
     See sign_sensor_commit() below — canonical message is compact JSON with keys
     sorted ALPHABETICALLY (serde_json BTreeMap default, no preserve_order feature):
-      {"batch_hash":"...","chain_id":"btcpc-2","owner":"...",
+      {"batch_hash":"...","chain_id":"hone-2","owner":"...",
        "reading_count":N,"sensor_id":"...","sensor_type":"...",
        "signed_by":"...","type":"SENSOR_DATA_COMMIT"}
     Sign with ed25519 (posting key seed), hex-encode the 64-byte signature.
@@ -220,7 +220,7 @@ def scan_block_for_sensor(node: str, epoch: int) -> list:
 
 
 # ── Adaptive sensor scheduler (Phase 1.2) ───────────────────────────────────
-# Port of clients/btcpc-flipper/btcpc_scheduler.c
+# Port of clients/hone-flipper/hone_scheduler.c
 # Three sensor classes:
 #   Continuous   — always interesting if not barren (subghz, gnss, coverage, sampled)
 #   Event        — interesting when tag/signal found; epoch-capped (nfc, rfid, ibutton)
@@ -260,7 +260,7 @@ class SensorScheduler:
     Adaptive sensor rotation: yield-weighted priority, exponential barren
     backoff, per-epoch event cap, battery-aware cycle delay.
 
-    Mirrors btcpc_scheduler.c exactly so device and test submission share
+    Mirrors hone_scheduler.c exactly so device and test submission share
     the same selection logic.
     """
 
@@ -436,7 +436,7 @@ def run_adaptive_scheduler(node: str, account: str, posting_key_hex: str,
     while True:
         info = get_node_info(node)
         epoch = info.get("epoch", 0)
-        chain_id = info.get("chain_id", "btcpc-2")
+        chain_id = info.get("chain_id", "hone-2")
         battery = info.get("battery_pct", 100)  # node may not expose this; defaults to 100
         sched.set_battery(battery)
 
@@ -501,7 +501,7 @@ def submit_test_commit(node: str, account: str, posting_key_hex: str) -> dict | 
     """
     info = get_node_info(node)
     epoch = info.get("epoch", 0)
-    chain_id = info.get("chain_id", "btcpc-2")
+    chain_id = info.get("chain_id", "hone-2")
     sensor_id = f"{account}/test"
 
     # Step 1: Register sensor (idempotent — node stores in meta, not re-applied)
@@ -616,10 +616,10 @@ def monitor(node: str, interval: int):
 
             elif "SENSOR_REWARD" in t.upper() or t in ("SensorReward", "SENSOR_REWARD"):
                 dreams = entry.get("amount", 0)
-                btcpc  = dreams / 10_000_000_000
+                hone  = dreams / 10_000_000_000
                 print(f"[{ts()}] SENSOR_REWARD        epoch={ep}  "
                       f"node={entry.get('node_id','?')}  "
-                      f"amount={btcpc:.6f} BTCPC  ({dreams} dreams)")
+                      f"amount={hone:.6f} HONE  ({dreams} dreams)")
 
             elif "GATEWAY" in t.upper():
                 print(f"[{ts()}] GATEWAY_REWARD_SPLIT epoch={ep}  "
@@ -650,7 +650,7 @@ def monitor(node: str, interval: int):
         bal   = get_balance(node, account)
         print(f"[{ts()}] epoch={current_epoch}  peers={info.get('peer_count',0)}  "
               f"mempool={mpool.get('pending_count',0)}  "
-              f"balance={bal.get('balance','?')} BTCPC")
+              f"balance={bal.get('balance','?')} HONE")
 
         time.sleep(interval)
 
@@ -665,11 +665,11 @@ if __name__ == "__main__":
     parser.add_argument("--rotate-test", action="store_true",
                         help="Run adaptive sensor scheduler: cycles at ~500ms, yield-weighted "
                              "priority, exponential barren backoff, epoch cap for event sensors. "
-                             "Mirrors btcpc_scheduler.c. Requires --posting-key.")
+                             "Mirrors hone_scheduler.c. Requires --posting-key.")
     parser.add_argument("--account", default="",
                         help="Override account name (default: read from node /api/node/info)")
     parser.add_argument("--posting-key", default="",
-                        help="64-char hex ed25519 seed (BTCPC_POSTING_KEY) for signing")
+                        help="64-char hex ed25519 seed (HONE_POSTING_KEY) for signing")
     args = parser.parse_args()
 
     if args.rotate_test:

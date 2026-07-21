@@ -1,14 +1,14 @@
 "use strict";
 
 /**
- * BTCPC Anchor Submission — v2.16-alpha
+ * HONE Anchor Submission — v2.16-alpha
  * Shin Devlin
  *
  * Demand-driven anchor submission for the four-tier finality model.
  * On-chain state-hash anchors are submitted to external chains by
  * permissionless anchor submitters who earn a fee for doing so.
  *
- * Tier intervals (from memory/btcpc_finality_tiers.md):
+ * Tier intervals (from memory/hone_finality_tiers.md):
  *   Tier 1 — Native finality:    every 1 epoch    (~5 min)  [not anchored externally]
  *   Tier 2 — L2 checkpoint:      every 100 epochs (~8 hours)
  *   Tier 3 — Mainnet anchor:     every 1000 epochs (~3.5 days)
@@ -19,7 +19,7 @@
  *     No designated submitter. Bridge fees accumulate in anchor_reserve.
  *   - Merkle batching: each write commits a Merkle root of N recent epoch
  *     hashes. Bridges verify specific epochs via off-chain Merkle proofs.
- *   - Anchoring is ADDITIVE, never required. BTCPC consensus continues
+ *   - Anchoring is ADDITIVE, never required. HONE consensus continues
  *     without any anchor chain. External anchors provide verifiability only.
  *   - Anchor records are append-only: once submitted, immutable.
  *
@@ -43,8 +43,8 @@ var ANCHOR_COSTS_USD = {
   bitcoin: 1.00,   // OP_RETURN; ~$10/year for 10 seals = ~$1.00/anchor
 };
 
-// Anchor rewards in BTCPC by tier (submitter receives this for posting an anchor)
-var ANCHOR_REWARDS_BTCPC = {
+// Anchor rewards in HONE by tier (submitter receives this for posting an anchor)
+var ANCHOR_REWARDS_HONE = {
   l2: 0.01,
   ethereum: 0.10,
   bitcoin: 1.00,
@@ -131,12 +131,12 @@ function computeAnchorPayload(epochNumber) {
  * Record that a permissionless anchor submitter posted an anchor
  * to an external chain. Append-only — existing anchors are immutable.
  *
- * @param {string} submitter — BTCPC account name of the submitter
+ * @param {string} submitter — HONE account name of the submitter
  * @param {string} tier — "l2" | "ethereum" | "bitcoin"
  * @param {number} epochNumber
  * @param {string} txHash — on-chain transaction hash
  * @param {number} [cost] — actual cost in USD (optional, for analytics)
- * @returns {{ submitter, tier, epoch, tx_hash, cost_usd, reward_btcpc, submitted_at }}
+ * @returns {{ submitter, tier, epoch, tx_hash, cost_usd, reward_hone, submitted_at }}
  */
 function recordAnchorSubmission(submitter, tier, epochNumber, txHash, cost) {
   if (typeof submitter !== "string" || submitter.length === 0) {
@@ -165,7 +165,7 @@ function recordAnchorSubmission(submitter, tier, epochNumber, txHash, cost) {
     epoch: n,
     tx_hash: txHash,
     cost_usd: typeof cost === "number" && Number.isFinite(cost) ? cost : ANCHOR_COSTS_USD[tier],
-    reward_btcpc: ANCHOR_REWARDS_BTCPC[tier],
+    reward_hone: ANCHOR_REWARDS_HONE[tier],
     submitted_at: _now(),
   };
 
@@ -202,14 +202,14 @@ function estimateAnchorCost(tier) {
 }
 
 /**
- * Return the BTCPC reward for submitting an anchor on a given tier.
+ * Return the HONE reward for submitting an anchor on a given tier.
  *
  * @param {string} tier
- * @returns {number} reward in BTCPC
+ * @returns {number} reward in HONE
  */
 function getAnchorReward(tier) {
   _validateTier(tier);
-  return ANCHOR_REWARDS_BTCPC[tier];
+  return ANCHOR_REWARDS_HONE[tier];
 }
 
 /**
@@ -236,7 +236,7 @@ module.exports = {
   // Constants
   ANCHOR_INTERVALS: ANCHOR_INTERVALS,
   ANCHOR_COSTS_USD: ANCHOR_COSTS_USD,
-  ANCHOR_REWARDS_BTCPC: ANCHOR_REWARDS_BTCPC,
+  ANCHOR_REWARDS_HONE: ANCHOR_REWARDS_HONE,
   VALID_TIERS: VALID_TIERS,
 
   // Core API

@@ -16,8 +16,8 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 
 // Isolate secretStore per test run
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-auth-mw-delta-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-auth-mw-delta-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 process.env.JWT_SECRET = 'test-secret-auth-mw';
 
 // Mock User model

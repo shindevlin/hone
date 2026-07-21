@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Reward Settlement
+ * HONE Reward Settlement
  * Shin Devlin
  *
  * Manages proof verification windows and reward distribution.
@@ -32,7 +32,7 @@ const EventEmitter = require("events");
 const { computeRewards, extractStorageHosts, buildClockNodes } = require("./rewardEngine");
 const { getBlockReward } = require("../services/emissionSchedule");
 
-const VERIFICATION_WINDOW = parseInt(process.env.BTCPC_VERIFICATION_WINDOW) || 5; // epochs
+const VERIFICATION_WINDOW = parseInt(process.env.HONE_VERIFICATION_WINDOW) || 5; // epochs
 const emitter = new EventEmitter();
 
 // All submitted proofs pending finalization
@@ -92,7 +92,7 @@ function submitWorkProof(proof, currentEpoch) {
 
   pendingProofs.set(id, record);
 
-  console.log("[BTCPC Settlement] Work proof submitted by " + proof.node_id +
+  console.log("[HONE Settlement] Work proof submitted by " + proof.node_id +
     " at epoch " + epoch + " | value=" + (proof.work_value || 0).toFixed(1) +
     " | model=" + (proof.model || "?") +
     " | verification deadline: epoch " + record.deadline_epoch);
@@ -112,7 +112,7 @@ function submitChallenge(proofId, challenger, reason, evidence) {
 
   const currentEpoch = _getCurrentEpoch();
   if (currentEpoch > record.deadline_epoch) {
-    console.warn("[BTCPC Settlement] Challenge too late for proof " + proofId +
+    console.warn("[HONE Settlement] Challenge too late for proof " + proofId +
       " (window closed at epoch " + record.deadline_epoch + ")");
     return false;
   }
@@ -120,7 +120,7 @@ function submitChallenge(proofId, challenger, reason, evidence) {
   record.challenges.push({ challenger, reason, evidence: evidence || null, epoch: currentEpoch });
   record.status = "disputed";
 
-  console.log("[BTCPC Settlement] Challenge raised against " + record.node_id +
+  console.log("[HONE Settlement] Challenge raised against " + record.node_id +
     " proof " + proofId.slice(0, 12) + " by " + challenger + " (" + reason + ")");
 
   emitter.emit("proof_challenged", { proofId, record, challenger, reason });
@@ -170,7 +170,7 @@ function tickEpoch(currentEpoch) {
       record.status = "finalized";
       record._disputed = true;
       record._reward_fraction = 0.5;
-      console.log("[BTCPC Settlement] Disputed proof from " + record.node_id +
+      console.log("[HONE Settlement] Disputed proof from " + record.node_id +
         " finalized at 50% reward (challenges: " + record.challenges.length + ")");
     } else {
       record.status = "finalized";
@@ -190,7 +190,7 @@ function tickEpoch(currentEpoch) {
   for (const r of newlyFinalized) pendingProofs.delete(r.id);
 
   if (newlyFinalized.length > 0) {
-    console.log("[BTCPC Settlement] Epoch " + currentEpoch + ": " +
+    console.log("[HONE Settlement] Epoch " + currentEpoch + ": " +
       newlyFinalized.length + " proof(s) finalized");
   }
 
@@ -239,7 +239,7 @@ function _runRewardEngine(currentEpoch, finalizedProofs) {
       serviceHosts: [],
     });
   } catch (err) {
-    console.error("[BTCPC Settlement] Reward engine failed for epoch " + currentEpoch + ":", err.message);
+    console.error("[HONE Settlement] Reward engine failed for epoch " + currentEpoch + ":", err.message);
     return;
   }
 
@@ -252,7 +252,7 @@ function _runRewardEngine(currentEpoch, finalizedProofs) {
   });
   const reward_hash = crypto.createHash("sha256").update(canonical).digest("hex");
 
-  console.log("[BTCPC Settlement] Epoch " + currentEpoch + " rewards computed:" +
+  console.log("[HONE Settlement] Epoch " + currentEpoch + " rewards computed:" +
     " reward=" + blockReward.toFixed(4) +
     " | verified_proofs=" + finalizedProofs.length +
     " | clocks=" + clockNodes.length +

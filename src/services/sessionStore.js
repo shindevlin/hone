@@ -3,7 +3,7 @@
 /**
  * In-memory session token store for third-party app authorization.
  *
- * Tokens are prefixed with btcpc_session_ and have a spending limit,
+ * Tokens are prefixed with hone_session_ and have a spending limit,
  * expiry, and per-session spend tracker. Lost on restart (by design —
  * sessions are short-lived, 24h default).
  */
@@ -24,14 +24,14 @@ function pruneExpired() {
 
 /**
  * Create a new session token.
- * @param {string} account - BTCPC account name
+ * @param {string} account - HONE account name
  * @param {string} appName - Name of the requesting app
- * @param {number} spendingLimit - Max BTCPC spend for this session
+ * @param {number} spendingLimit - Max HONE spend for this session
  * @param {number} expiresHours - Hours until expiry (default 24, max 168)
  * @returns {{ token, account, app_name, spending_limit, expires_at }}
  */
 function createSession(account, appName, spendingLimit, expiresHours) {
-  const token = 'btcpc_session_' + crypto.randomBytes(32).toString('hex');
+  const token = 'hone_session_' + crypto.randomBytes(32).toString('hex');
   const now = Date.now();
   const hours = Math.min(168, Math.max(1, expiresHours || 24));
   const expiresAt = now + hours * 60 * 60 * 1000;
@@ -62,7 +62,7 @@ function getSession(token) {
 /**
  * Record spending against a session. Returns true if within limit, false if exceeded.
  * @param {string} token
- * @param {number} amount - BTCPC cost to record
+ * @param {number} amount - HONE cost to record
  * @returns {boolean}
  */
 function recordSpend(token, amount) {
@@ -76,7 +76,7 @@ function recordSpend(token, amount) {
 /**
  * Check remaining balance for a session token.
  * @param {string} token
- * @returns {number} remaining BTCPC, or 0 if invalid/expired
+ * @returns {number} remaining HONE, or 0 if invalid/expired
  */
 function getRemaining(token) {
   const session = getSession(token);

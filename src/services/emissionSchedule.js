@@ -1,15 +1,15 @@
 "use strict";
 
 /**
- * BTCPC Emission Schedule
+ * HONE Emission Schedule
  *
  * Doubling-halving interval model (v3.0: 30-second epochs):
- *   Period 1: 1 month  (86400 epochs), allotment 2,100,000 BTCPC, reward ~24.306/epoch
- *   Period 2: 2 months (172800 epochs), allotment 2,381,400 BTCPC, reward ~13.785/epoch
- *   Period 3: 4 months (345600 epochs), allotment 2,700,508 BTCPC, reward ~7.819/epoch
+ *   Period 1: 1 month  (86400 epochs), allotment 2,100,000 HONE, reward ~24.306/epoch
+ *   Period 2: 2 months (172800 epochs), allotment 2,381,400 HONE, reward ~13.785/epoch
+ *   Period 3: 4 months (345600 epochs), allotment 2,700,508 HONE, reward ~7.819/epoch
  *   ...each period: duration doubles, allotment *= 1.134, reward = allotment / epochs_in_period
  *
- * Total supply: 42,000,000 BTCPC
+ * Total supply: 42,000,000 HONE
  * Same annual emission and halving schedule as the 5-min epoch model.
  * 10× more epochs per year → reward per epoch is 1/10 of the original.
  */

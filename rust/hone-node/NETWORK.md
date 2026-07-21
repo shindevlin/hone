@@ -1,10 +1,10 @@
-# BTCPC Network Endpoints
+# HONE Network Endpoints
 
 All agents, bots, and nodes MUST use these endpoints to query chain state.
 Never use `localhost` or `127.0.0.1` — local node state may be behind or on a different chain.
 All listed nodes are equal peers. There is no primary node — this is a blockchain.
 
-## Mainnet (`btcpc-1`)
+## Mainnet (`hone-1`)
 
 ### Peer Nodes
 
@@ -23,7 +23,7 @@ All listed nodes are equal peers. There is no primary node — this is a blockch
 | Submit transfer | `POST /api/transfer` |
 | Post inference job | `POST /api/inference/post` |
 
-## Testnet (`btcpc-satoshi`)
+## Testnet (`hone-satoshi`)
 
 ### Peer Nodes
 
@@ -42,8 +42,8 @@ All listed nodes are equal peers. There is no primary node — this is a blockch
 
 | Chain | ID | Genesis timestamp |
 |-------|----|-------------------|
-| Mainnet | `btcpc-1` | `1777672500000` |
-| Testnet | `btcpc-satoshi` | `1777672500000` |
+| Mainnet | `hone-1` | `1777672500000` |
+| Testnet | `hone-satoshi` | `1777672500000` |
 
 ## Usage examples
 
@@ -66,6 +66,6 @@ curl http://192.168.68.72:4242/api/node/info
 ## Notes
 
 - Signing messages use BTreeMap key order (alphabetical). Always `sort_keys=True` in Python.
-- 1 BTCPC = 10,000,000,000 dreams
+- 1 HONE = 10,000,000,000 dreams
 - Transfer canonical message fields: `amount, chain_id, from, nonce, to, token, type`
 - Nonces are per-account and increment with every signed transaction.

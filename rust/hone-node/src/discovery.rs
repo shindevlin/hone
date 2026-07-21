@@ -10,7 +10,7 @@
 //! empty list so the node starts regardless.
 //!
 //! # Hive setup
-//! Use the @btcpc account.  Set its `posting_json_metadata` to:
+//! Use the @hone account.  Set its `posting_json_metadata` to:
 //!   {"hone_peers": [...mainnet...], "hone_testnet_peers": [...testnet...]}
 //! Run scripts/hive-register-peers.py to publish or update peer lists.
 //!
@@ -30,7 +30,7 @@ const HIVE_API: &str = "https://api.hive.blog";
 /// Single Hive account that holds peer lists for all chains.
 /// json_metadata format:
 ///   { "hone_peers": [...mainnet multiaddrs...], "hone_testnet_peers": [...testnet...] }
-pub const HIVE_REGISTRY_ACCOUNT: &str = "btcpc";
+pub const HIVE_REGISTRY_ACCOUNT: &str = "hone";
 
 /// json_metadata key for the peer list, keyed by chain_id.
 pub fn hive_peers_key(chain_id: &str) -> &'static str {
@@ -176,7 +176,7 @@ async fn fetch_btc_peers(client: &Client) -> Result<Vec<String>> {
 //
 // The Hive custom_json operation is broadcast via the condenser_api.
 // We use a pre-built unsigned transaction body and POST it to a Hive relay that
-// handles signing on behalf of the btcpc registry account.
+// handles signing on behalf of the hone registry account.
 // For operator-signed publishing, set HONE_HIVE_POSTING_KEY.
 //
 // Hive custom_json ID: "hone_peer_announce"
@@ -199,7 +199,7 @@ pub async fn announce_to_hive(chain_id: &str, node_id: &str) {
         }
     };
 
-    // Both mainnet and testnet publish to the same "btcpc" Hive account.
+    // Both mainnet and testnet publish to the same "hone" Hive account.
     // The custom_json id encodes the chain: "hone_peer_announce" or "hone_satoshi_peer_announce".
     let announce_id = if chain_id == TESTNET_CHAIN_ID {
         "hone_satoshi_peer_announce"

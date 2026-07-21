@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Silicon Identity Key (SIK) — Node.js interface
+ * HONE Silicon Identity Key (SIK) — Node.js interface
  * Shin Devlin
  *
  * Wraps the CUDA fingerprint probe binary. Provides:
@@ -14,7 +14,7 @@ const { execFile } = require("child_process");
 const path = require("path");
 const crypto = require("crypto");
 
-const BINARY_PATH = path.resolve(__dirname, "btcpc-sik");
+const BINARY_PATH = path.resolve(__dirname, "hone-sik");
 
 /**
  * Run the SIK probe and return { sik, sik_hash, gpu, vram_mb, timing_stable, fp_stable }
@@ -26,7 +26,7 @@ function getFingerprint() {
       if (err) {
         // If binary not compiled, fall back to software fingerprint
         if (err.code === "ENOENT") {
-          console.warn("[BTCPC SIK] Binary not found. Run: cd src/silicon && nvcc -O2 -o btcpc-sik fingerprint.cu");
+          console.warn("[HONE SIK] Binary not found. Run: cd src/silicon && nvcc -O2 -o hone-sik fingerprint.cu");
           return resolve(softwareFingerprint());
         }
         return reject(new Error("SIK probe failed: " + (err.message || stderr)));
@@ -99,7 +99,7 @@ function softwareFingerprint() {
     os.arch(),
   ].join("|");
 
-  const sik = crypto.createHash("sha256").update("btcpc-software-sik:" + data).digest("hex");
+  const sik = crypto.createHash("sha256").update("hone-software-sik:" + data).digest("hex");
   const sik_hash = crypto.createHash("sha256").update(Buffer.from(sik, "hex")).digest("hex");
 
   return {

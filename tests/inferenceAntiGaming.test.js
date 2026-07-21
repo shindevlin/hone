@@ -5,7 +5,7 @@
  * Shin Devlin
  *
  * Tests for VRF-based job assignment shuffle and stake gate in the
- * BTCPC inference protocol.  Colluders cannot pre-arrange which node
+ * HONE inference protocol.  Colluders cannot pre-arrange which node
  * receives a job even when they know all node scores.
  */
 
@@ -122,28 +122,28 @@ describe("claimRequest stake gate", () => {
   function simulateStakeCheck(nodeStake) {
     if (nodeStake < MIN_CLAIM_STAKE) {
       return {
-        error: `Insufficient stake to claim inference jobs. Minimum ${MIN_CLAIM_STAKE} BTCPC required.`,
+        error: `Insufficient stake to claim inference jobs. Minimum ${MIN_CLAIM_STAKE} HONE required.`,
       };
     }
     return { ok: true };
   }
 
-  test("node with 0 BTCPC staked is rejected", () => {
+  test("node with 0 HONE staked is rejected", () => {
     const result = simulateStakeCheck(0);
     expect(result.error).toMatch(/Insufficient stake/);
   });
 
-  test("node with 9.99 BTCPC staked is rejected", () => {
+  test("node with 9.99 HONE staked is rejected", () => {
     const result = simulateStakeCheck(9.99);
     expect(result.error).toMatch(/Insufficient stake/);
   });
 
-  test("node with exactly 10 BTCPC staked is accepted", () => {
+  test("node with exactly 10 HONE staked is accepted", () => {
     const result = simulateStakeCheck(10);
     expect(result.ok).toBe(true);
   });
 
-  test("node with 100 BTCPC staked is accepted", () => {
+  test("node with 100 HONE staked is accepted", () => {
     const result = simulateStakeCheck(100);
     expect(result.ok).toBe(true);
   });

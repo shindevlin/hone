@@ -1,4 +1,4 @@
-# BTCPC Proof of Silicon — Inference Privacy Architecture
+# HONE Proof of Silicon — Inference Privacy Architecture
 
 ## How SIK Protects Inference Privacy
 
@@ -69,17 +69,17 @@ USER                          NODE (GPU with SIK)
 
 ```bash
 cd src/silicon
-nvcc -O2 -o btcpc-sik fingerprint.cu
+nvcc -O2 -o hone-sik fingerprint.cu
 ```
 
 ### Usage
 
 ```bash
 # Get fingerprint
-./btcpc-sik --json
+./hone-sik --json
 
 # Verify against registered hash
-./btcpc-sik --verify <sik_hash>
+./hone-sik --verify <sik_hash>
 ```
 
 ### Node.js API

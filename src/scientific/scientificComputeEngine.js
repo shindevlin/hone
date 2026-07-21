@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Scientific Compute Engine
+ * HONE Scientific Compute Engine
  * Shin Devlin
  *
  * Long-running distributed scientific compute jobs — protein folding,
@@ -12,7 +12,7 @@
  *   - Jobs are queued, assigned to shard groups, and completed
  *   - Open-source jobs receive a 40% fee discount; results go on chain
  *   - Nodes earn 25% bonus for processing open-science jobs
- *   - Results > 50KB are stored in BTCPC-FS; on-chain entry holds the CID
+ *   - Results > 50KB are stored in HONE-FS; on-chain entry holds the CID
  *   - Latency map tracks inter-peer round-trips to optimize shard routing
  */
 
@@ -24,7 +24,7 @@ const crypto = require("crypto");
 
 const OPEN_SOURCE_DISCOUNT = 0.40;    // 40% fee discount for open science jobs
 const SCIENCE_NODE_MULTIPLIER = 1.25; // nodes earn 25% more for open science jobs
-const MAX_INLINE_RESULT_BYTES = 51200; // 50KB — store inline; larger → BTCPC-FS blob
+const MAX_INLINE_RESULT_BYTES = 51200; // 50KB — store inline; larger → HONE-FS blob
 const LATENCY_HISTORY_MS = 300000;    // 5 min rolling window for latency scores
 
 // ─────────────────────────────────────────────────────────────────
@@ -99,8 +99,8 @@ function computeNodePayout(jobId, nodeId) {
  * @param {string} params.type           — 'protein_folding' | 'drug_discovery' | 'climate' | 'genomics' | 'general'
  * @param {string} params.model          — Ollama model or shard group model
  * @param {string} params.input_data     — base64-encoded input
- * @param {string} params.requester      — BTCPC account name
- * @param {number} params.max_fee        — BTCPC
+ * @param {string} params.requester      — HONE account name
+ * @param {number} params.max_fee        — HONE
  * @param {boolean} params.open_source   — 40% discount, results stored on chain
  * @returns {object} ScientificJob
  */
@@ -161,7 +161,7 @@ function startJob(jobId, shardGroupId) {
 }
 
 /**
- * Mark a job complete, store large results in BTCPC-FS, and if open_source,
+ * Mark a job complete, store large results in HONE-FS, and if open_source,
  * inscribe a SCIENTIFIC_RESULT ledger entry on chain.
  *
  * @param {string}   jobId
@@ -187,7 +187,7 @@ async function completeJob(jobId, resultHash, resultData, contributingNodes, wor
 
   var resultBlobCid = null;
 
-  // Store large results in BTCPC-FS
+  // Store large results in HONE-FS
   if (resultData) {
     var rawBytes = Buffer.from(resultData, "base64");
     if (rawBytes.length > MAX_INLINE_RESULT_BYTES) {
@@ -196,11 +196,11 @@ async function completeJob(jobId, resultHash, resultData, contributingNodes, wor
         var stored = blobStore.putBlob(rawBytes);
         resultBlobCid = stored.cid;
         job.result_blob_cid = resultBlobCid;
-        // Clear inline data — result lives in BTCPC-FS
+        // Clear inline data — result lives in HONE-FS
         job.result_data = null;
       } catch (blobErr) {
         // Non-fatal: keep inline data if blob store fails
-        console.error("[BTCPC Science] blob store failed, keeping inline result: " + blobErr.message);
+        console.error("[HONE Science] blob store failed, keeping inline result: " + blobErr.message);
       }
     }
   }
@@ -225,7 +225,7 @@ async function completeJob(jobId, resultHash, resultData, contributingNodes, wor
       );
       onChain = true;
     } catch (ledgerErr) {
-      console.error("[BTCPC Science] ledger write failed: " + ledgerErr.message);
+      console.error("[HONE Science] ledger write failed: " + ledgerErr.message);
     }
   }
 

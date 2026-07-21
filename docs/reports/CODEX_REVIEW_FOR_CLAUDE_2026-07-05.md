@@ -9,7 +9,7 @@ Reviewer: Codex
 After this report was drafted, Codex applied the low-risk fixes below:
 
 - `tests/installerScripts.test.js` now points at `website/hone-start.bat` and `website/hone-start.ps1`.
-- The stale installer assertion now expects `hone-setup` instead of `btcpc-setup`.
+- The stale installer assertion now expects `hone-setup` instead of `hone-setup`.
 - `package.json` Jest config now ignores `.claude` for module and watch crawling, not only test paths.
 - `rust/hone-node/src/api.rs` GitHub webhook handling now fails closed when `HONE_GITHUB_WEBHOOK_SECRET` is missing or empty.
 
@@ -40,7 +40,7 @@ There are four issues that should block launch until fixed:
 3. GitHub webhook verification was fail-open when the secret was missing. Fixed by Codex follow-up.
 4. Public config mutation endpoints can alter node model selection and OTC sale settings.
 
-The JavaScript suite mostly passes, but one test file is stale after the `btcpc` to `hone` file rename. Rust build verification was blocked by missing local Windows build prerequisites, not by a confirmed Rust compile error.
+The JavaScript suite mostly passes, but one test file is stale after the `hone` to `hone` file rename. Rust build verification was blocked by missing local Windows build prerequisites, not by a confirmed Rust compile error.
 
 ## Findings
 
@@ -157,8 +157,8 @@ File: `tests/installerScripts.test.js`
 
 Relevant locations:
 
-- `const BAT = path.join(WEBSITE, 'btcpc-start.bat')`
-- `const PS1 = path.join(WEBSITE, 'btcpc-start.ps1')`
+- `const BAT = path.join(WEBSITE, 'hone-start.bat')`
+- `const PS1 = path.join(WEBSITE, 'hone-start.ps1')`
 
 Problem:
 
@@ -167,7 +167,7 @@ The website now has:
 - `website/hone-start.bat`
 - `website/hone-start.ps1`
 
-But the test still expects the old `btcpc-start.*` names.
+But the test still expects the old `hone-start.*` names.
 
 Impact:
 
@@ -176,7 +176,7 @@ Impact:
 Suggested fix:
 
 - Update the constants to `hone-start.bat` and `hone-start.ps1`.
-- Update assertion text that references `btcpc-setup` if the installer command was renamed.
+- Update assertion text that references `hone-setup` if the installer command was renamed.
 
 ### 6. Medium: Jest Crawls Claude Worktrees
 
@@ -229,7 +229,7 @@ Result:
 - 28 tests failed
 - 14 skipped
 
-The failures are from `tests/installerScripts.test.js` looking for `website/btcpc-start.bat`.
+The failures are from `tests/installerScripts.test.js` looking for `website/hone-start.bat`.
 
 Jest also emitted haste module collision warnings from `.claude/worktrees`.
 

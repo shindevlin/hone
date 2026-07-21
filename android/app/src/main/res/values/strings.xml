@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">BTCPC</string>
-    <string name="title_activity_main">BTCPC</string>
-    <string name="package_name">network.btcpc.app</string>
-    <string name="custom_url_scheme">network.btcpc.app</string>
+    <string name="app_name">HONE</string>
+    <string name="title_activity_main">HONE</string>
+    <string name="package_name">network.hone.app</string>
+    <string name="custom_url_scheme">network.hone.app</string>
     <string name="native_dashboard_subtitle">Native peer dashboard</string>
 </resources>

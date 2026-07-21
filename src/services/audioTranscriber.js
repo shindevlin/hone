@@ -22,9 +22,9 @@ const path = require("path");
 const os = require("os");
 const { execSync } = require("child_process");
 
-const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
-const WHISPER_MODEL = process.env.BTCPC_WHISPER_MODEL || "tiny";
-const WHISPER_TIMEOUT_MS = parseInt(process.env.BTCPC_WHISPER_TIMEOUT_MS) || 120000;
+const BLOB_DIR = process.env.HONE_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const WHISPER_MODEL = process.env.HONE_WHISPER_MODEL || "tiny";
+const WHISPER_TIMEOUT_MS = parseInt(process.env.HONE_WHISPER_TIMEOUT_MS) || 120000;
 
 function _tryExec(cmd, opts) {
   try {
@@ -85,7 +85,7 @@ async function transcribe(audioCid) {
   const ext = detectAudioExtension(header);
 
   const tmpDir = os.tmpdir();
-  const tmpAudio = path.join(tmpDir, `btcpc_audio_${Date.now()}${ext}`);
+  const tmpAudio = path.join(tmpDir, `hone_audio_${Date.now()}${ext}`);
   const expectedTxt = tmpAudio.replace(/\.[^.]+$/, ".txt");
 
   try {

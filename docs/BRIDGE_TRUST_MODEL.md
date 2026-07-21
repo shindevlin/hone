@@ -1,12 +1,12 @@
-# BTCPC Bridge Trust Model
+# HONE Bridge Trust Model
 
 ## Overview
 
-The BTCPC bridge connects native BTCPC on the sovereign chain to wrapped wBTCPC on EVM
+The HONE bridge connects native HONE on the sovereign chain to wrapped wHONE on EVM
 chains (Ethereum, Base, Arbitrum, Optimism, BSC, Polygon).
 
 The bridge uses a **lock-and-release model** — no tokens are burned or minted.
-Locked wBTCPC stays in the contract pool for the reverse direction.
+Locked wHONE stays in the contract pool for the reverse direction.
 
 ---
 
@@ -26,20 +26,20 @@ Locked wBTCPC stays in the contract pool for the reverse direction.
 
 ### Trust Assumptions
 
-- **Release direction (BTCPC → EVM):** Requires 3-of-5 signer agreement on the amount, recipient,
+- **Release direction (HONE → EVM):** Requires 3-of-5 signer agreement on the amount, recipient,
   and nonce. An attacker must compromise three separate key holders simultaneously.
-- **Lock direction (EVM → BTCPC):** Trustless. User sends tokens to the contract; the BTCPC chain
-  watches the `Lock` event and credits native BTCPC. No signer involvement required.
-- **Account binding:** A single signer authorises binding a BTCPC username to an EVM address.
+- **Lock direction (EVM → HONE):** Trustless. User sends tokens to the contract; the HONE chain
+  watches the `Lock` event and credits native HONE. No signer involvement required.
+- **Account binding:** A single signer authorises binding a HONE username to an EVM address.
   This is acceptable because binding data originates from on-chain state — forging it requires
-  compromising the BTCPC chain itself, not just the bridge.
+  compromising the HONE chain itself, not just the bridge.
 
 ### EIP-712 Typed Data
 
 All signatures use EIP-712 structured data signing. MetaMask and hardware wallets display
 human-readable fields (recipient, amount, nonce) rather than an opaque hash.
 
-**Domain separator:** `wBTCPCBridge v2` with `chainId` and contract address. Cross-chain
+**Domain separator:** `wHONEBridge v2` with `chainId` and contract address. Cross-chain
 replay is impossible (different chain ID → different domain separator).
 
 **Signed structs:**
@@ -47,7 +47,7 @@ replay is impossible (different chain ID → different domain separator).
 | Operation | Struct |
 |-----------|--------|
 | Release | `Release(address recipient, uint256 amount, uint256 nonce)` |
-| Bind account | `Bind(string btcpcUsername, address evmAddress)` |
+| Bind account | `Bind(string honeUsername, address evmAddress)` |
 | Rotate signer | `RotateSigner(address oldSigner, address newSigner, uint256 nonce)` |
 | Update limits | `SetLimits(uint256 dailyReleaseLimit, uint256 dailyLockLimit, uint256 nonce)` |
 
@@ -80,7 +80,7 @@ of an old rotation approval.
 | Single key compromise | Medium | Low (V2) | Threshold requires 3-of-5; one key alone does nothing |
 | 3 simultaneous key compromises | Very low | Critical | Hardware signers on separate air-gapped devices |
 | Release nonce replay | Negligible | Critical | `processedNonces` mapping; each nonce used once |
-| Lock event replay (BTCPC side) | Low | High | BTCPC chain validates event nonce monotonicity |
+| Lock event replay (HONE side) | Low | High | HONE chain validates event nonce monotonicity |
 | Daily limit exhaustion | Low | Medium | Volume caps limit single-epoch drain |
 | Smart contract bug | Low | Critical | Audit planned at Phase 9; contract is minimal and auditable |
 
@@ -88,7 +88,7 @@ of an old rotation approval.
 
 ## Recommended Deployment: Safe Multisig
 
-Rather than relying on the custom 3-of-5 logic inside `wBTCPCBridge.sol`, the
+Rather than relying on the custom 3-of-5 logic inside `wHONEBridge.sol`, the
 recommended deployment pattern is to **use a Gnosis Safe as the bridge admin**:
 
 1. Deploy a [Safe](https://app.safe.global) on Ethereum (or target EVM chain) with a **3-of-5 threshold** and the five signer addresses listed above.
@@ -127,15 +127,15 @@ the operational threshold for day-to-day bridge use.
 
 ### V3 — Light Client Verification (Post-Audit)
 
-Replace the multisig trust model with on-chain verification of BTCPC chain state proofs.
+Replace the multisig trust model with on-chain verification of HONE chain state proofs.
 
-- BTCPC implements a Patricia Merkle Trie state root (Phase 7, D13)
+- HONE implements a Patricia Merkle Trie state root (Phase 7, D13)
 - Bridge contract on EVM verifies Merkle proofs against a committed state root
 - Signers become "state root relayers" — they cannot forge releases, only attest to chain state
-- A committee of 21 relayers (staked on BTCPC chain) vote on the canonical state root
-- Wrong attestation = stake slash on BTCPC chain
+- A committee of 21 relayers (staked on HONE chain) vote on the canonical state root
+- Wrong attestation = stake slash on HONE chain
 
-This removes the multisig trust entirely: the security model becomes "trust the BTCPC chain
+This removes the multisig trust entirely: the security model becomes "trust the HONE chain
 consensus, not a fixed set of signers."
 
 ---
@@ -167,4 +167,4 @@ Both fall back to Hive peer discovery while their respective constants are empty
 
 Target audit firms: Zellic, OtterSec, or Trail of Bits (D14).
 Audit gate: after Phase 0–6 complete and V3 light-client path is designed.
-Scope: `wBTCPCBridge.sol`, `wBTCPC.sol`, consensus finality, bridge event handling on BTCPC chain.
+Scope: `wHONEBridge.sol`, `wHONE.sol`, consensus finality, bridge event handling on HONE chain.

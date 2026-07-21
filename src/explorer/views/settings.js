@@ -106,7 +106,7 @@ function settingsView(status) {
         <p><strong>Auto mode</strong> detects when you're using your PC (mouse/keyboard activity). Mining runs at full speed when you're away, and reduces automatically when you're active.</p>
         <p style="margin-top: 8px;"><strong>CPU cap</strong> limits the number of CPU threads used for inference. At 50%, only half your cores work on mining.</p>
         <p style="margin-top: 8px;"><strong>GPU cap</strong> controls how many model layers are offloaded to GPU. At 0%, mining runs on CPU only — your GPU is free for gaming or other work.</p>
-        <p style="margin-top: 8px;"><strong>Schedule</strong> can be set via environment variable: <code>BTCPC_REDUCED_HOURS=09:00-17:00</code> to auto-reduce during work hours.</p>
+        <p style="margin-top: 8px;"><strong>Schedule</strong> can be set via environment variable: <code>HONE_REDUCED_HOURS=09:00-17:00</code> to auto-reduce during work hours.</p>
       </div>
     </div>
   `;

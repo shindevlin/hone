@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS Blob Routes — v2.11.0
+ * HONE-FS Blob Routes — v2.11.0
  * Shin Devlin
  *
  * HTTP endpoints for the content-addressed blob store.
@@ -124,7 +124,7 @@ router.get('/:cid', (req, res) => {
     const buf = blobStore.getBlob(cid);
     res.set('Content-Type', 'application/octet-stream');
     res.set('Content-Length', String(buf.length));
-    res.set('X-BTCPC-CID', cid);
+    res.set('X-HONE-CID', cid);
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
     res.send(buf);
   } catch (err) {
@@ -143,8 +143,8 @@ router.head('/:cid', (req, res) => {
     return res.status(404).end();
   }
   res.set('Content-Length', String(stat.size));
-  res.set('X-BTCPC-CID', cid);
-  res.set('X-BTCPC-MTime', String(stat.mtime));
+  res.set('X-HONE-CID', cid);
+  res.set('X-HONE-MTime', String(stat.mtime));
   res.status(200).end();
 });
 

@@ -17,7 +17,7 @@ const { getReservedNamesForShin } = require('../services/reservedNames');
 const GENESIS_MESSAGE = "The Answer to the Ultimate Question of Life, the Universe, and Everything";
 const GENESIS_MINER = "shindevlin";
 const GENESIS_STATE_HASH = '0'.repeat(64);
-const WHITEPAPER_PATH = path.resolve(__dirname, '../../docs/BTCPC_WHITEPAPER.md');
+const WHITEPAPER_PATH = path.resolve(__dirname, '../../docs/HONE_WHITEPAPER.md');
 
 /**
  * Create the genesis block (epoch 0) and the genesis miner account.
@@ -41,7 +41,7 @@ async function createGenesisBlock() {
   } catch (_) {}
 
   if (existingEpoch || blockStore.hasBlock(0) || hasFinalitySnap) {
-    console.log('[BTCPC] Genesis block already exists');
+    console.log('[HONE] Genesis block already exists');
     const epochData = existingEpoch || {
       epoch_number: 0,
       started_at: new Date(0),
@@ -57,36 +57,36 @@ async function createGenesisBlock() {
     };
   }
 
-  console.log('[BTCPC] Creating genesis block...');
-  console.log(`[BTCPC] Genesis message: "${GENESIS_MESSAGE}"`);
+  console.log('[HONE] Creating genesis block...');
+  console.log(`[HONE] Genesis message: "${GENESIS_MESSAGE}"`);
 
   // Create the genesis miner account — stateStore is source of truth; Mongo is optional
-  const mongoEnabled = process.env.BTCPC_MONGO_MODE === 'enabled';
+  const mongoEnabled = process.env.HONE_MONGO_MODE === 'enabled';
   let user = null;
   if (mongoEnabled) {
     user = await User.findOne({ username: GENESIS_MINER });
   }
   if (!user && !stateStore.hasAccount(GENESIS_MINER)) {
     const { createAccount } = require('../wallet/accountManager');
-    const savedMnemonic = process.env.BTCPC_MNEMONIC || null;
+    const savedMnemonic = process.env.HONE_MNEMONIC || null;
     try {
       const account = await createAccount(GENESIS_MINER, savedMnemonic, `${GENESIS_MINER}-genesis`);
       if (mongoEnabled) user = await User.findOne({ username: GENESIS_MINER });
-      console.log(`[BTCPC] Genesis miner account created: ${GENESIS_MINER} (${account.address})`);
-      if (savedMnemonic) console.log(`[BTCPC] Using saved mnemonic from BTCPC_MNEMONIC`);
-      console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
+      console.log(`[HONE] Genesis miner account created: ${GENESIS_MINER} (${account.address})`);
+      if (savedMnemonic) console.log(`[HONE] Using saved mnemonic from HONE_MNEMONIC`);
+      console.log(`[HONE] Wallets: ${JSON.stringify(account.chainWallets)}`);
 
       // Announce genesis miner on the permanent ledger
       const ledger = require('../services/ledger');
       await ledger.recordAccountCreate(GENESIS_MINER, account.publicKeys, account.chainWallets, 0);
-      console.log(`[BTCPC] Genesis miner announced to permanent ledger`);
+      console.log(`[HONE] Genesis miner announced to permanent ledger`);
     } catch (err) {
-      console.error(`[BTCPC] Failed to create genesis account: ${err.message}`);
+      console.error(`[HONE] Failed to create genesis account: ${err.message}`);
       if (mongoEnabled) {
         // Fallback: create minimal User doc only when Mongo is available
         try {
           const passwordHash = crypto.createHash('sha256').update(`${GENESIS_MINER}-genesis-${Date.now()}`).digest('hex');
-          user = new User({ username: GENESIS_MINER, email: `${GENESIS_MINER}@btcpc.network`, password: passwordHash, isActive: true });
+          user = new User({ username: GENESIS_MINER, email: `${GENESIS_MINER}@hone.network`, password: passwordHash, isActive: true });
           await user.save();
         } catch (_) {}
       }
@@ -103,7 +103,7 @@ async function createGenesisBlock() {
       0,
       true  // permissioned genesis node
     );
-    console.log('[BTCPC] Genesis mining node registered in nodeRegistry');
+    console.log('[HONE] Genesis mining node registered in nodeRegistry');
   }
 
   // Create epoch 0 in stateStore — no Mongo
@@ -126,7 +126,7 @@ async function createGenesisBlock() {
       block_number: 0,
       original_miner: GENESIS_MINER,
       inscription: {
-        project: 'btcpc',
+        project: 'hone',
         tag: 'Genesis — The chain dreamed itself into existence',
         custom_data: {
           title: 'Bitcoin Proof of Compute — Whitepaper',
@@ -143,10 +143,10 @@ async function createGenesisBlock() {
         model: 'genesis'
       }
     };
-    console.log(`[BTCPC] Genesis Dream #0 inscribed — ${whitepaper.length} chars of whitepaper`);
-    console.log(`[BTCPC]   "The chain dreamed itself into existence"`);
+    console.log(`[HONE] Genesis Dream #0 inscribed — ${whitepaper.length} chars of whitepaper`);
+    console.log(`[HONE]   "The chain dreamed itself into existence"`);
   } catch (err) {
-    console.error(`[BTCPC] Failed to read whitepaper for genesis dream: ${err.message}`);
+    console.error(`[HONE] Failed to read whitepaper for genesis dream: ${err.message}`);
   }
 
   // Reserve premium names as nested zero-balance wallets under Shin.
@@ -168,7 +168,7 @@ async function createGenesisBlock() {
         if (!existing && name !== GENESIS_MINER) {
           const rUser = new User({
             username: name,
-            email: `${name}@reserved.btcpc.network`,
+            email: `${name}@reserved.hone.network`,
             password: crypto.createHash('sha256').update(`reserved-${name}-genesis`).digest('hex'),
             isActive: false  // inactive until claimed/sold
           });
@@ -176,9 +176,9 @@ async function createGenesisBlock() {
         }
       }
     }
-    console.log(`[BTCPC] Reserved ${reservedCount} premium account names for shindevlin`);
+    console.log(`[HONE] Reserved ${reservedCount} premium account names for shindevlin`);
   } catch (err) {
-    console.log(`[BTCPC] Could not load reserved names: ${err.message}`);
+    console.log(`[HONE] Could not load reserved names: ${err.message}`);
   }
 
   // ── Write genesis block to disk — the source of truth ──
@@ -196,7 +196,7 @@ async function createGenesisBlock() {
         type: 'GENESIS_DREAM',
         from: GENESIS_MINER,
         to: GENESIS_MINER,
-        token: 'BTCPC',
+        token: 'HONE',
         amount: 0,
         epoch: 0,
         signed_by: GENESIS_MINER,
@@ -235,23 +235,23 @@ async function createGenesisBlock() {
 
     blockStore.writeBlock(genesisBlock, payload);
     const blockHash = genesisBlock.computeHash();
-    console.log(`[BTCPC] Genesis block written to disk: ${blockHash.slice(0, 16)}...`);
-    console.log(`[BTCPC]   State root: ${stateRoot.slice(0, 16)}...`);
-    console.log(`[BTCPC]   Tx Merkle root: ${txMerkleRoot.slice(0, 16)}...`);
+    console.log(`[HONE] Genesis block written to disk: ${blockHash.slice(0, 16)}...`);
+    console.log(`[HONE]   State root: ${stateRoot.slice(0, 16)}...`);
+    console.log(`[HONE]   Tx Merkle root: ${txMerkleRoot.slice(0, 16)}...`);
   } catch (err) {
-    console.error(`[BTCPC] Failed to write genesis block to disk: ${err.message}`);
+    console.error(`[HONE] Failed to write genesis block to disk: ${err.message}`);
   }
 
-  console.log('[BTCPC] ================================================');
-  console.log('[BTCPC]          GENESIS BLOCK CREATED');
-  console.log('[BTCPC] ================================================');
-  console.log(`[BTCPC] Epoch:        0`);
-  console.log(`[BTCPC] Miner:        ${GENESIS_MINER}`);
-  console.log(`[BTCPC] Model:        qwen3.5:27b`);
-  console.log(`[BTCPC] State Hash:   ${GENESIS_STATE_HASH}`);
-  console.log(`[BTCPC] Message:      "${GENESIS_MESSAGE}"`);
-  console.log(`[BTCPC] Block Reward: ${genesisReward} BTCPC`);
-  console.log('[BTCPC] ================================================');
+  console.log('[HONE] ================================================');
+  console.log('[HONE]          GENESIS BLOCK CREATED');
+  console.log('[HONE] ================================================');
+  console.log(`[HONE] Epoch:        0`);
+  console.log(`[HONE] Miner:        ${GENESIS_MINER}`);
+  console.log(`[HONE] Model:        qwen3.5:27b`);
+  console.log(`[HONE] State Hash:   ${GENESIS_STATE_HASH}`);
+  console.log(`[HONE] Message:      "${GENESIS_MESSAGE}"`);
+  console.log(`[HONE] Block Reward: ${genesisReward} HONE`);
+  console.log('[HONE] ================================================');
 
   const genesisEpochData = stateStore.getEpoch(0) || {
     epoch_number: 0,

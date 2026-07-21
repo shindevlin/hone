@@ -1374,10 +1374,10 @@ pub struct WalletFile {
     /// HONE account name.
     pub account: String,
     /// Derived HONE posting public key (hex). Kept for older callers.
-    #[serde(alias = "btcpc_public_key_hex")]
+    #[serde(alias = "hone_public_key_hex")]
     pub hone_public_key_hex: String,
     /// HONE role public keys derived from the canonical HONE wallet path.
-    #[serde(default, alias = "btcpc_role_public_keys")]
+    #[serde(default, alias = "hone_role_public_keys")]
     pub hone_role_public_keys: std::collections::HashMap<String, String>,
     /// Derived chain addresses / public keys.
     /// Keys: "evm", "solana", "bitcoin". Values: address strings (all public).

@@ -2,7 +2,7 @@
 
 /**
  * Public explorer routes — no API key required.
- * Mounted at / so scan.btcpc.net can read all chain data.
+ * Mounted at / so scan.hone.net can read all chain data.
  *
  * All node/activity data is derived from on-chain ledger entries.
  * Block files are the source of truth; finality snapshots for balances.
@@ -115,7 +115,7 @@ router.get("/status", (req, res) => {
     // Circulating supply = sum of all non-zero balances
     let circulating = 0;
     for (const a of allAccounts) {
-      circulating += store.getBalance ? store.getBalance(a.username, "BTCPC") : (a.balance || 0);
+      circulating += store.getBalance ? store.getBalance(a.username, "HONE") : (a.balance || 0);
     }
 
     const epochsInIndex = Object.keys(index).length;
@@ -156,7 +156,7 @@ router.get("/supply", (req, res) => {
     const balances = {};
     let total = 0;
     for (const a of allAccounts) {
-      const bal = store.getBalance ? store.getBalance(a.username, "BTCPC") : (a.balance || 0);
+      const bal = store.getBalance ? store.getBalance(a.username, "HONE") : (a.balance || 0);
       if (bal > 0) { balances[a.username] = Math.round(bal * 1e8) / 1e8; total += bal; }
     }
 
@@ -192,7 +192,7 @@ router.get("/miners", (req, res) => {
     const list = Array.from(byAccount.values()).map(n => ({
       account: n.account || "?",
       roles: Array.from(n.roles),
-      balance: store.getBalance ? Math.round(store.getBalance(n.account, "BTCPC") * 1e8) / 1e8 : 0,
+      balance: store.getBalance ? Math.round(store.getBalance(n.account, "HONE") * 1e8) / 1e8 : 0,
       last_epoch: n.last_epoch,
       last_seen: epochTimestamp(n.last_epoch),
       epochs_active: n.epochs_active,
@@ -204,7 +204,7 @@ router.get("/miners", (req, res) => {
     const fixedList = Array.from(byAccount.entries()).map(([account, n]) => ({
       account,
       roles: Array.from(n.roles),
-      balance: store.getBalance ? Math.round(store.getBalance(account, "BTCPC") * 1e8) / 1e8 : 0,
+      balance: store.getBalance ? Math.round(store.getBalance(account, "HONE") * 1e8) / 1e8 : 0,
       last_epoch: n.last_epoch,
       last_seen: epochTimestamp(n.last_epoch),
       epochs_active: n.epochs_active,
@@ -428,7 +428,7 @@ router.get("/accounts", (req, res) => {
 
     const list = allAccounts.map(a => ({
       account: a.username,
-      balance: Math.round((store.getBalance ? store.getBalance(a.username, "BTCPC") : a.balance || 0) * 1e8) / 1e8,
+      balance: Math.round((store.getBalance ? store.getBalance(a.username, "HONE") : a.balance || 0) * 1e8) / 1e8,
       staked: a.staked || 0,
       nonce: a.nonce || 0,
       created_epoch: a.created_epoch || 0,
@@ -494,7 +494,7 @@ router.get("/network", (req, res) => {
 
 /**
  * GET /account/:name/reputation
- * Full reputation breakdown for btcpcscan node profile page.
+ * Full reputation breakdown for honescan node profile page.
  */
 router.get("/account/:name/reputation", (req, res) => {
   try {

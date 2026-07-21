@@ -12,8 +12,8 @@ Validates blocks, relays transactions, and maintains chain state. No GPU or mini
 ## Step 1: Clone and Install
 
 ```bash
-git clone https://github.com/shindevlin/btcpc.git
-cd btcpc
+git clone https://github.com/shindevlin/hone.git
+cd hone
 npm install
 ```
 
@@ -25,7 +25,7 @@ cp .env.example .env
 
 Edit `.env`:
 ```
-MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin
+MONGODB_URI=mongodb://root:example@localhost:27017/hone?authSource=admin
 P2P_PORT=6942
 HONE_SEED_PEERS=ws://100.90.146.17:6942,ws://100.122.145.60:6942
 JWT_SECRET=<generate with: openssl rand -hex 32>
@@ -36,12 +36,12 @@ PORT=3000
 
 ```bash
 docker run -d \
-  --name btcpc-mongo \
+  --name hone-mongo \
   --restart on-failure:5 \
   -p 27017:27017 \
   -e MONGO_INITDB_ROOT_USERNAME=root \
   -e MONGO_INITDB_ROOT_PASSWORD=example \
-  -v btcpc_mongo_data:/data/db \
+  -v hone_mongo_data:/data/db \
   mongo:7
 ```
 
@@ -68,20 +68,20 @@ Visit `http://localhost:4242` for the web-based block explorer.
 
 ## Step 6: Make Permanent
 
-Create `/etc/systemd/system/btcpc-validator.service`:
+Create `/etc/systemd/system/hone-validator.service`:
 ```ini
 [Unit]
-Description=BTCPC Validator Node
+Description=HONE Validator Node
 After=network.target docker.service
 
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/repos/btcpc
+WorkingDirectory=/home/YOUR_USERNAME/repos/hone
 ExecStart=/usr/bin/node src/index.js
 Restart=on-failure
 RestartSec=10
-EnvironmentFile=/home/YOUR_USERNAME/repos/btcpc/.env
+EnvironmentFile=/home/YOUR_USERNAME/repos/hone/.env
 
 [Install]
 WantedBy=multi-user.target
@@ -89,8 +89,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable btcpc-validator
-sudo systemctl start btcpc-validator
+sudo systemctl enable hone-validator
+sudo systemctl start hone-validator
 ```
 
 ## What Validators Do

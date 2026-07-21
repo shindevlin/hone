@@ -1,10 +1,10 @@
 "use strict";
 
 /**
- * BTCPC Escrow Service
+ * HONE Escrow Service
  * Shin Devlin
  *
- * Locks BTCPC during direct network-service requests, releases on completion,
+ * Locks HONE during direct network-service requests, releases on completion,
  * refunds on expiry.
  *
  * Phase E: Escrow, Wallet, Transaction Mongoose models removed.
@@ -20,10 +20,10 @@ const ledger = require('./ledger');
  * Deducts maxFee from delegated network-use balance first, then owned balance.
  */
 async function lockFunds(requestId, payerUsername, amount) {
-  const balance = stateStore.getBalance(payerUsername, 'BTCPC');
-  const delegated = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(payerUsername, 'BTCPC') : 0;
+  const balance = stateStore.getBalance(payerUsername, 'HONE');
+  const delegated = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(payerUsername, 'HONE') : 0;
   if (balance < amount && delegated < amount) {
-    throw new Error(`Insufficient balance: have ${balance} wallet BTCPC and ${delegated} delegated BTCPC, need ${amount}`);
+    throw new Error(`Insufficient balance: have ${balance} wallet HONE and ${delegated} delegated HONE, need ${amount}`);
   }
 
   // Record on permanent ledger
@@ -102,7 +102,7 @@ async function sweepEscrows(maxAgeMs) {
   }
 
   if (refunded > 0) {
-    console.log(`[BTCPC Escrow] Swept ${refunded} stale escrows, refunded ${totalRefunded.toFixed(4)} BTCPC`);
+    console.log(`[HONE Escrow] Swept ${refunded} stale escrows, refunded ${totalRefunded.toFixed(4)} HONE`);
   }
 
   return { refunded, totalRefunded };
@@ -128,7 +128,7 @@ async function releaseForJob(requestId, minerUsername, amount, model, projectNam
       const payouts = await ledger.distributeRevenueShare(model, amount, epoch);
       for (const p of payouts) {
         revSharePaid += p.amount;
-        console.log(`[BTCPC Escrow] Rev share: ${p.to} earned ${p.amount.toFixed(6)} BTCPC (${p.percent}% of ${model})`);
+        console.log(`[HONE Escrow] Rev share: ${p.to} earned ${p.amount.toFixed(6)} HONE (${p.percent}% of ${model})`);
       }
     } catch (_) {}
   }
@@ -149,21 +149,21 @@ async function releaseForJob(requestId, minerUsername, amount, model, projectNam
       if (splitAmount > 0.000001) {
         await ledger.recordMiningReward(split.account, splitAmount, epoch, null, null, 'inference_split');
         splitPayouts.push({ account: split.account, amount: splitAmount, percent: split.percent });
-        console.log(`[BTCPC Escrow] Revenue split: ${split.account} earned ${splitAmount.toFixed(6)} BTCPC (${split.percent}% of ${projectName})`);
+        console.log(`[HONE Escrow] Revenue split: ${split.account} earned ${splitAmount.toFixed(6)} HONE (${split.percent}% of ${projectName})`);
       }
     }
     // Release escrow with zero to miner (funds go to split accounts via MINING_REWARD)
     await ledger.recordEscrowRelease(minerUsername, requestId, 0, epoch, 'Inference settlement (revenue split applied)');
   } else {
     await ledger.recordEscrowRelease(minerUsername, requestId, minerPayout, epoch, 'Inference settlement');
-    await ledger.updateWalletCache(minerUsername, 'BTCPC', minerPayout);
+    await ledger.updateWalletCache(minerUsername, 'HONE', minerPayout);
   }
 
   // Refund overpayment if escrow > actual cost
   const overpayment = escrow.amount - amount;
   if (overpayment > 0.000001) {
     await ledger.recordEscrowRefund(escrow.payer, requestId, overpayment, epoch);
-    await ledger.updateWalletCache(escrow.payer, 'BTCPC', overpayment);
+    await ledger.updateWalletCache(escrow.payer, 'HONE', overpayment);
   }
 
   return { request_id: requestId, status: 'released', released_to: [{ username: minerUsername, amount }] };

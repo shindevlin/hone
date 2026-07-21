@@ -5,11 +5,11 @@ const os = require('os');
 const path = require('path');
 
 // Isolate secretStore per worker BEFORE requiring authController.
-// Without this, the test reads the real ~/.btcpc/secrets.json and any
+// Without this, the test reads the real ~/.hone/secrets.json and any
 // users from previous runs make D.5-gamma's secretStore-first lookup
 // short-circuit before reaching the Mongo mock.
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-authctrl-test-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-authctrl-test-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 
 jest.mock('../src/models/User', () => ({
   findOne: jest.fn(),
@@ -70,7 +70,7 @@ describe('authController', () => {
       wallet_rows: [],
       public_keys: { owner: 'owner-key' },
       role_private_keys: { owner: 'owner-private' },
-      chain_addresses: { btcpc: 'BTCPCabc' },
+      chain_addresses: { hone: 'HONEabc' },
       chain_wallets: {},
       wallet_balance: 0,
       delegated_balance: 1,
@@ -114,7 +114,7 @@ describe('authController', () => {
     User.findOne.mockResolvedValue({
       _id: 'user-1',
       username: 'alice',
-      email: 'alice@btcpc.local',
+      email: 'alice@hone.local',
       password: hashedPassword,
       isActive: true
     });
@@ -138,14 +138,14 @@ describe('authController', () => {
     const legacyUser = {
       _id: 'user-2',
       username: 'legacy',
-      email: 'legacy@btcpc.local',
+      email: 'legacy@hone.local',
       password: crypto.createHash('sha256').update('old-pass').digest('hex'),
       isActive: true,
       save: jest.fn().mockResolvedValue(undefined)
     };
     User.findOne.mockResolvedValue(legacyUser);
 
-    const req = { body: { email: 'legacy@btcpc.local', password: 'old-pass' } };
+    const req = { body: { email: 'legacy@hone.local', password: 'old-pass' } };
     const res = createRes();
 
     await loginUser(req, res);

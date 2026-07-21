@@ -28,12 +28,12 @@ Source: trivy fs scan
 Status: Resolved — 2026-05-05
 Resolution:
   - CVE-2026-33040 / CVE-2026-34219 (gossipsub): libp2p 0.55→0.56 (gossipsub 0.49.4)
-  - GHSA-82j2-j2ch-gfr8 (rustls-webpki): reqwest 0.11→0.12 in btcpc-miner; cargo
+  - GHSA-82j2-j2ch-gfr8 (rustls-webpki): reqwest 0.11→0.12 in hone-miner; cargo
     update in ort-patched (0.103.5→0.103.13)
   - CVE-2026-41676/78/81 / GHSA-hppc (openssl): cargo update 0.10.73→0.10.79
   - CVE-2026-32314 (yamux): upstream-blocked, accepted risk, suppressed in
     `.trivyignore`; mitigated by noise auth layer and tokio supervision loop in net.rs
-  - btcpc/ dashboard CVEs: pre-deploy, suppressed in `.trivyignore` pending dep bumps
+  - hone/ dashboard CVEs: pre-deploy, suppressed in `.trivyignore` pending dep bumps
   Subsequent scans: trivy 0 findings (suppressions valid).
 
 ## OPSEC-2026-004

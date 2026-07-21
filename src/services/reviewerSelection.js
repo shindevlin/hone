@@ -4,8 +4,8 @@ const crypto = require("crypto");
 const nodeRegistry = require("../chain/nodeRegistry");
 const stateStore = require("../chain/stateStore");
 
-const DEFAULT_MIN_STAKE = parseFloat(process.env.BTCPC_REVIEWER_MIN_STAKE || "100");
-const DEFAULT_COMMITTEE_SIZE = parseInt(process.env.BTCPC_REVIEWER_COMMITTEE_SIZE || "3", 10) || 3;
+const DEFAULT_MIN_STAKE = parseFloat(process.env.HONE_REVIEWER_MIN_STAKE || "100");
+const DEFAULT_COMMITTEE_SIZE = parseInt(process.env.HONE_REVIEWER_COMMITTEE_SIZE || "3", 10) || 3;
 
 function _seed(jobId, stage, epoch, size) {
   return crypto

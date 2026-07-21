@@ -1,11 +1,11 @@
 "use strict";
 
 /**
- * BTCPC-FS Blob Store — v2.11.0
+ * HONE-FS Blob Store — v2.11.0
  * Shin Devlin
  *
  * Disk-backed content-addressed storage. Files are stored at
- * ~/.btcpc/blobs/<cid[:2]>/<cid[2:4]>/<cid> where cid is the sha256 of
+ * ~/.hone/blobs/<cid[:2]>/<cid[2:4]>/<cid> where cid is the sha256 of
  * the file contents, hex-encoded. The 2-byte prefix sharding keeps
  * directory listings reasonable as the blob count grows.
  */
@@ -15,11 +15,11 @@ var path = require("path");
 var os = require("os");
 var crypto = require("crypto");
 
-var DEFAULT_ROOT = path.join(os.homedir(), ".btcpc", "blobs");
-// BTCPC_BLOB_DIR is the canonical env var; BTCPC_STORAGE_DIR is accepted as
+var DEFAULT_ROOT = path.join(os.homedir(), ".hone", "blobs");
+// HONE_BLOB_DIR is the canonical env var; HONE_STORAGE_DIR is accepted as
 // an alias for backwards compatibility with .env files that used the old name.
-var BLOB_ROOT = process.env.BTCPC_BLOB_DIR || process.env.BTCPC_STORAGE_DIR || DEFAULT_ROOT;
-var MAX_BLOB_BYTES = parseInt(process.env.BTCPC_MAX_BLOB_BYTES || String(100 * 1024 * 1024), 10);
+var BLOB_ROOT = process.env.HONE_BLOB_DIR || process.env.HONE_STORAGE_DIR || DEFAULT_ROOT;
+var MAX_BLOB_BYTES = parseInt(process.env.HONE_MAX_BLOB_BYTES || String(100 * 1024 * 1024), 10);
 
 var CID_PATTERN = /^[a-f0-9]{64}$/;
 

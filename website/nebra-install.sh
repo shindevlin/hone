@@ -8,7 +8,7 @@
 # This script:
 #   1. Detects ARM architecture + Nebra-specific files
 #   2. Installs Node.js via nvm (ARM build)
-#   3. Clones the btcpc repo
+#   3. Clones the hone repo
 #   4. npm install
 #   5. Prompts for HONE account name (or defaults to gateway-<random>)
 #   6. Auto-detects LoRa region from Nebra's existing config
@@ -18,9 +18,9 @@
 
 set -e
 
-HONE_REPO="https://github.com/btcpc-network/btcpc.git"
+HONE_REPO="https://github.com/hone-network/hone.git"
 HONE_BRANCH="main"
-HONE_DIR="$HOME/btcpc"
+HONE_DIR="$HOME/hone"
 SERVICE_NAME="hone-nebra"
 NVM_VERSION="v0.39.7"
 NODE_VERSION="20"
@@ -182,7 +182,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=${HONE_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${NODE_BIN} ${HONE_DIR}/bin/btcpc-nebra --account ${HONE_ACCOUNT} --gateway ${GATEWAY_NAME} --region ${LORA_REGION} --lat ${HONE_LAT} --lon ${HONE_LON}
+ExecStart=${NODE_BIN} ${HONE_DIR}/bin/hone-nebra --account ${HONE_ACCOUNT} --gateway ${GATEWAY_NAME} --region ${LORA_REGION} --lat ${HONE_LAT} --lon ${HONE_LON}
 Restart=always
 RestartSec=10
 StandardOutput=journal

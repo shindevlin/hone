@@ -15,8 +15,8 @@ const os = require('os');
 const path = require('path');
 
 // Isolate secretStore per test run
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-proj-delta-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-proj-delta-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 
 // Mock Project model
 const mockProjects = {};
@@ -118,7 +118,7 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
     it('_findProjectByName returns secretStore project without Mongo', async () => {
       // Load projectRoutes after secretStore is ready
       jest.resetModules();
-      process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+      process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 
       // Re-require secretStore in the isolated env
       const ss = require('../src/services/secretStore');
@@ -128,7 +128,7 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
         owner: 'owner',
         repo: 'myrepo',
         repo_url: 'https://github.com/owner/myrepo',
-        wallet_address: 'btcpc_proj_abc123',
+        wallet_address: 'hone_proj_abc123',
       });
 
       // Access the internal helper via a route call to /me
@@ -147,7 +147,7 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
   describe('getProjectByApiKey — secretStore hit', () => {
     it('returns project from secretStore without consulting Mongo', async () => {
       jest.resetModules();
-      process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+      process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
       const ss = require('../src/services/secretStore');
       await ss.load();
 
@@ -156,7 +156,7 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
         owner: 'owner',
         repo: 'keyrepo',
         repo_url: 'https://github.com/owner/keyrepo',
-        wallet_address: 'btcpc_proj_keyhit',
+        wallet_address: 'hone_proj_keyhit',
       });
 
       const found = ss.getProjectByApiKey(apiKey);
@@ -172,8 +172,8 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
         name: 'owner/mongorepo',
         owner: 'owner',
         repo: 'mongorepo',
-        apiKey: 'btcpc_fallback_key',
-        walletAddress: 'btcpc_proj_mongo',
+        apiKey: 'hone_fallback_key',
+        walletAddress: 'hone_proj_mongo',
         verified: true,
         balance: 5,
         repoUrl: 'https://github.com/owner/mongorepo',
@@ -189,7 +189,7 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
 
       // Make a GET /me call with the Mongo project apiKey
       // This exercises the _findProjectByApiKey Mongo path
-      const lookup = await MockProject.findOne({ apiKey: 'btcpc_fallback_key' });
+      const lookup = await MockProject.findOne({ apiKey: 'hone_fallback_key' });
       expect(lookup).toBeTruthy();
       expect(lookup.owner).toBe('owner');
     });
@@ -205,10 +205,10 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
         owner: 'owner',
         repo: 'newrepo',
         repo_url: 'https://github.com/owner/newrepo',
-        wallet_address: 'btcpc_proj_newwallet',
+        wallet_address: 'hone_proj_newwallet',
       });
 
-      expect(apiKey).toMatch(/^btcpc_/);
+      expect(apiKey).toMatch(/^hone_/);
       // Can find it by key
       const found = ss.getProjectByApiKey(apiKey);
       expect(found).toBeTruthy();
@@ -224,7 +224,7 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
         owner: 'owner',
         repo: 'secretrepo',
         repo_url: 'https://github.com/owner/secretrepo',
-        wallet_address: 'btcpc_proj_secret',
+        wallet_address: 'hone_proj_secret',
       });
 
       // The stored record has api_key_hash, not apiKey
@@ -251,11 +251,11 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
         owner: 'owner',
         repo: 'rotaterepo',
         repo_url: 'https://github.com/owner/rotaterepo',
-        wallet_address: 'btcpc_proj_rotate',
+        wallet_address: 'hone_proj_rotate',
       });
 
       const { apiKey: newKey } = await ss.rotateProjectKey('owner/rotaterepo');
-      expect(newKey).toMatch(/^btcpc_/);
+      expect(newKey).toMatch(/^hone_/);
       expect(newKey).not.toBe(oldKey);
 
       // Old key no longer works

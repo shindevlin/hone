@@ -331,13 +331,13 @@ def derive_all(words: str) -> dict:
 
     # HONE role keys: SLIP-10 m/44'/6942'/role'/0'
     # coin 6942 = HONE. role 0=owner,1=active,2=posting,3=memo,4=hide,5=seek
-    BTCPC_COIN = 6942
-    owner_priv,   owner_pub   = slip10(seed, [44, BTCPC_COIN, 0, 0])
-    active_priv,  active_pub  = slip10(seed, [44, BTCPC_COIN, 1, 0])
-    post_priv,    post_pub    = slip10(seed, [44, BTCPC_COIN, 2, 0])
-    memo_priv,    memo_pub    = slip10(seed, [44, BTCPC_COIN, 3, 0])
-    hide_priv,    hide_pub    = slip10(seed, [44, BTCPC_COIN, 4, 0])
-    seek_priv,    seek_pub    = slip10(seed, [44, BTCPC_COIN, 5, 0])
+    HONE_COIN = 6942
+    owner_priv,   owner_pub   = slip10(seed, [44, HONE_COIN, 0, 0])
+    active_priv,  active_pub  = slip10(seed, [44, HONE_COIN, 1, 0])
+    post_priv,    post_pub    = slip10(seed, [44, HONE_COIN, 2, 0])
+    memo_priv,    memo_pub    = slip10(seed, [44, HONE_COIN, 3, 0])
+    hide_priv,    hide_pub    = slip10(seed, [44, HONE_COIN, 4, 0])
+    seek_priv,    seek_pub    = slip10(seed, [44, HONE_COIN, 5, 0])
 
     # secp256k1 BIP-44 chains
     btc = bip44(seed, 0)    # Bitcoin

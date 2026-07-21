@@ -4,7 +4,7 @@
 
 Step 2 means a deep audit of the **consensus boundary**, not a general code quality pass.
 
-Consensus boundary for BTCPC:
+Consensus boundary for HONE:
 
 - transaction acceptance rules
 - deterministic ordering rules
@@ -79,13 +79,13 @@ Scope:
 Pass criteria:
 
 - reward vectors deterministic for the same epoch inputs
-- unearned allocation routes to `btcpc_recycle`
+- unearned allocation routes to `hone_recycle`
 
 ### Gate E — contract runtime readiness
 
 Scope:
 
-- Rust WASM runtime (`btcpc-vm`) with restricted host API
+- Rust WASM runtime (`hone-vm`) with restricted host API
 
 Pass criteria:
 

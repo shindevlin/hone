@@ -1,0 +1,14 @@
+{
+  "name": "honebot",
+  "version": "1.0.0",
+  "description": "HONE Telegram bot — thin client, all data via HONE API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.5",
+    "dotenv": "^16.3.1",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}

@@ -1,20 +1,20 @@
 "use strict";
 
 /**
- * BTCPC Command Router
+ * HONE Command Router
  * Shin Devlin
  *
- * Unified slash-command interface for all BTCPC engines.
+ * Unified slash-command interface for all HONE engines.
  * Used by: Telegram bot, CLI, future chat interface, in-node REPL.
  *
- * Format: /btcpc <engine> <action> [args...]
- * Short:  /btcpc <action> [args...]   (for top-level shortcuts)
+ * Format: /hone <engine> <action> [args...]
+ * Short:  /hone <action> [args...]   (for top-level shortcuts)
  *
  * Engine map:
  *   mine    — inference / mining engine
  *   verify  — verifier engine
  *   clock   — clock consensus engine
- *   store   — BTCPC-FS storage engine
+ *   store   — HONE-FS storage engine
  *   sensor  — sensor data engine
  *   tool    — MCP / CLI tool registry
  *   infer   — raw inference (tool-augmented)
@@ -26,7 +26,7 @@
  * { text: string, data?: object } or throws with a user-readable message.
  *
  * context: {
- *   account: string,        — caller's BTCPC account name
+ *   account: string,        — caller's HONE account name
  *   epoch: number,          — current epoch
  *   apiBase: string,        — local node API base URL
  *   sendLedger?: fn,        — optional: submit a ledger entry (for bot/CLI contexts)
@@ -56,7 +56,7 @@ function argErr(usage) {
 
 const engines = {};
 
-// ── /btcpc mine ───────────────────────────────────────────────────────────────
+// ── /hone mine ───────────────────────────────────────────────────────────────
 engines.mine = {
   _help: `
 mine status                     — show miner status and active model
@@ -84,7 +84,7 @@ mine earnings [account]         — MINING_REWARD entries for account`,
 
   model: async (args, ctx) => {
     const name = args[0];
-    if (!name) argErr("/btcpc mine model <name>");
+    if (!name) argErr("/hone mine model <name>");
     const data = await api(ctx, "/api/mine/model", { method: "POST", data: { model: name } });
     return { text: `Mining model set to **${name}**`, data };
   },
@@ -102,7 +102,7 @@ mine earnings [account]         — MINING_REWARD entries for account`,
 
   proof: async (args, ctx) => {
     const id = args[0];
-    if (!id) argErr("/btcpc mine proof <proof_id>");
+    if (!id) argErr("/hone mine proof <proof_id>");
     const data = await api(ctx, "/api/proof/" + id);
     const p = data.proof || data;
     return {
@@ -133,18 +133,18 @@ mine earnings [account]         — MINING_REWARD entries for account`,
 
   earnings: async (args, ctx) => {
     const account = args[0] || ctx.account;
-    if (!account) argErr("/btcpc mine earnings <account>");
+    if (!account) argErr("/hone mine earnings <account>");
     const data = await api(ctx, "/account/" + account + "/history?type=MINING_REWARD");
     const entries = data.entries || data || [];
     const total = entries.reduce((s, e) => s + (e.amount || 0), 0);
     return {
-      text: `**Mining earnings for ${account}**\nTotal: ${fmt(total)} BTCPC (${entries.length} rewards)`,
+      text: `**Mining earnings for ${account}**\nTotal: ${fmt(total)} HONE (${entries.length} rewards)`,
       data,
     };
   },
 };
 
-// ── /btcpc verify ─────────────────────────────────────────────────────────────
+// ── /hone verify ─────────────────────────────────────────────────────────────
 engines.verify = {
   _help: `
 verify proof <proof_id>         — manually trigger verification of a proof
@@ -154,14 +154,14 @@ verify status                   — verifier engine status`,
 
   proof: async (args, ctx) => {
     const id = args[0];
-    if (!id) argErr("/btcpc verify proof <proof_id>");
+    if (!id) argErr("/hone verify proof <proof_id>");
     const data = await api(ctx, "/api/verify/" + id, { method: "POST" });
     return { text: `Verification triggered for proof ${id.slice(0, 12)}...`, data };
   },
 
   challenge: async (args, ctx) => {
     const [id, reason] = args;
-    if (!id || !reason) argErr("/btcpc verify challenge <proof_id> <reason>");
+    if (!id || !reason) argErr("/hone verify challenge <proof_id> <reason>");
     const data = await api(ctx, "/api/verify/challenge", {
       method: "POST",
       data: { proof_id: id, challenger: ctx.account, reason },
@@ -196,7 +196,7 @@ verify status                   — verifier engine status`,
   },
 };
 
-// ── /btcpc clock ──────────────────────────────────────────────────────────────
+// ── /hone clock ──────────────────────────────────────────────────────────────
 engines.clock = {
   _help: `
 clock status                    — clock node status, observer mode, peer count
@@ -235,10 +235,10 @@ clock peers                     — list clock-capable peers seen recently`,
   },
 };
 
-// ── /btcpc store ──────────────────────────────────────────────────────────────
+// ── /hone store ──────────────────────────────────────────────────────────────
 engines.store = {
   _help: `
-store put <file>                — store a local file on BTCPC-FS, returns CID
+store put <file>                — store a local file on HONE-FS, returns CID
 store get <cid>                 — fetch blob by CID to stdout
 store list [account]            — list stored blobs for account
 store pin <cid>                 — pin a CID (keep it from garbage collection)
@@ -246,14 +246,14 @@ store info <cid>                — metadata for a stored blob`,
 
   put: async (args, ctx) => {
     const file = args[0];
-    if (!file) argErr("/btcpc store put <file>");
+    if (!file) argErr("/hone store put <file>");
     const data = await api(ctx, "/api/store/put", { method: "POST", data: { file_path: file, account: ctx.account } });
     return { text: `Stored **${file}**\nCID: \`${data.cid}\`\nSize: ${data.size_bytes || "?"} bytes`, data };
   },
 
   get: async (args, ctx) => {
     const cid = args[0];
-    if (!cid) argErr("/btcpc store get <cid>");
+    if (!cid) argErr("/hone store get <cid>");
     const data = await api(ctx, "/api/store/get/" + cid);
     return { text: `Blob CID \`${cid}\`\nSize: ${data.size_bytes || "?"}`, data };
   },
@@ -273,14 +273,14 @@ store info <cid>                — metadata for a stored blob`,
 
   pin: async (args, ctx) => {
     const cid = args[0];
-    if (!cid) argErr("/btcpc store pin <cid>");
+    if (!cid) argErr("/hone store pin <cid>");
     const data = await api(ctx, "/api/store/pin", { method: "POST", data: { cid, account: ctx.account } });
     return { text: `Pinned \`${cid}\``, data };
   },
 
   info: async (args, ctx) => {
     const cid = args[0];
-    if (!cid) argErr("/btcpc store info <cid>");
+    if (!cid) argErr("/hone store info <cid>");
     const data = await api(ctx, "/api/store/info/" + cid);
     return {
       text: [
@@ -295,13 +295,13 @@ store info <cid>                — metadata for a stored blob`,
   },
 };
 
-// ── /btcpc sensor ─────────────────────────────────────────────────────────────
+// ── /hone sensor ─────────────────────────────────────────────────────────────
 engines.sensor = {
   _help: `
 sensor list [account]           — list registered sensors
 sensor register <id> <type>     — register a sensor (id: account/device-name, type: gnss|temp|humidity|...)
 sensor submit <id> <value>      — submit a reading for the current epoch
-sensor purchase <hash> <btcpc>  — buy a sensor reading (by data_hash)
+sensor purchase <hash> <hone>  — buy a sensor reading (by data_hash)
 sensor earnings [account]       — SENSOR_REWARD entries for account
 sensor readings [sensor_id]     — available readings for purchase`,
 
@@ -320,35 +320,35 @@ sensor readings [sensor_id]     — available readings for purchase`,
 
   register: async (args, ctx) => {
     const [id, type] = args;
-    if (!id || !type) argErr("/btcpc sensor register <id> <type>");
+    if (!id || !type) argErr("/hone sensor register <id> <type>");
     const data = await api(ctx, "/api/sensors/register", { method: "POST", data: { sensor_id: id, sensor_type: type, account: ctx.account } });
     return { text: `Sensor **${id}** registered (type: ${type})`, data };
   },
 
   submit: async (args, ctx) => {
     const [id, value] = args;
-    if (!id || value === undefined) argErr("/btcpc sensor submit <sensor_id> <value>");
+    if (!id || value === undefined) argErr("/hone sensor submit <sensor_id> <value>");
     const data = await api(ctx, "/api/sensors/submit", { method: "POST", data: { sensor_id: id, value: parseFloat(value), account: ctx.account } });
     return { text: `Reading submitted for **${id}**: ${value}\nData hash: \`${(data.data_hash || "").slice(0, 16)}...\``, data };
   },
 
   purchase: async (args, ctx) => {
     const [hash, amount] = args;
-    if (!hash || !amount) argErr("/btcpc sensor purchase <data_hash> <btcpc_amount>");
+    if (!hash || !amount) argErr("/hone sensor purchase <data_hash> <hone_amount>");
     const data = await api(ctx, "/api/sensors/purchase", {
       method: "POST",
-      data: { data_hash: hash, buyer: ctx.account, payment_btcpc: parseFloat(amount) },
+      data: { data_hash: hash, buyer: ctx.account, payment_hone: parseFloat(amount) },
     });
-    return { text: `Purchase submitted\nHash: \`${hash.slice(0, 16)}...\`\nAmount: ${amount} BTCPC`, data };
+    return { text: `Purchase submitted\nHash: \`${hash.slice(0, 16)}...\`\nAmount: ${amount} HONE`, data };
   },
 
   earnings: async (args, ctx) => {
     const account = args[0] || ctx.account;
-    if (!account) argErr("/btcpc sensor earnings <account>");
+    if (!account) argErr("/hone sensor earnings <account>");
     const data = await api(ctx, "/account/" + account + "/history?type=SENSOR_REWARD,SENSOR_EPOCH_REWARD");
     const entries = data.entries || [];
     const total = entries.reduce((s, e) => s + (e.amount || 0), 0);
-    return { text: `**Sensor earnings for ${account}**\nTotal: ${fmt(total)} BTCPC (${entries.length} rewards)`, data };
+    return { text: `**Sensor earnings for ${account}**\nTotal: ${fmt(total)} HONE (${entries.length} rewards)`, data };
   },
 
   readings: async (args, ctx) => {
@@ -365,7 +365,7 @@ sensor readings [sensor_id]     — available readings for purchase`,
   },
 };
 
-// ── /btcpc tool ───────────────────────────────────────────────────────────────
+// ── /hone tool ───────────────────────────────────────────────────────────────
 engines.tool = {
   _help: `
 tool list                       — list all available tools (builtins + registered)
@@ -391,7 +391,7 @@ tool nodes                      — list nodes with registered tool capabilities
   register: async (args, ctx) => {
     const [name, ...rest] = args;
     const command = rest.join(" ");
-    if (!name || !command) argErr("/btcpc tool register <name> <shell_command>");
+    if (!name || !command) argErr("/hone tool register <name> <shell_command>");
     const data = await api(ctx, "/api/tools/register", {
       method: "POST",
       data: { name, command, kind: "cli", account: ctx.account },
@@ -412,7 +412,7 @@ tool nodes                      — list nodes with registered tool capabilities
     const name = args[0];
     let input = {};
     if (args[1]) { try { input = JSON.parse(args.slice(1).join(" ")); } catch (_) { input = { value: args[1] }; } }
-    if (!name) argErr("/btcpc tool test <name> [json_input]");
+    if (!name) argErr("/hone tool test <name> [json_input]");
     const data = await api(ctx, "/api/tools/call", { method: "POST", data: { tool: name, input } });
     return {
       text: `**Tool ${name} result**\n\`\`\`\n${JSON.stringify(data.output, null, 2).slice(0, 1024)}\n\`\`\``,
@@ -433,7 +433,7 @@ tool nodes                      — list nodes with registered tool capabilities
   },
 };
 
-// ── /btcpc infer ──────────────────────────────────────────────────────────────
+// ── /hone infer ──────────────────────────────────────────────────────────────
 engines.infer = {
   _help: `
 infer <prompt>                  — run inference with default tools
@@ -455,7 +455,7 @@ infer <prompt> --node <id>      — route to specific node`,
     }
 
     const promptStr = prompt.join(" ");
-    if (!promptStr) argErr("/btcpc infer <prompt> [--model name] [--tools t1,t2]");
+    if (!promptStr) argErr("/hone infer <prompt> [--model name] [--tools t1,t2]");
 
     const data = await api(ctx, "/api/inference", {
       method: "POST",
@@ -473,41 +473,41 @@ infer <prompt> --node <id>      — route to specific node`,
   },
 };
 
-// ── /btcpc wallet ─────────────────────────────────────────────────────────────
+// ── /hone wallet ─────────────────────────────────────────────────────────────
 engines.wallet = {
   _help: `
-wallet balance [account]        — show BTCPC balance
-wallet send <to> <amount>       — send BTCPC
-wallet stake <amount>           — stake BTCPC as a node operator
-wallet unstake <amount>         — unstake BTCPC
+wallet balance [account]        — show HONE balance
+wallet send <to> <amount>       — send HONE
+wallet stake <amount>           — stake HONE as a node operator
+wallet unstake <amount>         — unstake HONE
 wallet history [account]        — recent transactions`,
 
   balance: async (args, ctx) => {
     const account = args[0] || ctx.account;
-    if (!account) argErr("/btcpc wallet balance <account>");
+    if (!account) argErr("/hone wallet balance <account>");
     const data = await api(ctx, "/account/" + account);
-    return { text: `**${account}** balance: ${fmt(data.balance || 0)} BTCPC`, data };
+    return { text: `**${account}** balance: ${fmt(data.balance || 0)} HONE`, data };
   },
 
   send: async (args, ctx) => {
     const [to, amount] = args;
-    if (!to || !amount) argErr("/btcpc wallet send <to> <amount>");
+    if (!to || !amount) argErr("/hone wallet send <to> <amount>");
     const data = await api(ctx, "/api/send", { method: "POST", data: { from: ctx.account, to, amount: parseFloat(amount) } });
-    return { text: `Sent ${amount} BTCPC to **${to}**\nTx: \`${(data.tx_id || "").slice(0, 16)}...\``, data };
+    return { text: `Sent ${amount} HONE to **${to}**\nTx: \`${(data.tx_id || "").slice(0, 16)}...\``, data };
   },
 
   stake: async (args, ctx) => {
     const amount = parseFloat(args[0]);
-    if (!amount) argErr("/btcpc wallet stake <amount>");
+    if (!amount) argErr("/hone wallet stake <amount>");
     const data = await api(ctx, "/api/stake", { method: "POST", data: { account: ctx.account, amount } });
-    return { text: `Staked ${amount} BTCPC`, data };
+    return { text: `Staked ${amount} HONE`, data };
   },
 
   unstake: async (args, ctx) => {
     const amount = parseFloat(args[0]);
-    if (!amount) argErr("/btcpc wallet unstake <amount>");
+    if (!amount) argErr("/hone wallet unstake <amount>");
     const data = await api(ctx, "/api/unstake", { method: "POST", data: { account: ctx.account, amount } });
-    return { text: `Unstaked ${amount} BTCPC`, data };
+    return { text: `Unstaked ${amount} HONE`, data };
   },
 
   history: async (args, ctx) => {
@@ -524,7 +524,7 @@ wallet history [account]        — recent transactions`,
   },
 };
 
-// ── /btcpc chain ──────────────────────────────────────────────────────────────
+// ── /hone chain ──────────────────────────────────────────────────────────────
 engines.chain = {
   _help: `
 chain status                    — chain height, epoch, active miners, supply
@@ -538,10 +538,10 @@ chain fork status               — fork resolver status`,
     const data = await api(ctx, "/status");
     return {
       text: [
-        `**BTCPC chain**`,
+        `**HONE chain**`,
         `Height: ${data.chain_height || "?"}  |  Epoch: ${data.epoch || "?"}`,
         `Peers: ${data.peers || 0}  |  Miners: ${data.active_miners || 0}`,
-        `Block reward: ${fmt(data.block_reward || 0)} BTCPC`,
+        `Block reward: ${fmt(data.block_reward || 0)} HONE`,
       ].join("\n"),
       data,
     };
@@ -566,7 +566,7 @@ chain fork status               — fork resolver status`,
     return {
       text: [
         `**Epoch ${num}**`,
-        `Block reward: ${fmt(data.block_reward || 0)} BTCPC`,
+        `Block reward: ${fmt(data.block_reward || 0)} HONE`,
         `Total work: ${fmt(data.total_work || 0, 2)}`,
         `Status: ${data.status || "?"}`,
       ].join("\n"),
@@ -578,11 +578,11 @@ chain fork status               — fork resolver status`,
     const data = await api(ctx, "/supply");
     return {
       text: [
-        `**BTCPC supply**`,
-        `Total: ${fmt(data.total_supply || 0, 0)} BTCPC`,
-        `Circulating: ${fmt(data.circulating || 0, 0)} BTCPC`,
-        `Recycled: ${fmt(data.recycled || 0, 4)} BTCPC`,
-        `Staked: ${fmt(data.staked || 0, 4)} BTCPC`,
+        `**HONE supply**`,
+        `Total: ${fmt(data.total_supply || 0, 0)} HONE`,
+        `Circulating: ${fmt(data.circulating || 0, 0)} HONE`,
+        `Recycled: ${fmt(data.recycled || 0, 4)} HONE`,
+        `Staked: ${fmt(data.staked || 0, 4)} HONE`,
       ].join("\n"),
       data,
     };
@@ -614,7 +614,7 @@ chain fork status               — fork resolver status`,
   },
 };
 
-// ── /btcpc node ───────────────────────────────────────────────────────────────
+// ── /hone node ───────────────────────────────────────────────────────────────
 engines.node = {
   _help: `
 node register                   — register this node on-chain
@@ -633,7 +633,7 @@ node capabilities               — show declared capabilities`,
     return {
       text: [
         `**Node ${account}**`,
-        `Stake: ${fmt(data.stake || 0)} BTCPC`,
+        `Stake: ${fmt(data.stake || 0)} HONE`,
         `Role: ${data.role || "?"}`,
         `Active: ${data.active ? "yes" : "no"}`,
       ].join("\n"),
@@ -661,11 +661,11 @@ node capabilities               — show declared capabilities`,
 };
 
 // ── Top-level shortcuts ───────────────────────────────────────────────────────
-// /btcpc balance → /btcpc wallet balance
-// /btcpc send → /btcpc wallet send
-// /btcpc blocks → /btcpc chain blocks
-// /btcpc status → /btcpc chain status
-// /btcpc model → /btcpc mine model
+// /hone balance → /hone wallet balance
+// /hone send → /hone wallet send
+// /hone blocks → /hone chain blocks
+// /hone status → /hone chain status
+// /hone model → /hone mine model
 
 const SHORTCUTS = {
   balance: (args, ctx) => engines.wallet.balance(args, ctx),
@@ -681,17 +681,17 @@ const SHORTCUTS = {
 // ── Router ────────────────────────────────────────────────────────────────────
 
 /**
- * Route a /btcpc command.
+ * Route a /hone command.
  *
- * @param {string} input   — full command string, e.g. "/btcpc mine model qwen2.5:14b"
+ * @param {string} input   — full command string, e.g. "/hone mine model qwen2.5:14b"
  * @param {object} context — { account, epoch, apiBase, sendLedger? }
  * @returns {Promise<{ text: string, data?: object }>}
  */
 async function route(input, context) {
   const ctx = context || {};
 
-  // Strip leading /btcpc or btcpc
-  const raw = input.replace(/^\/?btcpc\s*/i, "").trim();
+  // Strip leading /hone or hone
+  const raw = input.replace(/^\/?hone\s*/i, "").trim();
   if (!raw) return { text: _globalHelp() };
 
   const parts = raw.split(/\s+/);
@@ -729,21 +729,21 @@ async function route(input, context) {
 
 function _globalHelp() {
   return [
-    "**BTCPC command engines**",
-    "  /btcpc mine     — inference / mining",
-    "  /btcpc verify   — proof verification",
-    "  /btcpc clock    — clock consensus",
-    "  /btcpc store    — BTCPC-FS storage",
-    "  /btcpc sensor   — sensor data market",
-    "  /btcpc tool     — MCP / CLI tools",
-    "  /btcpc infer    — tool-augmented inference",
-    "  /btcpc wallet   — balance, send, stake",
-    "  /btcpc chain    — chain status, blocks, supply",
-    "  /btcpc node     — node registration",
+    "**HONE command engines**",
+    "  /hone mine     — inference / mining",
+    "  /hone verify   — proof verification",
+    "  /hone clock    — clock consensus",
+    "  /hone store    — HONE-FS storage",
+    "  /hone sensor   — sensor data market",
+    "  /hone tool     — MCP / CLI tools",
+    "  /hone infer    — tool-augmented inference",
+    "  /hone wallet   — balance, send, stake",
+    "  /hone chain    — chain status, blocks, supply",
+    "  /hone node     — node registration",
     "",
-    "Run /btcpc <engine> help for details.",
+    "Run /hone <engine> help for details.",
     "",
-    "Shortcuts: /btcpc status · balance · send · blocks · supply · peers · epoch · model",
+    "Shortcuts: /hone status · balance · send · blocks · supply · peers · epoch · model",
   ].join("\n");
 }
 

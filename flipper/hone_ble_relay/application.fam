@@ -1,0 +1,13 @@
+App(
+    appid="hone_ble_relay",
+    name="HONE BLE Relay",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="hone_ble_relay_app",
+    requires=["gui", "bt", "storage"],
+    sources=["hone_ble_relay.c", "sha256.c"],
+    stack_size=4 * 1024,
+    fap_category="HONE",
+    fap_description="HONE sensor relay via BLE NUS — HONE-branded UART BLE Bridge replacement",
+    fap_author="Shin Devlin / hone.network",
+    fap_version="1.0",
+)

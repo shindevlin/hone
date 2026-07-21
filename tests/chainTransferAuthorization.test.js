@@ -23,7 +23,7 @@ describe('chainTransferAuthorization', () => {
     });
   });
 
-  test('builds a challenge for the BTCPC mnemonic-linked wallet', () => {
+  test('builds a challenge for the HONE mnemonic-linked wallet', () => {
     const challenge = chainTransferAuthorization.buildTransferChallenge('alice', {
       toAddress: 'bob',
       amount: 3,
@@ -56,7 +56,7 @@ describe('chainTransferAuthorization', () => {
         from: 'alice',
         to: 'bob',
         amount: 3,
-        token: 'BTCPC',
+        token: 'HONE',
         memo: ''
       },
       {
@@ -84,7 +84,7 @@ describe('chainTransferAuthorization', () => {
         from: 'alice',
         to: 'bob',
         amount: 3,
-        token: 'BTCPC',
+        token: 'HONE',
         memo: ''
       },
       {

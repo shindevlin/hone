@@ -1,0 +1,17 @@
+[Unit]
+Description=HONE Block Explorer (honescan)
+After=network-online.target mongod.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/repos/hone
+ExecStart=/usr/bin/node src/explorer/server.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+EnvironmentFile=-%h/repos/hone/.env
+
+[Install]
+WantedBy=default.target

@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 /**
- * BTCPC inference cron — submits periodic jobs to keep the network active.
+ * HONE inference cron — submits periodic jobs to keep the network active.
  * Runs under natoshisakamoto's project key.
  *
  * Usage: node scripts/inference-cron.js
- * Env: BTCPC_API_URL, BTCPC_PROJECT_KEY, CRON_INTERVAL_MS, CRON_MODEL
+ * Env: HONE_API_URL, HONE_PROJECT_KEY, CRON_INTERVAL_MS, CRON_MODEL
  */
 
 require('dotenv').config();
 const axios = require('axios');
 
-const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3000';
-const PROJECT_KEY = process.env.BTCPC_PROJECT_KEY;
+const API_URL = process.env.HONE_API_URL || 'http://localhost:3000';
+const PROJECT_KEY = process.env.HONE_PROJECT_KEY;
 const INTERVAL = parseInt(process.env.CRON_INTERVAL_MS) || 120000; // 2 min default
 const MODEL = process.env.CRON_MODEL || 'qwen3:4b';
 
 if (!PROJECT_KEY) {
-  console.error('BTCPC_PROJECT_KEY required');
+  console.error('HONE_PROJECT_KEY required');
   process.exit(1);
 }
 

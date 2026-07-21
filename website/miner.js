@@ -9,7 +9,7 @@
  */
 
 (function () {
-  const RELAY_URL = "wss://btcpc-relay.shindevlin.workers.dev/ws";
+  const RELAY_URL = "wss://hone-relay.shindevlin.workers.dev/ws";
   const CLAIM_JITTER_MIN = 200;
   const CLAIM_JITTER_MAX = 800;
   const RECONNECT_BASE_MS = 1000;

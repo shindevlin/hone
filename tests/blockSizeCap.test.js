@@ -13,8 +13,8 @@ const path = require('path');
 const os = require('os');
 
 // Use a temp blocks dir so tests don't pollute the real chain
-const TEST_DIR = path.join(os.tmpdir(), 'btcpc-test-blocksize-' + process.pid);
-process.env.BTCPC_TEST_BLOCKS_DIR = TEST_DIR;
+const TEST_DIR = path.join(os.tmpdir(), 'hone-test-blocksize-' + process.pid);
+process.env.HONE_TEST_BLOCKS_DIR = TEST_DIR;
 
 const blockStore = require('../src/chain/blockSizeCap');
 
@@ -36,7 +36,7 @@ describe('block size cap (v2.12-alpha)', () => {
           from: 'alice',
           to: 'bob',
           amount: 100,
-          token: 'BTCPC',
+          token: 'HONE',
         }),
       });
       expect(big).toBeGreaterThan(small * 50);
@@ -56,7 +56,7 @@ describe('block size cap (v2.12-alpha)', () => {
           from: 'alice',
           to: 'bob',
           amount: 100,
-          token: 'BTCPC',
+          token: 'HONE',
         }),
       };
       const remaining = blockStore.getBlockSpaceRemaining(huge);
@@ -67,8 +67,8 @@ describe('block size cap (v2.12-alpha)', () => {
   describe('trimEntriesToCap', () => {
     test('small entry list returns all kept, none dropped', () => {
       const entries = [
-        { type: 'TRANSFER', from: 'a', to: 'b', amount: 1, token: 'BTCPC' },
-        { type: 'TRANSFER', from: 'c', to: 'd', amount: 1, token: 'BTCPC' },
+        { type: 'TRANSFER', from: 'a', to: 'b', amount: 1, token: 'HONE' },
+        { type: 'TRANSFER', from: 'c', to: 'd', amount: 1, token: 'HONE' },
       ];
       const result = blockStore.trimEntriesToCap(entries, {});
       expect(result.kept.length).toBe(2);
@@ -85,7 +85,7 @@ describe('block size cap (v2.12-alpha)', () => {
           from: 'alice-' + i,
           to: 'bob-' + i,
           amount: i,
-          token: 'BTCPC',
+          token: 'HONE',
           memo: 'transfer ' + i,
         });
       }
@@ -103,7 +103,7 @@ describe('block size cap (v2.12-alpha)', () => {
           from: 'a',
           to: 'b',
           amount: i,
-          token: 'BTCPC',
+          token: 'HONE',
         });
       }
       const result = blockStore.trimEntriesToCap(entries, {});
@@ -144,7 +144,7 @@ describe('block size cap (v2.12-alpha)', () => {
           from: 'alice-' + 'x'.repeat(50),
           to: 'bob-' + 'y'.repeat(50),
           amount: 100,
-          token: 'BTCPC',
+          token: 'HONE',
           memo: 'this is a long memo to make each entry bigger',
         }),
       };

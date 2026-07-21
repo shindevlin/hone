@@ -2,22 +2,22 @@
 "use strict";
 
 const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3000";
-const API_KEY = process.env.API_KEY || process.env.BTCPC_RELAY_API_KEY || "";
+const API_KEY = process.env.API_KEY || process.env.HONE_RELAY_API_KEY || "";
 const MODEL = process.env.MODEL || "qwen3:4b";
 const RUNS = Math.max(1, parseInt(process.env.RUNS || "5", 10));
 const TIMEOUT_MS = Math.max(1000, parseInt(process.env.TIMEOUT_MS || "60000", 10));
 
 if (!API_KEY) {
-  console.error("ERROR: API_KEY or BTCPC_RELAY_API_KEY is required.");
+  console.error("ERROR: API_KEY or HONE_RELAY_API_KEY is required.");
   process.exit(1);
 }
 
 const prompts = [
   {
     name: "literal",
-    prompt: "Reply with exactly: BTCPC inference ok",
+    prompt: "Reply with exactly: HONE inference ok",
     check: (text) => text.trim().length > 0,
-    strict: (text) => text.trim() === "BTCPC inference ok"
+    strict: (text) => text.trim() === "HONE inference ok"
   },
   {
     name: "math",
@@ -40,7 +40,7 @@ const prompts = [
   },
   {
     name: "paragraph",
-    prompt: "Explain in two short sentences what BTCPC does.",
+    prompt: "Explain in two short sentences what HONE does.",
     check: (text) => text.trim().length > 20,
     strict: null
   }
@@ -98,7 +98,7 @@ async function main() {
     for (const promptDef of prompts) {
       const response = await requestCompletion(promptDef.prompt);
       const content = response.json?.choices?.[0]?.message?.content || "";
-      const btcpc = response.json?.btcpc || null;
+      const hone = response.json?.hone || null;
       const success = response.status === 200 && promptDef.check(content);
       const strictSuccess = promptDef.strict ? promptDef.strict(content) : null;
 
@@ -110,9 +110,9 @@ async function main() {
         success,
         strictSuccess,
         content,
-        cost: btcpc?.cost ?? null,
-        proofHash: btcpc?.proof_hash ?? null,
-        verified: btcpc?.verified ?? null,
+        cost: hone?.cost ?? null,
+        proofHash: hone?.proof_hash ?? null,
+        verified: hone?.verified ?? null,
         raw: response.raw
       });
     }

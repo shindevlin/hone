@@ -69,7 +69,7 @@ async function detectCapabilities() {
   const models = await _getOllamaModels();
 
   // Vision: explicit env var takes precedence, then scan model names
-  const visionModelEnv = process.env.BTCPC_VISION_MODEL;
+  const visionModelEnv = process.env.HONE_VISION_MODEL;
   const visionFromEnv = visionModelEnv && models.includes(visionModelEnv);
   const visionFromScan = models.some(_isVisionModel);
   const vision = !!(visionFromEnv || visionFromScan);
@@ -79,10 +79,10 @@ async function detectCapabilities() {
 
   // Tiers
   const tiers = ["standard"];
-  if (models.some(_isReasoningModel) || process.env.BTCPC_REASONING_MODEL) {
+  if (models.some(_isReasoningModel) || process.env.HONE_REASONING_MODEL) {
     tiers.push("reasoning");
   }
-  if (models.some(_isFastModel) || process.env.BTCPC_FAST_MODEL) {
+  if (models.some(_isFastModel) || process.env.HONE_FAST_MODEL) {
     tiers.push("fast");
   }
 
@@ -91,9 +91,9 @@ async function detectCapabilities() {
     vision,
     vision_model: visionModel || null,
     audio: _isWhisperAvailable(),
-    code_exec: process.env.BTCPC_CODE_EXEC_ENABLED === "true",
-    browser: process.env.BTCPC_BROWSER_ENABLED !== "false" && _isPlaywrightAvailable(),
-    finetune: process.env.BTCPC_FINETUNE_ENABLED === "true",
+    code_exec: process.env.HONE_CODE_EXEC_ENABLED === "true",
+    browser: process.env.HONE_BROWSER_ENABLED !== "false" && _isPlaywrightAvailable(),
+    finetune: process.env.HONE_FINETUNE_ENABLED === "true",
     tiers,
     version,
   };

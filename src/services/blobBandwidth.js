@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS Bandwidth Accumulator — v2.11.1
+ * HONE-FS Bandwidth Accumulator — v2.11.1
  * Shin Devlin
  *
  * In-memory per-CID byte counter for storage hosts. Every time the

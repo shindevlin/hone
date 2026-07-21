@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS Storage Routes — v3.1.110
+ * HONE-FS Storage Routes — v3.1.110
  * Shin Devlin
  *
  * Endpoints:

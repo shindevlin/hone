@@ -4,17 +4,17 @@
 
 **Blockchain** — A shared digital ledger that records transactions across many computers. Once recorded, data can't be altered. Think of it as a public notebook that everyone can read but nobody can erase.
 
-**Block** — A bundle of transactions recorded together on the blockchain. BTCPC produces a new block every 5 minutes.
+**Block** — A bundle of transactions recorded together on the blockchain. HONE produces a new block every 5 minutes.
 
-**Epoch** — BTCPC's term for a block period. Each epoch is 5 minutes long. During an epoch, miners do AI work, get verified, and earn rewards.
+**Epoch** — HONE's term for a block period. Each epoch is 5 minutes long. During an epoch, miners do AI work, get verified, and earn rewards.
 
-**Mining** — The process of earning cryptocurrency by doing computational work. In Bitcoin, this means solving math puzzles. In BTCPC, this means running AI models.
+**Mining** — The process of earning cryptocurrency by doing computational work. In Bitcoin, this means solving math puzzles. In HONE, this means running AI models.
 
 **Miner** — Someone who runs mining software on their computer's GPU to earn tokens.
 
 **Node** — A computer connected to the blockchain network. Nodes store data, relay messages, and validate transactions.
 
-**Token** — A unit of cryptocurrency. BTCPC tokens are the currency of the BTCPC network.
+**Token** — A unit of cryptocurrency. HONE tokens are the currency of the HONE network.
 
 **Wallet** — Software that stores your cryptocurrency keys. Not the tokens themselves (those are on the blockchain), but the keys that prove you own them.
 
@@ -30,7 +30,7 @@
 
 ## AI Terms
 
-**Inference** — Using an AI model to generate output from input. When you ask ChatGPT a question, that's inference. BTCPC miners perform inference.
+**Inference** — Using an AI model to generate output from input. When you ask ChatGPT a question, that's inference. HONE miners perform inference.
 
 **AI Model** — A trained program that can generate text, analyze data, or answer questions. Like a very sophisticated auto-complete that understands context.
 
@@ -42,22 +42,22 @@
 
 **Open-Source Model** — An AI model whose code and training data are publicly available. Anyone can run it on their own hardware. Examples: qwen, llama, mistral.
 
-## BTCPC-Specific Terms
+## HONE-Specific Terms
 
-**Dream** — The smallest unit of BTCPC (1 BTCPC = 10,000,000,000 dreams). Also, the AI output that miners produce.
+**Dream** — The smallest unit of HONE (1 HONE = 10,000,000,000 dreams). Also, the AI output that miners produce.
 
 **Genesis Dream** — A unique, inscribable NFT created with each block. The first AI output of every epoch, permanently recorded on-chain.
 
-**Lucid Pruning** — BTCPC's method of compressing old blockchain data using AI. The chain "dreams" its history into a compact summary and prunes the raw data.
+**Lucid Pruning** — HONE's method of compressing old blockchain data using AI. The chain "dreams" its history into a compact summary and prunes the raw data.
 
 **Finality Block** — A periodic snapshot of the entire chain state. New nodes can start from the latest finality block instead of replaying history from the beginning.
 
 **Clock Node** — A lightweight node that keeps the network's timing synchronized. No GPU needed — runs on phones or cheap computers. Earns 2% of block rewards.
 
-**Proof of Compute** — BTCPC's mining mechanism. Miners prove they did useful AI work by submitting results that other miners verify.
+**Proof of Compute** — HONE's mining mechanism. Miners prove they did useful AI work by submitting results that other miners verify.
 
-**Cross-Chain** — The ability to exist on multiple blockchains simultaneously. BTCPC miners automatically earn claimable tokens on Ethereum, Solana, Bitcoin, TON, and Hive.
+**Cross-Chain** — The ability to exist on multiple blockchains simultaneously. HONE miners automatically earn claimable tokens on Ethereum, Solana, Bitcoin, TON, and Hive.
 
 **State Root** — A 32-byte cryptographic fingerprint of all account balances. Proves the entire state of the network in a tiny data point.
 
-**Epoch Authority** — In BTCPC, there is no single authority. The network of clock nodes collectively determines when epochs start and end. Miners collectively determine rewards through consensus.
+**Epoch Authority** — In HONE, there is no single authority. The network of clock nodes collectively determines when epochs start and end. Miners collectively determine rewards through consensus.

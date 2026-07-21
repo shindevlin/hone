@@ -1,4 +1,4 @@
-# BTCPC Private Authorization Implementation Plan
+# HONE Private Authorization Implementation Plan
 
 Created: 2026-04-23
 
@@ -6,15 +6,15 @@ This plan turns the private authorization stack in `docs/PRIVATE_AUTH_STACK.md` 
 
 ## Goal
 
-Build a BTCPC-native private authorization system where:
+Build a HONE-native private authorization system where:
 
-- a spend on BTCPC or any supported target chain can require approval from a separate supported chain,
+- a spend on HONE or any supported target chain can require approval from a separate supported chain,
 - the approval chain is chosen by the user from an allowed list,
-- BTCPC verifies a normalized approval receipt before executing the spend,
-- the approval wallet can remain undisclosed to BTCPC when the backend supports it,
+- HONE verifies a normalized approval receipt before executing the spend,
+- the approval wallet can remain undisclosed to HONE when the backend supports it,
 - Bitcoin and Lightning ship first as existing-wallet verifiers,
 - portable ZK comes next through a backend-agnostic verifier slot,
-- BTCPC-native ZK is the later privacy upgrade, not the initial dependency.
+- HONE-native ZK is the later privacy upgrade, not the initial dependency.
 
 ## Design Constraints
 
@@ -22,8 +22,8 @@ Build a BTCPC-native private authorization system where:
 2. Keep the external approval format chain-neutral.
 3. Make Bitcoin and Lightning usable with existing wallets first.
 4. Keep chain-specific verification in adapters, not in the policy model.
-5. Preserve the current BTCPC execution path until each verifier mode is covered by tests.
-6. Add BTCPC-native ZK only after the receipt-based protocol is stable.
+5. Preserve the current HONE execution path until each verifier mode is covered by tests.
+6. Add HONE-native ZK only after the receipt-based protocol is stable.
 
 ## Current Starting Point
 
@@ -59,7 +59,7 @@ Make private authorization a first-class account policy, independent of the veri
 - normalized transfer challenge schema
 - normalized approval receipt schema
 - policy read/write endpoints that do not expose raw approval wallet identities
-- transfer gating in every BTCPC execution path that can move funds
+- transfer gating in every HONE execution path that can move funds
 
 ### Implementation notes
 
@@ -92,20 +92,20 @@ Ship Bitcoin as the first external approval chain using existing wallets and a s
 - Bitcoin approval enrollment flow
 - signed challenge verification path
 - account linkage for Bitcoin approval factors
-- BTCPC receipt normalization for Bitcoin approvals
+- HONE receipt normalization for Bitcoin approvals
 
 ### Implementation notes
 
 - Use Bitcoin message signing or the closest existing-wallet signature flow available to the linked wallet.
 - Keep privacy out of scope for this wave; the purpose is security, compatibility, and optics.
-- Do not require Bitcoin to participate in the BTCPC spend directly.
-- BTCPC should only require a valid Bitcoin approval receipt before executing the spend.
+- Do not require Bitcoin to participate in the HONE spend directly.
+- HONE should only require a valid Bitcoin approval receipt before executing the spend.
 
 ### Exit criteria
 
 - a user can enroll a Bitcoin approval factor,
-- a user can authorize a BTCPC spend with a Bitcoin signature,
-- BTCPC rejects Bitcoin receipts that do not match the current challenge.
+- a user can authorize a HONE spend with a Bitcoin signature,
+- HONE rejects Bitcoin receipts that do not match the current challenge.
 
 ### Tests
 
@@ -125,7 +125,7 @@ Add Lightning as a second approval chain using invoice-based approval rather tha
 - Lightning approval enrollment flow
 - invoice creation and settlement verification
 - normalized Lightning receipt format
-- BTCPC policy support for Lightning approvals
+- HONE policy support for Lightning approvals
 
 ### Implementation notes
 
@@ -136,8 +136,8 @@ Add Lightning as a second approval chain using invoice-based approval rather tha
 ### Exit criteria
 
 - a user can enroll a Lightning approval factor,
-- BTCPC can issue an approval invoice for a challenge,
-- BTCPC can confirm the invoice was paid and bind that payment to the exact challenge.
+- HONE can issue an approval invoice for a challenge,
+- HONE can confirm the invoice was paid and bind that payment to the exact challenge.
 
 ### Tests
 
@@ -150,7 +150,7 @@ Add Lightning as a second approval chain using invoice-based approval rather tha
 
 ### Objective
 
-Keep compatibility with the existing signature-based chains already present in BTCPC while normalizing them into the new approval model.
+Keep compatibility with the existing signature-based chains already present in HONE while normalizing them into the new approval model.
 
 ### Supported chains
 
@@ -184,11 +184,11 @@ Keep compatibility with the existing signature-based chains already present in B
 
 ### Objective
 
-Add a portable ZK verifier slot so BTCPC can verify a proof backend without being trapped in one chain.
+Add a portable ZK verifier slot so HONE can verify a proof backend without being trapped in one chain.
 
 ### Recommended direction
 
-Use a portable zkVM-style backend first, then wire it into BTCPC through the same receipt contract:
+Use a portable zkVM-style backend first, then wire it into HONE through the same receipt contract:
 
 - SP1-style backend where appropriate,
 - RISC Zero-style backend where appropriate,
@@ -203,8 +203,8 @@ Use a portable zkVM-style backend first, then wire it into BTCPC through the sam
 
 ### Implementation notes
 
-- BTCPC should verify a generic proof receipt, not a proof format tied to a single chain.
-- Keep proof generation outside BTCPC at first.
+- HONE should verify a generic proof receipt, not a proof format tied to a single chain.
+- Keep proof generation outside HONE at first.
 - The first proof backend should prove only the minimum receipt semantics:
   - valid approval source
   - exact challenge binding
@@ -212,7 +212,7 @@ Use a portable zkVM-style backend first, then wire it into BTCPC through the sam
 
 ### Exit criteria
 
-- BTCPC can verify one portable proof backend end-to-end,
+- HONE can verify one portable proof backend end-to-end,
 - the same policy and transfer schema still works with the Bitcoin and Lightning paths.
 
 ### Tests
@@ -222,16 +222,16 @@ Use a portable zkVM-style backend first, then wire it into BTCPC through the sam
 - backend mismatch rejection
 - replay rejection
 
-## Wave 5 — BTCPC-Native ZK
+## Wave 5 — HONE-Native ZK
 
 ### Objective
 
-Move from external proof verification to BTCPC-native proof generation and validation.
+Move from external proof verification to HONE-native proof generation and validation.
 
 ### Deliverables
 
-- BTCPC-native proof generation tooling
-- BTCPC-native verifier backend
+- HONE-native proof generation tooling
+- HONE-native verifier backend
 - hidden-approval factor enrollment with stronger unlinkability
 - optional privacy-preserving factor rotation / re-enrollment
 
@@ -239,16 +239,16 @@ Move from external proof verification to BTCPC-native proof generation and valid
 
 - This wave should reuse the same challenge, receipt, and policy interfaces.
 - Only the proof backend changes.
-- BTCPC-native ZK should not force a protocol redesign.
+- HONE-native ZK should not force a protocol redesign.
 
 ### Exit criteria
 
-- BTCPC can verify proofs produced by its own ZK tooling,
+- HONE can verify proofs produced by its own ZK tooling,
 - users can migrate from external approval modes without changing the spend UX.
 
 ### Tests
 
-- BTCPC-native proof generation
+- HONE-native proof generation
 - verifier compatibility with the existing receipt model
 - re-enrollment and factor rotation
 
@@ -274,7 +274,7 @@ Expose the policy system cleanly to users and make failure modes obvious.
 ### Implementation notes
 
 - The user should be able to choose Bitcoin, Lightning, or a ZK-backed verifier without learning protocol internals.
-- The UI should make it clear when the approval wallet is hidden from BTCPC and when it is not.
+- The UI should make it clear when the approval wallet is hidden from HONE and when it is not.
 
 ### Exit criteria
 
@@ -296,12 +296,12 @@ Expose the policy system cleanly to users and make failure modes obvious.
 3. Add Lightning because it gives another recognizable approval source and fits the “verify on another chain” model.
 4. Keep the existing signature chains working as bridge support.
 5. Add portable ZK once the protocol is stable.
-6. Add BTCPC-native ZK last so the interface stays stable while the backend gets stronger.
+6. Add HONE-native ZK last so the interface stays stable while the backend gets stronger.
 
 ## Non-Goals For The First Rollout
 
 - No custom wallet build.
-- No BTCPC-native ZK as the first verifier.
+- No HONE-native ZK as the first verifier.
 - No single-chain lock-in.
 - No requirement that the approval chain and execution chain be the same.
 - No privacy-preserving Bitcoin or Lightning scheme until the basic verifier path is stable.
@@ -316,4 +316,4 @@ The private authorization stack is ready for implementation once:
 - Lightning approval works,
 - existing signature chains are normalized,
 - one portable ZK backend is wired,
-- and the BTCPC-native ZK wave can be added without changing the public API.
+- and the HONE-native ZK wave can be added without changing the public API.

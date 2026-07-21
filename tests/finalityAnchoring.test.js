@@ -83,11 +83,11 @@ async function runAll() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 1. Tier gating: BTCPC_FINALITY_TIERS=1 skips all higher tiers
+// 1. Tier gating: HONE_FINALITY_TIERS=1 skips all higher tiers
 // ─────────────────────────────────────────────────────────────────
 
-test("tier gating: BTCPC_FINALITY_TIERS=1 returns skipped=true", async function () {
-  var r = freshLoad({ BTCPC_FINALITY_TIERS: "1", BTCPC_MIN_NODES_FOR_L2: "0" });
+test("tier gating: HONE_FINALITY_TIERS=1 returns skipped=true", async function () {
+  var r = freshLoad({ HONE_FINALITY_TIERS: "1", HONE_MIN_NODES_FOR_L2: "0" });
   var result = await r.mod.anchorIfDue(100, SNAPSHOT);
   r.restore();
   assert.strictEqual(result.skipped, true);
@@ -99,7 +99,7 @@ test("tier gating: BTCPC_FINALITY_TIERS=1 returns skipped=true", async function 
 // ─────────────────────────────────────────────────────────────────
 
 test("node count gate: 2 nodes < 10 = dormant even with TIERS=4", async function () {
-  var r = freshLoad({ BTCPC_FINALITY_TIERS: "4", BTCPC_MIN_NODES_FOR_L2: "10" });
+  var r = freshLoad({ HONE_FINALITY_TIERS: "4", HONE_MIN_NODES_FOR_L2: "10" });
   // nodeRegistry has at most 2 nodes in test environment
   var result = await r.mod.anchorIfDue(100, SNAPSHOT);
   r.restore();
@@ -112,7 +112,7 @@ test("node count gate: 2 nodes < 10 = dormant even with TIERS=4", async function
 // ─────────────────────────────────────────────────────────────────
 
 test("node count gate passes when MIN_NODES_FOR_L2=0", async function () {
-  var r = freshLoad({ BTCPC_FINALITY_TIERS: "2", BTCPC_MIN_NODES_FOR_L2: "0" });
+  var r = freshLoad({ HONE_FINALITY_TIERS: "2", HONE_MIN_NODES_FOR_L2: "0" });
   var result = await r.mod.anchorIfDue(100, SNAPSHOT);
   r.restore();
   assert.strictEqual(result.skipped, false);
@@ -123,7 +123,7 @@ test("node count gate passes when MIN_NODES_FOR_L2=0", async function () {
 // ─────────────────────────────────────────────────────────────────
 
 test("L2 anchor entry has type=L2_ANCHOR with epoch and state_root", async function () {
-  var r = freshLoad({ BTCPC_FINALITY_TIERS: "2", BTCPC_MIN_NODES_FOR_L2: "0" });
+  var r = freshLoad({ HONE_FINALITY_TIERS: "2", HONE_MIN_NODES_FOR_L2: "0" });
   var result = await r.mod.anchorIfDue(100, SNAPSHOT);
   r.restore();
   assert.strictEqual(result.tiersRun.indexOf(2) !== -1, true);
@@ -140,7 +140,7 @@ test("L2 anchor entry has type=L2_ANCHOR with epoch and state_root", async funct
 // ─────────────────────────────────────────────────────────────────
 
 test("state root equals SHA-256 of JSON snapshot", function () {
-  var r = freshLoad({ BTCPC_FINALITY_TIERS: "2", BTCPC_MIN_NODES_FOR_L2: "0" });
+  var r = freshLoad({ HONE_FINALITY_TIERS: "2", HONE_MIN_NODES_FOR_L2: "0" });
   var expected = sha256hex(JSON.stringify(SNAPSHOT));
   var actual = r.mod._computeStateRoot(SNAPSHOT);
   r.restore();
@@ -199,15 +199,15 @@ test("BTC OP_RETURN is exactly 160 hex chars (80 bytes)", function () {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// 10. BTC OP_RETURN — magic bytes "BTCPC" at start
+// 10. BTC OP_RETURN — magic bytes "HONE" at start
 // ─────────────────────────────────────────────────────────────────
 
-test('BTC OP_RETURN starts with "BTCPC" magic (hex 4254435043)', function () {
+test('BTC OP_RETURN starts with "HONE" magic (hex 4254435043)', function () {
   var r = freshLoad({});
   var hex = r.mod._buildBtcOpReturn(10000, "00".repeat(32));
   r.restore();
-  // "BTCPC" ASCII → hex: 42 54 43 50 43
-  assert.ok(hex.startsWith("4254435043"), 'starts with BTCPC magic');
+  // "HONE" ASCII → hex: 42 54 43 50 43
+  assert.ok(hex.startsWith("4254435043"), 'starts with HONE magic');
 });
 
 // ─────────────────────────────────────────────────────────────────
@@ -241,7 +241,7 @@ test("BTC OP_RETURN: state root at bytes 9-40 (hex chars 18-81)", function () {
 // ─────────────────────────────────────────────────────────────────
 
 test("ETH anchor fires only at epoch 1000 (not 100)", async function () {
-  var r = freshLoad({ BTCPC_FINALITY_TIERS: "3", BTCPC_MIN_NODES_FOR_L2: "0" });
+  var r = freshLoad({ HONE_FINALITY_TIERS: "3", HONE_MIN_NODES_FOR_L2: "0" });
   // epoch 100 — L2 cadence but not ETH cadence
   var r100 = await r.mod.anchorIfDue(100, SNAPSHOT);
   assert.strictEqual(r100.tiersRun.indexOf(3), -1, "ETH tier not in tiersRun at epoch 100");
@@ -257,7 +257,7 @@ test("ETH anchor fires only at epoch 1000 (not 100)", async function () {
 // ─────────────────────────────────────────────────────────────────
 
 test("BTC anchor fires only at epoch 10000 (not 1000)", async function () {
-  var r = freshLoad({ BTCPC_FINALITY_TIERS: "4", BTCPC_MIN_NODES_FOR_L2: "0" });
+  var r = freshLoad({ HONE_FINALITY_TIERS: "4", HONE_MIN_NODES_FOR_L2: "0" });
   var r1000 = await r.mod.anchorIfDue(1000, SNAPSHOT);
   assert.strictEqual(r1000.tiersRun.indexOf(4), -1, "BTC tier not at epoch 1000");
   var r10k = await r.mod.anchorIfDue(10000, SNAPSHOT);
@@ -272,7 +272,7 @@ test("BTC anchor fires only at epoch 10000 (not 1000)", async function () {
 // ─────────────────────────────────────────────────────────────────
 
 test("anchor log ring buffer capped at ANCHOR_LOG_CAP (100)", async function () {
-  var r = freshLoad({ BTCPC_FINALITY_TIERS: "2", BTCPC_MIN_NODES_FOR_L2: "0" });
+  var r = freshLoad({ HONE_FINALITY_TIERS: "2", HONE_MIN_NODES_FOR_L2: "0" });
   var cap = r.mod.ANCHOR_LOG_CAP;
   // Fire 150 L2 anchors (multiples of L2_CADENCE)
   var cadence = r.mod.L2_CADENCE;

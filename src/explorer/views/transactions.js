@@ -27,7 +27,7 @@ function transactionsView(data) {
       <td><span class="type-badge type-${escapeHtml(t.type)}">${escapeHtml(t.type.replace("_", " "))}</span></td>
       <td><a href="/account/${encodeURIComponent(t.from)}">${escapeHtml(t.from)}</a></td>
       <td><a href="/account/${encodeURIComponent(t.to)}">${escapeHtml(t.to)}</a></td>
-      <td class="amount">${formatNumber(t.amount)} BTCPC</td>
+      <td class="amount">${formatNumber(t.amount)} HONE</td>
       <td>${escapeHtml(t.memo || "--")}</td>
       <td>${formatDate(t.timestamp)}</td>
     </tr>

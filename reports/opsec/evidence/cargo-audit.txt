@@ -1,41 +1,41 @@
 # cargo-audit run 2026-05-05T18:16:03Z
-## ./rust/btcpc-android/Cargo.toml
+## ./rust/hone-android/Cargo.toml
 
-## ./rust/btcpc-cli/Cargo.toml
+## ./rust/hone-cli/Cargo.toml
 
-## ./rust/btcpc-node/Cargo.toml
+## ./rust/hone-node/Cargo.toml
 
-## ./rust/btcpc-node/crates/btcpc-types/Cargo.toml
+## ./rust/hone-node/crates/hone-types/Cargo.toml
 
-## ./rust/btcpc-contract-sdk/sdk-macros/Cargo.toml
+## ./rust/hone-contract-sdk/sdk-macros/Cargo.toml
 
-## ./rust/btcpc-contract-sdk/sdk/Cargo.toml
+## ./rust/hone-contract-sdk/sdk/Cargo.toml
 
-## ./rust/btcpc-contract-sdk/examples/ft/Cargo.toml
+## ./rust/hone-contract-sdk/examples/ft/Cargo.toml
 
-## ./rust/btcpc-contract-sdk/examples/nft/Cargo.toml
+## ./rust/hone-contract-sdk/examples/nft/Cargo.toml
 
-## ./rust/btcpc-contract-sdk/Cargo.toml
+## ./rust/hone-contract-sdk/Cargo.toml
 
-## ./rust/btcpc-bot/Cargo.toml
+## ./rust/hone-bot/Cargo.toml
 
-## ./rust/btcpc-sdk/Cargo.toml
+## ./rust/hone-sdk/Cargo.toml
 
 ## ./rust/betchu-bot/Cargo.toml
 
 ## ./rust/chain-core/Cargo.toml
 
-## ./rust/btcpc-contract-runtime/Cargo.toml
+## ./rust/hone-contract-runtime/Cargo.toml
 
 ## ./rust/linkgit/Cargo.toml
 
-## ./rust/btcpc-ble-tracker/Cargo.toml
+## ./rust/hone-ble-tracker/Cargo.toml
 
-## ./.claude/worktrees/agent-ab582b28/android/rust/btcpc-miner/Cargo.toml
+## ./.claude/worktrees/agent-ab582b28/android/rust/hone-miner/Cargo.toml
 
-## ./.claude/worktrees/agent-a04c48fd/android/rust/btcpc-miner/Cargo.toml
+## ./.claude/worktrees/agent-a04c48fd/android/rust/hone-miner/Cargo.toml
 
 ## ./android/rust/ort-patched/Cargo.toml
 
-## ./android/rust/btcpc-miner/Cargo.toml
+## ./android/rust/hone-miner/Cargo.toml
 

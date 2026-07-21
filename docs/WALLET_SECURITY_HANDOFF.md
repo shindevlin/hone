@@ -1,4 +1,4 @@
-# BTCPC Wallet Security Handoff
+# HONE Wallet Security Handoff
 
 Date: 2026-04-20
 
@@ -13,7 +13,7 @@ The custody model is:
 - Posting key: runs mining nodes and signs operational proofs. Mining machines should only receive this key.
 - Memo key: reserved for encrypted memo/message use. No full product surface is assigned yet.
 
-Starter faucet value must never be sellable. Faucet issuance should be delegated BTCPC for direct network services, not wallet balance.
+Starter faucet value must never be sellable. Faucet issuance should be delegated HONE for direct network services, not wallet balance.
 
 ## Implemented In This Pass
 
@@ -26,13 +26,13 @@ All account creation should route through `createAccountForUser()` so the projec
 The service:
 
 - Generates a BIP-39 mnemonic.
-- Derives BTCPC owner/active/posting/memo public and private keys.
+- Derives HONE owner/active/posting/memo public and private keys.
 - Derives EVM, Solana, TON, Bitcoin wallets from the same mnemonic.
 - Builds a single copy/paste wallet export block.
 - Writes only non-private account data to `secretStore`.
 - Records `ACCOUNT_CREATE` with the correct ledger argument shape:
   `recordAccountCreate(username, publicKeys, chainAddresses, epoch)`.
-- Issues starter faucet value through `recordDelegate("btcpc_faucet", username, amount, "faucet", epoch)`.
+- Issues starter faucet value through `recordDelegate("hone_faucet", username, amount, "faucet", epoch)`.
 
 ### Secret Store
 
@@ -55,7 +55,7 @@ It returns:
 - `mnemonic`
 - `wallet_export`
 - `wallet_rows`
-- BTCPC public/private role keys
+- HONE public/private role keys
 - chain addresses and derived chain wallets
 - `wallet_balance`
 - `delegated_balance`
@@ -72,7 +72,7 @@ It keeps bot compatibility fields where practical, but the canonical export is `
 
 ### OpenClaw Onboarding
 
-`POST /api/bot/onboard` now creates accounts through the canonical service and no longer grants sellable treasury BTCPC.
+`POST /api/bot/onboard` now creates accounts through the canonical service and no longer grants sellable treasury HONE.
 
 Project `balance` is set to `0`; returned starter value is `delegated_balance`.
 
@@ -109,7 +109,7 @@ Mining setup now asks whether the user already has an account.
 For existing accounts, mining setup asks only for:
 
 - username
-- BTCPC posting private key
+- HONE posting private key
 
 It does not ask for owner key, active key, or mnemonic.
 
@@ -138,7 +138,7 @@ Implemented model:
 - Reserved names live as nested wallets under `shindevlin`, for example `shindevlin/bob`.
 - The reserved inventory includes `data/reserved-names.json` plus every lowercase one-, two-, and three-letter combination.
 - A user creates an active wallet/account first, receives one mnemonic, and keeps one owner keyset.
-- BTCPC HQ can assign a reserved name as a transferable alias to that account, for example `joshua -> josh`.
+- HONE HQ can assign a reserved name as a transferable alias to that account, for example `joshua -> josh`.
 - Transfers to either `josh` or `joshua` resolve to the same canonical account.
 - Aliases are transferable name assets controlled by the current account owner's owner key.
 
@@ -164,23 +164,23 @@ Primary-name rule:
 4. The project should decide whether every public name is a transferable name asset attached to a wallet/keyset. That is cleaner than treating the first name as the account and later names as aliases.
 5. Explorer/UI should render `ACCOUNT_ALIAS_ASSIGN` and `ACCOUNT_ALIAS_TRANSFER` clearly so people can verify name ownership on-chain.
 6. Broad Jest runs are noisy because `.claude/worktrees` and generated packages are picked up. Test config should ignore those paths.
-7. Service-worker cache can hide website updates until refresh. The cache was bumped to `btcpc-node-v12`, but a visible "new version available" prompt would be better.
+7. Service-worker cache can hide website updates until refresh. The cache was bumped to `hone-node-v12`, but a visible "new version available" prompt would be better.
 8. Staking backend requires active-key signatures, but the website still needs a local signing UI.
 9. Faucet history needs review. New account creation and current faucet claim paths use delegated faucet value, but prior chain state may still contain spendable faucet grants from older code.
 10. Some unrelated repo files are dirty and should be reviewed separately before future commits.
 
 ### Faucet Hardening Implemented
 
-Goal: no user receives sellable BTCPC from a faucet or onboarding grant.
+Goal: no user receives sellable HONE from a faucet or onboarding grant.
 
 Implemented behavior:
 
-- Account creation may receive delegated BTCPC only.
+- Account creation may receive delegated HONE only.
 - Public faucet and Telegram bot claim routes call `recordDelegate`, not `recordTransfer`.
-- `recordFaucet()` is retained for compatibility, but now emits `DELEGATE` from `btcpc_faucet` instead of a spendable `FAUCET` credit.
+- `recordFaucet()` is retained for compatibility, but now emits `DELEGATE` from `hone_faucet` instead of a spendable `FAUCET` credit.
 - Delegated faucet balance can be used for direct on-chain network services such as AI, sensor data, and storage, but cannot transfer, stake, bridge, or sell.
 - Responses must label faucet value as delegated/network-use only.
-- Wallet export and balance responses label delegated BTCPC as network-use value, not wallet balance.
+- Wallet export and balance responses label delegated HONE as network-use value, not wallet balance.
 
 Ledger/state replay fixes made in the same pass:
 
@@ -188,8 +188,8 @@ Ledger/state replay fixes made in the same pass:
 - `ESCROW_LOCK` now spends delegated network-use balance first, then owned wallet balance.
 - `ESCROW_REFUND` restores delegated escrow back to delegated balance instead of converting it into owned wallet balance.
 - `INFERENCE_CHARGE` now credits the recipient only if delegated or owned debit succeeds.
-- `STAKE` now creates stake only if owned BTCPC debit succeeds.
-- `UNSTAKE` now credits wallet balance only if the account has enough staked BTCPC.
+- `STAKE` now creates stake only if owned HONE debit succeeds.
+- `UNSTAKE` now credits wallet balance only if the account has enough staked HONE.
 - `ESCROW_RELEASE` now tracks released amount and refuses payouts above the locked escrow amount.
 - `recordEscrowRelease()` now keeps `memo` as `escrow:<requestId>` and stores the human note separately as `settlement_note`, so sensor/storage/inference payout notes do not break escrow replay.
 
@@ -224,7 +224,7 @@ The backend now has the base primitives for reserved-name aliases:
 - reserve as `shindevlin/name`
 - assign alias to an existing account
 - transfer alias between accounts
-- resolve aliases when sending BTCPC
+- resolve aliases when sending HONE
 
 The website still needs the friendly flow:
 

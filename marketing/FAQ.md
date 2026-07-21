@@ -2,25 +2,25 @@
 
 ## General
 
-### What is BTCPC?
+### What is HONE?
 Bitcoin Proof of Compute — a sovereign blockchain where miners earn tokens by providing useful AI inference instead of solving abstract hash puzzles.
 
 ### Is it a Bitcoin fork?
-No. BTCPC is its own blockchain with its own genesis block, P2P network, consensus mechanism, and token. It's inspired by Bitcoin's principles but built from scratch.
+No. HONE is its own blockchain with its own genesis block, P2P network, consensus mechanism, and token. It's inspired by Bitcoin's principles but built from scratch.
 
 ### Is it a token on Ethereum?
-No. BTCPC is a sovereign chain. However, mining BTCPC also generates claimable tokens on Ethereum, Solana, Bitcoin, TON, and Hive.
+No. HONE is a sovereign chain. However, mining HONE also generates claimable tokens on Ethereum, Solana, Bitcoin, TON, and Hive.
 
 ### Why "42"?
 42 million total supply. It's the Answer to the Ultimate Question of Life, the Universe, and Everything (Douglas Adams, The Hitchhiker's Guide to the Galaxy). We're serious about our engineering, but we don't take ourselves too seriously.
 
 ### What's a "dream"?
-The smallest unit of BTCPC — 1 BTCPC = 10,000,000,000 dreams. Like satoshis in Bitcoin. The name reflects the concept: every token is a dream computed into reality by AI.
+The smallest unit of HONE — 1 HONE = 10,000,000,000 dreams. Like satoshis in Bitcoin. The name reflects the concept: every token is a dream computed into reality by AI.
 
 ## Mining
 
-### How do I mine BTCPC?
-Install Node.js, clone the repository, run `node bin/btcpc-mine`. You need a GPU and an internet connection. The miner automatically connects to the network and starts earning.
+### How do I mine HONE?
+Install Node.js, clone the repository, run `node bin/hone-mine`. You need a GPU and an internet connection. The miner automatically connects to the network and starts earning.
 
 ### What hardware do I need?
 Any modern GPU with 8GB+ VRAM. The miner runs open-source AI models (like qwen3) on your hardware. Better GPU = more work completed = more tokens earned.
@@ -36,17 +36,17 @@ A lightweight node that keeps the network's timing synchronized. It doesn't mine
 
 ## Tokens & Economics
 
-### How many BTCPC will ever exist?
+### How many HONE will ever exist?
 42,000,000. No more will ever be created.
 
 ### How are new tokens created?
 New tokens are minted every 5-minute epoch and distributed to miners (98%) and clock nodes (2%) who were active during that epoch. The reward decreases over time.
 
-### What gives BTCPC value?
-Users pay BTCPC to access AI inference on the network. This creates real demand — as more people use the AI, more tokens are needed, creating natural buy pressure.
+### What gives HONE value?
+Users pay HONE to access AI inference on the network. This creates real demand — as more people use the AI, more tokens are needed, creating natural buy pressure.
 
-### What can I buy with BTCPC?
-AI inference (ask the network questions, generate content, analyze data), and anything someone is willing to sell for BTCPC.
+### What can I buy with HONE?
+AI inference (ask the network questions, generate content, analyze data), and anything someone is willing to sell for HONE.
 
 ## Security
 
@@ -71,20 +71,20 @@ Epochs (blocks) every 5 minutes. Transactions are visible across the network in 
 Yes. The entire codebase is available for audit. No hidden servers, no closed-source components.
 
 ### How does cross-chain work?
-When a miner earns BTCPC, the protocol generates cryptographic proofs that can be claimed on other blockchains. The miner's wallet addresses on each chain are derived from the same 12-word mnemonic — one identity, multiple chains.
+When a miner earns HONE, the protocol generates cryptographic proofs that can be claimed on other blockchains. The miner's wallet addresses on each chain are derived from the same 12-word mnemonic — one identity, multiple chains.
 
 ## Getting Started
 
-### How do I get BTCPC tokens?
+### How do I get HONE tokens?
 1. **Mine them** — run the miner on your GPU
 2. **Run a clock node** — earn 2% rewards on any device
 3. **Receive from someone** — anyone can send you tokens
 4. **Faucet** — new accounts can claim a small amount for free
 
 ### How do I create an account?
-Send `/create <username>` to the BTCPC Telegram bot (@btcpcbot). It generates your 12-word mnemonic and all keys. Save them immediately — we don't store them.
+Send `/create <username>` to the HONE Telegram bot (@honebot). It generates your 12-word mnemonic and all keys. Save them immediately — we don't store them.
 
 ### Where can I see my balance?
-- Telegram: send `/balance` to @btcpcbot
+- Telegram: send `/balance` to @honebot
 - Explorer: visit localhost:4242/account/yourusername (when running a node)
-- CLI: `node bin/btcpc-cli wallet balance`
+- CLI: `node bin/hone-cli wallet balance`

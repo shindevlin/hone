@@ -13,7 +13,7 @@ function makeTx(opts) {
     from: opts.from || 'alice',
     to: opts.to || 'bob',
     amount: opts.amount || 1,
-    token: 'BTCPC',
+    token: 'HONE',
     nonce: opts.nonce || Date.now() + Math.random(),
     timestamp: opts.timestamp || Date.now(),
     fee: opts.fee || 0,

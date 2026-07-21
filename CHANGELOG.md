@@ -1,4 +1,4 @@
-# BTCPC Changelog
+# HONE Changelog
 
 ## v2.0.37 — Settlement-based rewards
 - Jobs settle when all required verifications are in (3 in consensus, 1 in genesis)
@@ -28,7 +28,7 @@
 - Epoch sync checks highest epoch in DB, not just time-based calculation
 
 ## v2.0.31 — Auto model manager
-- BTCPC_MAX_MODEL_STORAGE_GB — disk budget for models
+- HONE_MAX_MODEL_STORAGE_GB — disk budget for models
 - Auto-pulls highest-demand models that fit within budget
 - Checks model size from registry before downloading
 - GLM-OCR added to Grouchly for document/image processing
@@ -54,7 +54,7 @@
 
 ## v2.0.26 — Handler fixes
 - Exact model match before claiming (qwen3:4b != qwen3.5:27b)
-- Handler uses BTCPC_MINER env var (was hardcoded to genesis miner)
+- Handler uses HONE_MINER env var (was hardcoded to genesis miner)
 - Auto-updater Windows compatibility
 
 ## v2.0.25 — Shared epochs + reward splitting
@@ -76,7 +76,7 @@
 - Prevents gaming by naming fake models with large param counts
 
 ## v2.0.22 — Configurable miner identity
-- BTCPC_MINER env var — mine as any registered account
+- HONE_MINER env var — mine as any registered account
 - Grouchly mines as natoshisakamoto, shindevlin's node as shindevlin
 
 ## v2.0.21 — Bot API routes
@@ -85,7 +85,7 @@
 - x-bot-key authentication
 
 ## v2.0.20 — Posting key signature verification
-- /link requires signing challenge with BTCPC posting key
+- /link requires signing challenge with HONE posting key
 - secp256k1 ecdsaVerify against postingPublicKey in DB
 - CLI: sign-challenge command for local signing
 - On-chain verification transaction recorded with signature

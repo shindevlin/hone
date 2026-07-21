@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Dynamic Sensor Reward Configuration
+ * HONE Dynamic Sensor Reward Configuration
  * Shin Devlin
  *
  * Reward multipliers per sensor type, based on:
@@ -25,7 +25,7 @@
 //
 // Fields:
 //   multiplier    — base reward multiplier vs. a 1.0 reference temperature sensor
-//   stake_required — BTCPC stake required per sensor when owner has 3+ devices
+//   stake_required — HONE stake required per sensor when owner has 3+ devices
 //   freq_per_hour  — natural reading frequency (informational, used for UI/docs)
 //   power_w        — typical power draw in watts (informational, contributes to multiplier)
 //   novelty_mult   — multiplier applied instead of base when novelty_threshold is crossed
@@ -122,7 +122,7 @@ function getTypeMultiplier(type, value) {
 }
 
 /**
- * Return the stake amount (in BTCPC) required per sensor when the owner
+ * Return the stake amount (in HONE) required per sensor when the owner
  * already has SYBIL_SENSOR_THRESHOLD or more sensors.
  */
 function getStakeRequirement(type) {
@@ -140,7 +140,7 @@ function getWitnessFactor(witnessCount) {
 /**
  * Compute the epoch reward for a single sensor reading.
  *
- * @param {number} baseRate    — base BTCPC per epoch per standard sensor (governance param)
+ * @param {number} baseRate    — base HONE per epoch per standard sensor (governance param)
  * @param {string} type        — sensor type
  * @param {number} value       — the reading value (needed for novelty check)
  * @param {number} witnessCount — number of independent witnesses for this epoch

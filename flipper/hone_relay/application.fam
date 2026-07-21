@@ -1,0 +1,13 @@
+App(
+    appid="hone_relay",
+    name="HONE Relay",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="hone_relay_app",
+    requires=["gui", "storage"],
+    sources=["hone_relay.c", "sha256.c"],
+    stack_size=2 * 1024,
+    fap_category="HONE",
+    fap_description="Announces BLE MAC over USB CDC for auto-pairing with the HONE Android app",
+    fap_author="Shin Devlin / hone.network",
+    fap_version="1.2",
+)

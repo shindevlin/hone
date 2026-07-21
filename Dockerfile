@@ -4,19 +4,19 @@ FROM rust:1.80-bookworm AS builder
 WORKDIR /build
 
 # Cache dependency layer
-COPY rust/btcpc-node/Cargo.toml rust/btcpc-node/Cargo.lock* ./rust/btcpc-node/
-COPY rust/btcpc-node/crates ./rust/btcpc-node/crates
-COPY rust/btcpc-cli/Cargo.toml rust/btcpc-cli/Cargo.lock* ./rust/btcpc-cli/
-COPY rust/btcpc-contract-runtime/Cargo.toml ./rust/btcpc-contract-runtime/
-RUN mkdir -p rust/btcpc-node/src && echo "fn main(){}" > rust/btcpc-node/src/main.rs && \
-    mkdir -p rust/btcpc-cli/src && echo "fn main(){}" > rust/btcpc-cli/src/main.rs && \
-    mkdir -p rust/btcpc-contract-runtime/src && echo "" > rust/btcpc-contract-runtime/src/lib.rs && \
-    cd rust/btcpc-node && cargo build --release 2>/dev/null; true
+COPY rust/hone-node/Cargo.toml rust/hone-node/Cargo.lock* ./rust/hone-node/
+COPY rust/hone-node/crates ./rust/hone-node/crates
+COPY rust/hone-cli/Cargo.toml rust/hone-cli/Cargo.lock* ./rust/hone-cli/
+COPY rust/hone-contract-runtime/Cargo.toml ./rust/hone-contract-runtime/
+RUN mkdir -p rust/hone-node/src && echo "fn main(){}" > rust/hone-node/src/main.rs && \
+    mkdir -p rust/hone-cli/src && echo "fn main(){}" > rust/hone-cli/src/main.rs && \
+    mkdir -p rust/hone-contract-runtime/src && echo "" > rust/hone-contract-runtime/src/lib.rs && \
+    cd rust/hone-node && cargo build --release 2>/dev/null; true
 
 # Full source build
 COPY rust ./rust
-RUN cd rust/btcpc-node && cargo build --release && \
-    cd /build/rust/btcpc-cli && cargo build --release
+RUN cd rust/hone-node && cargo build --release && \
+    cd /build/rust/hone-cli && cargo build --release
 
 # ── Stage 2: minimal runtime image ───────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -27,21 +27,21 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY --from=builder /build/rust/btcpc-node/target/release/btcpc-node /usr/local/bin/btcpc-node
-COPY --from=builder /build/rust/btcpc-cli/target/release/btcpc      /usr/local/bin/btcpc
+COPY --from=builder /build/rust/hone-node/target/release/hone-node /usr/local/bin/hone-node
+COPY --from=builder /build/rust/hone-cli/target/release/hone      /usr/local/bin/hone
 
-COPY rust/btcpc-node/genesis.json         /app/genesis.json
-COPY rust/btcpc-node/testnet-genesis.json /app/testnet-genesis.json
+COPY rust/hone-node/genesis.json         /app/genesis.json
+COPY rust/hone-node/testnet-genesis.json /app/testnet-genesis.json
 COPY website /app/website
 
-RUN mkdir -p /app/data /app/.btcpc
+RUN mkdir -p /app/data /app/.hone
 
 # API 4242 | explorer 4243 | P2P 6942 | testnet API 4246 | testnet P2P 6946
 EXPOSE 4242 4243 6942 4246 6946
 
-ENV BTCPC_DATA_DIR=/app/data \
-    BTCPC_GENESIS_FILE=/app/genesis.json \
-    BTCPC_API_PORT=4242 \
-    BTCPC_P2P_PORT=6942
+ENV HONE_DATA_DIR=/app/data \
+    HONE_GENESIS_FILE=/app/genesis.json \
+    HONE_API_PORT=4242 \
+    HONE_P2P_PORT=6942
 
-CMD ["/usr/local/bin/btcpc-node"]
+CMD ["/usr/local/bin/hone-node"]

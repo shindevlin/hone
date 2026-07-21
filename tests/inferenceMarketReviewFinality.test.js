@@ -3,8 +3,8 @@
 const path = require("path");
 const os = require("os");
 
-const TEST_DATA_DIR = path.join(os.tmpdir(), "btcpc-review-finality-" + process.pid);
-process.env.BTCPC_DATA_DIR = TEST_DATA_DIR;
+const TEST_DATA_DIR = path.join(os.tmpdir(), "hone-review-finality-" + process.pid);
+process.env.HONE_DATA_DIR = TEST_DATA_DIR;
 
 jest.mock("../src/p2p/network", () => ({
   broadcast: jest.fn(),
@@ -39,7 +39,7 @@ function createAccount(username, amount) {
     type: "MINING_REWARD",
     to: username,
     amount,
-    token: "BTCPC",
+    token: "HONE",
     epoch: 1,
     timestamp: 1,
   });
@@ -49,9 +49,9 @@ function stakeAccount(username, amount) {
   stateStore.applyEntry({
     type: "STAKE",
     from: username,
-    to: "btcpc_staking_pool",
+    to: "hone_staking_pool",
     amount,
-    token: "BTCPC",
+    token: "HONE",
     epoch: 1,
     timestamp: 1,
     delegation_data: { purpose: "verifier" },
@@ -101,7 +101,7 @@ describe("inference marketplace review and finality", () => {
     });
 
     expect(opened.escrow_amount).toBeCloseTo(1.1, 10);
-    expect(stateStore.getBalance("buyer1", "BTCPC")).toBeCloseTo(8.9, 10);
+    expect(stateStore.getBalance("buyer1", "HONE")).toBeCloseTo(8.9, 10);
 
     await market.claimJob(opened.job_id, "miner1");
     await market.submitJob(opened.job_id, "miner1", "result", null, 1);
@@ -120,9 +120,9 @@ describe("inference marketplace review and finality", () => {
     expect(finalized.status).toBe("finalized");
     expect(finalized.challenge_status).toBe("non_fraud");
     expect(stateStore.getInferenceJob(opened.job_id).status).toBe("finalized");
-    expect(stateStore.getBalance("miner1", "BTCPC")).toBeCloseTo(0.9, 10);
-    expect(stateStore.getBalance("reviewer1", "BTCPC")).toBeCloseTo(100.1, 10);
-    expect(stateStore.getBalance("buyer1", "BTCPC")).toBeCloseTo(8.9, 10);
+    expect(stateStore.getBalance("miner1", "HONE")).toBeCloseTo(0.9, 10);
+    expect(stateStore.getBalance("reviewer1", "HONE")).toBeCloseTo(100.1, 10);
+    expect(stateStore.getBalance("buyer1", "HONE")).toBeCloseTo(8.9, 10);
   });
 
   test("challenge path refunds the inference fee when the appeal upholds the challenge", async () => {
@@ -142,7 +142,7 @@ describe("inference marketplace review and finality", () => {
 
     const challenged = await market.challengeJob(opened.job_id, "buyer1", "work does not fit");
     expect(challenged.status).toBe("challenged");
-    expect(stateStore.getBalance("buyer1", "BTCPC")).toBeCloseTo(8.7, 10);
+    expect(stateStore.getBalance("buyer1", "HONE")).toBeCloseTo(8.7, 10);
     expect(challenged.assigned_reviewers).toHaveLength(3);
 
     const [appealReviewer1, appealReviewer2, appealReviewer3] = challenged.assigned_reviewers;
@@ -169,12 +169,12 @@ describe("inference marketplace review and finality", () => {
     expect(resolved.status).toBe("finalized");
     expect(resolved.review_outcome).toBe("fraud");
     expect(stateStore.getInferenceJob(opened.job_id).status).toBe("finalized");
-    expect(stateStore.getBalance("buyer1", "BTCPC")).toBeCloseTo(9.7, 10);
+    expect(stateStore.getBalance("buyer1", "HONE")).toBeCloseTo(9.7, 10);
     const slashedReviewer = challenged.assigned_reviewers.find((name) => (stateStore.getSlashRecords(name) || []).length === 1);
     expect(slashedReviewer).toBeTruthy();
     expect(stateStore.getStakePool(slashedReviewer).total_staked).toBeCloseTo(196, 10);
     expect(nodeRegistry.getNode(slashedReviewer).stake).toBeCloseTo(196, 10);
     expect(stateStore.getNodeReputation(slashedReviewer).review.failed).toBeGreaterThan(0);
-    expect(stateStore.getBalance("miner1", "BTCPC")).toBeCloseTo(0, 10);
+    expect(stateStore.getBalance("miner1", "HONE")).toBeCloseTo(0, 10);
   });
 });

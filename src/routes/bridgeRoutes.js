@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Bridge HTTP Routes — v2.16-beta
+ * HONE Bridge HTTP Routes — v2.16-beta
  * Shin Devlin
  *
  * REST wrapper around bridgeRegistry (v2.16-alpha) and
@@ -10,11 +10,11 @@
  * principal matching, registry enforces chain invariants.
  *
  * Lock-and-Recycle bridge: no burn, all fees recycle to LPs or
- * smoothing buffer. wBTCPC hard cap: 4.2M per chain.
+ * smoothing buffer. wHONE hard cap: 4.2M per chain.
  *
  * Route summary:
- *   POST   /api/bridge/wrap               wrap BTCPC → wBTCPC (auth: user)
- *   POST   /api/bridge/unwrap             unwrap wBTCPC → BTCPC (auth: user)
+ *   POST   /api/bridge/wrap               wrap HONE → wHONE (auth: user)
+ *   POST   /api/bridge/unwrap             unwrap wHONE → HONE (auth: user)
  *   POST   /api/bridge/fund               fund bridge as LP (auth: funder)
  *   POST   /api/bridge/unlock             request LP unlock (auth: funder)
  *   GET    /api/bridge/chains             list supported chains (public)
@@ -48,9 +48,9 @@ function sanitizeString(val, maxLen) {
 
 /**
  * POST /api/bridge/wrap
- * Wrap BTCPC → wBTCPC on a destination chain.
+ * Wrap HONE → wHONE on a destination chain.
  * Body: { chainId, amount }
- * Fee is charged in BTCPC (source asset). Net wBTCPC is credited on-chain.
+ * Fee is charged in HONE (source asset). Net wHONE is credited on-chain.
  */
 router.post('/wrap', authenticateToken, async (req, res) => {
   try {
@@ -67,10 +67,10 @@ router.post('/wrap', authenticateToken, async (req, res) => {
     }
 
     const caller = req.user && req.user.username;
-    const userBalance = stateStore.getBalance(caller, 'BTCPC');
+    const userBalance = stateStore.getBalance(caller, 'HONE');
     if (userBalance < amount) {
       return res.status(402).json({
-        error: 'insufficient BTCPC balance',
+        error: 'insufficient HONE balance',
         required: amount,
         current: userBalance,
       });
@@ -91,9 +91,9 @@ router.post('/wrap', authenticateToken, async (req, res) => {
 
 /**
  * POST /api/bridge/unwrap
- * Unwrap wBTCPC → BTCPC. No burn — wBTCPC transfers to bridge reserve.
+ * Unwrap wHONE → HONE. No burn — wHONE transfers to bridge reserve.
  * Body: { chainId, amount }
- * Fee is charged in wBTCPC (source asset).
+ * Fee is charged in wHONE (source asset).
  */
 router.post('/unwrap', authenticateToken, async (req, res) => {
   try {
@@ -109,7 +109,7 @@ router.post('/unwrap', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'amount must be a positive number' });
     }
 
-    // TODO v2.16-beta: check wBTCPC balance once per-user wBTCPC balances
+    // TODO v2.16-beta: check wHONE balance once per-user wHONE balances
     // are tracked in stateStore. For now, bridgeRegistry enforces the cap
     // on circulating supply which provides a coarse upper bound.
 
@@ -128,7 +128,7 @@ router.post('/unwrap', authenticateToken, async (req, res) => {
 
 /**
  * POST /api/bridge/fund
- * Fund the bridge as an LP. Locks BTCPC native for a chosen period.
+ * Fund the bridge as an LP. Locks HONE native for a chosen period.
  * Body: { chainId, amount, lockDays }
  * Weight = amount × lock_days (veCRV-style).
  */
@@ -226,7 +226,7 @@ router.get('/fees', (req, res) => {
     wrap: {
       rate_bps: bridgeFeeDistributor.WRAP_FEE_BPS,
       rate_pct: bridgeFeeDistributor.WRAP_FEE_BPS / 100,
-      description: 'flat 0.05% on all wraps, charged in BTCPC',
+      description: 'flat 0.05% on all wraps, charged in HONE',
     },
     unwrap: {
       tiers: [
@@ -235,7 +235,7 @@ router.get('/fees', (req, res) => {
           threshold_max: bridgeFeeDistributor.UNWRAP_SMALL_THRESHOLD,
           rate_bps: bridgeFeeDistributor.UNWRAP_SMALL_BPS,
           rate_pct: bridgeFeeDistributor.UNWRAP_SMALL_BPS / 100,
-          description: 'amounts < ' + bridgeFeeDistributor.UNWRAP_SMALL_THRESHOLD + ' BTCPC',
+          description: 'amounts < ' + bridgeFeeDistributor.UNWRAP_SMALL_THRESHOLD + ' HONE',
         },
         {
           label: 'mid',
@@ -243,17 +243,17 @@ router.get('/fees', (req, res) => {
           threshold_max: bridgeFeeDistributor.UNWRAP_LARGE_THRESHOLD,
           rate_bps: bridgeFeeDistributor.UNWRAP_MID_BPS,
           rate_pct: bridgeFeeDistributor.UNWRAP_MID_BPS / 100,
-          description: bridgeFeeDistributor.UNWRAP_SMALL_THRESHOLD + '-' + bridgeFeeDistributor.UNWRAP_LARGE_THRESHOLD + ' BTCPC',
+          description: bridgeFeeDistributor.UNWRAP_SMALL_THRESHOLD + '-' + bridgeFeeDistributor.UNWRAP_LARGE_THRESHOLD + ' HONE',
         },
         {
           label: 'large',
           threshold_min: bridgeFeeDistributor.UNWRAP_LARGE_THRESHOLD,
           rate_bps: bridgeFeeDistributor.UNWRAP_LARGE_BPS,
           rate_pct: bridgeFeeDistributor.UNWRAP_LARGE_BPS / 100,
-          description: 'amounts > ' + bridgeFeeDistributor.UNWRAP_LARGE_THRESHOLD + ' BTCPC',
+          description: 'amounts > ' + bridgeFeeDistributor.UNWRAP_LARGE_THRESHOLD + ' HONE',
         },
       ],
-      fee_currency: 'wBTCPC',
+      fee_currency: 'wHONE',
     },
     smoothing_buffer: {
       fraction: bridgeFeeDistributor.SMOOTHING_FRACTION,

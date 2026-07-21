@@ -16,7 +16,7 @@ Branch: `security-hardening-audit`
 - Added `src/services/urlSafety.js` for shared public-URL validation.
 - Locked `POST /api/tools/call`, `POST /api/tools/register`, `POST /api/tools/mcp/start`, and `POST /api/tools/mcp/stop` to loopback-only requests.
 - Required a verified JWT before browser clock activity is credited.
-- Replaced `.env` JWT persistence with `~/.btcpc/jwt_secret`.
+- Replaced `.env` JWT persistence with `~/.hone/jwt_secret`.
 - Added tests for URL safety and reserved username validation.
 
 ## Notes

@@ -308,7 +308,7 @@ async function finalizeChatResult({ req, selectedModel, messages, max_tokens, te
     proofHash = saved._id.toString();
     verified = true;
   } catch (proofErr) {
-    console.error('[BTCPC Inference] Failed to save work proof:', proofErr.message);
+    console.error('[HONE Inference] Failed to save work proof:', proofErr.message);
     proofHash = crypto.createHash('sha256')
       .update(promptHash + resultHash + Date.now().toString())
       .digest('hex');
@@ -323,7 +323,7 @@ async function finalizeChatResult({ req, selectedModel, messages, max_tokens, te
     const { createMessage, MESSAGE_TYPES } = require('../p2p/protocol');
     const stateStore = require('../chain/stateStore');
     const minerAccount = (req.project && req.project.owner)
-      || process.env.BTCPC_MINER
+      || process.env.HONE_MINER
       || 'inference-api';
     const latestEpoch = stateStore.getLatestEpoch ? stateStore.getLatestEpoch() : null;
     const blockHash = (latestEpoch && latestEpoch.consensus_hash) || '0'.repeat(64);
@@ -338,7 +338,7 @@ async function finalizeChatResult({ req, selectedModel, messages, max_tokens, te
       epoch: epochNumber
     }, p2p.NODE_ID));
   } catch (verifyErr) {
-    console.error('[BTCPC Inference] VERIFY_REQUEST broadcast failed:', verifyErr.message);
+    console.error('[HONE Inference] VERIFY_REQUEST broadcast failed:', verifyErr.message);
   }
 
   const { cost, pricing } = await calculateCost(evalCount, selectedModel);
@@ -365,7 +365,7 @@ async function finalizeChatResult({ req, selectedModel, messages, max_tokens, te
 
 /**
  * Bearer token authentication middleware.
- * Accepts btcpc_ project keys (verified + balance check) or any non-empty token.
+ * Accepts hone_ project keys (verified + balance check) or any non-empty token.
  */
 async function authenticateBearer(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -383,14 +383,14 @@ async function authenticateBearer(req, res, next) {
   req.apiKey = token;
 
   // Internal relay key — used by bot endpoints
-  const RELAY_KEY = process.env.BTCPC_RELAY_API_KEY;
+  const RELAY_KEY = process.env.HONE_RELAY_API_KEY;
   if (RELAY_KEY && token === RELAY_KEY) {
     req.isRelay = true;
     return next();
   }
 
-  // ── Session tokens (btcpc_session_*) — third-party app authorization ──
-  if (token.startsWith('btcpc_session_')) {
+  // ── Session tokens (hone_session_*) — third-party app authorization ──
+  if (token.startsWith('hone_session_')) {
     const sessionStore = require('../services/sessionStore');
     const session = sessionStore.getSession(token);
     if (!session) {
@@ -402,7 +402,7 @@ async function authenticateBearer(req, res, next) {
     if (remaining <= 0) {
       return res.status(402).json({
         error: {
-          message: `Session spending limit exhausted (${session.spending_limit} BTCPC). Request a new session token.`,
+          message: `Session spending limit exhausted (${session.spending_limit} HONE). Request a new session token.`,
           type: 'billing_error',
           code: 'session_limit_exceeded',
           spent: session.spent,
@@ -435,8 +435,8 @@ async function authenticateBearer(req, res, next) {
     return next();
   }
 
-  // Resolve btcpc_ project keys — secretStore first, Mongo fallback
-  if (token.startsWith('btcpc_')) {
+  // Resolve hone_ project keys — secretStore first, Mongo fallback
+  if (token.startsWith('hone_')) {
     const project = await _findProjectByApiKey(token);
     if (!project) {
       return res.status(401).json({
@@ -450,14 +450,14 @@ async function authenticateBearer(req, res, next) {
     }
     if (project.balance <= 0) {
       return res.status(402).json({
-        error: { message: `Insufficient project balance (${project.balance} BTCPC). Fund your project wallet.`, type: 'billing_error', code: 'insufficient_balance' }
+        error: { message: `Insufficient project balance (${project.balance} HONE). Fund your project wallet.`, type: 'billing_error', code: 'insufficient_balance' }
       });
     }
     req.project = project;
     return next();
   }
 
-  // Non-btcpc_ tokens: reject on inference endpoints, allow on read-only
+  // Non-hone_ tokens: reject on inference endpoints, allow on read-only
   // Read-only paths (models, pricing, network) don't require project auth
   const readOnlyPaths = ['/v1/models', '/v1/pricing', '/v1/network/models'];
   if (readOnlyPaths.some(p => req.path.startsWith(p))) {
@@ -469,12 +469,12 @@ async function authenticateBearer(req, res, next) {
   if (jwtAllowedPaths.some(p => req.path.startsWith(p))) {
     try {
       const jwtLib = require('jsonwebtoken');
-      const decoded = jwtLib.verify(token, process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET);
+      const decoded = jwtLib.verify(token, process.env.JWT_SECRET || process.env.HONE_JWT_SECRET);
       const jwtUsername = decoded.username || decoded.id;
       req.jwtUser = jwtUsername;
       // Give JWT users a project facade so billing pipeline works
       const stateStore = require('../chain/stateStore');
-      const bal = stateStore.getBalance ? stateStore.getBalance(jwtUsername, 'BTCPC') : 0;
+      const bal = stateStore.getBalance ? stateStore.getBalance(jwtUsername, 'HONE') : 0;
       req.project = {
         _source: 'jwt',
         name: jwtUsername + '/mobile-app',
@@ -497,7 +497,7 @@ async function authenticateBearer(req, res, next) {
 
   return res.status(401).json({
     error: {
-      message: 'Valid btcpc_ API key required for inference. Register at /api/projects/register.',
+      message: 'Valid hone_ API key required for inference. Register at /api/projects/register.',
       type: 'authentication_error',
       code: 'api_key_required'
     }
@@ -520,7 +520,7 @@ router.get('/v1/models', async (req, res) => {
       id: m.name,
       object: 'model',
       created: Math.floor(new Date(m.modified_at || Date.now()).getTime() / 1000),
-      owned_by: 'btcpc'
+      owned_by: 'hone'
     }));
 
     res.json({
@@ -528,7 +528,7 @@ router.get('/v1/models', async (req, res) => {
       data: models
     });
   } catch (err) {
-    console.error('[BTCPC Inference] Failed to list models:', err.message);
+    console.error('[HONE Inference] Failed to list models:', err.message);
     res.status(502).json({
       error: {
         message: 'Failed to retrieve model list from inference backend.',
@@ -543,7 +543,7 @@ router.get('/v1/models', async (req, res) => {
  * POST /v1/node/pull-model
  * Pull an Ollama model to the local inference backend.
  * Streams newline-delimited JSON progress so callers can show a progress bar.
- * Requires a valid btcpc_ API key or JWT session (same auth as inference).
+ * Requires a valid hone_ API key or JWT session (same auth as inference).
  */
 router.post('/v1/node/pull-model', async (req, res) => {
   const model = (req.body && req.body.model || '').trim();
@@ -623,7 +623,7 @@ router.get('/v1/pricing', async (req, res) => {
     const pricing = await getCurrentPricing(model);
     res.json({
       model: pricing.model,
-      tokens_per_btcpc: pricing.tokensPerBtcpc,
+      tokens_per_hone: pricing.tokensPerHone,
       cost_per_token: pricing.costPerToken,
       load_multiplier: pricing.loadMultiplier,
       model_weight: pricing.modelWeight,
@@ -673,7 +673,7 @@ router.get('/v1/network/models', async (req, res) => {
       return {
         ...m,
         cost_per_token: pricing.costPerToken,
-        tokens_per_btcpc: pricing.tokensPerBtcpc,
+        tokens_per_hone: pricing.tokensPerHone,
         model_weight: pricing.modelWeight
       };
     }));
@@ -790,11 +790,11 @@ router.post('/v1/inference/submit', async (req, res) => {
         }
       } else {
         // No miners — fall back to environment default
-        selectedModel = process.env.BTCPC_MODEL || 'qwen3.5:27b';
+        selectedModel = process.env.HONE_MODEL || 'qwen3.5:27b';
       }
     } catch (err) {
-      console.error('[BTCPC] Auto-picker error:', err.message);
-      selectedModel = process.env.BTCPC_MODEL || 'qwen3.5:27b';
+      console.error('[HONE] Auto-picker error:', err.message);
+      selectedModel = process.env.HONE_MODEL || 'qwen3.5:27b';
     }
   }
 
@@ -921,7 +921,7 @@ router.post('/v1/chat/completions', async (req, res) => {
 
   if (local) {
     try {
-      const requestId = `btcpc-${crypto.randomBytes(12).toString('hex')}`;
+      const requestId = `hone-${crypto.randomBytes(12).toString('hex')}`;
       const created = Math.floor(Date.now() / 1000);
       const promptTokens = estimateTokens(messages.map(m => m.content || '').join(' '));
 
@@ -967,7 +967,7 @@ router.post('/v1/chat/completions', async (req, res) => {
           completion_tokens: direct.tokens,
           total_tokens: promptTokens + direct.tokens
         },
-        btcpc: {
+        hone: {
           cost: 0,
           model_weight: getModelWeight(selectedModel),
           local: true,
@@ -1011,7 +1011,7 @@ router.post('/v1/chat/completions', async (req, res) => {
   }
 
   try {
-    const requestId = `btcpc-${crypto.randomBytes(12).toString('hex')}`;
+    const requestId = `hone-${crypto.randomBytes(12).toString('hex')}`;
     const created = Math.floor(Date.now() / 1000);
 
     if (stream === true) {
@@ -1077,7 +1077,7 @@ router.post('/v1/chat/completions', async (req, res) => {
           completion_tokens: direct.tokens,
           total_tokens: estimateTokens(messages.map(m => m.content || '').join(' ')) + direct.tokens
         },
-        btcpc: {
+        hone: {
           cost: 0,
           model_weight: getModelWeight(selectedModel),
           local: true,
@@ -1115,9 +1115,9 @@ router.post('/v1/chat/completions', async (req, res) => {
         completion_tokens: final.evalCount,
         total_tokens: final.promptEvalCount + final.evalCount
       },
-      btcpc: {
+      hone: {
         cost: final.cost,
-        tokens_per_btcpc: final.pricing.tokensPerBtcpc,
+        tokens_per_hone: final.pricing.tokensPerHone,
         model_weight: final.pricing.modelWeight,
         load_multiplier: final.pricing.loadMultiplier,
         total_multiplier: final.pricing.totalMultiplier,
@@ -1130,7 +1130,7 @@ router.post('/v1/chat/completions', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('[BTCPC Inference] Inference failed:', err.message);
+    console.error('[HONE Inference] Inference failed:', err.message);
 
     if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
       return res.status(502).json({
@@ -1171,7 +1171,7 @@ router.post('/v1/chat/completions', async (req, res) => {
  * Body: {
  *   prompt_encrypted: { ciphertext, iv, tag },  — AES-256-GCM, base64 fields
  *   user_memo_pubkey: string,                    — hex compressed secp256k1 pubkey
- *   miner_account:    string,                    — target miner's BTCPC account name
+ *   miner_account:    string,                    — target miner's HONE account name
  *   model:            string (optional),
  *   max_tokens:       number (optional),
  *   temperature:      number (optional)
@@ -1314,7 +1314,7 @@ router.post('/v1/inference/encrypted', async (req, res) => {
       result_encrypted: job.result_encrypted,
     });
   } catch (err) {
-    console.error('[BTCPC Inference] Encrypted inference error:', err.message);
+    console.error('[HONE Inference] Encrypted inference error:', err.message);
     return res.status(500).json({
       error: { message: err.message, type: 'server_error', code: 'internal_error' }
     });
@@ -1355,7 +1355,7 @@ router.post('/v1/agent/session', async (req, res) => {
     });
     return res.json(result);
   } catch (err) {
-    console.error('[BTCPC Agent] Session create error:', err.message);
+    console.error('[HONE Agent] Session create error:', err.message);
     return res.status(500).json({ error: { message: err.message, type: 'server_error', code: 'internal_error' } });
   }
 });
@@ -1423,7 +1423,7 @@ router.post('/v1/agent/turn', async (req, res) => {
       agentSession.addTurn(session_id, 'user', userMessage);
     }
 
-    // Execute any BTCPC tools before building the prompt (requester-side)
+    // Execute any HONE tools before building the prompt (requester-side)
     const agentToolNames = req.body.tools || [];
     const agentToolContext = req.body.tool_context || {};
     const agentMcpServers = req.body.mcp_servers || [];
@@ -1441,7 +1441,7 @@ router.post('/v1/agent/turn', async (req, res) => {
 
     // Build Ollama request
     const messages = agentSession.buildMessages(session_id, null); // history already has the new user turn
-    const ollamaModel = process.env.BTCPC_MODEL || 'qwen2.5:0.5b';
+    const ollamaModel = process.env.HONE_MODEL || 'qwen2.5:0.5b';
     const ollamaBase = process.env.OLLAMA_HOST || 'http://localhost:11434';
 
     const reqBody = {
@@ -1513,7 +1513,7 @@ router.post('/v1/agent/turn', async (req, res) => {
 
     return res.json(responseData);
   } catch (err) {
-    console.error('[BTCPC Agent] Turn error:', err.message);
+    console.error('[HONE Agent] Turn error:', err.message);
     return res.status(500).json({ error: { message: err.message, type: 'server_error', code: 'internal_error' } });
   }
 });

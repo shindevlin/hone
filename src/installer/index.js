@@ -1,9 +1,9 @@
 "use strict";
 
-// BTCPC Intelligent Installer
+// HONE Intelligent Installer
 // Detects agentic engines, offers to install one if none found,
 // then guides the user through node type selection via that engine
-// (or plain wizard fallback). Registers BTCPC as a skill when done.
+// (or plain wizard fallback). Registers HONE as a skill when done.
 
 const tools   = require("./tools");
 const { registerAll } = require("./register");
@@ -16,7 +16,7 @@ const BOLD   = "\x1b[1m";
 const RESET  = "\x1b[0m";
 const DIM    = "\x1b[2m";
 
-function say(msg) { console.log(`${ORANGE}[btcpc]${RESET} ${msg}`); }
+function say(msg) { console.log(`${ORANGE}[hone]${RESET} ${msg}`); }
 
 // All engines we know about, shown as install options when nothing is detected.
 // Three are shown upfront; user can pick "more" to see the full list.
@@ -98,7 +98,7 @@ const ALL_ENGINES = [
 
 async function run() {
   console.log(`\n${BOLD}  Bitcoin Proof of Compute — Intelligent Installer${RESET}`);
-  console.log(`${DIM}  btcpc.net  •  sovereign chain for AI inference${RESET}\n`);
+  console.log(`${DIM}  hone.net  •  sovereign chain for AI inference${RESET}\n`);
 
   // 1. Detect which engines are already installed
   say("Scanning for agentic AI engines on this device...\n");
@@ -113,7 +113,7 @@ async function run() {
       engine = detected[0].id;
     } else {
       const choice = await tools.ask_choice(
-        "Which engine should guide your BTCPC setup?",
+        "Which engine should guide your HONE setup?",
         detected.map(e => ({ label: e.label, desc: e.id, value: e.id }))
       );
       engine = choice ? choice.value : null;
@@ -122,7 +122,7 @@ async function run() {
     // 2. No engine found — offer to install one
     console.log();
     say("No agentic AI engine found on this device.");
-    say("An agentic engine lets you manage BTCPC — and everything else — through");
+    say("An agentic engine lets you manage HONE — and everything else — through");
     say("natural conversation. After setup you could say: \"hey hermes, check my balance\"\n");
 
     const wantEngine = await tools.ask_confirm(
@@ -142,15 +142,15 @@ async function run() {
     await _runViaEngine(engine);
   }
 
-  // 4. Register BTCPC skill in all detected+installed engines
-  console.log(`\n${BOLD}  Registering BTCPC commands in your AI engines...${RESET}`);
+  // 4. Register HONE skill in all detected+installed engines
+  console.log(`\n${BOLD}  Registering HONE commands in your AI engines...${RESET}`);
   const registered = registerAll();
   if (registered.length === 0) {
-    say("No engines detected for skill registration. Run btcpc-install again after installing an engine.");
+    say("No engines detected for skill registration. Run hone-install again after installing an engine.");
   }
 
   console.log("\n");
-  say("Done. Run `node bin/btcpc-cli status` to check your nodes.\n");
+  say("Done. Run `node bin/hone-cli status` to check your nodes.\n");
 }
 
 async function _offerEngineInstall() {
@@ -198,7 +198,7 @@ async function _runViaEngine(engineId) {
   const soulPath = require("path").resolve(__dirname, "SOUL.md");
 
   if (engineId === "hermes") {
-    say("Launching Hermes with BTCPC setup profile...\n");
+    say("Launching Hermes with HONE setup profile...\n");
     say("Type naturally — Hermes will ask about each node type and set it up step by step.\n");
     const proc = hermes.startSession(soulPath);
     await new Promise((resolve) => proc.on("exit", resolve));
@@ -206,7 +206,7 @@ async function _runViaEngine(engineId) {
   }
 
   if (engineId === "openclaw") {
-    say("Launching OpenClaw with BTCPC SOUL...\n");
+    say("Launching OpenClaw with HONE SOUL...\n");
     say("Type naturally — OpenClaw will guide you through node setup.\n");
     const { spawnSync } = require("child_process");
     spawnSync("openclaw", ["--soul", soulPath], { stdio: "inherit" });
@@ -217,7 +217,7 @@ async function _runViaEngine(engineId) {
   if (["crewai", "autogen", "langgraph"].includes(engineId)) {
     say(`Launching ${engineId} setup agent...\n`);
     const script = _pythonBootstrap(engineId, soulPath);
-    const tmpPath = require("os").tmpdir() + `/btcpc_${engineId}_install.py`;
+    const tmpPath = require("os").tmpdir() + `/hone_${engineId}_install.py`;
     require("fs").writeFileSync(tmpPath, script, "utf8");
     const { spawnSync } = require("child_process");
     spawnSync("python3", [tmpPath], { stdio: "inherit" });
@@ -234,20 +234,20 @@ function _pythonBootstrap(engine, soulPath) {
 import subprocess, sys, json
 
 SOUL = """${soul}"""
-BTCPC_DIR = "${require("path").resolve(__dirname, "../..")}"
+HONE_DIR = "${require("path").resolve(__dirname, "../..")}"
 
-print("[btcpc] Launching ${engine} agent for BTCPC setup...")
-print("[btcpc] The agent will ask what you want to run, one step at a time.")
+print("[hone] Launching ${engine} agent for HONE setup...")
+print("[hone] The agent will ask what you want to run, one step at a time.")
 print()
 
 try:
     import ${engine.replace("-", "_")}
-    print(f"[btcpc] Using ${engine}. Ask it: 'help me set up a BTCPC node'")
-    print("[btcpc] (Full ${engine} integration coming in a future release — wizard fallback active)")
+    print(f"[hone] Using ${engine}. Ask it: 'help me set up a HONE node'")
+    print("[hone] (Full ${engine} integration coming in a future release — wizard fallback active)")
 except ImportError:
-    print("[btcpc] ${engine} import failed — using wizard fallback")
+    print("[hone] ${engine} import failed — using wizard fallback")
 
-subprocess.run(["node", BTCPC_DIR + "/bin/btcpc-install", "--wizard"], check=False)
+subprocess.run(["node", HONE_DIR + "/bin/hone-install", "--wizard"], check=False)
 `;
 }
 

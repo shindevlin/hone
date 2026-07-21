@@ -1,23 +1,23 @@
 "use strict";
 
 /**
- * @btcpc/sdk — Universal BTCPC client
+ * @hone/sdk — Universal HONE client
  * Natoshi Sakamoto
  *
- * One import for any project that uses BTCPC:
+ * One import for any project that uses HONE:
  *
- *   const BTCPC = require('@btcpc/sdk');
- *   const btcpc = new BTCPC({ apiKey: process.env.BTCPC_API_KEY });
- *   const answer = await btcpc.ask({ prompt: 'What is 2+2?' });
+ *   const HONE = require('@hone/sdk');
+ *   const hone = new HONE({ apiKey: process.env.HONE_API_KEY });
+ *   const answer = await hone.ask({ prompt: 'What is 2+2?' });
  *
  * Auto-discovers the API, handles auth, claims faucet when needed,
  * and warns about common security mistakes in your code.
  *
  * Environment:
- *   BTCPC_API_URL   — API base URL (auto-discovers if not set)
- *   BTCPC_API_KEY   — project API key (btcpc_...)
- *   BTCPC_ACCOUNT   — account name
- *   BTCPC_MODEL     — preferred model (default: auto)
+ *   HONE_API_URL   — API base URL (auto-discovers if not set)
+ *   HONE_API_KEY   — project API key (hone_...)
+ *   HONE_ACCOUNT   — account name
+ *   HONE_MODEL     — preferred model (default: auto)
  */
 
 const https = require("https");
@@ -32,23 +32,23 @@ var DISCOVER_URLS = [
   "http://localhost:3000",
   "http://localhost:3100",
   "http://localhost:4242",
-  "https://btcpc.net",
+  "https://hone.net",
 ];
 
-class BTCPC {
+class HONE {
   /**
    * @param {Object} options
-   * @param {string} [options.apiKey] — btcpc_ API key (env: BTCPC_API_KEY)
-   * @param {string} [options.baseUrl] — API URL (env: BTCPC_API_URL, or auto-discover)
-   * @param {string} [options.account] — account name (env: BTCPC_ACCOUNT)
-   * @param {string} [options.model] — preferred model (env: BTCPC_MODEL)
+   * @param {string} [options.apiKey] — hone_ API key (env: HONE_API_KEY)
+   * @param {string} [options.baseUrl] — API URL (env: HONE_API_URL, or auto-discover)
+   * @param {string} [options.account] — account name (env: HONE_ACCOUNT)
+   * @param {string} [options.model] — preferred model (env: HONE_MODEL)
    */
   constructor(options) {
     var opts = options || {};
-    this.apiKey = opts.apiKey || process.env.BTCPC_API_KEY || process.env.BTCPC_PROJECT_KEY || null;
-    this.baseUrl = (opts.baseUrl || process.env.BTCPC_API_URL || process.env.BTCPC_URL || process.env.BTCPC_NODE_URL || null);
-    this.account = opts.account || process.env.BTCPC_ACCOUNT || process.env.BTCPC_MINER || null;
-    this.model = opts.model || process.env.BTCPC_MODEL || null;
+    this.apiKey = opts.apiKey || process.env.HONE_API_KEY || process.env.HONE_PROJECT_KEY || null;
+    this.baseUrl = (opts.baseUrl || process.env.HONE_API_URL || process.env.HONE_URL || process.env.HONE_NODE_URL || null);
+    this.account = opts.account || process.env.HONE_ACCOUNT || process.env.HONE_MINER || null;
+    this.model = opts.model || process.env.HONE_MODEL || null;
     this._discovered = false;
 
     // ── Security checks on init ──
@@ -61,43 +61,43 @@ class BTCPC {
     var warnings = [];
 
     // Check for hardcoded API keys (common vibe-coder mistake)
-    if (opts.apiKey && opts.apiKey.startsWith("btcpc_") && opts.apiKey.length > 20) {
+    if (opts.apiKey && opts.apiKey.startsWith("hone_") && opts.apiKey.length > 20) {
       // Check if the key appears to be a literal in source (not from env)
       try {
         var stack = new Error().stack || "";
         // Can't reliably detect this, but warn about best practice
       } catch (_) {}
-      if (!process.env.BTCPC_API_KEY && !process.env.BTCPC_PROJECT_KEY) {
-        warnings.push("API key passed directly — use BTCPC_API_KEY env var instead of hardcoding keys in source code");
+      if (!process.env.HONE_API_KEY && !process.env.HONE_PROJECT_KEY) {
+        warnings.push("API key passed directly — use HONE_API_KEY env var instead of hardcoding keys in source code");
       }
     }
 
     // Check for private keys in env (should NEVER be here)
     var dangerousEnvVars = [
-      "BTCPC_PRIVATE_KEY", "BTCPC_OWNER_KEY", "BTCPC_ACTIVE_KEY",
-      "BTCPC_POSTING_KEY", "BTCPC_MEMO_KEY", "BTCPC_MNEMONIC",
+      "HONE_PRIVATE_KEY", "HONE_OWNER_KEY", "HONE_ACTIVE_KEY",
+      "HONE_POSTING_KEY", "HONE_MEMO_KEY", "HONE_MNEMONIC",
     ];
     for (var i = 0; i < dangerousEnvVars.length; i++) {
       if (process.env[dangerousEnvVars[i]]) {
-        warnings.push("DANGER: " + dangerousEnvVars[i] + " found in environment. Private keys should NEVER be in env vars or code. Use a hardware wallet or btcpc.net/rotate.");
+        warnings.push("DANGER: " + dangerousEnvVars[i] + " found in environment. Private keys should NEVER be in env vars or code. Use a hardware wallet or hone.net/rotate.");
       }
     }
 
-    // Check for .envbtcpc with secrets
+    // Check for .envhone with secrets
     try {
       var fs = require("fs");
       var path = require("path");
-      var envFile = path.resolve(process.cwd(), ".envbtcpc");
+      var envFile = path.resolve(process.cwd(), ".envhone");
       if (fs.existsSync(envFile)) {
         var content = fs.readFileSync(envFile, "utf8");
         if (/private_key|mnemonic|seed/i.test(content)) {
-          warnings.push("DANGER: .envbtcpc contains private keys or mnemonic. Move secrets to a hardware wallet. Never commit .envbtcpc to git.");
+          warnings.push("DANGER: .envhone contains private keys or mnemonic. Move secrets to a hardware wallet. Never commit .envhone to git.");
         }
-        // Check if .envbtcpc is in .gitignore
+        // Check if .envhone is in .gitignore
         var gitignore = "";
         try { gitignore = fs.readFileSync(path.resolve(process.cwd(), ".gitignore"), "utf8"); } catch (_) {}
-        if (!gitignore.includes(".envbtcpc")) {
-          warnings.push("WARNING: .envbtcpc is not in .gitignore — secrets may be committed to git");
+        if (!gitignore.includes(".envhone")) {
+          warnings.push("WARNING: .envhone is not in .gitignore — secrets may be committed to git");
         }
       }
     } catch (_) {}
@@ -108,7 +108,7 @@ class BTCPC {
     }
 
     for (var w = 0; w < warnings.length; w++) {
-      console.warn("[btcpc-sdk] " + warnings[w]);
+      console.warn("[hone-sdk] " + warnings[w]);
     }
   }
 
@@ -133,7 +133,7 @@ class BTCPC {
       } catch (_) {}
     }
 
-    throw new Error("BTCPC API not reachable. Set BTCPC_API_URL in your environment.");
+    throw new Error("HONE API not reachable. Set HONE_API_URL in your environment.");
   }
 
   // ─── Inference ──────────────────────────────────────────────────
@@ -303,7 +303,7 @@ class BTCPC {
 
       var headers = {
         "Content-Type": "application/json",
-        "User-Agent": "@btcpc/sdk/" + SDK_VERSION,
+        "User-Agent": "@hone/sdk/" + SDK_VERSION,
       };
       if (self.apiKey) headers["Authorization"] = "Bearer " + self.apiKey;
       if (payload) headers["Content-Length"] = Buffer.byteLength(payload);
@@ -335,9 +335,9 @@ class BTCPC {
 
 // ─── Exports ──────────────────────────────────────────────────────
 
-module.exports = BTCPC;
-module.exports.BTCPC = BTCPC;
-module.exports.default = BTCPC;
+module.exports = HONE;
+module.exports.HONE = HONE;
+module.exports.default = HONE;
 module.exports.SDK_VERSION = SDK_VERSION;
 module.exports.GENESIS_TIMESTAMP = GENESIS_TIMESTAMP;
 module.exports.EPOCH_DURATION_MS = EPOCH_DURATION_MS;

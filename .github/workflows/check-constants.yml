@@ -26,20 +26,20 @@ jobs:
           grep -q "HUNITS_PER_HONE.*10_000_000_000" rust/hone-node/crates/hone-types/src/lib.rs \
             || (echo "FAIL: HUNITS_PER_HONE mismatch in lib.rs" && exit 1)
           grep -q "10,000,000,000" docs/CHAIN_CONSTANTS.md \
-            || (echo "FAIL: dreams-per-BTCPC not documented in CHAIN_CONSTANTS.md" && exit 1)
+            || (echo "FAIL: dreams-per-HONE not documented in CHAIN_CONSTANTS.md" && exit 1)
 
-      - name: Check supply cap = 42_000_000 BTCPC
+      - name: Check supply cap = 42_000_000 HONE
         run: |
           grep -q "SUPPLY_CAP_HUNITS.*42_000_000" rust/hone-node/crates/hone-types/src/emission.rs \
             || (echo "FAIL: SUPPLY_CAP_HUNITS mismatch in emission.rs" && exit 1)
           grep -q "42,000,000" docs/CHAIN_CONSTANTS.md \
             || (echo "FAIL: supply cap not documented in CHAIN_CONSTANTS.md" && exit 1)
 
-      - name: Check block reward = 2 BTCPC
+      - name: Check block reward = 2 HONE
         run: |
           grep -q "BLOCK_REWARD_HUNITS.*2 \* 10_000_000_000" rust/hone-node/crates/hone-types/src/emission.rs \
             || (echo "FAIL: BLOCK_REWARD_HUNITS mismatch in emission.rs" && exit 1)
-          grep -q "2 BTCPC per epoch" docs/CHAIN_CONSTANTS.md \
+          grep -q "2 HONE per epoch" docs/CHAIN_CONSTANTS.md \
             || (echo "FAIL: block reward not documented correctly in CHAIN_CONSTANTS.md" && exit 1)
 
       - name: Check genesis timestamp

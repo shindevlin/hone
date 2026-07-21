@@ -10,28 +10,28 @@ The repo had a large mismatch between actual implementation and project tracking
 
 - `tasks/tasks.md` described an older URSNode-era scaffold state and claimed major modules were missing.
 - There was no local `.planning`, `PROJECT.md`, or `PLAN.md` GSD state to rely on.
-- The codebase itself already contains implemented BTCPC server, ledger, mining, inference, explorer, and cross-chain groundwork.
+- The codebase itself already contains implemented HONE server, ledger, mining, inference, explorer, and cross-chain groundwork.
 
 This pass replaced stale planning material with repo-accurate documents, fixed a real auth bug, and added the first real automated test baseline plus CI.
 
 ## Files added
 
-- [docs/EXECUTION_PLAN.md](/home/ubuntclaw/repos/btcpc/docs/EXECUTION_PLAN.md)
-- [docs/PROJECT_STATE.md](/home/ubuntclaw/repos/btcpc/docs/PROJECT_STATE.md)
-- [docs/CLAUDE_HANDOFF_2026-04-08.md](/home/ubuntclaw/repos/btcpc/docs/CLAUDE_HANDOFF_2026-04-08.md)
-- [tests/authController.test.js](/home/ubuntclaw/repos/btcpc/tests/authController.test.js)
-- [tests/walletController.test.js](/home/ubuntclaw/repos/btcpc/tests/walletController.test.js)
-- [tests/ledger.test.js](/home/ubuntclaw/repos/btcpc/tests/ledger.test.js)
-- [tests/pricing.test.js](/home/ubuntclaw/repos/btcpc/tests/pricing.test.js)
-- [.github/workflows/test.yml](/home/ubuntclaw/repos/btcpc/.github/workflows/test.yml)
+- [docs/EXECUTION_PLAN.md](/home/ubuntclaw/repos/hone/docs/EXECUTION_PLAN.md)
+- [docs/PROJECT_STATE.md](/home/ubuntclaw/repos/hone/docs/PROJECT_STATE.md)
+- [docs/CLAUDE_HANDOFF_2026-04-08.md](/home/ubuntclaw/repos/hone/docs/CLAUDE_HANDOFF_2026-04-08.md)
+- [tests/authController.test.js](/home/ubuntclaw/repos/hone/tests/authController.test.js)
+- [tests/walletController.test.js](/home/ubuntclaw/repos/hone/tests/walletController.test.js)
+- [tests/ledger.test.js](/home/ubuntclaw/repos/hone/tests/ledger.test.js)
+- [tests/pricing.test.js](/home/ubuntclaw/repos/hone/tests/pricing.test.js)
+- [.github/workflows/test.yml](/home/ubuntclaw/repos/hone/.github/workflows/test.yml)
 
 ## Files changed in this pass
 
-- [src/controllers/authController.js](/home/ubuntclaw/repos/btcpc/src/controllers/authController.js)
-- [src/wallet/accountManager.js](/home/ubuntclaw/repos/btcpc/src/wallet/accountManager.js)
-- [src/controllers/walletController.js](/home/ubuntclaw/repos/btcpc/src/controllers/walletController.js)
-- [tasks/tasks.md](/home/ubuntclaw/repos/btcpc/tasks/tasks.md)
-- [README.md](/home/ubuntclaw/repos/btcpc/README.md)
+- [src/controllers/authController.js](/home/ubuntclaw/repos/hone/src/controllers/authController.js)
+- [src/wallet/accountManager.js](/home/ubuntclaw/repos/hone/src/wallet/accountManager.js)
+- [src/controllers/walletController.js](/home/ubuntclaw/repos/hone/src/controllers/walletController.js)
+- [tasks/tasks.md](/home/ubuntclaw/repos/hone/tasks/tasks.md)
+- [README.md](/home/ubuntclaw/repos/hone/README.md)
 
 ## Important fixes made
 
@@ -59,13 +59,13 @@ Why this matters:
 
 ### 2. Legacy terminology cleanup
 
-- Replaced visible `URS` token wording in `walletController` with `BTCPC` wording in the touched user-facing messages/comments.
+- Replaced visible `URS` token wording in `walletController` with `HONE` wording in the touched user-facing messages/comments.
 
 This is not a full repo-wide terminology sweep. More cleanup is still needed.
 
 ### 3. Repo-accurate project tracking added
 
-- Rebuilt `tasks/tasks.md` to reflect actual BTCPC state rather than the old scaffold list.
+- Rebuilt `tasks/tasks.md` to reflect actual HONE state rather than the old scaffold list.
 - Added `docs/PROJECT_STATE.md` for a high-level “what exists / what is missing” snapshot.
 - Added `docs/EXECUTION_PLAN.md` for next-step execution planning.
 
@@ -134,9 +134,9 @@ Goal:
 
 These files were already dirty and appear to be active work:
 
-- [src/inference/handler.js](/home/ubuntclaw/repos/btcpc/src/inference/handler.js)
-- [src/mining/miner.js](/home/ubuntclaw/repos/btcpc/src/mining/miner.js)
-- [src/models/Transaction.js](/home/ubuntclaw/repos/btcpc/src/models/Transaction.js)
+- [src/inference/handler.js](/home/ubuntclaw/repos/hone/src/inference/handler.js)
+- [src/mining/miner.js](/home/ubuntclaw/repos/hone/src/mining/miner.js)
+- [src/models/Transaction.js](/home/ubuntclaw/repos/hone/src/models/Transaction.js)
 
 They were intentionally not normalized/refactored during this pass.
 
@@ -148,9 +148,9 @@ Reason:
 
 At the time of this pass, the worktree also included:
 
-- [data/blocks](/home/ubuntclaw/repos/btcpc/data/blocks)
-- [infra_test.js](/home/ubuntclaw/repos/btcpc/infra_test.js)
-- [telegram-bot/package-lock.json](/home/ubuntclaw/repos/btcpc/telegram-bot/package-lock.json)
+- [data/blocks](/home/ubuntclaw/repos/hone/data/blocks)
+- [infra_test.js](/home/ubuntclaw/repos/hone/infra_test.js)
+- [telegram-bot/package-lock.json](/home/ubuntclaw/repos/hone/telegram-bot/package-lock.json)
 
 These were not modified.
 

@@ -1,9 +1,9 @@
 "use strict";
 
-const BtcpcNativeExchange = require('./BtcpcNativeExchange');
+const HoneNativeExchange = require('./HoneNativeExchange');
 
 /**
- * BTCPC State Store — in-memory chain state cache.
+ * HONE State Store — in-memory chain state cache.
 
  * Shin Devlin
  *
@@ -62,7 +62,7 @@ var escrows = new Map();
 var epochs = new Map();
 
 // Projects (PROJECT_CREATE ledger entries): name → { owner, repo_url, wallet_address, created_epoch }
-// Note: API keys are NOT here — they live in ~/.btcpc/secrets.json
+// Note: API keys are NOT here — they live in ~/.hone/secrets.json
 var projects = new Map();
 var projectRevenueSplits = new Map(); // projectName → { splits: [{ account, percent }] }
 var earnings = new Map(); // account → { mining, clock, storage, iot, verifier, total }
@@ -125,7 +125,7 @@ var reputation = new Map();
 // Reputation votes (dedupe + recall): "voter|target_type|target_id" → { vote: +1|-1, weight, epoch, memo }
 var reputationVotes = new Map();
 
-// BTCPC-FS blobs (v2.11+): cid → { size, uploader, hosts[], committed_epoch, expires_epoch, payment_btcpc }
+// HONE-FS blobs (v2.11+): cid → { size, uploader, hosts[], committed_epoch, expires_epoch, payment_hone }
 // Tracks which CIDs have been committed on chain. The actual bytes live in
 // src/services/blobStore.js — this Map is the chain-level metadata only.
 var blobs = new Map();
@@ -143,7 +143,7 @@ var storedFiles = new Map();
 // No on-chain field links the two — only the client's locally-held pair_id does.
 var shardPtrs = new Map();
 
-// BTCPC-FS storage heartbeats (v2.11.2+): host → {
+// HONE-FS storage heartbeats (v2.11.2+): host → {
 //   last_heartbeat_epoch,
 //   heartbeats: [{ epoch, cids: [...], capacity_used_gb }, ...],  // rolling window
 //   total_heartbeats,
@@ -230,7 +230,7 @@ function _applyRepEvent(account, category, passed, epoch, extra) {
   nodeReputation.set(account, rep);
 }
 
-// BTCPC-FS blob challenges (v2.11.2+): challenge_id → {
+// HONE-FS blob challenges (v2.11.2+): challenge_id → {
 //   challenger, host, cid, byte_start, byte_length, expected_hash?,
 //   issued_epoch, response_epoch, response_hash, status
 // }
@@ -277,7 +277,7 @@ var sensorVouches = new Map();
 // AuctionRecord: {
 //   name, seller, start_price_usd, min_bid_increment_usd,
 //   auction_end_epoch, open_epoch,
-//   bids: [ { bidder, bid_usd, chain, tx_hash, btcpc_account, btcpc_pubkeys, bid_epoch } ],
+//   bids: [ { bidder, bid_usd, chain, tx_hash, hone_account, hone_pubkeys, bid_epoch } ],
 //   status: "open" | "settled" | "cancelled",
 //   winner: null | bidder,
 // }
@@ -336,11 +336,11 @@ var CROSS_CHAIN_ACTIVITY_RETENTION = 1000;
 
 // ─────────────────────────────────────────────────────────────────
 // Cross-chain credits (v3.1.114): "account|chain" → unclaimed amount
-// Miners accrue 0.1 BTCPC per supported chain per BTCPC earned on-chain.
-// Consumed by CROSS_CHAIN_CLAIM entries when user claims wBTCPC on a chain.
+// Miners accrue 0.1 HONE per supported chain per HONE earned on-chain.
+// Consumed by CROSS_CHAIN_CLAIM entries when user claims wHONE on a chain.
 var crossChainCredits = new Map();
 
-// Canonical list of chains where wBTCPC exists. One credit per chain per reward.
+// Canonical list of chains where wHONE exists. One credit per chain per reward.
 var CROSS_CHAIN_SUPPORTED = [
   'ethereum', 'base', 'arbitrum', 'optimism',  // EVM (same address, separate contracts)
   'solana', 'ton', 'bitcoin',                   // non-EVM
@@ -393,8 +393,8 @@ var aliasMap = new Map();    // alias account name → canonical account name
 var accountAliases = new Map(); // canonical account name → Set<alias account names>
 
 // ─────────────────────────────────────────────────────────────────
-// btcpc_recycle Phase 2 endowment state (v3.3)
-// Activated automatically when total distributed supply >= 42,000,000 BTCPC.
+// hone_recycle Phase 2 endowment state (v3.3)
+// Activated automatically when total distributed supply >= 42,000,000 HONE.
 // ─────────────────────────────────────────────────────────────────
 var recycleRate = null;          // r — computed once at Phase 2 activation
 var phase2Activated = false;     // true once Phase 2 is live
@@ -413,18 +413,18 @@ var seenEntries = new Set();
 var SEEN_ENTRIES_CAP = 100000;
 
 // ─────────────────────────────────────────────────────────────────
-// Integer arithmetic helpers (10 decimal places = 1e10 units per BTCPC)
+// Integer arithmetic helpers (10 decimal places = 1e10 units per HONE)
 // ─────────────────────────────────────────────────────────────────
-var UNITS_PER_BTCPC = 1e10; // 10 decimal places
-function toUnits(btcpc) { return Math.round(btcpc * UNITS_PER_BTCPC); }
-function fromUnits(units) { return units / UNITS_PER_BTCPC; }
+var UNITS_PER_HONE = 1e10; // 10 decimal places
+function toUnits(hone) { return Math.round(hone * UNITS_PER_HONE); }
+function fromUnits(units) { return units / UNITS_PER_HONE; }
 
 // ─────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────
 
 function _balanceKey(username, token) {
-  return username + "|" + (token || "BTCPC");
+  return username + "|" + (token || "HONE");
 }
 
 function _round(n) {
@@ -511,13 +511,13 @@ function _bumpChallengeStat(host, outcome) {
 
 function _isSystemAccount(username) {
   if (!username) return false;
-  return username === "btcpc_staking_pool" ||
-         username === "btcpc_escrow" ||
-         username === "btcpc_genesis" ||
-         username === "btcpc_mint" ||
-         username === "btcpc_recycle" ||
-         username === "btcpc_treasury" ||
-         username === "btcpc" ||
+  return username === "hone_staking_pool" ||
+         username === "hone_escrow" ||
+         username === "hone_genesis" ||
+         username === "hone_mint" ||
+         username === "hone_recycle" ||
+         username === "hone_treasury" ||
+         username === "hone" ||
          username.startsWith("project:") ||
          username.startsWith("escrow:");
 }
@@ -543,12 +543,12 @@ function assertBalanceIntegrity(context) {
 }
 
 /**
- * Hard guard: reject any attempt to set public_keys on btcpc_recycle.
+ * Hard guard: reject any attempt to set public_keys on hone_recycle.
  * This is a keyless protocol contract — no owner, no keys, ever.
  */
 function _isRecycleKeyAttempt(entry) {
   var target = entry.to || entry.from;
-  if (target !== "btcpc_recycle") return false;
+  if (target !== "hone_recycle") return false;
   // Reject if the entry carries any key-setting payload
   var data = entry.account_data || entry.key_rotate_data || {};
   var keys = data.public_keys || data.new_public_keys || {};
@@ -680,14 +680,14 @@ function applyEntry(entry) {
     for (var i = 0; i < toDelete; i++) seenEntries.delete(iter.next().value);
   }
 
-  // Hard guard: never let anything set keys on btcpc_recycle
+  // Hard guard: never let anything set keys on hone_recycle
   if (_isRecycleKeyAttempt(entry)) return;
 
   var from = entry.from;
   var to = entry.to;
   var amount = entry.amount || 0;
   var parsedAmount = _coerceAmount(amount);
-  var token = entry.token || "BTCPC";
+  var token = entry.token || "HONE";
 
   switch (entry.type) {
     case "ACCOUNT_CREATE":
@@ -769,7 +769,7 @@ function applyEntry(entry) {
     }
 
     case "IDENTITY_LINK": {
-      // Formal on-chain attestation that a BTCPC account owns specific addresses
+      // Formal on-chain attestation that a HONE account owns specific addresses
       // on external chains. Signed with the owner key. Updates chain_addresses in
       // place and records the epoch of the attestation for audit purposes.
       var ilAccount = from || to;
@@ -786,7 +786,7 @@ function applyEntry(entry) {
     }
 
     case "CROSS_CHAIN_CREDIT": {
-      // Accrues claimable wBTCPC on each supported chain alongside mining rewards.
+      // Accrues claimable wHONE on each supported chain alongside mining rewards.
       var cccAccount = to || from;
       var cccChain = entry.chain;
       var cccAmount = parsedAmount;
@@ -797,7 +797,7 @@ function applyEntry(entry) {
     }
 
     case "CROSS_CHAIN_CLAIM": {
-      // Consumes accumulated credit when user claims wBTCPC on a chain.
+      // Consumes accumulated credit when user claims wHONE on a chain.
       var clAccount = from || to;
       var clChain = entry.chain;
       var clAmount = parsedAmount;
@@ -871,7 +871,7 @@ function applyEntry(entry) {
       if (parsedAmount === null) break;
       if (!from || !to) break;
       if (!_debitStake(from, parsedAmount)) break;
-      _credit(to, token || "BTCPC", parsedAmount);
+      _credit(to, token || "HONE", parsedAmount);
       if (entry.slash_data && entry.slash_data.account) {
         addSlashRecord(entry.slash_data.account, {
           account: entry.slash_data.account,
@@ -893,7 +893,7 @@ function applyEntry(entry) {
       // Deduct network service fee from delegated balance first, then owned balance.
       // to = miner/pool that receives payment; from = requester
       if (parsedAmount === null) break;
-      var chargeToken = token || "BTCPC";
+      var chargeToken = token || "HONE";
       var chargedFromDelegated = _debitDelegated(from, chargeToken, parsedAmount);
       if (!chargedFromDelegated) {
         // fall back to owned balance
@@ -905,7 +905,7 @@ function applyEntry(entry) {
     case "SPONSOR_STAKE": {
       var spAmt = _coerceAmount(amount);
       if (spAmt === null || !from || !to) break;
-      if (!_debit(from, "BTCPC", spAmt)) break;
+      if (!_debit(from, "HONE", spAmt)) break;
       sponsoredStakes.set(to, { sponsor: from, amount: spAmt, sharePercent: entry.share_percent || 15, epoch: entry.epoch });
       break;
     }
@@ -936,12 +936,12 @@ function applyEntry(entry) {
     case "FAUCET":
       _credit(to, token, amount);
       // Route sponsor cut before tracking own earnings
-      if (entry.type === "MINING_REWARD" && to && token === "BTCPC") {
+      if (entry.type === "MINING_REWARD" && to && token === "HONE") {
         var spRec = sponsoredStakes.get(to);
         if (spRec && spRec.sponsor && spRec.sharePercent > 0) {
           var spCut = _round(amount * spRec.sharePercent / 100);
-          if (spCut > 0 && _debit(to, "BTCPC", spCut)) {
-            _credit(spRec.sponsor, "BTCPC", spCut);
+          if (spCut > 0 && _debit(to, "HONE", spCut)) {
+            _credit(spRec.sponsor, "HONE", spCut);
             var spE = earnings.get(spRec.sponsor) || { mining: 0, clock: 0, storage: 0, iot: 0, verifier: 0, service: 0, inference_split: 0, total: 0 };
             spE.service = _round(spE.service + spCut);
             spE.total   = _round(spE.total   + spCut);
@@ -963,10 +963,10 @@ function applyEntry(entry) {
         // Each accepted mining reward is a passed reputation event
         _applyRepEvent(to, 'mining', true, entry.epoch);
         // Track total supply distributed (excludes recycle account)
-        if (to !== "btcpc_recycle") {
+        if (to !== "hone_recycle") {
           totalSupplyDistributed = _round(totalSupplyDistributed + amount);
         }
-        // Auto-accrue cross-chain credits (0.1 BTCPC per chain per BTCPC earned).
+        // Auto-accrue cross-chain credits (0.1 HONE per chain per HONE earned).
         // Runs for both new blocks (no companion CROSS_CHAIN_CREDIT entry yet) and
         // historical blocks replayed from disk, giving all miners retroactive credit.
         var ccCreditAmount = _round(amount * 0.1);
@@ -1001,7 +1001,7 @@ function applyEntry(entry) {
 
     case "STAKE":
       if (_coerceAmount(amount) === null) break;
-      if (!_debit(from, "BTCPC", amount)) break;
+      if (!_debit(from, "HONE", amount)) break;
       if (from) {
         var s = stakes.get(from) || { total_staked: 0, purpose: entry.memo, first_stake_epoch: entry.epoch };
         s.total_staked = _round(s.total_staked + amount);
@@ -1013,7 +1013,7 @@ function applyEntry(entry) {
       if (to) {
         var us = stakes.get(to);
         if (!us || parsedAmount === null || toUnits(us.total_staked) < toUnits(parsedAmount)) break;
-        _credit(to, "BTCPC", parsedAmount);
+        _credit(to, "HONE", parsedAmount);
         us.total_staked = _round(us.total_staked - parsedAmount);
         if (us.total_staked <= 0) stakes.delete(to);
         else stakes.set(to, us);
@@ -1025,15 +1025,15 @@ function applyEntry(entry) {
       // recipient always receives into their delegatedReceived pool (network-use only).
       var delegSource = 'owned';
       if (parsedAmount === null) break;
-      var ownedOk = _debit(from, "BTCPC", parsedAmount);
+      var ownedOk = _debit(from, "HONE", parsedAmount);
       if (!ownedOk) {
         // from doesn't have enough owned — try re-delegating from their received pool
-        var delegOk = _debitDelegated(from, "BTCPC", parsedAmount);
+        var delegOk = _debitDelegated(from, "HONE", parsedAmount);
         if (delegOk) delegSource = 'delegated';
         // if neither succeeds, the entry is a no-op (silently rejected)
       }
       if (from && to && (ownedOk || delegSource === 'delegated')) {
-        _creditDelegated(to, "BTCPC", parsedAmount);
+        _creditDelegated(to, "HONE", parsedAmount);
         var dkey = from + "|" + to;
         var d = delegations.get(dkey) || { amount: 0, purpose: (entry.delegation_data && entry.delegation_data.purpose) || entry.memo, epoch: entry.epoch, source: delegSource };
         d.amount = _round(d.amount + parsedAmount);
@@ -1055,12 +1055,12 @@ function applyEntry(entry) {
         var d2 = delegations.get(dkey2);
         var delegSrc2 = (d2 && d2.source) || 'owned';
         if (delegSrc2 === 'delegated') {
-          _creditDelegated(returnTo, "BTCPC", parsedAmount);
+          _creditDelegated(returnTo, "HONE", parsedAmount);
         } else {
-          _credit(returnTo, "BTCPC", parsedAmount);
+          _credit(returnTo, "HONE", parsedAmount);
         }
         // Debit the undelegated amount from recipient's delegatedReceived
-        _debitDelegated(miner2, "BTCPC", parsedAmount);
+        _debitDelegated(miner2, "HONE", parsedAmount);
         if (d2) {
           d2.amount = _round(d2.amount - parsedAmount);
           if (d2.amount <= 0) delegations.delete(dkey2);
@@ -1073,11 +1073,11 @@ function applyEntry(entry) {
     case "ESCROW_LOCK": {
       var escrowSource = "owned";
       if (parsedAmount === null) break;
-      var escrowPaid = _debitDelegated(from, "BTCPC", parsedAmount);
+      var escrowPaid = _debitDelegated(from, "HONE", parsedAmount);
       if (escrowPaid) {
         escrowSource = "delegated";
       } else {
-        escrowPaid = _debit(from, "BTCPC", parsedAmount);
+        escrowPaid = _debit(from, "HONE", parsedAmount);
       }
       if (!escrowPaid) break;
       if (entry.memo) {
@@ -1103,7 +1103,7 @@ function applyEntry(entry) {
           var alreadyReleased = e2.released_amount || 0;
           if (parsedAmount === null) break;
           if (toUnits(alreadyReleased + parsedAmount) > toUnits(e2.amount)) break;
-          _credit(to, "BTCPC", parsedAmount);
+          _credit(to, "HONE", parsedAmount);
           e2.status = "released";
           e2.released_to = to;
           e2.released_amount = _round(alreadyReleased + parsedAmount);
@@ -1111,10 +1111,10 @@ function applyEntry(entry) {
         } else if (!entry.escrow_id && entry.memo && !entry.memo.startsWith("escrow:")) {
           // Legacy release entries sometimes used memo for a human payout note
           // instead of escrow identity. Preserve historical replay behavior.
-          _credit(to, "BTCPC", parsedAmount);
+          _credit(to, "HONE", parsedAmount);
         }
       } else {
-        _credit(to, "BTCPC", parsedAmount);
+        _credit(to, "HONE", parsedAmount);
       }
       break;
 
@@ -1123,15 +1123,15 @@ function applyEntry(entry) {
         var rid3 = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
         var e3 = escrows.get(rid3);
         if (e3) {
-          if (e3.source === "delegated") _creditDelegated(to, "BTCPC", parsedAmount);
-          else _credit(to, "BTCPC", parsedAmount);
+          if (e3.source === "delegated") _creditDelegated(to, "HONE", parsedAmount);
+          else _credit(to, "HONE", parsedAmount);
           e3.status = "refunded";
           escrows.set(rid3, e3);
         } else {
-          _credit(to, "BTCPC", parsedAmount);
+          _credit(to, "HONE", parsedAmount);
         }
       } else {
-        _credit(to, "BTCPC", parsedAmount);
+        _credit(to, "HONE", parsedAmount);
       }
       break;
 
@@ -1310,10 +1310,10 @@ function applyEntry(entry) {
 
     // ── Native Exchange (v3.4) ───────────────────────────────────────
     case "EXCHANGE_DEPOSIT":
-      if (from && parsedAmount > 0 && token === "BTCPC") {
-        // Lock BTCPC in exchange system account
-        if (!_debit(from, "BTCPC", parsedAmount)) break;
-        _credit("btcpc_exchange", "BTCPC", parsedAmount);
+      if (from && parsedAmount > 0 && token === "HONE") {
+        // Lock HONE in exchange system account
+        if (!_debit(from, "HONE", parsedAmount)) break;
+        _credit("hone_exchange", "HONE", parsedAmount);
         // Add to FIFO queue
         exchangeQueue.push({
           seller: from,
@@ -1326,7 +1326,7 @@ function applyEntry(entry) {
     case "EXCHANGE_BUY":
       // stablecoin amount and token in entry.stable_data
       if (from && entry.stable_data && entry.stable_data.amount > 0) {
-        BtcpcNativeExchange.applyExchangeBuy({
+        HoneNativeExchange.applyExchangeBuy({
           buyer: from,
           token: entry.stable_data.token,
           amount: entry.stable_data.amount,
@@ -1367,7 +1367,7 @@ function applyEntry(entry) {
           content_cid: pd.content_cid || null,
           category: pd.category || "uncategorized",
           price: _round(pd.price || 0),
-          token: pd.token || "BTCPC",
+          token: pd.token || "HONE",
           stock: pd.stock || 0,
           rep_score: 0,
           rep_votes_up: 0,
@@ -1425,7 +1425,7 @@ function applyEntry(entry) {
           quantity: od.quantity || 1,
           unit_price: _round(od.unit_price || 0),
           total: _round(od.total || 0),
-          token: od.token || "BTCPC",
+          token: od.token || "HONE",
           escrow_id: od.escrow_id || null,
           status: "placed",
           placed_epoch: entry.epoch,
@@ -1518,8 +1518,8 @@ function applyEntry(entry) {
     case "STORAGE_PAYOUT_HOLD":
       if (entry.storage_hold_data && entry.storage_hold_data.hold_id) {
         var sphData = entry.storage_hold_data;
-        // Debit btcpc_storage_escrow account (create it if needed)
-        _ensureAccount("btcpc_storage_escrow");
+        // Debit hone_storage_escrow account (create it if needed)
+        _ensureAccount("hone_storage_escrow");
         storagePayoutHolds.set(sphData.hold_id, {
           hold_id: sphData.hold_id,
           host: sphData.host,
@@ -1536,7 +1536,7 @@ function applyEntry(entry) {
       if (entry.storage_hold_data && entry.storage_hold_data.hold_id) {
         var sphRelease = storagePayoutHolds.get(entry.storage_hold_data.hold_id);
         if (sphRelease && sphRelease.status === "pending") {
-          _credit(to, "BTCPC", amount);
+          _credit(to, "HONE", amount);
           sphRelease.status = "released";
           sphRelease.released_epoch = entry.epoch;
           storagePayoutHolds.set(entry.storage_hold_data.hold_id, sphRelease);
@@ -1548,7 +1548,7 @@ function applyEntry(entry) {
       if (entry.storage_hold_data && entry.storage_hold_data.hold_id) {
         var sphForfeit = storagePayoutHolds.get(entry.storage_hold_data.hold_id);
         if (sphForfeit && sphForfeit.status === "pending") {
-          _credit("btcpc_recycle", "BTCPC", amount);
+          _credit("hone_recycle", "HONE", amount);
           sphForfeit.status = "forfeited";
           sphForfeit.forfeited_epoch = entry.epoch;
           storagePayoutHolds.set(entry.storage_hold_data.hold_id, sphForfeit);
@@ -1556,13 +1556,13 @@ function applyEntry(entry) {
       }
       break;
 
-    // ── btcpc_recycle pool redistribution (v3.1.119+) ───────────────
+    // ── hone_recycle pool redistribution (v3.1.119+) ───────────────
     case "RECYCLE_DISTRIBUTION":
       // Standard debit/credit — recycle pool pays stakers proportionally.
       // The distribution calculation happens in ledger.distributeRecyclePool();
       // here we just apply the balance change.
-      _debit(from, "BTCPC", amount);
-      _credit(to, "BTCPC", amount);
+      _debit(from, "HONE", amount);
+      _credit(to, "HONE", amount);
       break;
 
     // ── Inference Marketplace (v3.1.119+) ───────────────────────────
@@ -2211,7 +2211,7 @@ function applyEntry(entry) {
       }
       break;
 
-    // ── BTCPC-FS blob commits (v2.11+) ─────────────────────────────
+    // ── HONE-FS blob commits (v2.11+) ─────────────────────────────
     case "BLOB_STORE_COMMIT":
       if (entry.blob_data && entry.blob_data.cid && from) {
         var bd = entry.blob_data;
@@ -2229,7 +2229,7 @@ function applyEntry(entry) {
           under_replicated: false, // v2.11.2+: true when actuals < targets
           committed_epoch: entry.epoch,
           expires_epoch: entry.epoch + (bd.duration_epochs || 0),
-          payment_btcpc: 0,
+          payment_hone: 0,
           bytes_served_total: 0,
           bytes_served_by_host: {},
           serve_proof_count: 0,
@@ -2285,7 +2285,7 @@ function applyEntry(entry) {
         if (newExpiry > existingBlob.expires_epoch) {
           existingBlob.expires_epoch = newExpiry;
         }
-        existingBlob.payment_btcpc = _round(existingBlob.payment_btcpc + (bd.payment_btcpc || 0));
+        existingBlob.payment_hone = _round(existingBlob.payment_hone + (bd.payment_hone || 0));
         if (bd.size && !existingBlob.size) existingBlob.size = bd.size;
         blobs.set(bd.cid, existingBlob);
       }
@@ -2388,7 +2388,7 @@ function applyEntry(entry) {
       }
       break;
 
-    // ── BTCPC-FS storage heartbeats (v2.11.2+) ─────────────────────
+    // ── HONE-FS storage heartbeats (v2.11.2+) ─────────────────────
     // A storage host proves it's alive and listing the CIDs it has on
     // disk. Home-user-friendly durability signal. Used by:
     //   1. Uptime-weighted payout formulas (blobPayouts v2.11.2+)
@@ -2433,7 +2433,7 @@ function applyEntry(entry) {
       }
       break;
 
-    // ── BTCPC-FS challenge-response (v2.11.2+) ─────────────────────
+    // ── HONE-FS challenge-response (v2.11.2+) ─────────────────────
     // A verifier issues a spot-check: "return the sha256 of bytes
     // [start..start+length] of CID X". Host has 2 epochs to respond.
     // No slashing — just payout weight + reputation.
@@ -2965,16 +2965,16 @@ function applyEntry(entry) {
 
     // ─────────────────────────────────────────────────────────────────
     // Bridge entries (v2.16-alpha)
-    // Pay-for-delivery: no slashing, fees always to btcpc_recycle.
+    // Pay-for-delivery: no slashing, fees always to hone_recycle.
     // ─────────────────────────────────────────────────────────────────
 
     case "BRIDGE_WRAP":
-      // Debit user BTCPC; record wrap event.
+      // Debit user HONE; record wrap event.
       if (from && amount > 0) {
-        _debit(from, "BTCPC", amount);
+        _debit(from, "HONE", amount);
         // Fee portion already included in amount, route fee to recycle
         if (entry.bridge_data && entry.bridge_data.fee > 0) {
-          _credit("btcpc_recycle", "BTCPC", entry.bridge_data.fee);
+          _credit("hone_recycle", "HONE", entry.bridge_data.fee);
         }
         var wrapKey = from + "|" + (entry.bridge_data && entry.bridge_data.chain_id || "") + "|" + (entry.epoch || 0) + "|" + (entry.timestamp || 0);
         bridgeWraps.set(wrapKey, {
@@ -2988,11 +2988,11 @@ function applyEntry(entry) {
       break;
 
     case "BRIDGE_UNWRAP":
-      // Credit user BTCPC; record unwrap event.
+      // Credit user HONE; record unwrap event.
       if (to && amount > 0) {
-        _credit(to, "BTCPC", amount);
+        _credit(to, "HONE", amount);
         if (entry.bridge_data && entry.bridge_data.fee > 0) {
-          _credit("btcpc_recycle", "BTCPC", entry.bridge_data.fee);
+          _credit("hone_recycle", "HONE", entry.bridge_data.fee);
         }
         var unwrapKey = to + "|" + (entry.bridge_data && entry.bridge_data.chain_id || "") + "|" + (entry.epoch || 0) + "|" + (entry.timestamp || 0);
         bridgeUnwraps.set(unwrapKey, {
@@ -3008,7 +3008,7 @@ function applyEntry(entry) {
     case "BRIDGE_FUND":
       // Debit funder; record LP position.
       if (from && amount > 0) {
-        _debit(from, "BTCPC", amount);
+        _debit(from, "HONE", amount);
         var bfKey = from + "|" + (entry.bridge_data && entry.bridge_data.chain_id || "");
         var bfExisting = bridgeFunders.get(bfKey) || {
           funder: from,
@@ -3162,7 +3162,7 @@ function applyEntry(entry) {
       if (!dysDeviceId || !dysStaker || dysStakeAmount <= 0) break;
 
       // Debit the staker's balance by the full stake amount
-      var dysDebitOk = _debit(dysStaker, "BTCPC", dysStakeAmount);
+      var dysDebitOk = _debit(dysStaker, "HONE", dysStakeAmount);
       if (!dysDebitOk) break; // insufficient balance
 
       // Tribute: to owner (unless staker === owner).
@@ -3172,7 +3172,7 @@ function applyEntry(entry) {
       if (dysOwner && dysStaker !== dysOwner) {
         var _explicitTribute = dysData.tribute !== undefined ? _round(dysData.tribute) : null;
         dysTribute = _explicitTribute !== null ? _explicitTribute : _round(dysStakeAmount * 0.01);
-        if (dysTribute > 0) _credit(dysOwner, "BTCPC", dysTribute);
+        if (dysTribute > 0) _credit(dysOwner, "HONE", dysTribute);
       }
 
       // Multi-slot rent-auction model (up to 10 slots per device).
@@ -3218,7 +3218,7 @@ function applyEntry(entry) {
         if (_dysNewBeats) {
           // Refund the evicted staker
           var _dysEvictRefund = _round((_dysLowest.original_stake || _dysLowest.stake_amount) - (_dysLowest.tribute_paid || 0));
-          if (_dysEvictRefund > 0) _credit(_dysLowest.staker, "BTCPC", _dysEvictRefund);
+          if (_dysEvictRefund > 0) _credit(_dysLowest.staker, "HONE", _dysEvictRefund);
           dysPool.delete(_dysLowest.staker);
           // Add new staker
           var dysNetStake2 = dysData.net_stake !== undefined ? _round(dysData.net_stake) : _round(dysStakeAmount - dysTribute);
@@ -3236,10 +3236,10 @@ function applyEntry(entry) {
           });
         } else {
           // New staker doesn't beat anyone — refund their stake + tribute
-          _credit(dysStaker, "BTCPC", dysStakeAmount);
+          _credit(dysStaker, "HONE", dysStakeAmount);
           if (dysTribute > 0 && dysOwner) {
-            _debit(dysOwner, "BTCPC", dysTribute);
-            _credit(dysStaker, "BTCPC", dysTribute);
+            _debit(dysOwner, "HONE", dysTribute);
+            _credit(dysStaker, "HONE", dysTribute);
           }
           break;
         }
@@ -3282,7 +3282,7 @@ function applyEntry(entry) {
       } else {
         dyuReturnAmount = _round(dyuRecord.stake_amount || 0);
       }
-      if (dyuReturnAmount > 0) _credit(dyuStaker, "BTCPC", dyuReturnAmount);
+      if (dyuReturnAmount > 0) _credit(dyuStaker, "HONE", dyuReturnAmount);
       dyuPool.delete(dyuStaker);
       break;
     }
@@ -3311,7 +3311,7 @@ function applyEntry(entry) {
       dyrRecord.rent_paid_total = _round((dyrRecord.rent_paid_total || 0) + dyrRentAmount);
 
       // Credit owner by rent_amount
-      if (dyrOwner && dyrRentAmount > 0) _credit(dyrOwner, "BTCPC", dyrRentAmount);
+      if (dyrOwner && dyrRentAmount > 0) _credit(dyrOwner, "HONE", dyrRentAmount);
 
       // Evict if stake depleted
       if (dyrRecord.stake_amount <= 0) {
@@ -3401,8 +3401,8 @@ function applyEntry(entry) {
         bid_usd: nabBidUsd,
         chain: nabData.chain,
         tx_hash: nabData.tx_hash,
-        btcpc_account: nabData.btcpc_account,
-        btcpc_pubkeys: nabData.btcpc_pubkeys || {},
+        hone_account: nabData.hone_account,
+        hone_pubkeys: nabData.hone_pubkeys || {},
         bid_epoch: entry.epoch || 0,
       });
       // Keep bids sorted ascending by bid_usd (last entry = highest)
@@ -3427,11 +3427,11 @@ function applyEntry(entry) {
       if (!nasWinBid) break;
       nasAuction.status = "settled";
       nasAuction.winner = nasWinBid ? nasWinBid.bidder : null;
-      if (nasWinBid && nasWinBid.btcpc_pubkeys) {
+      if (nasWinBid && nasWinBid.hone_pubkeys) {
         // Transfer account keys to winner (same as KEY_ROTATE)
         var nasAcct = accounts.get(nasName);
         if (nasAcct) {
-          nasAcct.public_keys = Object.assign({}, nasAcct.public_keys || {}, nasWinBid.btcpc_pubkeys);
+          nasAcct.public_keys = Object.assign({}, nasAcct.public_keys || {}, nasWinBid.hone_pubkeys);
         }
       }
       break;
@@ -3562,8 +3562,8 @@ function getAccount(username) {
     public_keys: acc.public_keys || {},
     chain_addresses: acc.chain_addresses || {},
     heartbeat_epoch: acc.heartbeat_epoch || 0,
-    balance: getBalance(username, "BTCPC"),
-    delegated_balance: getDelegatedBalance(username, "BTCPC"),
+    balance: getBalance(username, "HONE"),
+    delegated_balance: getDelegatedBalance(username, "HONE"),
     staked: (stakes.get(username) || { total_staked: 0 }).total_staked,
     // v2.10.2: multi-capability node registration fields
     node_types: acc.node_types || undefined,
@@ -3600,7 +3600,7 @@ function getAccountCount() {
 /**
  * Bootstrap: directly inject a public key for an account that was created
  * before the key system existed (e.g., genesis accounts). Does not write a
- * ledger entry — local trust only, derived from BTCPC_ACTIVE_KEY env var.
+ * ledger entry — local trust only, derived from HONE_ACTIVE_KEY env var.
  */
 /**
  * Look up the owner account for a device public key.
@@ -3713,7 +3713,7 @@ function getStakePool(username) {
 }
 
 /**
- * Get the total staked BTCPC for a username (node account).
+ * Get the total staked HONE for a username (node account).
  * Returns 0 if the account has no stake pool.
  */
 function getStake(username) {
@@ -3730,7 +3730,7 @@ function getAllStakePools() {
 }
 
 function getDelegatedBalance(username, token) {
-  var key = _balanceKey(username, token || "BTCPC");
+  var key = _balanceKey(username, token || "HONE");
   return fromUnits(delegatedReceived.get(key) || 0);
 }
 
@@ -4028,7 +4028,7 @@ function getReputationVote(voter, targetType, targetId) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Blob getters (BTCPC-FS, v2.11+)
+// Blob getters (HONE-FS, v2.11+)
 // ─────────────────────────────────────────────────────────────────
 
 function getBlobCommit(cid) {
@@ -4569,7 +4569,7 @@ function getAvailableReservedNames() {
   var result = [];
   for (var entry of accounts.entries()) {
     var acctName = entry[0];
-    if (acctName === "shindevlin" || acctName === "btcpc_recycle" || acctName === "btcpc") continue;
+    if (acctName === "shindevlin" || acctName === "hone_recycle" || acctName === "hone") continue;
     if (!unavailable.has(acctName)) {
       var acct = entry[1];
       var hasNoOwnerKey = !acct.public_keys || !acct.public_keys.active;
@@ -5016,7 +5016,7 @@ function getRecentCrossChainActivity(n) {
 
 /**
  * Get all child account names of a parent.
- * Returns an array of fully-qualified account names (e.g. ["btcpc/treasury"]).
+ * Returns an array of fully-qualified account names (e.g. ["hone/treasury"]).
  */
 function getChildren(parent) {
   var s = childrenMap.get(parent);
@@ -5061,11 +5061,11 @@ function getAliases(account) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// btcpc_recycle Phase 2 endowment getters/setters (v3.3)
+// hone_recycle Phase 2 endowment getters/setters (v3.3)
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Total BTCPC distributed to non-recycle accounts via MINING_REWARD.
+ * Total HONE distributed to non-recycle accounts via MINING_REWARD.
  * When this reaches 42,000,000 Phase 2 activates.
  */
 function getTotalSupplyDistributed() {
@@ -5073,7 +5073,7 @@ function getTotalSupplyDistributed() {
 }
 
 /**
- * Returns true when total distributed supply >= 42,000,000 BTCPC.
+ * Returns true when total distributed supply >= 42,000,000 HONE.
  * This is the canonical Phase 2 activation check.
  */
 function isPhase2() {
@@ -5186,7 +5186,7 @@ function hydrateFromFinality(snapshot) {
       _ensureAccount(u);
       if (typeof s.balance === "number") {
         _assertNonNegativeAmount(s.balance, "finality snapshot account " + u + " balance");
-        balances.set(_balanceKey(u, "BTCPC"), toUnits(s.balance));
+        balances.set(_balanceKey(u, "HONE"), toUnits(s.balance));
       }
       if (typeof s.staked === "number" && s.staked > 0) {
         _assertNonNegativeAmount(s.staked, "finality snapshot account " + u + " staked");
@@ -5254,7 +5254,7 @@ function hydrateFromFinality(snapshot) {
       });
     }
     if (ext.extra_balances) {
-      // Non-BTCPC token balances: { "user|TOKEN": amount }
+      // Non-HONE token balances: { "user|TOKEN": amount }
       Object.keys(ext.extra_balances).forEach(function (k) {
         _assertNonNegativeAmount(ext.extra_balances[k], "finality snapshot extra balance " + k);
         balances.set(k, ext.extra_balances[k]);
@@ -5344,15 +5344,15 @@ function resetAll() {
   phase2Activated = false;
   phase2ActivationEpoch = null;
   totalSupplyDistributed = 0;
-  // Ensure btcpc_recycle always exists as keyless protocol contract
-  _ensureAccount("btcpc_recycle", { epoch: 0, public_keys: {}, chain_addresses: {} });
-  _ensureAccount("btcpc", { epoch: 0, public_keys: {}, chain_addresses: {} });
+  // Ensure hone_recycle always exists as keyless protocol contract
+  _ensureAccount("hone_recycle", { epoch: 0, public_keys: {}, chain_addresses: {} });
+  _ensureAccount("hone", { epoch: 0, public_keys: {}, chain_addresses: {} });
 }
 
 function getExchangeQueue() { return exchangeQueue; }
 function getExchangeStats() { return exchangeStats; }
 function getExchangeQueueLength() { return exchangeQueue.length; }
-function availableWbtcpcInQueue() {
+function availableWhoneInQueue() {
   let total = 0;
   for (let d of exchangeQueue) total = _round(total + d.amount);
   return total;
@@ -5412,7 +5412,7 @@ module.exports = {
   getExchangeQueue: getExchangeQueue,
   getExchangeStats: getExchangeStats,
   getExchangeQueueLength: getExchangeQueueLength,
-  availableWbtcpcInQueue: availableWbtcpcInQueue,
+  availableWhoneInQueue: availableWhoneInQueue,
   getNFT: getNFT,
 
   getNFTsByOwner: getNFTsByOwner,
@@ -5472,12 +5472,12 @@ module.exports = {
   getCommunityModel: getCommunityModel,
   getAllCommunityModels: getAllCommunityModels,
   getModelRoyalty: getModelRoyalty,
-  // BTCPC-FS blobs (v2.11+)
+  // HONE-FS blobs (v2.11+)
   getBlobCommit: getBlobCommit,
   getAllBlobCommits: getAllBlobCommits,
   getBlobCommitsByHost: getBlobCommitsByHost,
   getBlobCommitsByUploader: getBlobCommitsByUploader,
-  // BTCPC-FS storage heartbeats + uptime (v2.11.2+)
+  // HONE-FS storage heartbeats + uptime (v2.11.2+)
   getStorageHeartbeat: getStorageHeartbeat,
   getAllStorageHosts: getAllStorageHosts,
   getStorageUptimeFactor: getStorageUptimeFactor,
@@ -5485,7 +5485,7 @@ module.exports = {
   getStorageHostsForEpoch: getStorageHostsForEpoch,
   recordStorageDelivery: recordStorageDelivery,
   getStorageWorkByEpoch: getStorageWorkByEpoch,
-  // BTCPC-FS challenge-response (v2.11.2+, pay-for-delivery not slashing)
+  // HONE-FS challenge-response (v2.11.2+, pay-for-delivery not slashing)
   getBlobChallenge: getBlobChallenge,
   getBlobChallengeStats: getBlobChallengeStats,
   getChallengeSuccessRate: getChallengeSuccessRate,
@@ -5539,7 +5539,7 @@ module.exports = {
   getChildren: getChildren,
   getParent: getParent,
   isAuthorizedBy: isAuthorizedBy,
-  // btcpc_recycle Phase 2 endowment (v3.3)
+  // hone_recycle Phase 2 endowment (v3.3)
   getTotalSupplyDistributed: getTotalSupplyDistributed,
   isPhase2: isPhase2,
   isPhase2Activated: isPhase2Activated,

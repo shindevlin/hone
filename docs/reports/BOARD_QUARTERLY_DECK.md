@@ -2,12 +2,12 @@
 marp: true
 theme: default
 paginate: true
-header: "BTCPC Quarterly Board Report | {{date}}"
+header: "HONE Quarterly Board Report | {{date}}"
 footer: "Confidential • DAO-Free Guardian Model • v0.9+ Testnet"
 ---
 
 <!-- _class: lead -->
-# BTCPC Quarterly Board Report
+# HONE Quarterly Board Report
 ## Security, Compliance & Operational Readiness
 **Quarter:** `{{quarter}}` | **Date:** `{{date}}` | **Prepared By:** Security Working Group
 

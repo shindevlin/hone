@@ -4,7 +4,7 @@
  * URL content filter for browser agent jobs.
  * Shin Devlin
  *
- * BTCPC is censorship-resistant infrastructure. The filter's job is to protect
+ * HONE is censorship-resistant infrastructure. The filter's job is to protect
  * the MINER'S machine from attacks and illegal content — not to restrict what
  * buyers can do with their agent sessions.
  *
@@ -14,19 +14,19 @@
  *   • CSAM keyword patterns in hostname/path
  *
  * SOFT BLOCKS (miner opt-in, all default false — miner's machine, miner's choice):
- *   BTCPC_BROWSER_BLOCK_ONION=true|false      — Tor hidden services (default: false)
- *   BTCPC_BROWSER_BLOCK_ADULT=true|false      — adult content (default: false)
- *   BTCPC_BROWSER_BLOCK_GAMBLING=true|false   — gambling (default: false)
- *   BTCPC_BROWSER_BLOCK_DRUGS=true|false      — drug marketplaces (default: false)
- *   BTCPC_BROWSER_BLOCK_WEAPONS=true|false    — illegal weapons (default: false)
+ *   HONE_BROWSER_BLOCK_ONION=true|false      — Tor hidden services (default: false)
+ *   HONE_BROWSER_BLOCK_ADULT=true|false      — adult content (default: false)
+ *   HONE_BROWSER_BLOCK_GAMBLING=true|false   — gambling (default: false)
+ *   HONE_BROWSER_BLOCK_DRUGS=true|false      — drug marketplaces (default: false)
+ *   HONE_BROWSER_BLOCK_WEAPONS=true|false    — illegal weapons (default: false)
  *
  * ALLOWLIST (optional — restrict to specific domains only):
- *   BTCPC_BROWSER_ALLOWED_DOMAINS=example.com,myapp.io
+ *   HONE_BROWSER_ALLOWED_DOMAINS=example.com,myapp.io
  *
  * Note on .onion: Tor hidden services include SecureDrop, whistleblower platforms,
  * censored news outlets, and privacy tools. Blocking them by default contradicts
- * BTCPC's censorship-resistance mission. Miners who don't want onion traffic can
- * set BTCPC_BROWSER_BLOCK_ONION=true.
+ * HONE's censorship-resistance mission. Miners who don't want onion traffic can
+ * set HONE_BROWSER_BLOCK_ONION=true.
  */
 
 const net = require("net");
@@ -93,7 +93,7 @@ const WEAPONS_SIGNALS = [
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function _getAllowedDomains() {
-  const raw = (process.env.BTCPC_BROWSER_ALLOWED_DOMAINS || "").trim();
+  const raw = (process.env.HONE_BROWSER_ALLOWED_DOMAINS || "").trim();
   if (!raw) return null;
   return new Set(raw.split(",").map((d) => d.trim().toLowerCase()).filter(Boolean));
 }
@@ -159,16 +159,16 @@ function checkUrl(rawUrl) {
 
   // Soft block: .onion (default: allow — censorship resistance)
   if (hostname.endsWith(".onion") || hostname.endsWith(".i2p")) {
-    if (process.env.BTCPC_BROWSER_BLOCK_ONION === "true") {
+    if (process.env.HONE_BROWSER_BLOCK_ONION === "true") {
       return { allowed: false, reason: "Tor/I2P hidden services blocked by miner policy", category: "onion" };
     }
   }
 
   // Soft blocks — all default false
-  const blockAdult    = process.env.BTCPC_BROWSER_BLOCK_ADULT    === "true";
-  const blockGambling = process.env.BTCPC_BROWSER_BLOCK_GAMBLING === "true";
-  const blockDrugs    = process.env.BTCPC_BROWSER_BLOCK_DRUGS    === "true";
-  const blockWeapons  = process.env.BTCPC_BROWSER_BLOCK_WEAPONS  === "true";
+  const blockAdult    = process.env.HONE_BROWSER_BLOCK_ADULT    === "true";
+  const blockGambling = process.env.HONE_BROWSER_BLOCK_GAMBLING === "true";
+  const blockDrugs    = process.env.HONE_BROWSER_BLOCK_DRUGS    === "true";
+  const blockWeapons  = process.env.HONE_BROWSER_BLOCK_WEAPONS  === "true";
 
   if (blockAdult)    { for (const re of ADULT_SIGNALS)    { if (re.test(hostname)) return { allowed: false, reason: "Adult content blocked by miner policy", category: "adult" }; } }
   if (blockGambling) { for (const re of GAMBLING_SIGNALS) { if (re.test(hostname)) return { allowed: false, reason: "Gambling site blocked by miner policy", category: "gambling" }; } }
@@ -188,14 +188,14 @@ function assertUrlAllowed(url) {
 function getContentPolicy() {
   return {
     hard_blocks: ["csam", "ssrf", "private_ips", "non_http"],
-    block_onion:    process.env.BTCPC_BROWSER_BLOCK_ONION    === "true",
-    block_adult:    process.env.BTCPC_BROWSER_BLOCK_ADULT    === "true",
-    block_gambling: process.env.BTCPC_BROWSER_BLOCK_GAMBLING === "true",
-    block_drugs:    process.env.BTCPC_BROWSER_BLOCK_DRUGS    === "true",
-    block_weapons:  process.env.BTCPC_BROWSER_BLOCK_WEAPONS  === "true",
-    allowlist_mode: !!process.env.BTCPC_BROWSER_ALLOWED_DOMAINS,
-    allowed_domains: process.env.BTCPC_BROWSER_ALLOWED_DOMAINS
-      ? process.env.BTCPC_BROWSER_ALLOWED_DOMAINS.split(",").map((d) => d.trim())
+    block_onion:    process.env.HONE_BROWSER_BLOCK_ONION    === "true",
+    block_adult:    process.env.HONE_BROWSER_BLOCK_ADULT    === "true",
+    block_gambling: process.env.HONE_BROWSER_BLOCK_GAMBLING === "true",
+    block_drugs:    process.env.HONE_BROWSER_BLOCK_DRUGS    === "true",
+    block_weapons:  process.env.HONE_BROWSER_BLOCK_WEAPONS  === "true",
+    allowlist_mode: !!process.env.HONE_BROWSER_ALLOWED_DOMAINS,
+    allowed_domains: process.env.HONE_BROWSER_ALLOWED_DOMAINS
+      ? process.env.HONE_BROWSER_ALLOWED_DOMAINS.split(",").map((d) => d.trim())
       : null,
   };
 }

@@ -1,0 +1,16 @@
+[Unit]
+Description=HONE Inference Miner
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntclaw/repos/hone
+ExecStart=/usr/bin/node bin/hone-mine
+Restart=on-failure
+RestartSec=30
+Environment=NODE_ENV=production
+Environment=P2P_PORT=6942
+EnvironmentFile=/home/ubuntclaw/repos/hone/.env
+
+[Install]
+WantedBy=default.target

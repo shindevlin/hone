@@ -20,7 +20,7 @@ Each user has their own TOTP secret (Google Authenticator / Authy compatible).
 ### Setup Flow
 1. User calls `/enable-2fa` in bot or webapp
 2. Server generates random TOTP secret
-3. Returns QR code URL (otpauth://totp/BTCPC:username?secret=XXX&issuer=BTCPC)
+3. Returns QR code URL (otpauth://totp/HONE:username?secret=XXX&issuer=HONE)
 4. User scans with Google Authenticator / Authy
 5. User submits the current 6-digit code to verify
 6. Server stores encrypted secret + generates 8 backup codes

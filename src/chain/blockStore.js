@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Block Store — File-Based Block Storage
+ * HONE Block Store — File-Based Block Storage
  * Shin Devlin
  *
  * Writes finalized blocks to disk as the chain's source of truth.
@@ -31,13 +31,13 @@ function _useRustChain() {
 }
 
 function _rustStrict() {
-  return process.env.BTCPC_RUST_CHAIN_STRICT === "true";
+  return process.env.HONE_RUST_CHAIN_STRICT === "true";
 }
 
 function _warnRustFallback(opName, err) {
   if (_rustWarningShown) return;
   _rustWarningShown = true;
-  console.warn("[BTCPC Chain] Rust IPC fallback to file store during " + opName + ": " + err.message);
+  console.warn("[HONE Chain] Rust IPC fallback to file store during " + opName + ": " + err.message);
 }
 
 function _withRustFallback(opName, rustFn, fileFn) {
@@ -102,7 +102,7 @@ function writeBlock(block, payload) {
     "writeBlock",
     function () {
       rustChainIpc.writeBlock(block.epoch_number, fullBuf);
-      return "ipc://btcpc-chain/block/" + block.epoch_number;
+      return "ipc://hone-chain/block/" + block.epoch_number;
     },
     function () {
       ensureBlockDir();
@@ -129,7 +129,7 @@ function writeFinality(block, snapshot) {
     "writeFinality",
     function () {
       rustChainIpc.writeFinality(block.epoch_number, fullBuf);
-      return "ipc://btcpc-chain/finality/" + block.epoch_number;
+      return "ipc://hone-chain/finality/" + block.epoch_number;
     },
     function () {
       ensureBlockDir();
@@ -393,7 +393,7 @@ function hashLedgerEntry(entry) {
     memo: entry.memo || null,
     signed_by: entry.signed_by || null,
     to: entry.to || null,
-    token: entry.token || "BTCPC",
+    token: entry.token || "HONE",
     type: entry.type
   };
   return crypto.createHash("sha256")

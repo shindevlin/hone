@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "network.btcpc.app"
+    namespace = "network.hone.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "network.btcpc.app"
+        applicationId "network.hone.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 163
@@ -19,10 +19,10 @@ android {
     }
     signingConfigs {
         release {
-            storeFile file('../btcpc-release.keystore')
-            storePassword 'btcpc_release_2026'
-            keyAlias 'btcpc'
-            keyPassword 'btcpc_release_2026'
+            storeFile file('../hone-release.keystore')
+            storePassword 'hone_release_2026'
+            keyAlias 'hone'
+            keyPassword 'hone_release_2026'
         }
     }
     buildFeatures {
@@ -70,11 +70,11 @@ task buildRustMiner {
         resolveProc.waitFor()
         def cargoNdk = resolveProc.text?.trim()
         if (!cargoNdk) {
-            logger.lifecycle('[btcpc] cargo-ndk not found — skipping Rust miner build (install with: cargo install cargo-ndk)')
+            logger.lifecycle('[hone] cargo-ndk not found — skipping Rust miner build (install with: cargo install cargo-ndk)')
             return
         }
 
-        def rustDir = file('../rust/btcpc-miner').canonicalPath
+        def rustDir = file('../rust/hone-miner').canonicalPath
         def jniOut  = file('src/main/jniLibs').canonicalPath
         // Export PATH with ~/.cargo/bin so cargo/rustup tools resolve inside the build
         def cmd = 'export PATH="$HOME/.cargo/bin:$PATH" && cargo ndk -t arm64-v8a -t x86_64 -o \'' + jniOut + '\' build --release'
@@ -82,7 +82,7 @@ task buildRustMiner {
         proc.consumeProcessOutput(System.out, System.err)
         proc.waitFor()
         if (proc.exitValue() != 0) {
-            logger.lifecycle('[btcpc] Rust miner build failed — mining will show library-missing message on device')
+            logger.lifecycle('[hone] Rust miner build failed — mining will show library-missing message on device')
         }
     }
 }

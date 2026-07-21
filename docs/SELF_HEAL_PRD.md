@@ -1,16 +1,16 @@
 # Self-Heal PRD
 
-> **Hard rule:** every BTCPC fail path must auto-repair. Non-technical home users cannot run commands. Replace every `[ERROR] do X` with an automatic action. See `~/.claude/projects/-home-ubuntclaw-repos-btcpc/memory/feedback_self_heal_no_asks.md` for the full spec.
+> **Hard rule:** every HONE fail path must auto-repair. Non-technical home users cannot run commands. Replace every `[ERROR] do X` with an automatic action. See `~/.claude/projects/-home-ubuntclaw-repos-hone/memory/feedback_self_heal_no_asks.md` for the full spec.
 
 This file is the canonical backlog of every place in the codebase that violates the self-heal rule. Agents pick the next `[ ]` item, fix it, run tests, commit atomically, and tick the box.
 
-When the list is empty, BTCPC is fully self-healing for non-technical home users.
+When the list is empty, HONE is fully self-healing for non-technical home users.
 
 ---
 
 ## P0 — User-facing install paths (non-technical users hit these first)
 
-- [x] **`website/btcpc-start.bat`** — every `[ERROR] ... pause ... exit /b 1` deathtrap. Rewrite under self-heal rule:
+- [x] **`website/hone-start.bat`** — every `[ERROR] ... pause ... exit /b 1` deathtrap. Rewrite under self-heal rule:
   - `where docker` fails → poll for Docker Desktop on PATH for 60s, then attempt to launch Docker Desktop via `start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"` if installed but not running
   - `docker info` fails → poll for daemon up to 10 minutes, sleep 5s between attempts
   - Image tarball download fails → exponential backoff retry (5s/15s/45s/2min/5min, max 5 attempts)
@@ -21,7 +21,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - Never `exit /b 1` unless every retry exhausted
   - Done in commit: self-heal: P0 installer scripts auto-recover instead of asking user
 
-- [x] **`website/btcpc-start.ps1`** — same as bat but in PowerShell. Currently has `Read-Host "Press Enter to exit"` at every error path. Rewrite:
+- [x] **`website/hone-start.ps1`** — same as bat but in PowerShell. Currently has `Read-Host "Press Enter to exit"` at every error path. Rewrite:
   - Wrap the entire flow in a `do { ... } while ($keepRetrying)` loop with backoff
   - Replace every `Read-Host "Press Enter to exit"` with `Start-Sleep -Seconds 30; continue`
   - `[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12` at top
@@ -33,7 +33,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 - [x] **`website/install.sh`** — Mac/Linux installer with multiple `err()` + `exit 1` paths. Rewrite under self-heal rule. Same loop pattern.
   - MongoDB section removed entirely (Phase F — not required)
   - Ollama installed silently via `curl -fsSL https://ollama.com/install.sh | sh` with retry loop
-  - btcpc-setup wrapped in `while true` restart loop
+  - hone-setup wrapped in `while true` restart loop
   - Private repo clone: graceful exit 0 with message, optional GITHUB_TOKEN fallback
   - Done in commit: self-heal: P0 installer scripts auto-recover instead of asking user
 
@@ -65,11 +65,11 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
 - [x] **`src/services/secretStore.js` corruption recovery**
-  - If `~/.btcpc/secrets.json` is corrupt JSON → rename to `secrets.json.bak.<ts>`, start fresh with empty store, log
+  - If `~/.hone/secrets.json` is corrupt JSON → rename to `secrets.json.bak.<ts>`, start fresh with empty store, log
   - Currently throws `failed to read secrets.json`
   - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
-- [x] **`bin/btcpc-mine` Mongo connection**
+- [x] **`bin/hone-mine` Mongo connection**
   - Was crashing with `users.findOne() buffering timed out` when HONE_MONGO_MODE unset but MONGODB_URI present
   - Fix: `bufferCommands: false` set immediately when Mongo not enabled — any accidental model call fails fast instead of hanging
   - Fix: `genesisBlock.js` all `User.findOne()` / `user.save()` guarded by `mongoEnabled` check
@@ -79,12 +79,12 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 ## P2 — Account / wallet self-heal
 
 - [x] **First-run account creation auto-heal**
-  - When the user starts a node with `HONE_MINER=somename` and `somename` doesn't exist on chain → auto-call `recordAccountCreate` via the cross-process queue + P2P gossip (already exists in `bin/btcpc-mine` lines 1074-1100, but needs to handle the empty-public-keys legacy case from `feedback_blockchain_source_of_truth.md`)
+  - When the user starts a node with `HONE_MINER=somename` and `somename` doesn't exist on chain → auto-call `recordAccountCreate` via the cross-process queue + P2P gossip (already exists in `bin/hone-mine` lines 1074-1100, but needs to handle the empty-public-keys legacy case from `feedback_blockchain_source_of_truth.md`)
   - The account auto-create today only happens if MongoDB has no existing User row. Should also fire if `stateStore.getAccount(name).public_keys.owner` is empty (legacy account with missing keys), and re-broadcast via mempool gossip
 
-- [x] **`bin/btcpc-rekey` non-interactive mode**
+- [x] **`bin/hone-rekey` non-interactive mode**
   - Currently prompts for the mnemonic (or `--pubkeys`). Add a `--from-cli` flag that reads keys from CLI args so it can be invoked from a setup wizard without interaction.
-  - Combined with the above auto-heal, the .bat/.ps1 installer can call `btcpc-rekey <username> --from-cli --owner-pk <hex>` ... if the user runs `wallet recover` first on a cold machine and pastes the result.
+  - Combined with the above auto-heal, the .bat/.ps1 installer can call `hone-rekey <username> --from-cli --owner-pk <hex>` ... if the user runs `wallet recover` first on a cold machine and pastes the result.
   - Done: --from-cli flag added (v3.1.129)
 
 - [x] **`src/wallet/accountManager.js` recovery flow**
@@ -92,19 +92,19 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 
 ## P3 — Node lifecycle self-heal
 
-- [x] **`bin/btcpc-all` supervisor**
+- [x] **`bin/hone-all` supervisor**
   - Backoff cap verified at 60s (`Math.min(..., 60000)`) — does not grow unbounded
   - Circuit breaker added: if a role crashes > 20 times in 1 hour, it is dropped from the active set; all other roles continue; warning logged
   - Healthy long-uptime runs (>5 min) reset the crash counter so brief future bad streaks start fresh
   - Logic extracted to `src/supervisor/circuitBreaker.js`; 10 unit tests in `tests/supervisorCircuitBreaker.test.js`
-  - Done in commit: self-heal: btcpc-all circuit breaker drops thrashing roles (v3.1.68)
+  - Done in commit: self-heal: hone-all circuit breaker drops thrashing roles (v3.1.68)
 
-- [x] **`bin/btcpc-storage` HTTP server bind failure**
+- [x] **`bin/hone-storage` HTTP server bind failure**
   - On `EADDRINUSE` (port 4243 taken), currently calls `process.exit(1)`. Should auto-pick an available port (4244, 4245, ...) and log
   - Heartbeat failure should not crash — already wrapped in try/catch, verify
   - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
-- [x] **`bin/btcpc-clock` peer-zero state**
+- [x] **`bin/hone-clock` peer-zero state**
   - When `peers === 0` for more than 5 minutes, force-reconnect to the seed list and the relay
   - Currently the clock will sit at peers=0 forever if the initial connection drops (we hit this in production today — clock had peers=0 for 9+ days)
   - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
@@ -136,7 +136,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 - [x] **`README.md`** — audited: no remaining "if you see X, do Y" sections (Rust-node rewrite removed them). Added a "Self-healing" section documenting what auto-recovers. (v3.1.157)
 - [x] **`CLAUDE.md`** — audited: contains agent/developer ops instructions only, no end-user fail-path instructions to replace. (v3.1.157)
 - [ ] **`docs/INDEX.md`** — already a vault entry point, no changes needed
-- [x] **`bin/btcpc-setup`** — interactive wizard. Either auto-detect everything and skip prompts (preferred), or rewrite as a true non-interactive `--auto` mode
+- [x] **`bin/hone-setup`** — interactive wizard. Either auto-detect everything and skip prompts (preferred), or rewrite as a true non-interactive `--auto` mode
   - Done: --auto flag + HONE_NONINTERACTIVE=1 (v3.1.129)
 
 ---
@@ -144,9 +144,9 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 ## Done
 
 - [x] **`src/index.js` Mongo non-fatal startup** (Phase F, commit `eafad90`)
-- [x] **`bin/btcpc-mine` Mongo non-fatal connect** (Phase F, commit `eafad90`)
+- [x] **`bin/hone-mine` Mongo non-fatal connect** (Phase F, commit `eafad90`)
 - [x] **Cross-process queue P2P gossip** (v2.13.3 mempool gossip, commit `e6ba2a5`)
-- [x] **Multi-role supervisor with auto-restart** (v2.13.2 btcpc-all, commit `52cb00a`)
+- [x] **Multi-role supervisor with auto-restart** (v2.13.2 hone-all, commit `52cb00a`)
 - [x] **`docker-compose.yml` Mongo no longer required** (Phase F, commit `eafad90`)
 - [x] **secretStore-first auth with Mongo fallback + lazy migration** (D.5-gamma, commit `8ef5005`)
 
@@ -182,24 +182,24 @@ Items from code review of finalizationConsensus.js. Non-blocking for genesis but
 
 ---
 
-## BTCPC Terminal — Warp Fork Scrub (personal dev environment)
+## HONE Terminal — Warp Fork Scrub (personal dev environment)
 
 **Repo**: `~/repos/warp` (warpdotdev/warp, AGPL, personal use only — never distributed)
-**Output**: `~/repos/btcpc-terminal-pro` (private, local only)
+**Output**: `~/repos/hone-terminal-pro` (private, local only)
 **Full plan**: `~/repos/warp/HONE_FORK_PLAN.md`
-**End-user terminal** (separate): `github.com/shindevlin/btcpc/tree/main/ludicrous` (Rio fork, MIT, ships to node operators)
+**End-user terminal** (separate): `github.com/shindevlin/hone/tree/main/ludicrous` (Rio fork, MIT, ships to node operators)
 
 Agent picks one phase at a time. Each phase must leave the repo in a `cargo check`-passing state before committing.
 
 - [ ] **Phase 1 — Delete cloud crates and get `cargo check` passing**
-  - Copy `~/repos/warp` to `~/repos/btcpc-terminal-pro` (full copy, not a symlink)
+  - Copy `~/repos/warp` to `~/repos/hone-terminal-pro` (full copy, not a symlink)
   - Remove from `Cargo.toml` workspace members and `[workspace.dependencies]`: `firebase`, `managed_secrets`, `managed_secrets_wasm`, `remote_server`, `warp_server_client`, `graphql`, `warp_graphql_schema`, `warp_web_event_bus`, `ai` (crate), `computer_use`
   - Delete directories: `crates/firebase/`, `crates/managed_secrets/`, `crates/managed_secrets_wasm/`, `crates/remote_server/`, `crates/warp_server_client/`, `crates/graphql/`, `crates/warp_graphql_schema/`, `crates/warp_web_event_bus/`, `crates/ai/`, `crates/computer_use/`
   - Delete app-level dirs: `app/src/auth/`, `app/src/crash_reporting/`, `app/src/billing/`, `app/src/drive/`, `app/src/experiments/`, `app/src/external_secrets/`, `app/src/autoupdate/`, `app/src/notebooks/`, `app/src/antivirus/`, `app/src/ai/`, `app/src/ai_assistant/`, `.agents/`
   - Remove `sentry`, `sentry-log`, `minidumper`, `crash-handler` from all `Cargo.toml` files
   - Fix every broken `use` / `mod` import caused by deletions — stub or remove the call site
   - Run `cargo check` — must pass with zero errors before committing
-  - Commit: `btcpc-terminal-pro: phase 1 — delete cloud/auth/telemetry crates`
+  - Commit: `hone-terminal-pro: phase 1 — delete cloud/auth/telemetry crates`
 
 - [ ] **Phase 2 — Remove auth gate from startup flow**
   - Find the auth check in `app/src/root_view.rs` that blocks terminal launch pending login — remove it so the terminal opens directly
@@ -208,26 +208,26 @@ Agent picks one phase at a time. Each phase must leave the repo in a `cargo chec
   - Remove any `billing::check_subscription()` or equivalent gate
   - Run `cargo check` — must pass
   - Smoke test: `cargo run` opens a working terminal without a login screen
-  - Commit: `btcpc-terminal-pro: phase 2 — remove auth gate, open straight to terminal`
+  - Commit: `hone-terminal-pro: phase 2 — remove auth gate, open straight to terminal`
 
-- [ ] **Phase 3 — Rebrand to BTCPC Terminal**
+- [ ] **Phase 3 — Rebrand to HONE Terminal**
   - Replace all `Warp` / `warp.dev` / `warpdotdev` strings in UI-visible locations (title bar, about screen, window title, `about.toml`)
-  - Replace with: name = `BTCPC Terminal`, author = `Shin Devlin`, url = `honemesh.network`
+  - Replace with: name = `HONE Terminal`, author = `Shin Devlin`, url = `honemesh.network`
   - Update app icon placeholder (can be a colored square for now)
-  - Update `Cargo.toml` package name from `warp-terminal` to `btcpc-terminal-pro`
+  - Update `Cargo.toml` package name from `warp-terminal` to `hone-terminal-pro`
   - Run `cargo check` — must pass
-  - Commit: `btcpc-terminal-pro: phase 3 — rebrand to BTCPC Terminal`
+  - Commit: `hone-terminal-pro: phase 3 — rebrand to HONE Terminal`
 
-- [ ] **Phase 4 — BTCPC node status panel**
+- [ ] **Phase 4 — HONE node status panel**
   - Add a sidebar panel that polls `http://localhost:4242/api/status` every 5s
   - Display: epoch number, block height, peers connected, sync status, miner account
   - Display: wallet balance for `HONE_MINER` account (poll `http://localhost:4242/api/wallet/:account`)
   - Panel is collapsible, off by default, toggled via keyboard shortcut `Ctrl+Shift+B`
   - Fails gracefully if node not running (shows "node offline" state, no crash)
-  - Commit: `btcpc-terminal-pro: phase 4 — BTCPC node status panel`
+  - Commit: `hone-terminal-pro: phase 4 — HONE node status panel`
 
 - [ ] **Phase 5 — Wire AI to local Claude Code**
   - Replace Warp AI command palette trigger with a shell exec: `claude "<selected text or prompt>"`
   - If `claude` is not on PATH, show "Claude Code not found — install via npm i -g @anthropic-ai/claude-code"
   - No cloud calls, no Warp account needed
-  - Commit: `btcpc-terminal-pro: phase 5 — wire AI shortcut to local Claude Code`
+  - Commit: `hone-terminal-pro: phase 5 — wire AI shortcut to local Claude Code`

@@ -12,7 +12,7 @@
 #
 # Keep this in sync with genesis.json and docs/GENESIS_JULY4_2026.md §4.
 # Account NAMES are stake-backed claimed identities (ENS-like), permanent at
-# genesis. The btcpc-* service accounts were renamed to hone-* for the HONE
+# genesis. The hone-* service accounts were renamed to hone-* for the HONE
 # re-genesis; the SAME existing keypairs claim the new names (no new keys).
 
 # Founder / root owner — owns freeport, verasens, linkgit (highest value to recover).
@@ -30,7 +30,7 @@ freeport
 linkgit
 verasens
 
-# Service accounts (renamed btcpc-* -> hone-* for re-genesis; same keys).
+# Service accounts (renamed hone-* -> hone-* for re-genesis; same keys).
 hone-market
 hone-relay
 honebot

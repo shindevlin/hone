@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Agent Sessions
+ * HONE Agent Sessions
  * Shin Devlin
  *
  * Multi-turn tool-calling inference sessions. Each session holds:
@@ -11,13 +11,13 @@
  *
  * Crypto reuses the same ECDH + HKDF + AES-256-GCM pattern from session.js
  * but without a SIK hardware binding (tool sessions are portable).
- * Optionally enable SIK binding via BTCPC_AGENT_REQUIRE_SIK=true.
+ * Optionally enable SIK binding via HONE_AGENT_REQUIRE_SIK=true.
  */
 
 const crypto = require("crypto");
 
-const SESSION_TTL_MS = parseInt(process.env.BTCPC_AGENT_SESSION_TTL_MS) || 30 * 60 * 1000; // 30 min
-const MAX_HISTORY_TURNS = parseInt(process.env.BTCPC_AGENT_MAX_TURNS) || 50;
+const SESSION_TTL_MS = parseInt(process.env.HONE_AGENT_SESSION_TTL_MS) || 30 * 60 * 1000; // 30 min
+const MAX_HISTORY_TURNS = parseInt(process.env.HONE_AGENT_MAX_TURNS) || 50;
 
 // Map<session_id, AgentSessionRecord>
 const sessions = new Map();
@@ -101,7 +101,7 @@ function createAgentSession(opts) {
  * Derive the shared session key from client's public key.
  * Idempotent: returns the existing key if already derived.
  *
- * session_key = HKDF(ECDH_shared_secret, salt=session_id, info="btcpc-agent-v1", 32)
+ * session_key = HKDF(ECDH_shared_secret, salt=session_id, info="hone-agent-v1", 32)
  */
 function deriveAgentSessionKey(sessionId, clientPublicKeyHex) {
   var session = sessions.get(sessionId);
@@ -110,7 +110,7 @@ function deriveAgentSessionKey(sessionId, clientPublicKeyHex) {
 
   var sharedSecret = session.ecdh.computeSecret(Buffer.from(clientPublicKeyHex, "hex"));
   var salt = Buffer.from(sessionId, "hex");
-  var info = Buffer.from("btcpc-agent-v1");
+  var info = Buffer.from("hone-agent-v1");
   var key = hkdf(sharedSecret, salt, info, 32);
 
   session.key = key;

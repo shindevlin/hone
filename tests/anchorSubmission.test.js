@@ -118,7 +118,7 @@ describe('anchorSubmission — recordAnchorSubmission', () => {
     expect(rec.tier).toBe('l2');
     expect(rec.epoch).toBe(100);
     expect(rec.tx_hash).toBe('0xTXHASH_L2_100');
-    expect(rec.reward_btcpc).toBeGreaterThan(0);
+    expect(rec.reward_hone).toBeGreaterThan(0);
     expect(rec.submitted_at).toBeGreaterThan(0);
   });
 

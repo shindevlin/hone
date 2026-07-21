@@ -95,7 +95,7 @@ async function _createProjectBothStores({ name, owner, repo, repoUrl, walletAddr
 
   // Mirror to Mongo for backwards compat (Phase E will drop this write).
   // Use the secretStore-generated key if available, otherwise generate a new one.
-  const mongoApiKey = plaintextKey || ('btcpc_' + crypto.randomBytes(32).toString('hex'));
+  const mongoApiKey = plaintextKey || ('hone_' + crypto.randomBytes(32).toString('hex'));
   const project = new Project({
     name,
     repoUrl,
@@ -111,7 +111,7 @@ async function _createProjectBothStores({ name, owner, repo, repoUrl, walletAddr
 
 /**
  * POST /api/projects/register
- * Register a GitHub repository to use BTCPC inference.
+ * Register a GitHub repository to use HONE inference.
  * Body: { repoUrl: "https://github.com/owner/repo" }
  * Returns: API key + wallet address
  */
@@ -145,7 +145,7 @@ router.post('/register', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Repository already registered', apiKey: existingKey });
     }
 
-    const walletAddress = 'btcpc_proj_' + crypto.randomBytes(16).toString('hex');
+    const walletAddress = 'hone_proj_' + crypto.randomBytes(16).toString('hex');
     const { project, apiKey } = await _createProjectBothStores({
       name: projectName,
       owner,
@@ -165,10 +165,10 @@ router.post('/register', authenticateToken, async (req, res) => {
         balance: 0
       },
       next_steps: [
-        `Add a .btcpc file to your repo root containing: ${walletAddress}`,
+        `Add a .hone file to your repo root containing: ${walletAddress}`,
         'Push it to your default branch',
         'Call POST /api/projects/verify with your API key to verify ownership',
-        'Send BTCPC tokens to your project wallet to start using inference'
+        'Send HONE tokens to your project wallet to start using inference'
       ]
     });
   } catch (err) {
@@ -178,8 +178,8 @@ router.post('/register', authenticateToken, async (req, res) => {
 
 /**
  * POST /api/projects/verify
- * Verify repo ownership by checking for .btcpc file containing the wallet address.
- * Auth: Bearer btcpc_... (project API key)
+ * Verify repo ownership by checking for .hone file containing the wallet address.
+ * Auth: Bearer hone_... (project API key)
  */
 router.post('/verify', async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -199,22 +199,22 @@ router.post('/verify', async (req, res) => {
 
     if (verified) return res.json({ success: true, message: 'Already verified' });
 
-    // Fetch .btcpc file from repo default branch
-    const rawUrl = `https://raw.githubusercontent.com/${pOwner}/${pRepo}/HEAD/.btcpc`;
+    // Fetch .hone file from repo default branch
+    const rawUrl = `https://raw.githubusercontent.com/${pOwner}/${pRepo}/HEAD/.hone`;
     const fileRes = await axios.get(rawUrl, { timeout: 10000, validateStatus: s => s < 500 });
 
     if (fileRes.status === 404) {
       return res.status(400).json({
-        error: 'No .btcpc file found in repository root',
+        error: 'No .hone file found in repository root',
         expected_content: walletAddress,
-        help: 'Create a file named .btcpc in your repo root containing your wallet address, then push to your default branch.'
+        help: 'Create a file named .hone in your repo root containing your wallet address, then push to your default branch.'
       });
     }
 
     const content = (fileRes.data || '').toString().trim();
     if (content !== walletAddress) {
       return res.status(400).json({
-        error: '.btcpc file content does not match wallet address',
+        error: '.hone file content does not match wallet address',
         expected: walletAddress,
         found: content.slice(0, 80)
       });
@@ -233,7 +233,7 @@ router.post('/verify', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Repository verified. You can now use BTCPC inference with your API key.',
+      message: 'Repository verified. You can now use HONE inference with your API key.',
       project: { name: projectName, verified: true, balance }
     });
   } catch (err) {
@@ -286,8 +286,8 @@ router.get('/me', async (req, res) => {
 
 /**
  * POST /api/projects/fund
- * Send BTCPC tokens to a project wallet. Requires user auth (JWT).
- * Body: { walletAddress: "btcpc_proj_...", amount: 10 }
+ * Send HONE tokens to a project wallet. Requires user auth (JWT).
+ * Body: { walletAddress: "hone_proj_...", amount: 10 }
  */
 router.post('/fund', authenticateToken, async (req, res) => {
   const objErr = rejectObjectInputs(req.body, ['walletAddress', 'amount']);
@@ -309,12 +309,12 @@ router.post('/fund', authenticateToken, async (req, res) => {
     if (!senderUser) return res.status(404).json({ error: 'User not found' });
     const senderName = senderUser.username;
 
-    const senderBalance = stateStore.getBalance(senderName, 'BTCPC');
+    const senderBalance = stateStore.getBalance(senderName, 'HONE');
     if (senderBalance < amount) return res.status(400).json({ error: 'Insufficient balance' });
 
     // Record on permanent ledger
     const epoch = await ledger.getCurrentEpoch();
-    await ledger.recordTransfer(senderName, 'project:' + project.name, amount, 'BTCPC', null, epoch, `Fund project: ${project.name}`);
+    await ledger.recordTransfer(senderName, 'project:' + project.name, amount, 'HONE', null, epoch, `Fund project: ${project.name}`);
 
     project.balance += amount;
     await project.save();
@@ -332,7 +332,7 @@ router.post('/fund', authenticateToken, async (req, res) => {
 
 /**
  * POST /api/projects/transfer
- * Transfer project ownership to another BTCPC user.
+ * Transfer project ownership to another HONE user.
  * Rotates API key (old owner loses access immediately).
  *
  * Auth: JWT (current owner must be authenticated)
@@ -389,7 +389,7 @@ router.post('/transfer', authenticateToken, async (req, res) => {
     }
 
     if (!newApiKey) {
-      newApiKey = 'btcpc_' + crypto.randomBytes(32).toString('hex');
+      newApiKey = 'hone_' + crypto.randomBytes(32).toString('hex');
     }
 
     // Mirror transfer to Mongo
@@ -405,7 +405,7 @@ router.post('/transfer', authenticateToken, async (req, res) => {
     try {
       const epoch = await ledger.getCurrentEpoch();
       await ledger.recordTransfer(
-        currentUser.username, buyer.username, 0, 'BTCPC', null, epoch,
+        currentUser.username, buyer.username, 0, 'HONE', null, epoch,
         `Project transfer: ${projectName} (${previousOwner} → ${buyer.username})`
       );
     } catch (_) {}
@@ -427,7 +427,7 @@ router.post('/transfer', authenticateToken, async (req, res) => {
 /**
  * POST /api/projects/revenue-split
  * Set revenue split configuration for a project.
- * Body: { project: "nsfwotica", splits: [{ account: "natoshisakamoto", percent: 70 }, { account: "btcpc_recycle", percent: 30 }] }
+ * Body: { project: "nsfwotica", splits: [{ account: "natoshisakamoto", percent: 70 }, { account: "hone_recycle", percent: 30 }] }
  * Splits must total exactly 100%.
  * Auth: JWT (project owner must be authenticated).
  */
@@ -450,7 +450,7 @@ router.post('/revenue-split', authenticateToken, async (req, res) => {
     const account = sanitizeString(s.account, 40);
     const percent = Number(s.percent);
     if (!account) return res.status(400).json({ error: 'each split must have an account name' });
-    if (!validAccountName(account) && account !== 'btcpc_recycle') {
+    if (!validAccountName(account) && account !== 'hone_recycle') {
       return res.status(400).json({ error: 'invalid account name: ' + account });
     }
     if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {

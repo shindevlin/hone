@@ -1,4 +1,4 @@
-# BTCPC Documentation
+# HONE Documentation
 
 Bitcoin Proof of Compute documentation for users, miners, validators, wallet operators, and integrators.
 

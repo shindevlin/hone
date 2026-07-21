@@ -6,10 +6,10 @@
  * Covers every item in docs/GO_LIVE_CHECKLIST.md.
  *
  * Environment:
- *   BTCPC_SMOKE_URL   — base URL to target (default: http://localhost:4242)
- *   BTCPC_SMOKE_SKIP  — tests are skipped by default (opt-in). Set to "0" to
- *                       actually run them against a live node at BTCPC_SMOKE_URL.
- *   BTCPC_SMOKE_API_KEY — API key for authenticated inference test (optional;
+ *   HONE_SMOKE_URL   — base URL to target (default: http://localhost:4242)
+ *   HONE_SMOKE_SKIP  — tests are skipped by default (opt-in). Set to "0" to
+ *                       actually run them against a live node at HONE_SMOKE_URL.
+ *   HONE_SMOKE_API_KEY — API key for authenticated inference test (optional;
  *                         the authenticated POST test is skipped when absent)
  *
  * Each test retries 3× with 1 s backoff before failing.
@@ -18,16 +18,16 @@
 
 const axios = require("axios");
 
-const BASE = (process.env.BTCPC_SMOKE_URL || "http://localhost:4242").replace(
+const BASE = (process.env.HONE_SMOKE_URL || "http://localhost:4242").replace(
   /\/$/,
   ""
 );
-// Smoke tests hit a live node at BTCPC_SMOKE_URL. They are opt-IN: skipped by
-// default (no node in unit-test/CI runs) and only run when BTCPC_SMOKE_SKIP is
+// Smoke tests hit a live node at HONE_SMOKE_URL. They are opt-IN: skipped by
+// default (no node in unit-test/CI runs) and only run when HONE_SMOKE_SKIP is
 // explicitly set to "0". Previously this skipped only when ==="1", so the suite
 // ran by default and the workers crashed trying to reach a node that isn't up.
-const SKIP = process.env.BTCPC_SMOKE_SKIP !== "0";
-const API_KEY = process.env.BTCPC_SMOKE_API_KEY || "";
+const SKIP = process.env.HONE_SMOKE_SKIP !== "0";
+const API_KEY = process.env.HONE_SMOKE_API_KEY || "";
 
 const RETRY_COUNT = 3;
 const RETRY_DELAY_MS = 1000;
@@ -60,7 +60,7 @@ function client(extraHeaders = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Conditional describe: all tests are skipped in CI unless BTCPC_SMOKE_SKIP=0
+// Conditional describe: all tests are skipped in CI unless HONE_SMOKE_SKIP=0
 // ---------------------------------------------------------------------------
 const describe_ = SKIP ? describe.skip : describe;
 
@@ -186,8 +186,8 @@ describe_("Go-Live Checklist smoke tests", () => {
         expect(body).not.toBeNull();
         // Must carry at least one recognisable pricing field
         const hasPricing =
-          "tokensPerBtcpc" in body ||
-          "tokens_per_btcpc" in body ||
+          "tokensPerHone" in body ||
+          "tokens_per_hone" in body ||
           "pricing" in body ||
           "price" in body ||
           "cost" in body;
@@ -210,7 +210,7 @@ describe_("Go-Live Checklist smoke tests", () => {
         // 200 or 201 accepted; 401/403 means auth required — we do a soft skip below
         if (res.status === 401 || res.status === 403) {
           // Unauthenticated inference is gated — this path requires a key.
-          // Log a notice but don't fail so runs without BTCPC_SMOKE_API_KEY still pass
+          // Log a notice but don't fail so runs without HONE_SMOKE_API_KEY still pass
           // on the public health pages.
           console.warn(
             "[smoke] /v1/chat/completions requires authentication — skipping content assertion"
@@ -292,7 +292,7 @@ describe_("Go-Live Checklist smoke tests", () => {
     async () => {
       await withRetry(async () => {
         // Bootstrap peer list is the canonical source of announced multiaddrs
-        const res = await client().get("/api/peers/bootstrap?chain_id=btcpc-1");
+        const res = await client().get("/api/peers/bootstrap?chain_id=hone-1");
         expect(res.status).toBe(200);
         const peers = res.data.peers || [];
         // At least one peer must have a non-localhost multiaddr

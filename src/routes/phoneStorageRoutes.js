@@ -2,7 +2,7 @@
 /**
  * Phone Storage Routes — /api/storage/phone/*
  *
- * Mobile devices host BTCPC-FS blobs and earn rewards for delivery.
+ * Mobile devices host HONE-FS blobs and earn rewards for delivery.
  *
  * GET  /api/storage/phone/assignments  — list blobs assigned to this phone
  * POST /api/storage/phone/heartbeat    — report availability + served count
@@ -17,7 +17,7 @@ const phoneHosts = new Map();
 /**
  * GET /api/storage/phone/assignments
  * Returns a list of small blobs the phone should host.
- * For now returns an empty list until BTCPC-FS blob sharding assigns phone shards.
+ * For now returns an empty list until HONE-FS blob sharding assigns phone shards.
  */
 router.get('/assignments', authenticateToken, (req, res) => {
     const account = req.user.username;
@@ -28,7 +28,7 @@ router.get('/assignments', authenticateToken, (req, res) => {
         success: true,
         account,
         blobs: [],
-        note: 'Phone storage assignments will populate as BTCPC-FS blob sharding rolls out.',
+        note: 'Phone storage assignments will populate as HONE-FS blob sharding rolls out.',
     });
 });
 

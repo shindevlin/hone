@@ -1,4 +1,4 @@
-# BTCPC Execution Tracker
+# HONE Execution Tracker
 
 Snapshot date: 2026-04-08
 
@@ -14,7 +14,7 @@ This tracker replaces the stale URSNode-era task list. It reflects the codebase 
 ## Current state summary
 
 - [x] Core API server, MongoDB boot, health endpoint, security middleware, and route wiring exist
-- [x] BTCPC account creation, wallet derivation, chain wallet creation, and JWT auth exist
+- [x] HONE account creation, wallet derivation, chain wallet creation, and JWT auth exist
 - [x] Wallet, faucet, staking, delegation, node registration, recovery, project billing, inference, and bot routes exist
 - [x] P2P network, epoch manager, miner, clock-node support, permanent ledger, and explorer are implemented
 - [x] Cross-chain claim and wrapped token groundwork exists
@@ -31,7 +31,7 @@ This tracker replaces the stale URSNode-era task list. It reflects the codebase 
 - [ ] Normalize identifier handling for login
   - Success criterion: users can authenticate with username or email consistently
 - [ ] Audit remaining legacy terminology and broken assumptions
-  - Success criterion: user-facing BTCPC flows no longer expose old URS wording or mismatched token names
+  - Success criterion: user-facing HONE flows no longer expose old URS wording or mismatched token names
 - [ ] Review dirty local changes before any mining/inference refactor
   - Success criterion: current local work is not overwritten or silently regressed
 

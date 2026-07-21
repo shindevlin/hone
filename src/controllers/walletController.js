@@ -7,16 +7,16 @@ const { createTransactionMessage } = require('../p2p/protocol');
 const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeString, sanitizeAmount, validAddress, validChain } = require('../middlewares/validate');
 const { resolveUserFromAuth } = require('../services/userResolver');
-const { deriveBtcpcAddress } = require('../wallet/keyManager');
+const { deriveHoneAddress } = require('../wallet/keyManager');
 
-function _btcpcAddress(username) {
+function _honeAddress(username) {
   const acct = stateStore.getAccount ? stateStore.getAccount(username) : null;
   const ownerKey = acct && acct.public_keys && acct.public_keys.owner;
   if (ownerKey) {
-    try { return deriveBtcpcAddress(ownerKey); } catch (_) {}
+    try { return deriveHoneAddress(ownerKey); } catch (_) {}
   }
   // Legacy fallback for accounts without stored public keys
-  return 'BTCPC' + crypto.createHash('sha256').update(username).digest('hex').slice(0, 40);
+  return 'HONE' + crypto.createHash('sha256').update(username).digest('hex').slice(0, 40);
 }
 
 /**
@@ -38,14 +38,14 @@ async function createWallet(req, res) {
     const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const address = _btcpcAddress(user.username);
+    const address = _honeAddress(user.username);
 
     res.status(201).json({
       success: true,
       wallet: {
         address,
         chain,
-        balance: { BTCPC: stateStore.getBalance(user.username, 'BTCPC') }
+        balance: { HONE: stateStore.getBalance(user.username, 'HONE') }
       }
     });
   } catch (err) {
@@ -62,17 +62,17 @@ async function getBalance(req, res) {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const username = user.username;
-    const btcpcBalance = stateStore.getBalance(username, 'BTCPC');
-    const tokenBalances = stateStore.getTokenBalances ? stateStore.getTokenBalances(username) : { BTCPC: btcpcBalance };
-    if (tokenBalances.BTCPC === undefined) tokenBalances.BTCPC = btcpcBalance;
-    const delegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(username, 'BTCPC') : 0;
+    const honeBalance = stateStore.getBalance(username, 'HONE');
+    const tokenBalances = stateStore.getTokenBalances ? stateStore.getTokenBalances(username) : { HONE: honeBalance };
+    if (tokenBalances.HONE === undefined) tokenBalances.HONE = honeBalance;
+    const delegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(username, 'HONE') : 0;
 
-    const address = _btcpcAddress(username);
+    const address = _honeAddress(username);
 
     res.json({
       success: true,
       address,
-      chain: 'btcpc',
+      chain: 'hone',
       balance: tokenBalances,
       delegated_balance: delegatedBalance,
       delegated_note: delegatedBalance > 0 ? 'Delegated tokens can pay for direct network services, but cannot be transferred, sold, staked, or bridged.' : undefined,
@@ -83,7 +83,7 @@ async function getBalance(req, res) {
 }
 
 /**
- * Transfer BTCPC tokens to another account
+ * Transfer HONE tokens to another account
  */
 async function transfer(req, res) {
   try {
@@ -104,14 +104,14 @@ async function transfer(req, res) {
     const senderName = senderUser.username;
 
     // Validate sufficient balance via stateStore (O(1) in-memory)
-    const senderBalance = stateStore.getBalance(senderName, 'BTCPC');
+    const senderBalance = stateStore.getBalance(senderName, 'HONE');
     if (senderBalance < amount) {
-      return res.status(400).json({ error: 'Insufficient BTCPC balance' });
+      return res.status(400).json({ error: 'Insufficient HONE balance' });
     }
 
     // Resolve recipient — stateStore is the source of truth (blockchain-only)
     let recipientName = null;
-    if (!toAddress.startsWith('BTCPC')) {
+    if (!toAddress.startsWith('HONE')) {
       // Treat as username; confirm account exists on chain
       const acct = stateStore.getAccount ? stateStore.getAccount(toAddress) : null;
       if (acct) recipientName = toAddress;
@@ -122,8 +122,8 @@ async function transfer(req, res) {
     }
     if (!recipientName) {
       // Unknown — allow forward-sending: tokens held at username until they register
-      // (BTCPC account names are reserved on first send, no Mongo lookup required)
-      if (!toAddress.startsWith('BTCPC') && toAddress.length >= 3) {
+      // (HONE account names are reserved on first send, no Mongo lookup required)
+      if (!toAddress.startsWith('HONE') && toAddress.length >= 3) {
         recipientName = toAddress; // tokens will land when account registers on chain
       } else {
         return res.status(404).json({ error: 'Recipient not found. Use a username or registered address.' });
@@ -144,7 +144,7 @@ async function transfer(req, res) {
       try {
         authorization = await privateAuthorization.verifyTransferAuthorization(
           senderName,
-          { from: senderName, to: recipientName, amount, token: 'BTCPC', memo },
+          { from: senderName, to: recipientName, amount, token: 'HONE', memo },
           privateAuth
         );
       } catch (authErr) {
@@ -159,7 +159,7 @@ async function transfer(req, res) {
           senderName,
           recipientName,
           amount,
-          'BTCPC',
+          'HONE',
           null,
           epoch,
           memo || null,
@@ -171,14 +171,14 @@ async function transfer(req, res) {
             factors: authorization.factors
           }
         )
-      : await ledger.recordTransfer(senderName, recipientName, amount, 'BTCPC', null, epoch, memo || null);
+      : await ledger.recordTransfer(senderName, recipientName, amount, 'HONE', null, epoch, memo || null);
     const txHash = require('../chain/blockStore').hashLedgerEntry(entry && entry.toObject ? entry.toObject() : entry);
 
     // Broadcast to P2P network
     try {
       const tx = {
         type: 'TRANSFER', from: senderName, to: recipientName,
-        amount, token: 'BTCPC', epoch, nonce: Date.now(),
+        amount, token: 'HONE', epoch, nonce: Date.now(),
         timestamp: Date.now(), memo: memo || null, txHash
       };
       const txMsg = createTransactionMessage(tx, p2p.NODE_ID);
@@ -216,14 +216,14 @@ async function getTransactionHistory(req, res) {
 
     // Return recent ledger entries for this user from stateStore
     // Full history requires block replay — stateStore is the live cache
-    const balance = stateStore.getBalance(user.username, 'BTCPC');
-    const address = 'BTCPC' + crypto.createHash('sha256').update(user.username).digest('hex').slice(0, 40);
+    const balance = stateStore.getBalance(user.username, 'HONE');
+    const address = 'HONE' + crypto.createHash('sha256').update(user.username).digest('hex').slice(0, 40);
 
     res.json({
       success: true,
       address,
       transactions: [],
-      note: 'Full history available via block replay. Current balance: ' + balance + ' BTCPC'
+      note: 'Full history available via block replay. Current balance: ' + balance + ' HONE'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

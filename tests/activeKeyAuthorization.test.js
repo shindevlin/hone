@@ -30,7 +30,7 @@ test("builds and verifies an active-key transfer challenge", async () => {
   const challenge = activeKeyAuthorization.buildTransferChallenge("alice", {
     toAddress: "bob",
     amount: 12.5,
-    token: "BTCPC",
+    token: "HONE",
     memo: "thanks",
   });
 
@@ -40,7 +40,7 @@ test("builds and verifies an active-key transfer challenge", async () => {
 
   const result = await activeKeyAuthorization.verifyActiveTransferSignature(
     "alice",
-    { to: "bob", amount: 12.5, token: "BTCPC", memo: "thanks" },
+    { to: "bob", amount: 12.5, token: "HONE", memo: "thanks" },
     {
       active_challenge_id: challenge.challengeId,
       active_challenge: challenge.challenge,
@@ -65,7 +65,7 @@ test("rejects a reused active-key challenge", async () => {
   const challenge = activeKeyAuthorization.buildTransferChallenge("alice", {
     toAddress: "bob",
     amount: 1,
-    token: "BTCPC",
+    token: "HONE",
     memo: "",
   });
   const msg = crypto.createHash("sha256").update(challenge.challenge).digest();
@@ -74,7 +74,7 @@ test("rejects a reused active-key challenge", async () => {
 
   const first = await activeKeyAuthorization.verifyActiveTransferSignature(
     "alice",
-    { to: "bob", amount: 1, token: "BTCPC", memo: "" },
+    { to: "bob", amount: 1, token: "HONE", memo: "" },
     {
       active_challenge_id: challenge.challengeId,
       active_challenge: challenge.challenge,
@@ -85,7 +85,7 @@ test("rejects a reused active-key challenge", async () => {
 
   const second = await activeKeyAuthorization.verifyActiveTransferSignature(
     "alice",
-    { to: "bob", amount: 1, token: "BTCPC", memo: "" },
+    { to: "bob", amount: 1, token: "HONE", memo: "" },
     {
       active_challenge_id: challenge.challengeId,
       active_challenge: challenge.challenge,

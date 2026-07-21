@@ -1,0 +1,18 @@
+[Unit]
+Description=HONE HTTP API + Inference Server
+After=network-online.target hone-miner.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntclaw/repos/hone
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=10
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntclaw/repos/hone/.env
+Environment=PORT=4242
+Environment=P2P_PORT=6944
+Environment=HONE_EPOCH_ENABLED=false
+
+[Install]
+WantedBy=default.target

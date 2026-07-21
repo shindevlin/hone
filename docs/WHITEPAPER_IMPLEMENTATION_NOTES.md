@@ -1,4 +1,4 @@
-# BTCPC Whitepaper Implementation Notes
+# HONE Whitepaper Implementation Notes
 
 Created: 2026-04-14
 
@@ -6,8 +6,8 @@ Created: 2026-04-14
 
 - Repository had no tracked modifications at the start of this pass.
 - Untracked runtime/local files were present and intentionally ignored:
-  - `.btcpc-image-hash`
-  - `btcpc/`
+  - `.hone-image-hash`
+  - `hone/`
   - `data/gnss/`
   - `data/known-peers.json`
   - `data/seen-messages.json`
@@ -21,7 +21,7 @@ Created: 2026-04-14
 - Username validation differs from the whitepaper and should reserve `wallet`.
 - TOTP exists in service/routes, but protocol/SDK enforcement needs a concrete integration model.
 - External finality anchoring now uses real block/state data where available and persists anchor history to disk. Remaining work is wallet-funded/sponsor-funded submission flow and bridge proof verification wiring.
-- TON derivation is seeded from the same BIP-39 mnemonic as BTCPC role keys and the other chain wallets, but it still exposes a raw public-key identifier instead of a contract-derived TON account address.
+- TON derivation is seeded from the same BIP-39 mnemonic as HONE role keys and the other chain wallets, but it still exposes a raw public-key identifier instead of a contract-derived TON account address.
 - Service/oracle/bridge modules have useful primitives, but several headers/comments still say chain dispatch lands later.
 
 ## Concrete Next Files
@@ -42,7 +42,7 @@ Created: 2026-04-14
 - 2026-04-14: P2P auth now defaults to strict signatures, with HONE_REQUIRE_SIGNATURES=false reserved for local legacy/test opt-out; protocol BLOCK_PROPOSAL fallback now uses 30s epochs instead of 300s.
 - 2026-04-14: Removed the P2P `HONE_EPOCH_DURATION_MS` override for block proposal validation; protocol fallback logic now uses the fixed 30-second consensus epoch duration.
 - 2026-04-14: Aligned TON derivation with chainLink by exposing the raw ed25519 public key as a linkable identifier derived from the shared BIP-39 mnemonic; no bridge/finality persistence changes were made in this pass.
-- 2026-04-14: Updated `src/services/storageChallenge.js` to compute an expected range hash from BTCPC-FS and reject responses whose bytes do not hash to that value. Added `tests/storageChallenge.test.js`.
+- 2026-04-14: Updated `src/services/storageChallenge.js` to compute an expected range hash from HONE-FS and reject responses whose bytes do not hash to that value. Added `tests/storageChallenge.test.js`.
 - 2026-04-14: User clarified the remembered emission doubling cadence: periods start at 1 week, then 2 weeks, 4 weeks, 8 weeks, and continue doubling.
 - 2026-04-14: Interpreted the weekly doubling schedule as constant reward-per-epoch inside each period, so each period's total allotment doubles; the 42M cap truncates the final period and consensus only needs an epoch-to-reward lookup.
 - 2026-04-14: Updated `src/services/emissionSchedule.js` and `tests/epochTiming.test.js` to use weekly doubling periods with a constant reward-per-epoch until the 42M supply cap. Updated explorer tokenomics copy for weekly doublings.
@@ -51,8 +51,8 @@ Created: 2026-04-14
 - 2026-04-14: Tightened sensor/gateway POST routes so account identity comes from authenticated user middleware instead of spoofable `body.account` fallback.
 - 2026-04-14: Removed implicit sensor auto-registration from reading submission; unknown sensors now fail closed with 404 and must be registered first.
 - 2026-04-14: Bumped package metadata to 2.16.3 for this whitepaper implementation branch.
-- 2026-04-14: Added Jest test discovery config so `npm test` ignores unrelated/untracked `btcpc/` TypeScript app tests and only runs this repo's `tests/**/*.test.js` suite.
-- 2026-04-14: Aligned `src/mining/rewardDistribution.js` with the whitepaper's six-pool emission split: 55% miner, 10% verifier, 5% clock, 12% storage, 8% service, 10% IoT, with unclaimed pools recycling to `btcpc_recycle`.
+- 2026-04-14: Added Jest test discovery config so `npm test` ignores unrelated/untracked `hone/` TypeScript app tests and only runs this repo's `tests/**/*.test.js` suite.
+- 2026-04-14: Aligned `src/mining/rewardDistribution.js` with the whitepaper's six-pool emission split: 55% miner, 10% verifier, 5% clock, 12% storage, 8% service, 10% IoT, with unclaimed pools recycling to `hone_recycle`.
 - 2026-04-14: Added verifier scaling policy and explicit P2P verifier opt-in via `HONE_VERIFIER_ENABLED=true` or `HONE_NODE_ROLE=verifier`; early networks verify lightly, larger networks increase panel size/coverage.
 - 2026-04-14: Added explorer `/api/visualizer` plus Telegram Mini App chain visualizer showing epochs, work roles, sensors/gateways, anchors, bridge state, rewards, and state root.
 - 2026-04-14: Added public explorer `/visualizer` page backed by `/api/visualizer/stream` SSE. The visualizer now reports role instances, not physical PC count, so one machine can appear as clock + miner + verifier + storage/service/gateway roles.
@@ -74,5 +74,5 @@ Created: 2026-04-14
 - PASS: `node --check src/explorer/server.js`
 - PASS: `node --check src/explorer/views/visualizer.js`
 - PASS: `git diff --check`
-- LIMITED: `npx jest --passWithNoTests --runInBand` originally picked up unrelated untracked `btcpc/` TypeScript tests before Jest discovery was scoped.
+- LIMITED: `npx jest --passWithNoTests --runInBand` originally picked up unrelated untracked `hone/` TypeScript tests before Jest discovery was scoped.
 - LIMITED: `timeout 180s npx jest --passWithNoTests --runInBand` after scoping timed out without output, so this branch is currently verified by focused touched-area suites rather than the full suite.

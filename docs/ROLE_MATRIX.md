@@ -1,13 +1,13 @@
-# BTCPC Role Matrix
+# HONE Role Matrix
 
-> BTCPC should run as one machine with many roles, not one process with many responsibilities.
+> HONE should run as one machine with many roles, not one process with many responsibilities.
 
 ## Core Rules
 
-- One machine may run multiple BTCPC roles.
+- One machine may run multiple HONE roles.
 - One machine may run at most one instance of any given role.
 - Each role should have its own process or service boundary.
-- `btcpc-all` is a supervisor/launcher, not the runtime architecture.
+- `hone-all` is a supervisor/launcher, not the runtime architecture.
 - Mobile can keep the role boundaries logically separate in-app even when the OS constrains process layout.
 
 ## Role Matrix
@@ -20,13 +20,13 @@ Legend:
 
 | Role | Phone | Raspberry Pi / Nebra | Laptop / Desktop | Server / Workstation | Flipper |
 |------|-------|----------------------|-------------------|----------------------|---------|
-| `btcpc-clock` | Yes | Yes | Yes | Yes | Maybe |
-| `btcpc-mine` | Yes, small model | Maybe | Yes | Yes | No |
-| `btcpc-storage` | No by default | Yes | Yes | Yes | No |
-| `btcpc-verifier` | Maybe | Maybe | Yes | Yes | No |
-| `btcpc-reviewer` | Maybe | Maybe | Yes | Yes | No |
-| `btcpc-sensor` | Yes, with GPS and other phone sensors | Yes | Yes, if hardware exists | Yes, if hardware exists | Yes |
-| `btcpc-gateway` | No | Maybe | Maybe | Maybe | No |
+| `hone-clock` | Yes | Yes | Yes | Yes | Maybe |
+| `hone-mine` | Yes, small model | Maybe | Yes | Yes | No |
+| `hone-storage` | No by default | Yes | Yes | Yes | No |
+| `hone-verifier` | Maybe | Maybe | Yes | Yes | No |
+| `hone-reviewer` | Maybe | Maybe | Yes | Yes | No |
+| `hone-sensor` | Yes, with GPS and other phone sensors | Yes | Yes, if hardware exists | Yes, if hardware exists | Yes |
+| `hone-gateway` | No | Maybe | Maybe | Maybe | No |
 
 ## Notes By Device
 
@@ -35,7 +35,7 @@ Legend:
 - Good for wallet/UI, clock, and a smaller miner model.
 - The miner should be logically separated from the rest of the app.
 - Phone sensors are a real role: GPS, motion, location, and other on-device signals can be tied together as one sensor process.
-- This is a mobile node, not a combined `btcpc-all` blob.
+- This is a mobile node, not a combined `hone-all` blob.
 
 ### Raspberry Pi / Nebra
 

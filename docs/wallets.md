@@ -1,22 +1,22 @@
-# BTCPC Wallet & Account System
+# HONE Wallet & Account System
 
 ## Account Model
 
-Every BTCPC account has:
+Every HONE account has:
 - **Username** — unique, permanent, human-readable (e.g. `shindevlin`, `josh`)
 - **12-word BIP-39 mnemonic** — the master secret that derives everything
 - **4 key pairs** (owner, active, posting, memo) — derived deterministically from the mnemonic
-- **Cross-chain addresses** — deterministically derived for BTCPC, EVM, Solana, Bitcoin, TON, Hive
+- **Cross-chain addresses** — deterministically derived for HONE, EVM, Solana, Bitcoin, TON, Hive
 
 ## Key Hierarchy
 
 ```
 12-Word BIP-39 Mnemonic
   |
-  +-- m/44'/btcpc'/0'/0/0  --> Owner Key    (change keys, recovery)
-  +-- m/44'/btcpc'/0'/1/0  --> Active Key   (transfers, staking)
-  +-- m/44'/btcpc'/0'/2/0  --> Posting Key  (social ops, bot linking)
-  +-- m/44'/btcpc'/0'/3/0  --> Memo Key     (encrypted messages)
+  +-- m/44'/hone'/0'/0/0  --> Owner Key    (change keys, recovery)
+  +-- m/44'/hone'/0'/1/0  --> Active Key   (transfers, staking)
+  +-- m/44'/hone'/0'/2/0  --> Posting Key  (social ops, bot linking)
+  +-- m/44'/hone'/0'/3/0  --> Memo Key     (encrypted messages)
 ```
 
 All keys are secp256k1. Given the same mnemonic, the same keys and addresses are always derived.
@@ -28,13 +28,13 @@ All keys are secp256k1. Given the same mnemonic, the same keys and addresses are
 const { createAccount } = require('./src/wallet/accountManager');
 const result = await createAccount('username', null, 'password');
 // result.mnemonic — SAVE THIS, it's shown once
-// result.address — BTCPC address
+// result.address — HONE address
 // result.publicKeys — { owner, active, posting, memo }
 ```
 
 ### Via CLI
 ```bash
-node bin/btcpc-cli wallet create <username>
+node bin/hone-cli wallet create <username>
 ```
 
 ### Recovering Keys from Mnemonic
@@ -64,7 +64,7 @@ const wallets = await keyManager.deriveChainWallets(mnemonic);
 ### Via CLI
 ```bash
 HONE_MINER=<username> HONE_ACTIVE_KEY=<active_private_key> \
-  node bin/btcpc-cli wallet send <recipient> <amount>
+  node bin/hone-cli wallet send <recipient> <amount>
 ```
 
 ### Via API

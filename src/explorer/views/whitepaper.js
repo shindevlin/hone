@@ -33,7 +33,7 @@ function whitepaperView(data) {
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">Latest Revision</div>
-        <div class="stat-value accent" style="font-size: 18px;">${escapeHtml(latest ? latest.title || "BTCPC Whitepaper" : "--")}</div>
+        <div class="stat-value accent" style="font-size: 18px;">${escapeHtml(latest ? latest.title || "HONE Whitepaper" : "--")}</div>
         <div class="stat-sub">epoch ${latest ? escapeHtml(String(latest.epoch)) : "--"} · ${escapeHtml(latest ? latest.version || "latest" : "--")}</div>
       </div>
       <div class="stat-card">
@@ -82,8 +82,8 @@ function whitepaperView(data) {
         <span class="badge">10,000 epochs</span>
       </div>
       <div style="padding: 18px 20px; color: var(--text-secondary);">
-        <p style="margin-bottom: 12px;">Dream #0 remains the original inscription for historical permanence. Every 10,000 epochs, BTCPC records the current whitepaper as a native <code>WHITEPAPER_REVISION</code> entry so the living document stays anchored without rewriting the past.</p>
-        <p>When configured, the revision source can be a canonical raw GitHub URL. Otherwise, BTCPC uses the local <code>docs/BTCPC_WHITEPAPER.md</code> copy.</p>
+        <p style="margin-bottom: 12px;">Dream #0 remains the original inscription for historical permanence. Every 10,000 epochs, HONE records the current whitepaper as a native <code>WHITEPAPER_REVISION</code> entry so the living document stays anchored without rewriting the past.</p>
+        <p>When configured, the revision source can be a canonical raw GitHub URL. Otherwise, HONE uses the local <code>docs/HONE_WHITEPAPER.md</code> copy.</p>
       </div>
     </div>
   `;

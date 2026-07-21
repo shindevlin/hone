@@ -2,17 +2,17 @@ I have enough now. Producing the plan.
 
 ---
 
-# BTCPC v2.10.1 → v2.14.x — Decentralized Commerce + Compute Hosting Plan
+# HONE v2.10.1 → v2.14.x — Decentralized Commerce + Compute Hosting Plan
 
 Author: planning agent
-Target: Shin Devlin / BTCPC v2.10.0 baseline (commit b47d74a)
+Target: Shin Devlin / HONE v2.10.0 baseline (commit b47d74a)
 Status: draft for review — no code changes made
 
 ---
 
 ## 1. Architecture overview
 
-These five phases turn BTCPC from "blockchain + AI inference mining" into "blockchain + AI inference + content-addressed object store + stateless then stateful compute hosting" — all reusing the same primitives: ledger entries flow through `stateStore`, escrow holds value, reputation scores behavior, slashing punishes cheating, mining proofs already model challenge/response.
+These five phases turn HONE from "blockchain + AI inference mining" into "blockchain + AI inference + content-addressed object store + stateless then stateful compute hosting" — all reusing the same primitives: ledger entries flow through `stateStore`, escrow holds value, reputation scores behavior, slashing punishes cheating, mining proofs already model challenge/response.
 
 The five phases stack like this:
 
@@ -23,7 +23,7 @@ The five phases stack like this:
            depends on v2.11 + v2.10.1
  v2.12  BLOCK_SIZE_CAP + fee market             (scaling discipline)
            depends on nothing; can parallel with v2.11
- v2.11  BTCPC-FS: BLOB_STORE_COMMIT/SERVE/CHAL   (object store)
+ v2.11  HONE-FS: BLOB_STORE_COMMIT/SERVE/CHAL   (object store)
            depends on v2.10.1
  v2.10.1 Commerce HTTP routes                   (makes v2.10 reachable)
            depends on commit b47d74a only
@@ -34,11 +34,11 @@ How the core primitives are reused across phases:
 - **stateStore** — the single source of read truth. Each phase adds Maps (`blobs`, `services`, `sessions`, `snapshots`) and dispatcher cases to `applyEntry`. No new database. Finality snapshots grow to carry the new Maps in `extended_state`.
 - **ledger.recordX + pendingEntries** — every new action is a `_entry() + _persist()` pair. `applyEntry` mutates stateStore synchronously, the miner flushes `pendingEntries` into the next block payload. The same machinery that persists STAKE, TRANSFER, ORDER_PLACE persists BLOB_STORE_COMMIT, SERVICE_HEARTBEAT, STATE_SNAPSHOT.
 - **escrow.js** — reused as a generic "lock funds, release to party X on success, refund on failure" primitive. Phase 2.10.1 ties it to ORDER_PLACE; 2.11 ties it to BLOB_STORE_COMMIT (seller → storage host); 2.13 ties it to SESSION_START (user → deployer→host split); 2.14 inherits the same flow. No changes to `lockFunds` signature — the escrow_id just becomes a foreign key on orders/blobs/sessions.
-- **BTCPC-FS (v2.11)** is the glue that appears in every later phase. Large off-chain artifacts — product images, order fulfillment evidence, service binaries, state snapshots — all live as `cid → bytes` at `~/.btcpc/blobs/<cid_prefix>/<cid>` on storage hosts. On-chain we only ever reference CIDs. Products already carry `content_cid`, orders already accept `fulfillment_cid`; v2.11 gives those fields teeth by making content actually retrievable from peers.
+- **HONE-FS (v2.11)** is the glue that appears in every later phase. Large off-chain artifacts — product images, order fulfillment evidence, service binaries, state snapshots — all live as `cid → bytes` at `~/.hone/blobs/<cid_prefix>/<cid>` on storage hosts. On-chain we only ever reference CIDs. Products already carry `content_cid`, orders already accept `fulfillment_cid`; v2.11 gives those fields teeth by making content actually retrievable from peers.
 - **Reputation (v2.10)** is extended by every later phase. Compute hosts (v2.13) get auto-votes from verifier uptime probes. Storage hosts (v2.11) get auto-votes from challenge success rate. Stateful hosts (v2.14) get auto-votes from successful snapshot verification. Everything flows through `recordReputationVote` with `target_type: "miner"` or new `target_type: "host"` — same Map, same math.
 - **Mining challenge/response** — already implemented for inference in `inference/handler.js` and `inference/verifier.js` (VERIFY_REQUEST / VERIFY_RESPONSE). v2.11 reuses this pattern for BLOB_CHALLENGE. v2.13 reuses it for heartbeat probes. v2.14 reuses it for state-key spot checks. One verifier panel, multiple challenge types.
 - **Slashing (v2.10 slashing.js)** — already has `recordOffense(account, offenseType, evidence)`. Each new phase adds offense types: `blob_serve_failed`, `service_downtime`, `snapshot_missing`, `state_mismatch`. No new slashing code — just new strings + evidence shapes.
-- **Block files as source of truth** — every phase stays inside the `ledger.record → stateStore.apply → pendingEntries → blockStore.writeBlock` pipeline. Nothing is written outside of blocks. On-disk blob data at `~/.btcpc/blobs/` is not chain state — it's just the addressable payload; the commitment (the CID) is in the block. If a host loses their blob dir they lose their bond, not the chain's view of it.
+- **Block files as source of truth** — every phase stays inside the `ledger.record → stateStore.apply → pendingEntries → blockStore.writeBlock` pipeline. Nothing is written outside of blocks. On-disk blob data at `~/.hone/blobs/` is not chain state — it's just the addressable payload; the commitment (the CID) is in the block. If a host loses their blob dir they lose their bond, not the chain's view of it.
 - **Finality snapshots** — v2.10 left a latent bug: `stateManager.generateFinalitySnapshot` builds `extended_state` with only `tokens`, `projects`, `extra_balances`, even though `stateStore.hydrateFromFinality` already reads `stores/products/orders/reputation/reputation_votes/delegations`. This gets fixed in v2.10.1 as a prerequisite and the pattern is extended phase-by-phase.
 
 Hierarchical picture of what each layer knows:
@@ -62,7 +62,7 @@ Hierarchical picture of what each layer knows:
 │ blockStore → data/blocks/block-NNNNNNNN.bin                      │
 │   + finality-NNNNNNNN.bin with extended_state (v2.10.1+)         │
 ├──────────────────────────────────────────────────────────────────┤
-│ Off-chain payload: ~/.btcpc/blobs/<cid>  (v2.11) — addressable   │
+│ Off-chain payload: ~/.hone/blobs/<cid>  (v2.11) — addressable   │
 │ Off-chain runtime: serviceHost subprocess wrappers (v2.13+)      │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -121,7 +121,7 @@ The important invariant: **the on-chain state never depends on the off-chain pay
 All routes follow `projectRoutes.js` conventions: `sanitizeString`, `sanitizeAmount`, `rejectObjectInputs`, `validAccountName`, 400 on validation failure, 401 on missing auth, 403 on wrong ownership, 404 on missing entity, 409 on chain invariant failure, 500 only on unexpected throws.
 
 **Chain invariants to enforce at the route layer (in addition to what `applyEntry` already silently enforces)**:
-- Store open: caller must have balance ≥ required BTCPC stake, must not already have an active store.
+- Store open: caller must have balance ≥ required HONE stake, must not already have an active store.
 - Product create: caller must own an active store; current active-product count < capacity; `product_id` is a fresh UUID (not already in stateStore).
 - Order place: product must be active and in stock; unit price/token must match current stateStore values (anti-race); buyer ≠ seller; buyer has balance ≥ total.
 - Order fulfill: only the seller; order must be in `placed`.
@@ -164,9 +164,9 @@ All routes follow `projectRoutes.js` conventions: `sanitizeString`, `sanitizeAmo
 
 ---
 
-### Phase v2.11.x — BTCPC-FS content-addressed blob store
+### Phase v2.11.x — HONE-FS content-addressed blob store
 
-**Goal**: give BTCPC a native, paid, slashable object store where sellers/deployers pay hosts to store and serve CID-addressed blobs for a committed number of epochs.
+**Goal**: give HONE a native, paid, slashable object store where sellers/deployers pay hosts to store and serve CID-addressed blobs for a committed number of epochs.
 
 **Planned sub-versions**:
 - `v2.11.0` — ledger entries, stateStore maps, CID helper, disk store, HTTP serve endpoint (no challenge yet — trust-based)
@@ -175,12 +175,12 @@ All routes follow `projectRoutes.js` conventions: `sanitizeString`, `sanitizeAmo
 - `v2.11.3` — blob expiry + reclaim (host escrow released at end of term)
 
 **New files**:
-- `src/services/btcpcfs/cid.js` — compute CIDv1 (multihash sha256 + base32) over arbitrary Buffer, deterministic.
-- `src/services/btcpcfs/blobStore.js` — disk layer: `put(cid, buffer)`, `get(cid) → buffer|null`, `has(cid)`, `delete(cid)`, `listLocal()`. Path convention: `~/.btcpc/blobs/<cid[0..2]>/<cid>`.
-- `src/services/btcpcfs/hostRunner.js` — starts a background loop that serves challenges over P2P, uploads evidence (BLOB_SERVE_PROOF) periodically, and refuses new commits when disk is full.
-- `src/services/btcpcfs/challenge.js` — verifier-side random chunk request, deterministic seed per (epoch, cid).
+- `src/services/honefs/cid.js` — compute CIDv1 (multihash sha256 + base32) over arbitrary Buffer, deterministic.
+- `src/services/honefs/blobStore.js` — disk layer: `put(cid, buffer)`, `get(cid) → buffer|null`, `has(cid)`, `delete(cid)`, `listLocal()`. Path convention: `~/.hone/blobs/<cid[0..2]>/<cid>`.
+- `src/services/honefs/hostRunner.js` — starts a background loop that serves challenges over P2P, uploads evidence (BLOB_SERVE_PROOF) periodically, and refuses new commits when disk is full.
+- `src/services/honefs/challenge.js` — verifier-side random chunk request, deterministic seed per (epoch, cid).
 - `src/routes/blobRoutes.js` — HTTP endpoints: `POST /api/blobs` (upload), `GET /api/blobs/:cid` (public serve), `POST /api/blobs/:cid/commit` (deployer pays for storage), `GET /api/blobs/:cid/status` (see hosts + remaining epochs).
-- `tests/btcpcfs.test.js` — unit tests for CID determinism, blobStore roundtrip, challenge/response, ledger flow, slashing trigger.
+- `tests/honefs.test.js` — unit tests for CID determinism, blobStore roundtrip, challenge/response, ledger flow, slashing trigger.
 
 **Modified files**:
 - `src/chain/stateStore.js` — add `blobs` Map + dispatcher cases (see below); add getters; add to `snapshot()`, `resetAll()`, `hydrateFromFinality().extended_state.blobs`; extend `_entryKey` with `blob_data.cid`.
@@ -193,7 +193,7 @@ All routes follow `projectRoutes.js` conventions: `sanitizeString`, `sanitizeAmo
 
 **New ledger entry types**:
 - `BLOB_STORE_COMMIT` — seller/deployer commits to having a blob hosted.
-  Fields: `type`, `from` (payer), `to` (host username or `"btcpc_fs_pool"` if auto-assigned), `amount` (BTCPC paid), `epoch`, `blob_data: { cid, size_bytes, duration_epochs, host, fee_per_epoch, total_paid, escrow_id }`.
+  Fields: `type`, `from` (payer), `to` (host username or `"hone_fs_pool"` if auto-assigned), `amount` (HONE paid), `epoch`, `blob_data: { cid, size_bytes, duration_epochs, host, fee_per_epoch, total_paid, escrow_id }`.
 - `BLOB_SERVE_PROOF` — host reports "I am serving this CID as of epoch N". Fields: `type`, `from` (host), `epoch`, `blob_data: { cid, challenge_seed, chunk_index, chunk_hash, signature }`. Batch form carries `proofs: [...]`.
 - `BLOB_CHALLENGE` — verifier challenges a host. Fields: `type`, `from` (verifier), `to` (host), `epoch`, `blob_data: { cid, chunk_index, nonce }`.
 - `BLOB_SLASH` — derived entry written by slashing pipeline when a host fails a challenge; re-uses `slashing.executeSlash` machinery but adds a chain entry with `blob_data: { cid, reason }`.
@@ -249,7 +249,7 @@ Dispatcher cases in `applyEntry`:
 - `p2p/protocol.js` `createMessage` + existing broadcast fan-out.
 - `mining/miner.js` startup sequence (same `if (HONE_MINER) startInferenceHandler(); if (HONE_STORAGE_HOST) hostRunner.start();`).
 
-**Tests to write** (`tests/btcpcfs.test.js`):
+**Tests to write** (`tests/honefs.test.js`):
 - CID is deterministic (same bytes → same CID)
 - CID collision: different bytes → different CID
 - blobStore put/get roundtrip + listLocal
@@ -281,7 +281,7 @@ Dispatcher cases in `applyEntry`:
 
 **Modified files**:
 - `src/chain/blockStore.js` — `writeBlock` accepts a `{ maxPayloadBytes = 1048576 }` option; throws `BlockPayloadTooLarge` if payload exceeds. Export `MAX_BLOCK_PAYLOAD = 1_048_576`. Read side unchanged.
-- `src/mining/miner.js` — before serializing payload, call `feeMarket.selectForBlock(pendingEntries, MAX_BLOCK_PAYLOAD - reservedHeaderSpace)`; split selected vs. overflow; overflow stays in pending for next block; add two logs `[BTCPC] block bytes: X / Y, entries: M / N`. Add `getBlockSpaceRemaining()` helper exported from miner for introspection.
+- `src/mining/miner.js` — before serializing payload, call `feeMarket.selectForBlock(pendingEntries, MAX_BLOCK_PAYLOAD - reservedHeaderSpace)`; split selected vs. overflow; overflow stays in pending for next block; add two logs `[HONE] block bytes: X / Y, entries: M / N`. Add `getBlockSpaceRemaining()` helper exported from miner for introspection.
 - `src/p2p/mempool.js` — `submit` accepts optional `tx.fee` (in dreams); tracks `feeRate = fee / estimatedBytes`; new `getSortedByFeeRate()` iterator; new `getStats()` field `congested: boolean` (true when mempool > 80% full). Free (fee=0) transactions still accepted but sorted last.
 - `src/services/ledger.js` — commerce + blob + service recordX take an optional `fee = 0` argument, attached to the entry as `entry.fee`. No behavior change when zero.
 
@@ -299,7 +299,7 @@ Dispatcher cases in `applyEntry`:
 - Block payload bytes ≤ `MAX_BLOCK_PAYLOAD` (1,048,576). Hard-enforced in `writeBlock`.
 - Merkle roots of `ledger_entries` must match the actually-included subset — overflow entries are re-serialized into the next epoch with a fresh `timestamp` or retained as-is (decision flagged in section 5 open questions).
 - Existing free transactions MUST remain valid when block is under cap. Fee is additive, not required.
-- Fee payments go to `btcpc_treasury` as a `TRANSFER` entry appended implicitly when the tx is selected (not at submit time — only applied on inclusion to avoid charging for dropped txs). Implementation: `feeMarket.selectForBlock` returns `{ selected, feeEntries }` and miner appends `feeEntries` to `epochLedgerEntries` before writing.
+- Fee payments go to `hone_treasury` as a `TRANSFER` entry appended implicitly when the tx is selected (not at submit time — only applied on inclusion to avoid charging for dropped txs). Implementation: `feeMarket.selectForBlock` returns `{ selected, feeEntries }` and miner appends `feeEntries` to `epochLedgerEntries` before writing.
 
 **Reuse of existing code**:
 - `p2p/mempool.js` `pending` Map stays, new iterator is added on top.
@@ -321,7 +321,7 @@ Dispatcher cases in `applyEntry`:
   - `selectForBlock` returns exactly as many entries as fit
 
 **Verification steps**:
-- `npm test` — all existing tests still pass (no fee changes anywhere else means commerce.test.js, ledger.test.js, btcpcfs.test.js stay green)
+- `npm test` — all existing tests still pass (no fee changes anywhere else means commerce.test.js, ledger.test.js, honefs.test.js stay green)
 - Manual: seed mempool with 10k tiny transfers, mine a block, confirm block is ≤ 1 MB and log shows overflow count
 - Manual: run smoke flow — confirm fee-less TRANSFER still works when mempool is small
 
@@ -340,7 +340,7 @@ Dispatcher cases in `applyEntry`:
 - `v2.13.3` — session pro-rata settlement + stale-session sweep
 
 **New files**:
-- `src/services/serviceHost.js` — host-side runner. Given a SERVICE_DEPLOY ledger entry we've opted into, pulls the binary via BTCPC-FS, runs `podman run --rm -d --memory=Xm --cpus=Y -p <port> --entrypoint <...> <imagish>`, tracks process handle, publishes SERVICE_HEARTBEAT each epoch, tears down on session end. Uses subprocess — does not reinvent orchestration.
+- `src/services/serviceHost.js` — host-side runner. Given a SERVICE_DEPLOY ledger entry we've opted into, pulls the binary via HONE-FS, runs `podman run --rm -d --memory=Xm --cpus=Y -p <port> --entrypoint <...> <imagish>`, tracks process handle, publishes SERVICE_HEARTBEAT each epoch, tears down on session end. Uses subprocess — does not reinvent orchestration.
 - `src/services/serviceSpec.js` — parses + validates `runtime` field: `{ type: "http"|"tcp"|"wasm", cpu, ram_mb, gpu?, ports, entrypoint, binary_cid, env_whitelist }`. Rejects host path escapes, privileged flags, unrestricted network.
 - `src/routes/serviceRoutes.js` — `POST /api/services` (deploy), `GET /api/services` (list), `GET /api/services/:id` (detail), `POST /api/services/:id/sessions` (start), `DELETE /api/sessions/:id` (end).
 - `src/p2p/serviceHandler.js` — P2P handler for SERVICE_HEARTBEAT gossip + SERVICE_PROBE challenge.
@@ -416,7 +416,7 @@ Dispatcher cases: straightforward writes; `SESSION_END` updates the service's `a
 - Heartbeat gap > M epochs marks host as `inactive` — new sessions rejected.
 
 **Reuse of existing code**:
-- `btcpcfs/*` — binary distribution and integrity.
+- `honefs/*` — binary distribution and integrity.
 - `services/escrow.js` — session escrows.
 - `inference/verifier.js` — probe panel formation.
 - `p2p/protocol.js` broadcast.
@@ -430,7 +430,7 @@ Dispatcher cases: straightforward writes; `SESSION_END` updates the service's `a
 
 **Verification steps**:
 - Start 3 nodes: deployer, host (with `HONE_COMPUTE_HOST=true`), user.
-- Deployer uploads a simple HTTP echo binary to BTCPC-FS, commits 100 epochs.
+- Deployer uploads a simple HTTP echo binary to HONE-FS, commits 100 epochs.
 - Deployer calls `POST /api/services` with the CID.
 - Host calls `POST /api/services/:id/offer`.
 - User calls `POST /api/services/:id/sessions`, gets back `host_url`, confirms echo works.
@@ -442,7 +442,7 @@ Dispatcher cases: straightforward writes; `SESSION_END` updates the service's `a
 
 ### Phase v2.14.x — Stateful compute with snapshot replication
 
-**Goal**: extend v2.13 with persistent state via periodic snapshots uploaded to BTCPC-FS; on host failure, the next scheduled host fetches the latest snapshot CID and resumes.
+**Goal**: extend v2.13 with persistent state via periodic snapshots uploaded to HONE-FS; on host failure, the next scheduled host fetches the latest snapshot CID and resumes.
 
 **Planned sub-versions**:
 - `v2.14.0` — STATE_SNAPSHOT ledger entry + snapshot runner
@@ -452,7 +452,7 @@ Dispatcher cases: straightforward writes; `SESSION_END` updates the service's `a
 
 **New files**:
 - `src/services/stateSnapshot.js` — host-side: on a timer (`snapshot_interval_sec` from runtime), serialize in-memory state (callback defined per-service by the runtime — the chain doesn't interpret the bytes), gzip, put into local blobStore, record STATE_SNAPSHOT.
-- `src/services/stateTransfer.js` — replacement-host-side: on being elected, fetch latest STATE_SNAPSHOT CID for the service, pull bytes via btcpcfs, hand to the service runtime, emit a `STATE_TRANSFER` entry when ready.
+- `src/services/stateTransfer.js` — replacement-host-side: on being elected, fetch latest STATE_SNAPSHOT CID for the service, pull bytes via honefs, hand to the service runtime, emit a `STATE_TRANSFER` entry when ready.
 - `src/services/stateVerifier.js` — verifier: samples random keys from a snapshot (via a host-provided key index), challenges the current host to return those keys' values within a timeout.
 - `tests/stateful.test.js`.
 
@@ -501,7 +501,7 @@ Dispatcher:
 
 **Reuse of existing code**:
 - `services/serviceHost.js` (v2.13) host loop — extended with snapshot timer.
-- `btcpcfs/*` — snapshot storage.
+- `honefs/*` — snapshot storage.
 - `inference/verifier.js` panel formation.
 - `services/slashing.js`.
 - `services/escrow.js` — per-snapshot storage escrow reuses v2.11 flow.
@@ -625,7 +625,7 @@ These should be discussed with the user before building, not decided unilaterall
 
 4. **Host assignment strategy (v2.11).** When a deployer commits a blob with `host: "auto"`, what picks the host? Reputation? Lowest fee? Random stake-weighted? A simple reputation-weighted random ballot per commit is defensible — needs approval.
 
-5. **BTCPC-FS payment unit (v2.11).** Is storage priced in BTCPC or in a stable? Mixing tokens across phases is fine technically, but the UX suffers if a user has to hold 5 different tokens to use the chain. Recommend: BTCPC only for hosting fees; stable only for store-capacity bonding curve (already the case).
+5. **HONE-FS payment unit (v2.11).** Is storage priced in HONE or in a stable? Mixing tokens across phases is fine technically, but the UX suffers if a user has to hold 5 different tokens to use the chain. Recommend: HONE only for hosting fees; stable only for store-capacity bonding curve (already the case).
 
 6. **Challenge frequency (v2.11).** Probe every epoch is overkill for small blobs and expensive for large ones. Size-weighted probe interval? Random sampling so only M% of blobs are probed each epoch? Needs a concrete policy.
 
@@ -633,9 +633,9 @@ These should be discussed with the user before building, not decided unilaterall
 
 8. **Merkle root + overflow determinism (v2.12).** If block N can't fit all pending entries, and entries are deferred to block N+1, the merkle root of block N is over the selected subset — determinism requires every node to make the same selection. Propose: all nodes apply the same deterministic selection algorithm (sort by fee-rate desc, break ties by ledger-entry canonical hash asc). But this assumes every node sees the same pending set, which the gossip protocol doesn't fully guarantee. This is **the biggest correctness risk in v2.12** and deserves its own design doc before coding.
 
-9. **Subprocess lifecycle on host crash (v2.13).** If the miner process dies mid-session, podman containers stay orphaned. Options: (a) use systemd-run with --scope tied to the miner pid, (b) use a watchdog process, (c) accept leakage and clean up at startup by listing all `btcpc-service-*` containers and pruning. Recommend (c) as MVP.
+9. **Subprocess lifecycle on host crash (v2.13).** If the miner process dies mid-session, podman containers stay orphaned. Options: (a) use systemd-run with --scope tied to the miner pid, (b) use a watchdog process, (c) accept leakage and clean up at startup by listing all `hone-service-*` containers and pruning. Recommend (c) as MVP.
 
-10. **State snapshot semantics (v2.14).** "State" is whatever the service implementation writes to disk at snapshot time. The chain has no opinion on the format. But the sampled-key challenge protocol requires the host to produce `key → value_hash` for arbitrary keys. That means the service runtime has to expose a `GET /_btcpc/state/:key` introspection endpoint. **This is a real coupling between the service and the chain** — the chain can't verify blobs it doesn't understand. Options:
+10. **State snapshot semantics (v2.14).** "State" is whatever the service implementation writes to disk at snapshot time. The chain has no opinion on the format. But the sampled-key challenge protocol requires the host to produce `key → value_hash` for arbitrary keys. That means the service runtime has to expose a `GET /_hone/state/:key` introspection endpoint. **This is a real coupling between the service and the chain** — the chain can't verify blobs it doesn't understand. Options:
     - (a) Require all stateful services to implement a standard introspection endpoint (forces a runtime SDK, cleaner long-term).
     - (b) Only verify snapshot size + CID, not content (weaker — lets hosts ship garbage). User likely wants (a).
 11. **Lost in-flight writes (v2.14).** Explicitly documented as acceptable. Is there user demand for a WAL (v2.14.3)? If yes, WAL entries become a new ledger type STATE_WAL_APPEND, pushed between snapshots. That doubles the storage cost and may not be worth it — probably defer.
@@ -668,18 +668,18 @@ The user asked for these five phases and nothing else. The following items sound
 
 The files most critical to read and modify across all five phases:
 
-- /home/ubuntclaw/repos/btcpc/src/chain/stateStore.js
-- /home/ubuntclaw/repos/btcpc/src/services/ledger.js
-- /home/ubuntclaw/repos/btcpc/src/chain/stateManager.js
-- /home/ubuntclaw/repos/btcpc/src/chain/blockStore.js
-- /home/ubuntclaw/repos/btcpc/src/mining/miner.js
+- /home/ubuntclaw/repos/hone/src/chain/stateStore.js
+- /home/ubuntclaw/repos/hone/src/services/ledger.js
+- /home/ubuntclaw/repos/hone/src/chain/stateManager.js
+- /home/ubuntclaw/repos/hone/src/chain/blockStore.js
+- /home/ubuntclaw/repos/hone/src/mining/miner.js
 
 Secondary but load-bearing:
-- /home/ubuntclaw/repos/btcpc/src/p2p/protocol.js
-- /home/ubuntclaw/repos/btcpc/src/p2p/mempool.js
-- /home/ubuntclaw/repos/btcpc/src/services/escrow.js
-- /home/ubuntclaw/repos/btcpc/src/routes/projectRoutes.js (pattern reference)
-- /home/ubuntclaw/repos/btcpc/tests/commerce.test.js (test pattern reference)
+- /home/ubuntclaw/repos/hone/src/p2p/protocol.js
+- /home/ubuntclaw/repos/hone/src/p2p/mempool.js
+- /home/ubuntclaw/repos/hone/src/services/escrow.js
+- /home/ubuntclaw/repos/hone/src/routes/projectRoutes.js (pattern reference)
+- /home/ubuntclaw/repos/hone/tests/commerce.test.js (test pattern reference)
 ---
 
 # Plan revision — v2.10.2 Gateway (discoverability layer)
@@ -695,13 +695,13 @@ Inserted between v2.10.1 and v2.11.x on user approval (2026-04-10). Answers the 
 - `src/gateway/routes.js` — gateway-specific routes (kept separate from `src/routes/commerceRoutes.js` which is the API)
 - `src/gateway/storefront.js` — server-side HTML rendering for stores and products. Template-literal based, no framework dep. Reads from stateStore.
 - `src/gateway/resolver.js` — turns a path (`/stores/<seller>/<slug>`) into a stateStore lookup. Single source of resolution logic, reused across storefront + future blob + service routes.
-- `src/gateway/remoteClient.js` — optional lightweight mode: query a remote BTCPC node via JSON-RPC instead of local stateStore. Gated on `HONE_GATEWAY_REMOTE_RPC_URL` env var.
+- `src/gateway/remoteClient.js` — optional lightweight mode: query a remote HONE node via JSON-RPC instead of local stateStore. Gated on `HONE_GATEWAY_REMOTE_RPC_URL` env var.
 - `tests/gateway.test.js` — unit tests for resolver, routes, storefront rendering
 
 ## Modified files
 
 - `src/index.js` — conditionally start the gateway server when env var is set. Do not bundle with default node startup to keep the core API unchanged.
-- `bin/btcpc-gateway` — new CLI entry for standalone gateway (optional convenience script)
+- `bin/hone-gateway` — new CLI entry for standalone gateway (optional convenience script)
 
 ## Routes served (v2.10.2 only — blob and service routes arrive in later phases)
 
@@ -762,16 +762,16 @@ Small — this is ~400 lines of gateway code + tests. All business logic already
 
 ## Deferred to later phases (do not build in v2.10.2)
 
-- `/fs/:cid` blob streaming — arrives in v2.11 alongside BTCPC-FS
+- `/fs/:cid` blob streaming — arrives in v2.11 alongside HONE-FS
 - `/service/:slug` reverse proxy — arrives in v2.13 alongside SERVICE_DEPLOY
-- `.btcpc` TLD / browser extension resolution — out of scope, v2.15+ polish
+- `.hone` TLD / browser extension resolution — out of scope, v2.15+ polish
 - Signed response proofs (gateway proves data came from chain) — v2.12+ trust-minimization hardening
 - Cart / checkout UI with payment flow — v2.10.3 UX phase
 
 ## Gateway trust model
 
-- **Local mode** (default): gateway runs in the same process or on the same machine as a full BTCPC node, reads stateStore directly. Zero-trust wrt chain data — the reader IS the chain.
-- **Remote mode** (opt-in via `HONE_GATEWAY_REMOTE_RPC_URL`): gateway is a lightweight HTTP server that queries a remote BTCPC node via a new `/api/rpc` JSON-RPC endpoint. Trust the node it queries. Good for phones, browser extensions, kiosks.
+- **Local mode** (default): gateway runs in the same process or on the same machine as a full HONE node, reads stateStore directly. Zero-trust wrt chain data — the reader IS the chain.
+- **Remote mode** (opt-in via `HONE_GATEWAY_REMOTE_RPC_URL`): gateway is a lightweight HTTP server that queries a remote HONE node via a new `/api/rpc` JSON-RPC endpoint. Trust the node it queries. Good for phones, browser extensions, kiosks.
 
 Both modes share the same routes and rendering code. `resolver.js` abstracts the data source.
 
@@ -790,7 +790,7 @@ New ledger entry type **`ORACLE_REPORT`** + verifier-median consensus:
   from: 'oracle-operator-1',
   epoch,
   oracle_data: {
-    feed_id: 'price.btcpc.usd',   // or any namespace (weather.austin, sports.nba.lakers)
+    feed_id: 'price.hone.usd',   // or any namespace (weather.austin, sports.nba.lakers)
     value: '0.0425',                 // string-encoded to preserve precision
     source_sig: '...',               // optional: proof from an external source
     source_url_hash: '...',          // hash of queried endpoint, NOT the URL
@@ -830,7 +830,7 @@ New ledger entry type **`VRF_COMMIT`** — one per clock node per epoch:
 
 **Unlocks**: provably fair games (dice, cards, loot), unmanipulable NFT mints, lottery systems, verifier panel random sampling (latent improvement over current deterministic selection), governance sortition.
 
-## Addition C — Bandwidth accounting folded into v2.11 (BTCPC-FS)
+## Addition C — Bandwidth accounting folded into v2.11 (HONE-FS)
 
 Extend `BLOB_STORE_COMMIT` with separate storage + bandwidth pricing:
 ```
@@ -838,8 +838,8 @@ blob_data: {
   cid,
   hosts,
   duration_epochs,
-  payment_btcpc,            // storage rate (per-epoch)
-  bandwidth_rate_btcpc,     // per-GB served (new)
+  payment_hone,            // storage rate (per-epoch)
+  bandwidth_rate_hone,     // per-GB served (new)
   ...
 }
 ```
@@ -892,26 +892,26 @@ Backward compatibility: if an entry has legacy `node_type` string, dispatcher tr
 
 This is the most important cross-cutting change. All subsequent phases just add new values to the enum.
 
-## Addition E — New phase v2.15: BTCPC-nano + Helium miner repurpose
+## Addition E — New phase v2.15: HONE-nano + Helium miner repurpose
 
-Positioned after v2.14 in the build order (requires BTCPC-FS + oracles + sensor support). Can start marketing/docs early though.
+Positioned after v2.14 in the build order (requires HONE-FS + oracles + sensor support). Can start marketing/docs early though.
 
 ### Goal
-Turn the dormant Helium miner fleet into a BTCPC node fleet. Five income streams on hardware the owner already bought: clock, storage_host, gateway_op, verifier, sensor_bridge.
+Turn the dormant Helium miner fleet into a HONE node fleet. Five income streams on hardware the owner already bought: clock, storage_host, gateway_op, verifier, sensor_bridge.
 
 ### The LoRa sensor mesh primitive (the killer feature)
 
 New ledger entry types:
 
-- **`SENSOR_REGISTER`** — small stake (~0.1 BTCPC) to register a sensor ID and claim its feed_id. Sensor owner generates a key pair, registers the public key on chain. Feed namespace: `sensor.<category>.<owner>.<slug>`.
+- **`SENSOR_REGISTER`** — small stake (~0.1 HONE) to register a sensor ID and claim its feed_id. Sensor owner generates a key pair, registers the public key on chain. Feed namespace: `sensor.<category>.<owner>.<slug>`.
 
 - **`SENSOR_READING`** — LoRa gateway relays a signed reading from a sensor. Treated as a scoped `ORACLE_REPORT` — goes through verifier consensus if multiple gateways witness the same sensor, gets recorded as authoritative reading.
 
 - **`SENSOR_SUBSCRIBE`** — consumer (farmer, city, researcher) subscribes to a sensor's feed, locks escrow, receives pro-rata releases as readings flow in.
 
-### BTCPC-nano specification
-- Debian-based raw disk image (`btcpc-nano.img`) built from Raspberry Pi OS Lite
-- Node.js + BTCPC codebase preinstalled
+### HONE-nano specification
+- Debian-based raw disk image (`hone-nano.img`) built from Raspberry Pi OS Lite
+- Node.js + HONE codebase preinstalled
 - `lora_pkt_fwd` + `sx1302_hal` drivers for Semtech concentrators
 - systemd service auto-starts node
 - First-boot web wizard on port 80 (10-minute window): create/import account, pick node name, confirm capabilities
@@ -924,7 +924,7 @@ New ledger entry types:
 - `src/sensors/sensorRegistry.js` — tracks registered sensors and their feed mappings
 - `src/nano/firstBootWizard.js` — web UI for first-boot setup
 - `src/nano/systemMonitor.js` — thermal throttle awareness, eMMC wear monitoring, power-draw aware scheduling
-- `bin/btcpc-nano` — thin launcher for the nano build
+- `bin/hone-nano` — thin launcher for the nano build
 - `configs/nano-overlays/*.json` — per-model hardware maps (SPI paths, GPIO reset pins, LoRa region defaults)
 - `scripts/flash-nano.sh` — SD card + eMMC flashing helper
 
@@ -950,13 +950,13 @@ Target the ~95% that are RPi-based and SD-card-accessible first. Explicit suppor
 These are interesting but NOT part of v2.10.1-v2.15. Revisit in v2.16+ or beyond.
 
 - **Training compute** (GPU beyond inference, fine-tuning, RLHF) — natural v2.14.1 extension once SERVICE_DEPLOY is shipped. Different verification scheme (checkpoint hashes + partial re-runs).
-- **Scheduled execution** ("cron on BTCPC") — SCHEDULED_EXEC entry for time-delayed execution. Small addition, ~200 LoC. v2.12.1.
+- **Scheduled execution** ("cron on HONE") — SCHEDULED_EXEC entry for time-delayed execution. Small addition, ~200 LoC. v2.12.1.
 - **Proof-of-location / edge compute** — RTT triangulation from known anchors, latency-priced hosting. Complex (GPS spoofing resistance is hard). v2.16+.
 - **Residential IP proxy** — real market but DDoS/fraud vectors too high. Skip.
-- **Human labor / RLHF / data labeling** — subjective tasks corrode objective consensus. Better as third-party marketplace ON BTCPC, not IN BTCPC.
+- **Human labor / RLHF / data labeling** — subjective tasks corrode objective consensus. Better as third-party marketplace ON HONE, not IN HONE.
 - **IoT beyond LoRa** (5G, NB-IoT, Sigfox) — different radio protocols; LoRa first because of Helium hardware.
 - **KYC / identity attestation** — legal/regulatory risk. Third parties can build on top.
-- **Native tokens on other chains** (stable bridging, wBTCPC on multiple chains) — partial existing work, not a v2.10-2.15 priority.
+- **Native tokens on other chains** (stable bridging, wHONE on multiple chains) — partial existing work, not a v2.10-2.15 priority.
 - **Governance system** — out of scope entirely; leave as-is, address in a dedicated governance phase later.
 - **Mobile native apps** — web + PWA covers it until demand justifies native.
 
@@ -966,11 +966,11 @@ These are interesting but NOT part of v2.10.1-v2.15. Revisit in v2.16+ or beyond
 v2.10.0  ✅ Commerce primitive (stores, products, orders, reputation, bonding curve)  [shipped]
 v2.10.1  🔨 Commerce HTTP routes                                                      [in progress]
 v2.10.2  🔨 Gateway + NODE_REGISTER capability list generalization
-v2.11.x  🔨 BTCPC-FS blob store + bandwidth accounting (BLOB_SERVE_PROOF)
+v2.11.x  🔨 HONE-FS blob store + bandwidth accounting (BLOB_SERVE_PROOF)
 v2.12.x  🔨 Block cap + fee market + VRF beacon (VRF_COMMIT)
 v2.13.x  🔨 Stateless compute (SERVICE_DEPLOY) + oracles (ORACLE_REPORT)
 v2.14.x  🔨 Stateful compute (STATE_SNAPSHOT + STATE_TRANSFER)
-v2.15.x  🔨 BTCPC-nano + LoRa sensor mesh + Helium miner repurpose
+v2.15.x  🔨 HONE-nano + LoRa sensor mesh + Helium miner repurpose
 ```
 
 Each phase is independently committable with version bump (patch bumps for sub-phases: v2.11.0, v2.11.1, v2.11.2 as needed).

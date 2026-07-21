@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC-FS Blob Payouts (Two-Tier) — v2.11.2-delta
+ * HONE-FS Blob Payouts (Two-Tier) — v2.11.2-delta
  * Shin Devlin
  *
  * Implements the v2.11.2 two-tier active/cold payout split. Sibling
@@ -20,8 +20,8 @@
  *   20% → cold hosts
  *           weighted 100% by uptime_factor
  *           multiplied by challenge_success_rate
- *    9% → btcpc_recycle  (No Burn, All Recycle)
- *    1% → btcpc_reputation_pool
+ *    9% → hone_recycle  (No Burn, All Recycle)
+ *    1% → hone_reputation_pool
  *
  * CRITICAL — see feedback_storage_no_slash.md:
  * Failed challenges and low uptime REDUCE payout share but NEVER
@@ -69,7 +69,7 @@ function computePayouts(blobCommit, context) {
   var uptimeByHost = context.uptime_by_host || {};
   var successByHost = context.success_by_host || {};
 
-  var totalPool = Number(blobCommit.payment_btcpc) || 0;
+  var totalPool = Number(blobCommit.payment_hone) || 0;
   var activeHosts = Array.isArray(blobCommit.active_hosts) ? blobCommit.active_hosts : [];
   var coldHosts = Array.isArray(blobCommit.cold_hosts) ? blobCommit.cold_hosts : [];
 
@@ -105,7 +105,7 @@ function computePayouts(blobCommit, context) {
       uptime_factor: uptime,
       success_rate: success,
       composite_weight: _round(compositeWeight),
-      amount_btcpc: amount,
+      amount_hone: amount,
     };
   });
 
@@ -126,13 +126,13 @@ function computePayouts(blobCommit, context) {
       uptime_factor: uptime,
       success_rate: success,
       weight: _round(weight),
-      amount_btcpc: amount,
+      amount_hone: amount,
     };
   });
 
   var totalHostPayout = 0;
-  activePayouts.forEach(function (p) { totalHostPayout += p.amount_btcpc; });
-  coldPayouts.forEach(function (p) { totalHostPayout += p.amount_btcpc; });
+  activePayouts.forEach(function (p) { totalHostPayout += p.amount_hone; });
+  coldPayouts.forEach(function (p) { totalHostPayout += p.amount_hone; });
 
   return {
     cid: blobCommit.cid,
@@ -154,7 +154,7 @@ function computePayouts(blobCommit, context) {
 
 /**
  * End-to-end settlement: pull factors from stateStore, compute payouts,
- * record BTCPC transfers via ledger.recordTransfer.
+ * record HONE transfers via ledger.recordTransfer.
  *
  * Dependencies injected for testability.
  */
@@ -198,34 +198,34 @@ async function settlePayouts(blobCommit, options) {
   // Pay each active host
   for (var i = 0; i < calc.active_payouts.length; i++) {
     var ap = calc.active_payouts[i];
-    if (ap.amount_btcpc > 0) {
+    if (ap.amount_hone > 0) {
       await ledger.recordTransfer(
         uploader,
         ap.host,
-        ap.amount_btcpc,
-        "BTCPC",
+        ap.amount_hone,
+        "HONE",
         null,
         epoch,
         "Blob payout (active): " + calc.cid
       );
-      transfers.push({ to: ap.host, amount: ap.amount_btcpc, kind: "host_active" });
+      transfers.push({ to: ap.host, amount: ap.amount_hone, kind: "host_active" });
     }
   }
 
   // Pay each cold host
   for (var k = 0; k < calc.cold_payouts.length; k++) {
     var cp = calc.cold_payouts[k];
-    if (cp.amount_btcpc > 0) {
+    if (cp.amount_hone > 0) {
       await ledger.recordTransfer(
         uploader,
         cp.host,
-        cp.amount_btcpc,
-        "BTCPC",
+        cp.amount_hone,
+        "HONE",
         null,
         epoch,
         "Blob payout (cold): " + calc.cid
       );
-      transfers.push({ to: cp.host, amount: cp.amount_btcpc, kind: "host_cold" });
+      transfers.push({ to: cp.host, amount: cp.amount_hone, kind: "host_cold" });
     }
   }
 
@@ -233,29 +233,29 @@ async function settlePayouts(blobCommit, options) {
   if (calc.recycle_pool > 0) {
     await ledger.recordTransfer(
       uploader,
-      "btcpc_recycle",
+      "hone_recycle",
       calc.recycle_pool,
-      "BTCPC",
+      "HONE",
       null,
       epoch,
       "Blob payout (recycle): " + calc.cid
     );
-    transfers.push({ to: "btcpc_recycle", amount: calc.recycle_pool, kind: "recycle" });
+    transfers.push({ to: "hone_recycle", amount: calc.recycle_pool, kind: "recycle" });
   }
 
   // Reputation pool share — always paid
   if (calc.reputation_pool > 0) {
     await ledger.recordTransfer(
       uploader,
-      "btcpc_reputation_pool",
+      "hone_reputation_pool",
       calc.reputation_pool,
-      "BTCPC",
+      "HONE",
       null,
       epoch,
       "Blob payout (reputation): " + calc.cid
     );
     transfers.push({
-      to: "btcpc_reputation_pool",
+      to: "hone_reputation_pool",
       amount: calc.reputation_pool,
       kind: "reputation",
     });

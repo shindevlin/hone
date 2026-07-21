@@ -249,7 +249,7 @@ describe('blobHostSelector (v2.11.2)', () => {
           target_active: 0,
           target_cold: 5,
           duration_epochs: 1000,
-          payment_btcpc: 0,
+          payment_hone: 0,
         },
         1
       );
@@ -291,7 +291,7 @@ describe('blobHostSelector (v2.11.2)', () => {
           active_hosts: ['alice', 'bob'],
           cold_hosts: ['carol', 'dave'],
           duration_epochs: 100,
-          payment_btcpc: 50,
+          payment_hone: 50,
           region_constraints: ['US'],
           target_active: 3,
           target_cold: 5,

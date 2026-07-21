@@ -18,7 +18,7 @@ const { createBackend, MemoryBackend, LevelDBBackend } = require("../src/chain/s
 // ─────────────────────────────────────────────────────────────────
 
 function makeTempDir() {
-  const dir = path.join(os.tmpdir(), "btcpc-statebackend-test-" + Date.now() + "-" + Math.random().toString(36).slice(2));
+  const dir = path.join(os.tmpdir(), "hone-statebackend-test-" + Date.now() + "-" + Math.random().toString(36).slice(2));
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -45,12 +45,12 @@ describe("MemoryBackend", () => {
   });
 
   test("get returns null for missing key", () => {
-    expect(backend.get("balances", "alice|BTCPC")).toBeNull();
+    expect(backend.get("balances", "alice|HONE")).toBeNull();
   });
 
   test("set and get round-trip", () => {
-    backend.set("balances", "alice|BTCPC", 100);
-    expect(backend.get("balances", "alice|BTCPC")).toBe(100);
+    backend.set("balances", "alice|HONE", 100);
+    expect(backend.get("balances", "alice|HONE")).toBe(100);
   });
 
   test("has returns false for missing key", () => {
@@ -63,15 +63,15 @@ describe("MemoryBackend", () => {
   });
 
   test("delete removes a key", () => {
-    backend.set("balances", "alice|BTCPC", 50);
-    backend.delete("balances", "alice|BTCPC");
-    expect(backend.get("balances", "alice|BTCPC")).toBeNull();
-    expect(backend.has("balances", "alice|BTCPC")).toBe(false);
+    backend.set("balances", "alice|HONE", 50);
+    backend.delete("balances", "alice|HONE");
+    expect(backend.get("balances", "alice|HONE")).toBeNull();
+    expect(backend.has("balances", "alice|HONE")).toBe(false);
   });
 
   test("iterate visits all keys in prefix", () => {
-    backend.set("balances", "alice|BTCPC", 100);
-    backend.set("balances", "bob|BTCPC", 200);
+    backend.set("balances", "alice|HONE", 100);
+    backend.set("balances", "bob|HONE", 200);
     backend.set("accounts", "alice", { created_epoch: 0 });
 
     const entries = [];
@@ -81,22 +81,22 @@ describe("MemoryBackend", () => {
 
     expect(entries.length).toBe(2);
     const keys = entries.map((e) => e.key).sort();
-    expect(keys).toEqual(["alice|BTCPC", "bob|BTCPC"]);
+    expect(keys).toEqual(["alice|HONE", "bob|HONE"]);
   });
 
   test("clear wipes a single prefix, leaves others", () => {
-    backend.set("balances", "alice|BTCPC", 100);
+    backend.set("balances", "alice|HONE", 100);
     backend.set("accounts", "alice", { created_epoch: 0 });
     backend.clear("balances");
-    expect(backend.get("balances", "alice|BTCPC")).toBeNull();
+    expect(backend.get("balances", "alice|HONE")).toBeNull();
     expect(backend.get("accounts", "alice")).not.toBeNull();
   });
 
   test("clearAll wipes everything", () => {
-    backend.set("balances", "alice|BTCPC", 100);
+    backend.set("balances", "alice|HONE", 100);
     backend.set("accounts", "alice", { created_epoch: 0 });
     backend.clearAll();
-    expect(backend.get("balances", "alice|BTCPC")).toBeNull();
+    expect(backend.get("balances", "alice|HONE")).toBeNull();
     expect(backend.get("accounts", "alice")).toBeNull();
   });
 
@@ -140,13 +140,13 @@ describe("LevelDBBackend", () => {
   });
 
   test("get returns null for missing key", async () => {
-    const val = await backend.get("balances", "alice|BTCPC");
+    const val = await backend.get("balances", "alice|HONE");
     expect(val).toBeNull();
   });
 
   test("set and get round-trip", async () => {
-    await backend.set("balances", "alice|BTCPC", 100);
-    const val = await backend.get("balances", "alice|BTCPC");
+    await backend.set("balances", "alice|HONE", 100);
+    const val = await backend.get("balances", "alice|HONE");
     expect(val).toBe(100);
   });
 
@@ -162,15 +162,15 @@ describe("LevelDBBackend", () => {
   });
 
   test("delete removes a key", async () => {
-    await backend.set("balances", "alice|BTCPC", 50);
-    await backend.delete("balances", "alice|BTCPC");
-    const val = await backend.get("balances", "alice|BTCPC");
+    await backend.set("balances", "alice|HONE", 50);
+    await backend.delete("balances", "alice|HONE");
+    const val = await backend.get("balances", "alice|HONE");
     expect(val).toBeNull();
   });
 
   test("iterate visits all keys in prefix", async () => {
-    await backend.set("balances", "alice|BTCPC", 100);
-    await backend.set("balances", "bob|BTCPC", 200);
+    await backend.set("balances", "alice|HONE", 100);
+    await backend.set("balances", "bob|HONE", 200);
     await backend.set("accounts", "alice", { created_epoch: 0 });
 
     const entries = [];
@@ -180,33 +180,33 @@ describe("LevelDBBackend", () => {
 
     expect(entries.length).toBe(2);
     const keys = entries.map((e) => e.key).sort();
-    expect(keys).toEqual(["alice|BTCPC", "bob|BTCPC"]);
+    expect(keys).toEqual(["alice|HONE", "bob|HONE"]);
   });
 
   test("clear wipes a single prefix, leaves others", async () => {
-    await backend.set("balances", "alice|BTCPC", 100);
+    await backend.set("balances", "alice|HONE", 100);
     await backend.set("accounts", "alice", { created_epoch: 0 });
     await backend.clear("balances");
-    expect(await backend.get("balances", "alice|BTCPC")).toBeNull();
+    expect(await backend.get("balances", "alice|HONE")).toBeNull();
     expect(await backend.get("accounts", "alice")).not.toBeNull();
   });
 
   test("clearAll wipes everything", async () => {
-    await backend.set("balances", "alice|BTCPC", 100);
+    await backend.set("balances", "alice|HONE", 100);
     await backend.set("accounts", "alice", { created_epoch: 0 });
     await backend.clearAll();
-    expect(await backend.get("balances", "alice|BTCPC")).toBeNull();
+    expect(await backend.get("balances", "alice|HONE")).toBeNull();
     expect(await backend.get("accounts", "alice")).toBeNull();
   });
 
   test("data persists across reopening the database", async () => {
-    await backend.set("balances", "alice|BTCPC", 999);
+    await backend.set("balances", "alice|HONE", 999);
     await backend.close();
 
     // Re-open
     backend = createBackend("leveldb", tmpDir);
     await new Promise((r) => setTimeout(r, 50));
-    const val = await backend.get("balances", "alice|BTCPC");
+    const val = await backend.get("balances", "alice|HONE");
     expect(val).toBe(999);
   });
 
@@ -240,27 +240,27 @@ describe("stateStore with memory backend (existing behavior)", () => {
       type: "MINING_REWARD",
       to: "miner1",
       amount: 24.306,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 1,
     });
-    const bal = stateStore.getBalance("miner1", "BTCPC");
+    const bal = stateStore.getBalance("miner1", "HONE");
     expect(bal).toBeCloseTo(24.306, 3);
   });
 
-  test("getTokenBalances returns BTCPC display amounts, not raw units", () => {
+  test("getTokenBalances returns HONE display amounts, not raw units", () => {
     stateStore.applyEntry({ type: "ACCOUNT_CREATE", to: "miner1", epoch: 1 });
     stateStore.applyEntry({
       type: "MINING_REWARD",
       to: "miner1",
       amount: 24.3055555556,
-      token: "BTCPC",
+      token: "HONE",
       epoch: 1,
     });
 
-    expect(stateStore.getTokenBalances("miner1").BTCPC).toBeCloseTo(24.3055555556, 10);
+    expect(stateStore.getTokenBalances("miner1").HONE).toBeCloseTo(24.3055555556, 10);
   });
 
-  test("hydrateFromFinality converts account BTCPC balances into internal units", () => {
+  test("hydrateFromFinality converts account HONE balances into internal units", () => {
     stateStore.hydrateFromFinality({
       finality_epoch: 100,
       accounts: {
@@ -268,8 +268,8 @@ describe("stateStore with memory backend (existing behavior)", () => {
       },
     });
 
-    expect(stateStore.getBalance("miner1", "BTCPC")).toBeCloseTo(26324.8611112036, 10);
-    expect(stateStore.getTokenBalances("miner1").BTCPC).toBeCloseTo(26324.8611112036, 10);
+    expect(stateStore.getBalance("miner1", "HONE")).toBeCloseTo(26324.8611112036, 10);
+    expect(stateStore.getTokenBalances("miner1").HONE).toBeCloseTo(26324.8611112036, 10);
   });
 
   test("hydrateFromFinality rejects negative balances", () => {
@@ -286,10 +286,10 @@ describe("stateStore with memory backend (existing behavior)", () => {
   test("applyEntry TRANSFER moves funds between accounts", () => {
     stateStore.applyEntry({ type: "ACCOUNT_CREATE", to: "alice", epoch: 1 });
     stateStore.applyEntry({ type: "ACCOUNT_CREATE", to: "bob", epoch: 1 });
-    stateStore.applyEntry({ type: "MINING_REWARD", to: "alice", amount: 100, token: "BTCPC", epoch: 1 });
-    stateStore.applyEntry({ type: "TRANSFER", from: "alice", to: "bob", amount: 30, token: "BTCPC", epoch: 2 });
-    expect(stateStore.getBalance("alice", "BTCPC")).toBeCloseTo(70, 5);
-    expect(stateStore.getBalance("bob", "BTCPC")).toBeCloseTo(30, 5);
+    stateStore.applyEntry({ type: "MINING_REWARD", to: "alice", amount: 100, token: "HONE", epoch: 1 });
+    stateStore.applyEntry({ type: "TRANSFER", from: "alice", to: "bob", amount: 30, token: "HONE", epoch: 2 });
+    expect(stateStore.getBalance("alice", "HONE")).toBeCloseTo(70, 5);
+    expect(stateStore.getBalance("bob", "HONE")).toBeCloseTo(30, 5);
   });
 
   test("getCurrentBlockCap and setCurrentBlockCap work", () => {

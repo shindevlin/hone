@@ -1,4 +1,4 @@
-# BTCPC Chain Startup Guide
+# HONE Chain Startup Guide
 
 ## For the Epoch Authority (shindevlin)
 
@@ -8,16 +8,16 @@ Shindevlin starts the chain. All other miners follow.
 
 ```bash
 # MongoDB shell
-mongosh mongodb://localhost:27017/btcpc --eval "db.dropDatabase()"
+mongosh mongodb://localhost:27017/hone --eval "db.dropDatabase()"
 
 # Or via mongoose
-node -e "require('mongoose').connect('mongodb://localhost:27017/btcpc').then(c=>c.connection.db.dropDatabase().then(()=>{console.log('dropped');process.exit()}))"
+node -e "require('mongoose').connect('mongodb://localhost:27017/hone').then(c=>c.connection.db.dropDatabase().then(()=>{console.log('dropped');process.exit()}))"
 ```
 
 ### 2. Pull latest code
 
 ```bash
-cd ~/repos/btcpc
+cd ~/repos/hone
 git pull
 node -e "console.log('v' + require('./package.json').version)"
 ```
@@ -25,7 +25,7 @@ node -e "console.log('v' + require('./package.json').version)"
 ### 3. Drop old indexes (if restarting, not fresh)
 
 ```bash
-node -e "require('mongoose').connect('mongodb://localhost:27017/btcpc').then(async()=>{try{await require('mongoose').connection.db.collection('miningproofs').dropIndex('block_number_1');console.log('done')}catch(e){console.log(e.message)}process.exit()})"
+node -e "require('mongoose').connect('mongodb://localhost:27017/hone').then(async()=>{try{await require('mongoose').connection.db.collection('miningproofs').dropIndex('block_number_1');console.log('done')}catch(e){console.log(e.message)}process.exit()})"
 ```
 
 ### 4. Start the miner
@@ -35,7 +35,7 @@ set HONE_MODEL=qwen3.5:27b
 set HONE_WORK_PER_EPOCH=3
 set P2P_PORT=6942
 set HONE_MAX_MODEL_STORAGE_GB=100
-node bin/btcpc-mine
+node bin/hone-mine
 ```
 
 ### What happens on startup:
@@ -56,7 +56,7 @@ node bin/btcpc-mine
 | P2P_PORT | 6942 | P2P WebSocket port |
 | OLLAMA_URL | http://localhost:11434 | Ollama endpoint |
 | HONE_MAX_MODEL_STORAGE_GB | 50 | Disk budget for auto-pulled models |
-| MONGODB_URI | mongodb://localhost:27017/btcpc | MongoDB connection |
+| MONGODB_URI | mongodb://localhost:27017/hone | MongoDB connection |
 
 ---
 
@@ -65,7 +65,7 @@ node bin/btcpc-mine
 ### 1. Pull latest code
 
 ```bash
-cd ~/repos/btcpc
+cd ~/repos/hone
 git pull
 ```
 
@@ -73,13 +73,13 @@ git pull
 
 ```bash
 # Linux
-HONE_MINER=natoshisakamoto OLLAMA_URL=http://localhost:11434 HONE_MODEL=qwen3:4b HONE_WORK_PER_EPOCH=1 P2P_PORT=6944 node bin/btcpc-mine
+HONE_MINER=natoshisakamoto OLLAMA_URL=http://localhost:11434 HONE_MODEL=qwen3:4b HONE_WORK_PER_EPOCH=1 P2P_PORT=6944 node bin/hone-mine
 
 # Windows
 set HONE_MINER=natoshisakamoto
 set HONE_MODEL=qwen3:4b
 set P2P_PORT=6944
-node bin/btcpc-mine
+node bin/hone-mine
 ```
 
 ### What happens on startup:

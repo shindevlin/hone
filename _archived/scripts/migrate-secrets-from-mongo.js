@@ -3,7 +3,7 @@
 
 /**
  * One-shot migration: read users + projects from MongoDB, write to
- * ~/.btcpc/secrets.json via secretStore.
+ * ~/.hone/secrets.json via secretStore.
  *
  * Run this ONCE before deploying Phase E. After migration, MongoDB can be
  * dropped for chain state without losing passwords, TOTP, or project API keys.

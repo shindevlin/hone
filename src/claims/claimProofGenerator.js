@@ -4,7 +4,7 @@
  * claimProofGenerator.js — Generate signed cross-chain claim proofs
  * Shin Devlin
  *
- * Produces EVM-compatible EIP-191 proofs the wBTCPC contract can verify via
+ * Produces EVM-compatible EIP-191 proofs the wHONE contract can verify via
  * ecrecover. The oracle signs with a secp256k1 key whose Ethereum address is
  * set as signingAuthority on the deployed contracts.
  *
@@ -38,18 +38,18 @@ function getCrossChainRatio(periodNumber, epochInPeriod, periodEpochs) {
  * Generate a nonce-based EVM-compatible claim proof.
  *
  * @param {object} opts
- * @param {string}  opts.btcpcAccount   - BTCPC account name ("shindevlin")
+ * @param {string}  opts.honeAccount   - HONE account name ("shindevlin")
  * @param {string}  opts.chain          - Target chain ("ethereum"|"base"|"arbitrum"|...)
  * @param {string}  opts.targetWallet   - Claimer's EVM address (0x...)
- * @param {number}  opts.amount         - Raw BTCPC credit amount to claim (BTCPC units)
+ * @param {number}  opts.amount         - Raw HONE credit amount to claim (HONE units)
  * @param {string}  opts.nonce          - Unique 32-byte hex nonce from recordCrossChainClaim
  * @param {number}  opts.epoch          - Epoch at which claim was recorded
  * @param {string}  opts.oraclePrivKey  - Hex private key of the oracle signing authority
  *
- * @returns {object} Claim proof ready to submit to wBTCPC.claim()
+ * @returns {object} Claim proof ready to submit to wHONE.claim()
  */
-function generateClaimProof({ btcpcAccount, chain, targetWallet, amount, nonce, epoch, oraclePrivKey }) {
-  if (!btcpcAccount) throw new Error("btcpcAccount required");
+function generateClaimProof({ honeAccount, chain, targetWallet, amount, nonce, epoch, oraclePrivKey }) {
+  if (!honeAccount) throw new Error("honeAccount required");
   if (!targetWallet)  throw new Error("targetWallet required");
   if (!nonce)         throw new Error("nonce required");
   if (!oraclePrivKey) throw new Error("oraclePrivKey required");
@@ -70,12 +70,12 @@ function generateClaimProof({ btcpcAccount, chain, targetWallet, amount, nonce, 
 
   // Pack account name to bytes32 (right-padded with zeros)
   const accountBytes = Buffer.alloc(32);
-  Buffer.from(btcpcAccount, "utf8").copy(accountBytes, 0, 0, Math.min(btcpcAccount.length, 32));
+  Buffer.from(honeAccount, "utf8").copy(accountBytes, 0, 0, Math.min(honeAccount.length, 32));
   const accountBytes32 = "0x" + accountBytes.toString("hex");
 
   const nonceBytes32 = nonce.startsWith("0x") ? nonce : "0x" + nonce.padEnd(64, "0");
 
-  // keccak256(chainId, claimer, btcpcAccount, amount, nonce) — mirrors the contract
+  // keccak256(chainId, claimer, honeAccount, amount, nonce) — mirrors the contract
   const msgHash = ethers.solidityPackedKeccak256(
     ["uint256", "address", "bytes32", "uint256", "bytes32"],
     [chainId, targetWallet, accountBytes32, rawAmount, nonceBytes32]
@@ -90,9 +90,9 @@ function generateClaimProof({ btcpcAccount, chain, targetWallet, amount, nonce, 
   return {
     chain,
     chain_id: chainId,
-    btcpc_account: btcpcAccount,
+    hone_account: honeAccount,
     target_wallet: targetWallet,
-    amount_btcpc: amount,
+    amount_hone: amount,
     amount_raw: rawAmount.toString(),
     nonce: nonceBytes32,
     epoch,
@@ -105,14 +105,14 @@ function generateClaimProof({ btcpcAccount, chain, targetWallet, amount, nonce, 
  * Generate proofs for all linked EVM chains from accumulated cross-chain credits.
  *
  * @param {object} opts
- * @param {string}  opts.btcpcAccount
+ * @param {string}  opts.honeAccount
  * @param {object}  opts.chainAddresses  - { ethereum: "0x...", base: "0x...", ... }
  * @param {object}  opts.credits         - { ethereum: 5.3, base: 5.3, ... } (from getCrossChainCredits)
  * @param {string}  opts.nonce           - Nonce from recordCrossChainClaim
  * @param {number}  opts.epoch
  * @param {string}  opts.oraclePrivKey
  */
-function generateAllClaimProofs({ btcpcAccount, chainAddresses, credits, nonce, epoch, oraclePrivKey }) {
+function generateAllClaimProofs({ honeAccount, chainAddresses, credits, nonce, epoch, oraclePrivKey }) {
   const proofs = [];
   const evmChains = ["ethereum", "base", "arbitrum", "optimism", "bsc", "polygon"];
 
@@ -121,9 +121,9 @@ function generateAllClaimProofs({ btcpcAccount, chainAddresses, credits, nonce, 
     const amount = credits[chain] || 0;
     if (!wallet || amount <= 0) continue;
     try {
-      proofs.push(generateClaimProof({ btcpcAccount, chain, targetWallet: wallet, amount, nonce, epoch, oraclePrivKey }));
+      proofs.push(generateClaimProof({ honeAccount, chain, targetWallet: wallet, amount, nonce, epoch, oraclePrivKey }));
     } catch (err) {
-      console.error("[BTCPC] Claim proof failed for " + chain + ": " + err.message);
+      console.error("[HONE] Claim proof failed for " + chain + ": " + err.message);
     }
   }
   return proofs;

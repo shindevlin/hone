@@ -1,4 +1,4 @@
-# Flipper Zero — BTCPC Hardware Reference
+# Flipper Zero — HONE Hardware Reference
 
 ## Device Info
 - **Model**: Flipper Zero (flip_Ar8atsu1)
@@ -8,14 +8,14 @@
 - **Flash**: 1MB for FAPs
 - **MicroSD**: up to 256GB
 - **Battery**: 2000mAh Li-Po (~7-8 hours with radio scanning)
-- **BTCPC Account**: josh
+- **HONE Account**: josh
 - **Key stored**: memo key only (sensor data signing)
 
 ## Radios Available
 
 ### Sub-GHz (CC1101)
 - **Frequencies**: 300-348 MHz, 387-464 MHz, 779-928 MHz
-- **BTCPC scans**: 433.92, 315, 868.35, 915 MHz
+- **HONE scans**: 433.92, 315, 868.35, 915 MHz
 - **API**: furi_hal_subghz_* (see flipper_subghz_api.h)
 - **Init sequence**: reset() → 5ms settle → idle() → set_frequency_and_path() → rx() → get_rssi() → idle() → sleep()
 - **IMPORTANT**: furi_hal_subghz_init() is NOT available to FAP apps. Use reset()+idle() instead.
@@ -36,12 +36,12 @@
 ### IR (Infrared)
 - **API**: infrared_* (see flipper_ir_api.h)
 - **Can detect**: IR signals from remotes, sensors
-- **BTCPC use**: future — IR presence detection
+- **HONE use**: future — IR presence detection
 
 ### LF RFID (125 kHz)
 - **API**: lfrfid_* (see flipper_rfid_api.h)
 - **Can read**: EM4100, HID, Indala tags
-- **BTCPC use**: future — asset tracking, access control logging
+- **HONE use**: future — asset tracking, access control logging
 
 ### GPIO
 - **Pins**: PA4 (ADC), PA6, PA7, PB2 (RX), PB3 (TX), PC0 (SDA), PC1 (SCL)
@@ -53,10 +53,10 @@
 - **CPU temperature**: via ADC FuriHalAdcChannelTEMPSENSOR
 - **Battery**: furi_hal_power_get_battery_voltage(), get_pct()
 
-## BTCPC App Architecture
+## HONE App Architecture
 
 ```
-btcpc_wallet.c (single file FAP)
+hone_wallet.c (single file FAP)
 ├── Wallet (import, list, delete, sign via USB JSON)
 ├── Sensor Thread (background, 4KB stack)
 │   ├── Sub-GHz scan (433/315/868/915 MHz RSSI)

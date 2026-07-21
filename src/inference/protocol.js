@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Inference Protocol
+ * HONE Inference Protocol
  * Shin Devlin
  *
  * P2P inference request/claim/commit/reveal protocol.
@@ -39,7 +39,7 @@ const COMMIT_TIMEOUT_MS = 120000;   // 2min for nodes to commit results
 const REVEAL_TIMEOUT_MS = 30000;    // 30s for reveal after all commits
 const MIN_REDUNDANCY = 1;           // N=1 for solo/early network
 const STANDARD_REDUNDANCY = 3;      // N=3 for mature network
-const MIN_CLAIM_STAKE = 10;         // Minimum BTCPC staked to participate
+const MIN_CLAIM_STAKE = 10;         // Minimum HONE staked to participate
 
 // ── Active requests in memory ──
 const activeRequests = new Map();
@@ -88,7 +88,7 @@ async function createInferenceRequest({
   } catch (err) {
     if (err.message && err.message.startsWith('Model "')) throw err;
     // modelRegistry unavailable — fail open in development, log warning
-    console.warn('[BTCPC Inference] Model availability check skipped:', err.message);
+    console.warn('[HONE Inference] Model availability check skipped:', err.message);
   }
 
   // Lock funds in escrow
@@ -131,13 +131,13 @@ async function createInferenceRequest({
       ensembleMaxTokens,
       ensembleTemperature
     );
-    console.log(`[BTCPC Inference] Ensemble job created: ${requestId.slice(0, 12)} minSize=${minSize} max_tokens=${ensembleMaxTokens} temperature=${ensembleTemperature}`);
+    console.log(`[HONE Inference] Ensemble job created: ${requestId.slice(0, 12)} minSize=${minSize} max_tokens=${ensembleMaxTokens} temperature=${ensembleTemperature}`);
   }
 
   // ── Mode B: Pipeline ──
   // The shard group coordinator handles routing; recorded here for tracking.
   if (reqMode === 'pipeline') {
-    console.log(`[BTCPC Inference] Pipeline request created: ${requestId.slice(0, 12)} model=${model}`);
+    console.log(`[HONE Inference] Pipeline request created: ${requestId.slice(0, 12)} model=${model}`);
   }
 
   return request;
@@ -167,7 +167,7 @@ async function claimRequest(requestId, nodeId, sikHash, price) {
   // Prevents zero-cost sybil rings from flooding the claim pool.
   const nodeStake = (nodeEntry.stake || 0);
   if (nodeStake < MIN_CLAIM_STAKE) {
-    return { error: `Insufficient stake to claim inference jobs. Minimum ${MIN_CLAIM_STAKE} BTCPC required.` };
+    return { error: `Insufficient stake to claim inference jobs. Minimum ${MIN_CLAIM_STAKE} HONE required.` };
   }
 
   // Check if node is already busy with active inference
@@ -448,7 +448,7 @@ async function finalizeRequest(requestId, ensembleOutcome) {
     try {
       await escrow.releaseFunds(requestId, payouts);
     } catch (err) {
-      console.error("[BTCPC Escrow] Ensemble release error:", err.message);
+      console.error("[HONE Escrow] Ensemble release error:", err.message);
     }
 
     setImmediate(async () => {
@@ -464,12 +464,12 @@ async function finalizeRequest(requestId, ensembleOutcome) {
           );
         }
       } catch (err) {
-        console.error('[BTCPC Inference] Ensemble charge record error:', err.message);
+        console.error('[HONE Inference] Ensemble charge record error:', err.message);
       }
     });
 
     persistRequest(request).catch((err) =>
-      console.error("[BTCPC Inference] Persist error:", err.message)
+      console.error("[HONE Inference] Persist error:", err.message)
     );
 
     return result;
@@ -534,7 +534,7 @@ async function finalizeRequest(requestId, ensembleOutcome) {
             result_hash: request.consensus_hash
           });
         } catch (err) {
-          console.error(`[BTCPC Slash] Error slashing node ${nodeId}:`, err.message);
+          console.error(`[HONE Slash] Error slashing node ${nodeId}:`, err.message);
         }
       }
     });
@@ -555,7 +555,7 @@ async function finalizeRequest(requestId, ensembleOutcome) {
   try {
     await escrow.releaseFunds(requestId, payouts);
   } catch (err) {
-    console.error("[BTCPC Escrow] Release error:", err.message);
+    console.error("[HONE Escrow] Release error:", err.message);
   }
 
   // Record inference charge on-chain — deducts from requester's delegated balance first
@@ -570,13 +570,13 @@ async function finalizeRequest(requestId, ensembleOutcome) {
         }
       }
     } catch (err) {
-      console.error('[BTCPC Inference] Charge record error:', err.message);
+      console.error('[HONE Inference] Charge record error:', err.message);
     }
   });
 
   // Persist to DB
   persistRequest(request).catch((err) =>
-    console.error("[BTCPC Inference] Persist error:", err.message)
+    console.error("[HONE Inference] Persist error:", err.message)
   );
 
   return result;

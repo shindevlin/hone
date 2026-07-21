@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Service Host Runner — v2.13-beta tests
+ * HONE Service Host Runner — v2.13-beta tests
  *
  * Exercises serviceHostRunner via a mock spawner and mock blob fetcher.
  * No real child processes are forked — the mock returns a handle with

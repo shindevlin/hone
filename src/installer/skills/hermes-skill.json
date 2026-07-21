@@ -1,53 +1,53 @@
 {
-  "name": "btcpc",
+  "name": "hone",
   "version": "1.0.0",
-  "description": "Bitcoin Proof of Compute — manage your BTCPC nodes, wallet, and earnings",
+  "description": "Bitcoin Proof of Compute — manage your HONE nodes, wallet, and earnings",
   "author": "Shin Devlin <shindevlin@proton.me>",
   "tools": [
     {
-      "name": "btcpc_balance",
-      "description": "Show BTCPC balance for an account",
-      "exec": "node ${BTCPC_DIR}/bin/btcpc-cli balance ${account}",
+      "name": "hone_balance",
+      "description": "Show HONE balance for an account",
+      "exec": "node ${HONE_DIR}/bin/hone-cli balance ${account}",
       "parameters": {
-        "account": { "type": "string", "description": "BTCPC account name", "required": false }
+        "account": { "type": "string", "description": "HONE account name", "required": false }
       }
     },
     {
-      "name": "btcpc_status",
-      "description": "Show status of all running BTCPC nodes on this device",
-      "exec": "node ${BTCPC_DIR}/bin/btcpc-cli status"
+      "name": "hone_status",
+      "description": "Show status of all running HONE nodes on this device",
+      "exec": "node ${HONE_DIR}/bin/hone-cli status"
     },
     {
-      "name": "btcpc_mine_start",
-      "description": "Start the BTCPC inference miner",
-      "exec": "systemctl --user start btcpc-miner"
+      "name": "hone_mine_start",
+      "description": "Start the HONE inference miner",
+      "exec": "systemctl --user start hone-miner"
     },
     {
-      "name": "btcpc_mine_stop",
-      "description": "Stop the BTCPC inference miner",
-      "exec": "systemctl --user stop btcpc-miner"
+      "name": "hone_mine_stop",
+      "description": "Stop the HONE inference miner",
+      "exec": "systemctl --user stop hone-miner"
     },
     {
-      "name": "btcpc_send",
-      "description": "Send BTCPC tokens to another account",
-      "exec": "node ${BTCPC_DIR}/bin/btcpc-cli transfer ${to} ${amount}",
+      "name": "hone_send",
+      "description": "Send HONE tokens to another account",
+      "exec": "node ${HONE_DIR}/bin/hone-cli transfer ${to} ${amount}",
       "parameters": {
         "to":     { "type": "string", "description": "Recipient account name", "required": true },
-        "amount": { "type": "number", "description": "Amount of BTCPC to send", "required": true }
+        "amount": { "type": "number", "description": "Amount of HONE to send", "required": true }
       }
     },
     {
-      "name": "btcpc_logs",
-      "description": "Show recent BTCPC node logs",
-      "exec": "journalctl --user -u btcpc-miner -n 50 --no-pager"
+      "name": "hone_logs",
+      "description": "Show recent HONE node logs",
+      "exec": "journalctl --user -u hone-miner -n 50 --no-pager"
     },
     {
-      "name": "btcpc_install",
-      "description": "Run the BTCPC node setup wizard",
-      "exec": "node ${BTCPC_DIR}/bin/btcpc-install"
+      "name": "hone_install",
+      "description": "Run the HONE node setup wizard",
+      "exec": "node ${HONE_DIR}/bin/hone-install"
     }
   ],
   "env": {
-    "BTCPC_DIR": "~/.btcpc/repo"
+    "HONE_DIR": "~/.hone/repo"
   }
 }

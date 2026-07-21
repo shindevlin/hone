@@ -8,7 +8,7 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/btcpc_bg"
+        android:background="@color/hone_bg"
         android:fillViewport="true">
 
         <LinearLayout
@@ -30,7 +30,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="4dp"
                     android:text="Sign In"
-                    android:textColor="@color/btcpc_text"
+                    android:textColor="@color/hone_text"
                     android:textSize="22sp"
                     android:textStyle="bold" />
 
@@ -38,15 +38,15 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="24dp"
-                    android:text="Enter your BTCPC account credentials"
-                    android:textColor="@color/btcpc_muted"
+                    android:text="Enter your HONE account credentials"
+                    android:textColor="@color/hone_muted"
                     android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Account Name"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="13sp" />
 
                 <EditText
@@ -55,20 +55,20 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:layout_marginBottom="16dp"
-                    android:background="@color/btcpc_surface"
+                    android:background="@color/hone_surface"
                     android:hint="shindevlin"
                     android:inputType="text"
                     android:importantForAutofill="no"
                     android:padding="14dp"
-                    android:textColor="@color/btcpc_text"
-                    android:textColorHint="@color/btcpc_muted"
+                    android:textColor="@color/hone_text"
+                    android:textColorHint="@color/hone_muted"
                     android:textSize="15sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Password"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="13sp" />
 
                 <EditText
@@ -77,20 +77,20 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:layout_marginBottom="24dp"
-                    android:background="@color/btcpc_surface"
+                    android:background="@color/hone_surface"
                     android:hint="password"
                     android:inputType="textPassword"
                     android:importantForAutofill="no"
                     android:padding="14dp"
-                    android:textColor="@color/btcpc_text"
-                    android:textColorHint="@color/btcpc_muted"
+                    android:textColor="@color/hone_text"
+                    android:textColorHint="@color/hone_muted"
                     android:textSize="15sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Posting Key (optional — required to mine)"
-                    android:textColor="@color/btcpc_muted"
+                    android:textColor="@color/hone_muted"
                     android:textSize="13sp" />
 
                 <EditText
@@ -99,20 +99,20 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:layout_marginBottom="24dp"
-                    android:background="@color/btcpc_surface"
+                    android:background="@color/hone_surface"
                     android:hint="64-char hex posting private key"
                     android:inputType="textPassword"
                     android:importantForAutofill="no"
                     android:padding="14dp"
-                    android:textColor="@color/btcpc_text"
-                    android:textColorHint="@color/btcpc_muted"
+                    android:textColor="@color/hone_text"
+                    android:textColorHint="@color/hone_muted"
                     android:textSize="15sp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/wallet_login_btn"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
-                    android:backgroundTint="@color/btcpc_orange"
+                    android:backgroundTint="@color/hone_orange"
                     android:text="Sign In"
                     android:textColor="@android:color/black"
                     android:textSize="16sp"
@@ -123,12 +123,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
                     android:layout_marginTop="10dp"
-                    android:backgroundTint="@color/btcpc_surface_alt"
+                    android:backgroundTint="@color/hone_surface_alt"
                     android:text="Create Account"
-                    android:textColor="@color/btcpc_orange"
+                    android:textColor="@color/hone_orange"
                     android:textSize="15sp"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:strokeColor="@color/btcpc_orange"
+                    android:strokeColor="@color/hone_orange"
                     android:strokeWidth="1" />
 
                 <TextView
@@ -154,7 +154,7 @@
                 android:orientation="vertical"
                 android:visibility="gone">
 
-            <!-- Balance card — tap to toggle BTCPC ↔ dreams -->
+            <!-- Balance card — tap to toggle HONE ↔ dreams -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/wallet_balance_card"
                 android:layout_width="match_parent"
@@ -163,7 +163,7 @@
                 android:foreground="?android:attr/selectableItemBackground"
                 android:clickable="true"
                 android:focusable="true"
-                style="@style/BtcpcCard">
+                style="@style/HoneCard">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -175,7 +175,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Balance"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="13sp"
                         android:letterSpacing="0.08" />
 
@@ -185,7 +185,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:text="--"
-                        android:textColor="@color/btcpc_orange"
+                        android:textColor="@color/hone_orange"
                         android:textSize="40sp"
                         android:textStyle="bold" />
 
@@ -194,8 +194,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="BTCPC"
-                        android:textColor="@color/btcpc_muted"
+                        android:text="HONE"
+                        android:textColor="@color/hone_muted"
                         android:textSize="16sp" />
 
                     <TextView
@@ -204,7 +204,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text=""
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="13sp" />
 
                 </LinearLayout>
@@ -215,7 +215,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="20dp"
-                style="@style/BtcpcCard">
+                style="@style/HoneCard">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -227,7 +227,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Receive Address"
-                        android:textColor="@color/btcpc_muted"
+                        android:textColor="@color/hone_muted"
                         android:textSize="13sp"
                         android:letterSpacing="0.08" />
 
@@ -237,7 +237,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="--"
-                        android:textColor="@color/btcpc_text"
+                        android:textColor="@color/hone_text"
                         android:textSize="14sp"
                         android:fontFamily="monospace"
                         android:ellipsize="middle"
@@ -260,7 +260,7 @@
                     android:layout_marginEnd="8dp"
                     android:text="Send"
                     android:textColor="@android:color/black"
-                    android:backgroundTint="@color/btcpc_orange"
+                    android:backgroundTint="@color/hone_orange"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
@@ -271,9 +271,9 @@
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
                     android:text="Receive"
-                    android:textColor="@color/btcpc_orange"
-                    android:backgroundTint="@color/btcpc_surface_alt"
-                    android:strokeColor="@color/btcpc_orange"
+                    android:textColor="@color/hone_orange"
+                    android:backgroundTint="@color/hone_surface_alt"
+                    android:strokeColor="@color/hone_orange"
                     android:strokeWidth="1"
                     android:textSize="16sp" />
 
@@ -285,9 +285,9 @@
                 android:layout_height="48dp"
                 android:layout_marginTop="10dp"
                 android:text="Stake a Node Role"
-                android:textColor="@color/btcpc_orange"
-                android:backgroundTint="@color/btcpc_surface_alt"
-                android:strokeColor="@color/btcpc_orange"
+                android:textColor="@color/hone_orange"
+                android:backgroundTint="@color/hone_surface_alt"
+                android:strokeColor="@color/hone_orange"
                 android:strokeWidth="1"
                 android:textSize="15sp"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
@@ -299,7 +299,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:text=""
-                android:textColor="@color/btcpc_muted"
+                android:textColor="@color/hone_muted"
                 android:textSize="13sp"
                 android:gravity="center" />
 

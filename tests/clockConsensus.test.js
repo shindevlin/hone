@@ -32,7 +32,7 @@ describe("clock consensus truth gating", () => {
   });
 
   test("does not seal with only one connected peer", () => {
-    const r = loadClockConsensus({ BTCPC_SEAL_COLLECT_MS: "10" });
+    const r = loadClockConsensus({ HONE_SEAL_COLLECT_MS: "10" });
     const events = [];
     r.mod.updatePeerConnectivity([{ address: "ws://192.168.1.10:6942" }]);
     r.mod.on("epoch_sealed", (evt) => events.push(evt));
@@ -51,7 +51,7 @@ describe("clock consensus truth gating", () => {
   });
 
   test("can seal with one connected peer and two clock seals", () => {
-    const r = loadClockConsensus({ BTCPC_SEAL_COLLECT_MS: "10" });
+    const r = loadClockConsensus({ HONE_SEAL_COLLECT_MS: "10" });
     const events = [];
     r.mod.updatePeerConnectivity([
       { address: "ws://192.168.1.10:6942" },

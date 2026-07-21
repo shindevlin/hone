@@ -169,9 +169,9 @@ pub async fn reverse_resolve(eth_addr: &str) -> Option<String> {
 ///      (populated by WalletFamilyPublish on HONE)
 pub async fn hone_account_for_ens(chain: &Chain, ens_name: &str) -> Option<String> {
     // Fast path: "hone" text record directly names the account.
-    // "btcpc" is the pre-rebrand record key — ENS records live on Ethereum and
+    // "hone" is the pre-rebrand record key — ENS records live on Ethereum and
     // survive the re-genesis, so keep reading it as a fallback.
-    for record_key in &["hone", "btcpc"] {
+    for record_key in &["hone", "hone"] {
         if let Some(account) = resolve_text(ens_name, record_key).await {
             let account = account.trim().to_lowercase();
             if chain.store.state_get(&format!("account:{}", account)).is_some() {

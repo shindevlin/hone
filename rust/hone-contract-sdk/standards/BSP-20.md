@@ -14,7 +14,7 @@
 
 ## Abstract
 
-BSP-20 defines a standard interface for fungible tokens on the BTCPC blockchain. A fungible token is one where each unit is interchangeable with any other unit of the same token — every smallest unit of a BSP-20 token has equal value and equal rights.
+BSP-20 defines a standard interface for fungible tokens on the HONE blockchain. A fungible token is one where each unit is interchangeable with any other unit of the same token — every smallest unit of a BSP-20 token has equal value and equal rights.
 
 This standard enables a single, predictable API for token contracts so that wallets, DEXes, explorers, and other on-chain contracts can interact with any BSP-20 token without knowing its implementation details.
 
@@ -28,7 +28,7 @@ Without a shared standard, every fungible token would expose a different API. In
 - A mandatory set of on-chain events that off-chain indexers can parse.
 - An optional allowance extension that enables the "approve + transfer-from" delegation pattern used by DEXes and protocols.
 
-The interface is modeled on Ethereum's ERC-20 with modifications for BTCPC's architecture: amounts are stringified `u128` values to avoid JavaScript's 53-bit float precision limit, and transfer-call uses BTCPC's native cross-contract Promise API rather than a callback return value.
+The interface is modeled on Ethereum's ERC-20 with modifications for HONE's architecture: amounts are stringified `u128` values to avoid JavaScript's 53-bit float precision limit, and transfer-call uses HONE's native cross-contract Promise API rather than a callback return value.
 
 ---
 
@@ -44,7 +44,7 @@ pub type AccountId = String;
 pub struct FtMetadata {
     pub name:      String,         // Human-readable token name
     pub symbol:    String,         // Uppercase ticker symbol (e.g. "MTK")
-    pub decimals:  u8,             // Decimal places (8 recommended for BTCPC compatibility)
+    pub decimals:  u8,             // Decimal places (8 recommended for HONE compatibility)
     pub icon:      Option<String>, // Data URL (e.g. "data:image/svg+xml,...")
     pub reference: Option<String>, // HTTPS URL to a JSON metadata document
 }
@@ -161,7 +161,7 @@ Returns the token's metadata.
 
 **Requirements:**
 - `name` and `symbol` MUST be non-empty strings.
-- `decimals` MUST accurately reflect the number of decimal places. 10 is RECOMMENDED for native BTCPC compatibility (1 BTCPC = 10^10 dreams).
+- `decimals` MUST accurately reflect the number of decimal places. 10 is RECOMMENDED for native HONE compatibility (1 HONE = 10^10 dreams).
 - The metadata SHOULD be immutable after deployment.
 
 ---
@@ -304,7 +304,7 @@ The exact panic message wording is RECOMMENDED but not REQUIRED. Wallets and exp
 
 ### Separate ft_transfer and ft_transfer_call
 
-`ft_transfer_call` exists because BTCPC's execution model (WASM, synchronous per call, async cross-contract via Promise) requires that transfer notification be an explicit cross-contract call rather than an inline callback. Separating the two methods makes the gas cost transparent to callers.
+`ft_transfer_call` exists because HONE's execution model (WASM, synchronous per call, async cross-contract via Promise) requires that transfer notification be an explicit cross-contract call rather than an inline callback. Separating the two methods makes the gas cost transparent to callers.
 
 ### Optional Allowance Extension
 
@@ -326,7 +326,7 @@ cargo build -p ft --target wasm32-unknown-unknown --release
 # target/wasm32-unknown-unknown/release/ft.wasm
 
 # Deploy to chain
-btcpc contract deploy target/wasm32-unknown-unknown/release/ft.wasm \
+hone contract deploy target/wasm32-unknown-unknown/release/ft.wasm \
   --args '{"name":"TestToken","symbol":"TST","decimals":8,"total_supply":"10000000000000000"}' \
   --account myaccount
 ```

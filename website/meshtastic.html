@@ -183,10 +183,10 @@
       <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -fsSL https://honemesh.net/meshtastic-setup.sh | bash')">Copy</button>
       curl -fsSL https://honemesh.net/meshtastic-setup.sh | bash
     </div>
-    <p>This adds the <strong style="color:#f7931a;">btcpc</strong> channel to your device. Then start the bridge:</p>
+    <p>This adds the <strong style="color:#f7931a;">hone</strong> channel to your device. Then start the bridge:</p>
     <div class="code-block">
-      <button class="copy-btn" onclick="navigator.clipboard.writeText('node bin/btcpc-meshtastic --account your-name')">Copy</button>
-      node bin/btcpc-meshtastic --account your-name
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('node bin/hone-meshtastic --account your-name')">Copy</button>
+      node bin/hone-meshtastic --account your-name
     </div>
     <p style="color:#475569;font-size:13px;">The bridge auto-detects your device on USB and starts relaying. It reconnects automatically if the device disconnects.</p>
   </section>
@@ -198,7 +198,7 @@
       <div class="how-card">
         <div class="step-num">1</div>
         <h3>Device joins mesh</h3>
-        <p>Your Meshtastic radio joins the "btcpc" channel on the mesh network. Any device in range can send HONE sensor packets.</p>
+        <p>Your Meshtastic radio joins the "hone" channel on the mesh network. Any device in range can send HONE sensor packets.</p>
       </div>
       <div class="how-card">
         <div class="step-num">2</div>
@@ -309,14 +309,14 @@
   <!-- HONE packet format -->
   <section class="setup-box" style="max-width:700px;margin:60px auto;padding:28px;">
     <h2>HONE Mesh Packet Format</h2>
-    <p>Devices send JSON text messages on the "btcpc" channel:</p>
+    <p>Devices send JSON text messages on the "hone" channel:</p>
     <div class="code-block" style="color:#e2e8f0;">
       <span class="comment">// Sensor reading packet</span><br>
-      {"btcpc":1,"sensor":"josh/flipper-subghz","value":-92,"meta":{"freq":"433MHz"},"sig":"abc123"}
+      {"hone":1,"sensor":"josh/flipper-subghz","value":-92,"meta":{"freq":"433MHz"},"sig":"abc123"}
     </div>
     <p style="margin-top:16px;">Fields:</p>
     <div style="font-size:14px;color:#94a3b8;line-height:2;">
-      <strong style="color:#f7931a;">btcpc</strong> — must be 1 (identifies as HONE packet)<br>
+      <strong style="color:#f7931a;">hone</strong> — must be 1 (identifies as HONE packet)<br>
       <strong style="color:#f7931a;">sensor</strong> — sensor ID in account/name format<br>
       <strong style="color:#f7931a;">value</strong> — numeric reading value<br>
       <strong style="color:#f7931a;">meta</strong> — optional metadata object<br>

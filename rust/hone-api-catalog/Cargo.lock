@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btcpc-api-catalog"
+name = "hone-api-catalog"
 version = "0.1.0"
 dependencies = [
  "hex",

@@ -14,8 +14,8 @@ const os = require('os');
 const path = require('path');
 
 // Isolate secretStore per test run
-const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-totp-delta-'));
-process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hone-totp-delta-'));
+process.env.HONE_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 
 // Mock User model
 const mockMongoUsers = {};
@@ -37,7 +37,7 @@ jest.mock('../src/models/User', () => mockUserModel);
 jest.mock('speakeasy', () => ({
   generateSecret: jest.fn(() => ({
     base32: 'TESTSECRETBASE32',
-    otpauth_url: 'otpauth://totp/BTCPC:test?secret=TESTSECRETBASE32',
+    otpauth_url: 'otpauth://totp/HONE:test?secret=TESTSECRETBASE32',
   })),
   totp: {
     verify: jest.fn(() => true), // always valid in tests

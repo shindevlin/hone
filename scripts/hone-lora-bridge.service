@@ -1,8 +1,8 @@
 [Unit]
 Description=HONE LoRa/BLE Sensor Bridge
-After=network-online.target btcpc-node.service
+After=network-online.target hone-node.service
 Wants=network-online.target
-Requires=btcpc-node.service
+Requires=hone-node.service
 
 [Service]
 Type=simple
@@ -23,7 +23,7 @@ Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=btcpc-lora-bridge
+SyslogIdentifier=hone-lora-bridge
 
 [Install]
 WantedBy=multi-user.target

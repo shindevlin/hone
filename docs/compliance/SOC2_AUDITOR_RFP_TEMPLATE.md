@@ -1,7 +1,7 @@
-# BTCPC External Auditor RFP: SOC2 Type II & ISO 27001 Readiness
+# HONE External Auditor RFP: SOC2 Type II & ISO 27001 Readiness
 
 ## 1. Executive Summary
-BTCPC is a decentralized blockchain protocol enabling Proof-of-Compute consensus via AI inference. We seek a qualified third-party auditor to assess our security controls, operational resilience, and compliance posture against SOC2 Type II (Security, Availability) and ISO/IEC 27001:2022 standards.
+HONE is a decentralized blockchain protocol enabling Proof-of-Compute consensus via AI inference. We seek a qualified third-party auditor to assess our security controls, operational resilience, and compliance posture against SOC2 Type II (Security, Availability) and ISO/IEC 27001:2022 standards.
 
 **Compliance Targets:**
 - SOC2 Type II (6-month observation window)
@@ -37,7 +37,7 @@ BTCPC is a decentralized blockchain protocol enabling Proof-of-Compute consensus
 1. SOC2 Type II Report (Security + Availability)
 2. ISO/IEC 27001 Statement of Applicability (SoA) Gap Assessment
 3. Management Letter with remediation roadmap
-4. Raw evidence index mapped to BTCPC control IDs
+4. Raw evidence index mapped to HONE control IDs
 5. Executive summary suitable for board/investor distribution
 
 ## 6. Vendor Requirements
@@ -56,7 +56,7 @@ BTCPC is a decentralized blockchain protocol enabling Proof-of-Compute consensus
 - Cost & reporting flexibility (15%)
 
 **Contact:** `compliance@honemesh.net` | `security@honemesh.net`
-**Repo:** `https://github.com/shindevlin/btcpc`
+**Repo:** `https://github.com/shindevlin/hone`
 
 ---
-*RFP Version: 1.0 — Issued By: BTCPC Security & Compliance Working Group*
+*RFP Version: 1.0 — Issued By: HONE Security & Compliance Working Group*

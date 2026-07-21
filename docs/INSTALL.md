@@ -1,6 +1,6 @@
-# BTCPC Mining Node — Installation Guide
+# HONE Mining Node — Installation Guide
 
-Multi-platform setup for running a BTCPC Proof-of-Compute mining node.
+Multi-platform setup for running a HONE Proof-of-Compute mining node.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ winget install OpenJS.NodeJS.LTS
 winget install Git.Git
 
 # MongoDB — run via Docker (recommended):
-docker run -d --name btcpc-mongo -p 27017:27017 \
+docker run -d --name hone-mongo -p 27017:27017 \
   -e MONGO_INITDB_ROOT_USERNAME=root \
   -e MONGO_INITDB_ROOT_PASSWORD=example \
   mongo:7
@@ -52,7 +52,7 @@ sudo apt-get install -y nodejs git
 
 # MongoDB via Docker
 sudo apt-get install -y docker.io
-sudo docker run -d --name btcpc-mongo -p 27017:27017 \
+sudo docker run -d --name hone-mongo -p 27017:27017 \
   -e MONGO_INITDB_ROOT_USERNAME=root \
   -e MONGO_INITDB_ROOT_PASSWORD=example \
   mongo:7
@@ -73,7 +73,7 @@ brew install node git
 
 # MongoDB via Docker
 brew install --cask docker   # Docker Desktop
-docker run -d --name btcpc-mongo -p 27017:27017 \
+docker run -d --name hone-mongo -p 27017:27017 \
   -e MONGO_INITDB_ROOT_USERNAME=root \
   -e MONGO_INITDB_ROOT_PASSWORD=example \
   mongo:7
@@ -88,8 +88,8 @@ ollama pull qwen3.5:27b
 ## 2. Clone and Install
 
 ```bash
-git clone https://github.com/shindevlin/btcpc.git
-cd btcpc
+git clone https://github.com/shindevlin/hone.git
+cd hone
 npm install
 ```
 
@@ -105,7 +105,7 @@ Edit `.env` with the values for your setup. The mining-critical variables are:
 
 ```ini
 # MongoDB connection (match your Docker credentials)
-MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin
+MONGODB_URI=mongodb://root:example@localhost:27017/hone?authSource=admin
 
 # Ollama endpoint (default: localhost)
 OLLAMA_URL=http://localhost:11434
@@ -128,7 +128,7 @@ Before starting the miner, confirm MongoDB and Ollama are reachable:
 
 ```bash
 # MongoDB — should print the version
-docker exec btcpc-mongo mongosh --quiet --eval "db.version()"
+docker exec hone-mongo mongosh --quiet --eval "db.version()"
 
 # Ollama — should list your pulled models
 curl -s http://localhost:11434/api/tags | head -c 200
@@ -139,23 +139,23 @@ curl -s http://localhost:11434/api/tags | head -c 200
 ## 5. Start the Mining Daemon
 
 ```bash
-node bin/btcpc-mine
+node bin/hone-mine
 ```
 
 You should see output like:
 
 ```
-[BTCPC] MongoDB connected
-[BTCPC] ================================================
-[BTCPC]    BTCPC Mining Daemon Starting
-[BTCPC] ================================================
-[BTCPC] Ollama:     http://localhost:11434
-[BTCPC] Model:      qwen3.5:27b
-[BTCPC] Work/epoch: 3
-[BTCPC] Epoch:      30s
-[BTCPC] ================================================
-[BTCPC] Genesis block already exists
-[BTCPC] Epoch 1 mining started
+[HONE] MongoDB connected
+[HONE] ================================================
+[HONE]    HONE Mining Daemon Starting
+[HONE] ================================================
+[HONE] Ollama:     http://localhost:11434
+[HONE] Model:      qwen3.5:27b
+[HONE] Work/epoch: 3
+[HONE] Epoch:      30s
+[HONE] ================================================
+[HONE] Genesis block already exists
+[HONE] Epoch 1 mining started
 ```
 
 The daemon runs continuously with 30-second epoch cycles. Press `Ctrl+C` to stop gracefully.
@@ -172,7 +172,7 @@ An auto-updater checks GitHub every 15 minutes and restarts the miner when new c
 npm install -g pm2
 
 # Start miner + auto-updater together
-cd /path/to/btcpc
+cd /path/to/hone
 pm2 start ecosystem.config.js
 
 # Save for auto-restart on reboot
@@ -184,35 +184,35 @@ This starts two processes:
 
 | pm2 name | What it does |
 |----------|-------------|
-| `btcpc-mine` | Mining daemon — runs forever, auto-restarts on crash |
-| `btcpc-update` | Checks GitHub every 15 min — pulls new code and restarts the miner if updates are found |
+| `hone-mine` | Mining daemon — runs forever, auto-restarts on crash |
+| `hone-update` | Checks GitHub every 15 min — pulls new code and restarts the miner if updates are found |
 
 **Useful pm2 commands:**
 
 ```bash
 pm2 status            # see running processes
 pm2 logs              # tail all logs
-pm2 logs btcpc-mine   # tail miner logs only
+pm2 logs hone-mine   # tail miner logs only
 pm2 monit             # live dashboard
 pm2 stop all          # stop everything (manual override)
-pm2 restart btcpc-mine  # restart miner only
+pm2 restart hone-mine  # restart miner only
 ```
 
-**To stop mining:** `pm2 stop btcpc-mine` — the updater will not restart it unless you `pm2 start btcpc-mine` again.
+**To stop mining:** `pm2 stop hone-mine` — the updater will not restart it unless you `pm2 start hone-mine` again.
 
 **Linux alternative (systemd):**
 
 ```ini
-# /etc/systemd/system/btcpc-miner.service
+# /etc/systemd/system/hone-miner.service
 [Unit]
-Description=BTCPC Mining Daemon
+Description=HONE Mining Daemon
 After=network.target docker.service
 
 [Service]
 Type=simple
 User=your-user
-WorkingDirectory=/home/your-user/btcpc
-ExecStart=/usr/bin/node bin/btcpc-mine
+WorkingDirectory=/home/your-user/hone
+ExecStart=/usr/bin/node bin/hone-mine
 Restart=on-failure
 RestartSec=10
 Environment=NODE_ENV=production
@@ -222,8 +222,8 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now btcpc-miner
-sudo journalctl -u btcpc-miner -f   # watch logs
+sudo systemctl enable --now hone-miner
+sudo journalctl -u hone-miner -f   # watch logs
 ```
 
 ---
@@ -246,7 +246,7 @@ sudo journalctl -u btcpc-miner -f   # watch logs
 
 | Symptom | Fix |
 |---------|-----|
-| `MongoDB connection failed` | Ensure the `btcpc-mongo` container is running: `docker ps` |
+| `MongoDB connection failed` | Ensure the `hone-mongo` container is running: `docker ps` |
 | `Ollama unreachable after 5 attempts` | Check Ollama is running: `ollama list`. Ensure `OLLAMA_URL` in `.env` is correct. |
 | `Genesis miner account not found` | The genesis block creates the `shindevlin` miner account automatically on first run. If the DB was wiped, drop the database and restart the daemon to re-create genesis. |
 | Slow epoch times | A 27B model on CPU can take 5+ minutes per work item. Use a GPU or switch to a smaller model (`HONE_MODEL=deepseek-r1:8b`). |

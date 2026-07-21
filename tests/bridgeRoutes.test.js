@@ -114,7 +114,7 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
       expect(res.status).toBe(401);
     });
 
-    it('wraps BTCPC into wBTCPC', async () => {
+    it('wraps HONE into wHONE', async () => {
       const res = await request(port, 'POST', '/api/bridge/wrap', {
         chainId: 'base', amount: 1000,
       }, 'alice');
@@ -125,7 +125,7 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
       expect(res.body.wrap.gross_amount).toBe(1000);
       expect(res.body.wrap.fee).toBeGreaterThan(0);
       expect(res.body.wrap.net_amount).toBeLessThan(1000);
-      expect(res.body.wrap.fee_currency).toBe('BTCPC');
+      expect(res.body.wrap.fee_currency).toBe('HONE');
     });
 
     it('rejects missing chainId', async () => {
@@ -158,7 +158,7 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
 
   describe('POST /api/bridge/unwrap', () => {
     beforeEach(async () => {
-      // First wrap to create circulating wBTCPC
+      // First wrap to create circulating wHONE
       await request(port, 'POST', '/api/bridge/wrap', {
         chainId: 'base', amount: 5000,
       }, 'alice');
@@ -171,7 +171,7 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
       expect(res.status).toBe(401);
     });
 
-    it('unwraps wBTCPC back to BTCPC', async () => {
+    it('unwraps wHONE back to HONE', async () => {
       const res = await request(port, 'POST', '/api/bridge/unwrap', {
         chainId: 'base', amount: 500,
       }, 'alice');
@@ -180,7 +180,7 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
       expect(res.body.unwrap.user).toBe('alice');
       expect(res.body.unwrap.chain_id).toBe('base');
       expect(res.body.unwrap.gross_amount).toBe(500);
-      expect(res.body.unwrap.fee_currency).toBe('wBTCPC');
+      expect(res.body.unwrap.fee_currency).toBe('wHONE');
       expect(res.body.unwrap.tier).toBe('small'); // 500 < 1000 threshold
     });
 
@@ -195,7 +195,7 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
     it('rejects unwrap exceeding circulating supply', async () => {
       const chain = bridgeRegistry.getChain('base');
       const res = await request(port, 'POST', '/api/bridge/unwrap', {
-        chainId: 'base', amount: chain.circulating_wbtcpc + 9999,
+        chainId: 'base', amount: chain.circulating_whone + 9999,
       }, 'alice');
       expect(res.status).toBe(422);
     });
@@ -299,13 +299,13 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
       expect(ids).toContain('base');
     });
 
-    it('returns chain state including circulating wBTCPC', async () => {
+    it('returns chain state including circulating wHONE', async () => {
       await request(port, 'POST', '/api/bridge/wrap', {
         chainId: 'base', amount: 200,
       }, 'alice');
       const res = await request(port, 'GET', '/api/bridge/chains');
       const base = res.body.chains.find((c) => c.chain_id === 'base');
-      expect(base.circulating_wbtcpc).toBeGreaterThan(0);
+      expect(base.circulating_whone).toBeGreaterThan(0);
     });
   });
 
@@ -408,7 +408,7 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
 // Vuln 7: Bridge wrap balance check (security regression tests)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Vuln 7 — bridge wrap: BTCPC balance pre-check', () => {
+describe('Vuln 7 — bridge wrap: HONE balance pre-check', () => {
   let balanceSrv;
   let balancePort;
 
@@ -446,7 +446,7 @@ describe('Vuln 7 — bridge wrap: BTCPC balance pre-check', () => {
       chainId: 'base', amount: 500,
     }, 'alice');
     expect(res.status).toBe(402);
-    expect(res.body.error).toMatch(/insufficient BTCPC balance/i);
+    expect(res.body.error).toMatch(/insufficient HONE balance/i);
     expect(res.body.required).toBe(500);
     expect(res.body.current).toBe(0);
   });
@@ -457,7 +457,7 @@ describe('Vuln 7 — bridge wrap: BTCPC balance pre-check', () => {
       chainId: 'base', amount: 100,
     }, 'alice');
     expect(res.status).toBe(402);
-    expect(res.body.error).toMatch(/insufficient BTCPC balance/i);
+    expect(res.body.error).toMatch(/insufficient HONE balance/i);
     expect(res.body.required).toBe(100);
     expect(res.body.current).toBe(99);
   });

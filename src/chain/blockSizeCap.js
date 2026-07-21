@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Block Size Cap — v3.0
+ * HONE Block Size Cap — v3.0
  * Shin Devlin
  *
  * Dynamic block cap: starts at 1 MB, adapts based on how full recent
@@ -54,7 +54,7 @@ function computeNextBlockCap(currentCap, currentBlockSize) {
 // For backward compat, this module also exports MAX_BLOCK_PAYLOAD_BYTES
 // (initialized to DEFAULT_BLOCK_CAP) so old call sites don't break.
 var MAX_BLOCK_PAYLOAD_BYTES = parseInt(
-  process.env.BTCPC_MAX_BLOCK_PAYLOAD_BYTES || String(DEFAULT_BLOCK_CAP),
+  process.env.HONE_MAX_BLOCK_PAYLOAD_BYTES || String(DEFAULT_BLOCK_CAP),
   10
 );
 

@@ -60,9 +60,9 @@ function request(port, method, path) {
 async function seedStore(seller, products) {
   stateStore.applyEntry({
     type: 'FAUCET',
-    from: 'btcpc_genesis',
+    from: 'hone_genesis',
     to: seller,
-    token: 'BTCPC',
+    token: 'HONE',
     amount: 10000,
     epoch: 0,
     timestamp: Math.random(),
@@ -231,7 +231,7 @@ describe('gateway (v2.10.2)', () => {
     test('renders landing with no stores', () => {
       const html = storefront.renderLanding({ recent_stores: [], total_stores: 0 });
       expect(html).toContain('<!DOCTYPE html>');
-      expect(html).toContain('BTCPC');
+      expect(html).toContain('HONE');
       expect(html).toContain('No stores open yet');
     });
 
@@ -255,7 +255,7 @@ describe('gateway (v2.10.2)', () => {
           title: 'Test Widget',
           price: 5.25,
           stock: 42,
-          token: 'BTCPC',
+          token: 'HONE',
           category: 'gadgets',
         },
         store: { seller: 'alice', name: 'Alice Shop' },
@@ -294,7 +294,7 @@ describe('gateway (v2.10.2)', () => {
       expect(r.status).toBe(200);
       expect(r.headers['content-type']).toContain('text/html');
       expect(r.body).toContain('<!DOCTYPE html>');
-      expect(r.body).toContain('BTCPC');
+      expect(r.body).toContain('HONE');
     });
 
     test('GET /stores returns directory', async () => {
@@ -346,9 +346,9 @@ describe('gateway (v2.10.2)', () => {
       ['shindevlin', 'alice', 'bob'].forEach(a => epochBandwidth.seedForTest(a));
       stateStore.applyEntry({
         type: 'FAUCET',
-        from: 'btcpc_genesis',
+        from: 'hone_genesis',
         to: 'shindevlin',
-        token: 'BTCPC',
+        token: 'HONE',
         amount: 100,
         epoch: 0,
         timestamp: 1,

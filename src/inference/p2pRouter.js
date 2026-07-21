@@ -68,10 +68,10 @@ function initP2PRouter() {
             try {
               const Project = require('../models/Project');
               await Project.findByIdAndUpdate(job.project_id, { $inc: { balance: job.cost } });
-              console.log(`[BTCPC P2P Router] Refunded ${job.cost} BTCPC to project`);
+              console.log(`[HONE P2P Router] Refunded ${job.cost} HONE to project`);
             } catch (_) {}
           }
-          console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} failed by ${data.node_name}: ${data.error}`);
+          console.log(`[HONE P2P Router] Job ${reqId.slice(0, 12)} failed by ${data.node_name}: ${data.error}`);
         }
         return;
       }
@@ -90,7 +90,7 @@ function initP2PRouter() {
           project_id: null
         };
         jobStore.set(reqId, job);
-        console.log(`[BTCPC P2P Router] Created job ${reqId.slice(0, 12)} from P2P result (authority sync)`);
+        console.log(`[HONE P2P Router] Created job ${reqId.slice(0, 12)} from P2P result (authority sync)`);
       }
 
       if (['pending', 'claimed', 'processing'].includes(job.status)) {
@@ -123,12 +123,12 @@ function initP2PRouter() {
           } catch (_) {}
         }
 
-        console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} completed: ${job.tokens_generated} tokens, ${job.elapsed_ms}ms`);
+        console.log(`[HONE P2P Router] Job ${reqId.slice(0, 12)} completed: ${job.tokens_generated} tokens, ${job.elapsed_ms}ms`);
       }
     }
   });
 
-  console.log('[BTCPC P2P Router] Listening for inference results (async model)');
+  console.log('[HONE P2P Router] Listening for inference results (async model)');
 }
 
 /**
@@ -225,7 +225,7 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
     p2p.broadcast(payload);
   }, 500);
 
-  console.log(`[BTCPC P2P Router] Submitted job ${jobId.slice(0, 12)} (model: ${model})`);
+  console.log(`[HONE P2P Router] Submitted job ${jobId.slice(0, 12)} (model: ${model})`);
 
   return { job_id: jobId, status: 'pending' };
 }

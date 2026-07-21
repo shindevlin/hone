@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Agent Events
+ * HONE Agent Events
  * Shin Devlin
  *
  * Lightweight EventEmitter bridge between the P2P TOOL_CALL handler and the
