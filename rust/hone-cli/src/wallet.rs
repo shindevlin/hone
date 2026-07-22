@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use hone_sdk::{KeyPair, Wallet, WalletFile};
 use colored::Colorize;
 use serde_json::{json, Value};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use crate::api::ApiClient;
@@ -13,6 +14,25 @@ pub fn cmd_wallet_create(account: &str, output: Option<&Path>) -> Result<()> {
         return Err(anyhow!(
             "wallet file already exists at {}; use --output to specify a different path",
             wallet_path.display()
+        ));
+    }
+
+    // ── Secret-exposure gate ──────────────────────────────────────────────────
+    // Creating a wallet mints a 12-word mnemonic that grants FULL owner+spend
+    // authority. It must be shown to a human ONCE and to no one else. If stdout or
+    // stdin is not an interactive terminal, the stream is being captured (a pipe,
+    // a log file, or an automation/agent harness) — refuse rather than leak the
+    // seed into whatever is reading it. Vaults are meant to be created OFFLINE with
+    // the standalone air-gapped keytool; a node or agent must never see the seed.
+    // (See the vault/agent two-key model — the agent only ever holds a bounded key.)
+    if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
+        return Err(anyhow!(
+            "refusing to create a wallet on a non-interactive stream — the 12-word \
+             mnemonic would be exposed to whatever is capturing stdout (a pipe, a log, \
+             or an automation agent). Create your vault OFFLINE with the standalone \
+             air-gapped keytool, then bring only the bounded agent key online. If you \
+             are a human, run `hone wallet create` directly in a terminal — not through \
+             a pipe, a redirect, or an agent."
         ));
     }
 
