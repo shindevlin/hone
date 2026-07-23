@@ -319,7 +319,20 @@ pub fn backup_to_home(account: &str, keys: &WalletKeys) {
     let txt_dest = dir.join(format!("{}.txt", account));
     let txt = format_txt_backup(account, keys);
     match std::fs::write(&txt_dest, &txt) {
-        Ok(_)  => info!("wallet: human-readable backup at {}", txt_dest.display()),
+        Ok(_)  => {
+            // This file holds the plaintext mnemonic + every private key. It MUST be
+            // owner-only, exactly like wallet.key — otherwise any process or user on
+            // the box (including an automation agent) can read the full vault.
+            #[cfg(unix)] {
+                use std::os::unix::fs::PermissionsExt;
+                if let Err(e) = std::fs::set_permissions(
+                    &txt_dest, std::fs::Permissions::from_mode(0o600),
+                ) {
+                    warn!("wallet: could not chmod 600 {}: {}", txt_dest.display(), e);
+                }
+            }
+            info!("wallet: human-readable backup at {} (chmod 600)", txt_dest.display());
+        }
         Err(e) => warn!("wallet: could not write {}: {}", txt_dest.display(), e),
     }
 }
@@ -830,107 +843,44 @@ fn aptos_addr(pub_key: &[u8; 32]) -> String {
 // ── Display ───────────────────────────────────────────────────────────────────
 
 fn print_new_wallet(k: &WalletKeys) {
-    println!("\n\
-╔══════════════════════════════════════════════════════════════════════════════════╗\n\
-║          NEW HONE WALLET — WRITE DOWN YOUR MNEMONIC NOW                       ║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  MNEMONIC (12 words — master key for every chain below):                       ║\n\
-║                                                                                  ║\n\
-║  {:<80}║\n\
-║                                                                                  ║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  HONE OWNER KEY  (SLIP-10 m/44'/6942'/0'/0') — store cold, key rotation only  ║\n\
-║    Public key  : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  HONE ACTIVE KEY  (SLIP-10 m/44'/6942'/1'/0') — transfers and staking         ║\n\
-║    Public key  : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  HONE POSTING KEY  (SLIP-10 m/44'/6942'/2'/0') — daily activity on device     ║\n\
-║    Public key  : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  HONE MEMO KEY  (SLIP-10 m/44'/6942'/3'/0') — encrypted messages             ║\n\
-║    Public key  : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  HONE HIDE KEY  (SLIP-10 m/44'/6942'/4'/0') — private content encryption     ║\n\
-║    Public key  : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  HONE SEEK KEY  (SLIP-10 m/44'/6942'/5'/0') — encrypted delivery to buyers   ║\n\
-║    Public key  : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  BITCOIN  (BIP44 m/44'/0'/0'/0/0)                                               ║\n\
-║    Public key  : {:<64}║\n\
-║    WIF key     : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  ETHEREUM / POLYGON / BSC / AVALANCHE / ARBITRUM / OPTIMISM / BASE              ║\n\
-║  (BIP44 m/44'/60'/0'/0/0 — same address on all EVM chains)                      ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  XRP  (BIP44 m/44'/144'/0'/0/0)                                                 ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  COSMOS/ATOM  (BIP44 m/44'/118'/0'/0/0)                                         ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  TRON  (BIP44 m/44'/195'/0'/0/0)                                                ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  SOLANA  (SLIP-10 m/44'/501'/0'/0')                                             ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  TON  (SLIP-10 m/44'/607'/0')                                                   ║\n\
-║    Public key  : {:<64}║\n\
-║    Private key : {:<64}║\n\
-║    Address     : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  STELLAR/XLM  (SLIP-10 m/44'/148'/0'/0')                                        ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  NEAR  (SLIP-10 m/44'/397'/0'/0')                                               ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  SUI  (SLIP-10 m/44'/784'/0'/0')                                                ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  APTOS  (SLIP-10 m/44'/637'/0'/0')                                              ║\n\
-║    Address     : {:<64}║\n\
-║    Private key : {:<64}║\n\
-╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  Saved to: ~/.hone/wallet.key (chmod 600)                                      ║\n\
-║  All public keys registered on-chain — your identity spans every chain.         ║\n\
-╚══════════════════════════════════════════════════════════════════════════════════╝\n",
-        k.mnemonic,
-        k.hone_owner_public_key,   k.hone_owner_private_key,
-        k.hone_active_public_key,  k.hone_active_private_key,
-        k.hone_public_key,         k.hone_private_key,
-        k.hone_memo_public_key,    k.hone_memo_private_key,
-        k.hone_hide_public_key,    k.hone_hide_private_key,
-        k.hone_seek_public_key,    k.hone_seek_private_key,
-        k.bitcoin_pubkey,     k.bitcoin_wif,
-        k.ethereum_address,   k.ethereum_private_key,
-        k.xrp_address,        k.xrp_private_key,
-        k.cosmos_address,     k.cosmos_private_key,
-        k.tron_address,       k.tron_private_key,
-        k.solana_address,     k.solana_private_key,
-        k.ton_public_key,     k.ton_private_key,    k.ton_address,
-        k.stellar_address,    k.stellar_private_key,
-        k.near_address,       k.near_private_key,
-        k.sui_address,        k.sui_private_key,
-        k.aptos_address,      k.aptos_private_key,
-    );
+    // SECURITY: never print the mnemonic or ANY private key here. This process's
+    // stdout is captured — by systemd's journal, or by whatever agent/watcher
+    // launched the node — so anything printed is machine-readable, not human-only.
+    // Secrets live only in the 0600 wallet.key / ~/.hone backup on disk. We print
+    // public identity material and point the human at that on-disk backup.
+    println!();
+    println!("═══════════════════════════════════════════════════════════════════════");
+    println!("  NEW HONE WALLET CREATED");
+    println!("═══════════════════════════════════════════════════════════════════════");
+    println!();
+    println!("  Your 12-word mnemonic and private keys were NOT printed — they are secret.");
+    println!("  They are saved, owner-only (chmod 600), on THIS machine:");
+    println!("    ~/.hone/wallet.key       (JSON — mnemonic + all keys)");
+    println!("    ~/.hone/<account>.txt    (human-readable backup)");
+    println!();
+    println!("  Open that file locally, write the 12 words down offline, then move it to");
+    println!("  cold storage. Never share, paste, or transmit your mnemonic or private keys.");
+    println!();
+    println!("  Public keys (safe to share — registered on-chain):");
+    println!("    HONE owner    {}", k.hone_owner_public_key);
+    println!("    HONE active   {}", k.hone_active_public_key);
+    println!("    HONE posting  {}", k.hone_public_key);
+    println!("    HONE memo     {}", k.hone_memo_public_key);
+    println!("    HONE hide     {}", k.hone_hide_public_key);
+    println!("    HONE seek     {}", k.hone_seek_public_key);
+    println!("    Bitcoin       {}", k.bitcoin_pubkey);
+    println!("    Ethereum/EVM  {}", k.ethereum_address);
+    println!("    Solana        {}", k.solana_address);
+    println!("    XRP           {}", k.xrp_address);
+    println!("    Cosmos/ATOM   {}", k.cosmos_address);
+    println!("    Tron          {}", k.tron_address);
+    println!("    TON           {}", k.ton_address);
+    println!("    Stellar/XLM   {}", k.stellar_address);
+    println!("    NEAR          {}", k.near_address);
+    println!("    Sui           {}", k.sui_address);
+    println!("    Aptos         {}", k.aptos_address);
+    println!("═══════════════════════════════════════════════════════════════════════");
+    println!();
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────────
