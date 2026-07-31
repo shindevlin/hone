@@ -569,9 +569,18 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
         // Device/sensor key registration: owner registers a key for their device.
-        LedgerEntry::DeviceKeyRegister { owner, signed_by, .. }
-        | LedgerEntry::SensorKeyRegister { owner, signed_by, .. } => {
+        LedgerEntry::DeviceKeyRegister { owner, signed_by, .. } => {
             if signed_by != owner { bail!("key register: signed_by must equal owner"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::SensorKeyRegister { owner, device_pubkey, signed_by, .. } => {
+            if signed_by != owner { bail!("key register: signed_by must equal owner"); }
+            anyhow::ensure!(
+                device_pubkey.is_empty() ||
+                    (device_pubkey.len() == 64 && device_pubkey.chars().all(|c| c.is_ascii_hexdigit())),
+                "sensor device_pubkey must be empty for revocation or a 64-char ed25519 public key hex string"
+            );
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
@@ -3797,6 +3806,20 @@ mod tests {
             "revoked device key must no longer authorize commits");
         assert!(validate_and_apply(&chain, &entry, Some(&sign(&owner_key, &entry))).is_ok(),
             "empty enrollment must restore owner-posting-key fallback");
+    }
+
+    #[test]
+    fn sensor_device_enrollment_rejects_malformed_public_key() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "josh", 1_000_000_000_000);
+        let owner_key = SigningKey::from_bytes(&[b'j'; 32]);
+        let entry = LedgerEntry::SensorKeyRegister {
+            sensor_id: "phone-gnss".into(), owner: "josh".into(),
+            device_pubkey: "not-an-ed25519-key".into(), epoch: 0, signed_by: "josh".into(),
+        };
+        let sig = sign(&owner_key, &entry);
+        assert!(validate_and_apply(&chain, &entry, Some(&sig)).is_err());
+        assert!(chain.store.state_get("sensor_devkey:phone-gnss").is_none());
     }
 
     #[test]
