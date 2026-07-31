@@ -20,3 +20,6 @@ The current Compose screen still displays mock readings. Production wiring requi
 owner identity, wallet signing callback, permission flow, sensor sampling policy, and foreground
 service lifecycle to be supplied by the app state layer. It must not store posting-key material in
 Compose state, intents, preferences, logs, or service extras.
+
+The canonical foreground service remains read-only until those hooks are implemented. There is no
+`owner_posting.seed` compatibility path and no built-in owner or node URL.

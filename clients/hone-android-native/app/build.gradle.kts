@@ -68,8 +68,6 @@ dependencies {
 
     // QR generation for receive flow (Phase 2) — no copy-paste; show/scan a code.
     implementation("com.google.zxing:core:3.5.3")
-    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1") // raw-seed Ed25519 (RFC 8032), matches ed25519-dalek
-
     // uniffi runtime dep for the generated bindings (JNA), added in Phase 0b:
     // implementation("net.java.dev.jna:jna:5.14.0@aar")
 
