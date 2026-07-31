@@ -1,7 +1,7 @@
 # Android repository completeness review
 
-Date: 2026-07-31  
-Branch: `codex/android-repository-complete`  
+Date: 2026-07-31
+Branch: `codex/android-repository-complete`
 Scope: branch-only; no live node, state, account, or key access
 
 ## Outcome
