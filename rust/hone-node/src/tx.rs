@@ -3779,6 +3779,27 @@ mod tests {
     }
 
     #[test]
+    fn revoked_device_key_falls_back_to_owner_posting_key() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "josh", 1_000_000_000_000);
+        let owner_key = SigningKey::from_bytes(&[b'j'; 32]);
+        let device = enroll_device(&chain, "phone-gnss", "josh", &owner_key, b'D');
+
+        let revoke = LedgerEntry::SensorKeyRegister {
+            sensor_id: "phone-gnss".into(), owner: "josh".into(),
+            device_pubkey: String::new(), epoch: 0, signed_by: "josh".into(),
+        };
+        let revoke_sig = sign(&owner_key, &revoke);
+        validate_and_apply(&chain, &revoke, Some(&revoke_sig)).expect("owner may revoke device key");
+
+        let entry = sensor_commit("phone-gnss", "josh");
+        assert!(validate_and_apply(&chain, &entry, Some(&sign(&device, &entry))).is_err(),
+            "revoked device key must no longer authorize commits");
+        assert!(validate_and_apply(&chain, &entry, Some(&sign(&owner_key, &entry))).is_ok(),
+            "empty enrollment must restore owner-posting-key fallback");
+    }
+
+    #[test]
     fn sensor_commit_is_never_accepted_unsigned() {
         let (chain, _dir) = make_chain();
         // Fresh keyless owner: the generic keyless-skip would accept this, but the sensor

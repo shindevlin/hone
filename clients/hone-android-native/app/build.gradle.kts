@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "network.hone.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "network.hone.app"   // HONE brand — matches the Rust JNI/uniffi package
         minSdk = 26                            // 8.0+ (foreground services, notification channels)
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
         // The Rust core is loaded per-ABI as libhone_miner.so (Phase 0b/uniffi).
