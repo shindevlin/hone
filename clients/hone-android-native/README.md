@@ -18,13 +18,21 @@ the full plan and locked decisions. This replaces the old Capacitor webview
 - `NodeRepository` seam with `MockNodeRepository` so the UI builds/runs with NO
   native `.so` yet — `data/NodeRepository.kt`
 - Foreground `NodeService` skeleton — `service/NodeService.kt`
+- Sensor wire client, AndroidKeyStore Ed25519 device identity (API 33+), and explicit
+  enrollment/device-signing coordinator — `data/SensorCommitClient.kt`,
+  `data/AndroidSensorKeyStore.kt`, and `data/SensorSubmissionCoordinator.kt`
+
+The checked-in foreground service is intentionally **read-only capture**. It has no embedded
+account name, node address, or owner signing key. In particular, the repository does not import,
+persist, or read raw owner posting seeds. `SensorNodeSettings` requires all public runtime values
+to be supplied explicitly.
 
 **Not yet wired:**
 - The real Rust node (Phase 0b): drop the uniffi-generated `hone_miner.kt` +
   `libhone_miner.so` (per-ABI) into `app/src/main/`, add the JNA dep, and swap
   `MockNodeRepository` → `BridgeNodeRepository`. UI needs zero changes (the
   `NodeRepository` interface is the seam).
-- Wallet / Sensors / Settings screens (Phase 2).
+- Wallet / Settings screens and the sensor enrollment/configuration UI (Phase 2).
 - Notifications, biometric unlock, LLM chat, full a11y (Phase 3).
 
 ## Build
@@ -35,6 +43,22 @@ Requires Android Studio (Ladybug+) or the command-line SDK + JDK 17.
 ./gradlew :app:assembleDebug
 ```
 The UI runs entirely on mock data today — no NDK/Rust build needed to see it.
+
+## Remaining sensor submission hooks
+
+Before submission can be enabled, the app state layer must:
+
+1. collect and visibly confirm `chainId`, owner account, node URL, and a unique sensor prefix;
+2. create the per-sensor device identity with `AndroidSensorKeyStore.getOrCreate`;
+3. request the owner wallet to authorize one enrollment operation and expose only a
+   one-operation `SensorSigner` callback—never owner key bytes;
+4. call `SensorSubmissionCoordinator.enrollDevice` once, then submit readings through
+   `submitWithEnrolledDevice`; and
+5. display enrollment/revocation and HTTP acceptance state in the UI.
+
+The owner-posting fallback remains at the protocol seam because both authorization paths are
+approved, but it likewise accepts only a per-operation callback. The foreground service must not
+retain that callback. Test this only against a disposable local node and fresh test accounts.
 
 ## Native lib (Phase 0b)
 

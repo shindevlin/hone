@@ -21,7 +21,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import network.hone.app.data.SensorCapture
 import network.hone.app.data.SensorChannel
-import network.hone.app.data.SigningKeyStore
 import network.hone.app.service.NodeService
 import network.hone.app.ui.theme.*
 
@@ -37,7 +36,6 @@ fun SensorsScreen() {
     val capture = remember { SensorCapture(ctx) }
     val channels by capture.channels.collectAsStateWithLifecycle()
     var running by remember { mutableStateOf(false) }
-    val keyPlaced = remember { SigningKeyStore.loadOrNull(ctx) != null }
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -71,8 +69,7 @@ fun SensorsScreen() {
                 Text("Sensor node", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     when {
-                        !keyPlaced -> "read-only — signing key not placed"
-                        running -> "running · submitting to the chain"
+                        running -> "running · read-only capture"
                         else -> "${capture.availableCount()} sensors ready"
                     },
                     style = MaterialTheme.typography.labelSmall,
