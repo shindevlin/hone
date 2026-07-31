@@ -1964,6 +1964,11 @@ impl Chain {
                     })).unwrap_or_default());
             }
             LedgerEntry::SensorKeyRegister { sensor_id, owner, device_pubkey, .. } => {
+                anyhow::ensure!(
+                    device_pubkey.is_empty() ||
+                        (device_pubkey.len() == 64 && device_pubkey.chars().all(|c| c.is_ascii_hexdigit())),
+                    "sensor device_pubkey must be empty for revocation or a 64-char ed25519 public key hex string"
+                );
                 // Enroll a DEVICE key for this sensor. The register entry is already
                 // authorized (tx.rs requires the owner's posting-key signature), so by
                 // the time we apply it the owner has proven control. Store the mapping
