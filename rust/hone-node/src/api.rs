@@ -250,6 +250,7 @@ pub fn router(state: AppState) -> Router {
         // ── Verasens: Sensors / IoT ───────────────────────────────────────
         .route("/api/sensors", get(get_all_sensors))
         .route("/api/sensor/register", post(post_sensor_register))
+        .route("/api/sensor/key-register", post(post_sensor_key_register))
         .route("/api/sensor/commit", post(post_sensor_commit))
         .route("/api/sensor/vouch", post(post_sensor_vouch))
         .route("/api/coverage/report", post(post_coverage_report))
@@ -4237,6 +4238,17 @@ struct SensorCommitBody {
 }
 
 #[derive(Debug, Deserialize)]
+struct SensorKeyRegisterBody {
+    sensor_id: String,
+    owner: String,
+    /// Empty revokes the enrollment and restores owner-posting-key fallback.
+    #[serde(default)]
+    device_pubkey: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct GatewayHeartbeatBody {
     gateway_id: String,
     owner: String,
@@ -4262,6 +4274,24 @@ async fn post_sensor_register(
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/sensor/key-register
+/// Body: { sensor_id, owner, device_pubkey, signature }
+/// Signed once by the owner's posting key. An empty device_pubkey revokes the
+/// device enrollment and returns commits to the owner-posting-key path.
+async fn post_sensor_key_register(
+    State(s): State<AppState>,
+    Json(body): Json<SensorKeyRegisterBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::SensorKeyRegister {
+        sensor_id: body.sensor_id,
+        owner: body.owner.clone(),
+        device_pubkey: body.device_pubkey,
+        epoch: s.chain.current_epoch(),
+        signed_by: body.owner,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
 }
 
 /// POST /api/sensor/commit
@@ -4311,24 +4341,8 @@ async fn post_sensor_commit(
         }
         if !nets.contains(&submitter_net) {
             nets.push(submitter_net.clone());
-            let _ = s.chain.store.state_set(
-                &net_key,
-                &serde_json::to_vec(&nets).unwrap_or_default(),
-            );
         }
     }
-    let reading_rec = serde_json::json!({
-        "sensor_id": body.sensor_id,
-        "owner": body.owner,
-        "epoch": epoch,
-        "value": body.value,
-        "batch_hash": body.batch_hash,
-        "submitter_net": submitter_net,
-    });
-    let _ = s.chain.store.state_set(
-        &reading_key,
-        &serde_json::to_vec(&reading_rec).unwrap_or_default(),
-    );
 
     // ── Apply ledger entry first ──────────────────────────────────────────────
     let entry = LedgerEntry::SensorDataCommit {
@@ -4343,6 +4357,31 @@ async fn post_sensor_commit(
     };
     let sig = non_empty(&body.signature);
     let result = apply_and_broadcast(&s, entry, sig);
+    if result.0["accepted"].as_bool() != Some(true) {
+        // Authentication or admission failed. Never let rejected input alter
+        // cross-validation, diversity, strike, or reward-driving side state.
+        return (StatusCode::BAD_REQUEST, result);
+    }
+
+    // Only authenticated, accepted commits may affect sensor consensus state.
+    if !already_submitted {
+        let _ = s.chain.store.state_set(
+            &net_key,
+            &serde_json::to_vec(&nets).unwrap_or_default(),
+        );
+    }
+    let reading_rec = serde_json::json!({
+        "sensor_id": body.sensor_id,
+        "owner": body.owner,
+        "epoch": epoch,
+        "value": body.value,
+        "batch_hash": body.batch_hash,
+        "submitter_net": submitter_net,
+    });
+    let _ = s.chain.store.state_set(
+        &reading_key,
+        &serde_json::to_vec(&reading_rec).unwrap_or_default(),
+    );
 
     // ── Phase 2: 2-of-N consensus ─────────────────────────────────────────────
     let status = sensor_cross_validate(&s, &body.sensor_id, epoch, &body.owner);
@@ -10988,6 +11027,41 @@ mod partition_tests {
         let resp2 = apply_and_broadcast(&h.state, entry, Some(&sig));
         assert_eq!(resp2.0["accepted"], serde_json::json!(true),
             "a connected node must accept a valid user submission");
+    }
+
+    #[tokio::test]
+    async fn rejected_sensor_signature_does_not_mutate_consensus_side_state() {
+        let h = build_harness("sensor-auth");
+        let _owner = fund(&h.state.chain, "josh", 1_000 * 10_000_000_000, b'j');
+        h.set_peers(3);
+
+        let wrong = SigningKey::from_bytes(&[b'X'; 32]);
+        let entry = LedgerEntry::SensorDataCommit {
+            sensor_id: "phone-gnss".into(), owner: "josh".into(),
+            batch_hash: "abc123".into(), reading_count: 1,
+            sensor_type: "continuous".into(), epoch: 0,
+            signed_by: "josh".into(), gateway_account: None,
+        };
+        let msg = crate::tx::canonical_signing_message(&entry, "hone-testnet").unwrap();
+        let bad_sig = hex::encode(wrong.sign(msg.as_bytes()).to_bytes());
+
+        let (status, response) = post_sensor_commit(
+            State(h.state.clone()),
+            HeaderMap::new(),
+            ConnectInfo("127.0.0.1:4040".parse().unwrap()),
+            Json(SensorCommitBody {
+                sensor_id: "phone-gnss".into(), owner: "josh".into(),
+                batch_hash: "abc123".into(), reading_count: 1,
+                sensor_type: "continuous".into(), value: Some(42.0),
+                signature: bad_sig,
+            }),
+        ).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(response.0["accepted"], serde_json::json!(false));
+        assert!(h.state.chain.store.state_get("sensor_net:phone-gnss:0").is_none());
+        assert!(h.state.chain.store.state_get("sensor_readings:0:phone-gnss:josh").is_none());
+        assert!(h.state.chain.store.state_get("sensor_strikes:phone-gnss").is_none());
     }
 
     /// Same hardline, exercised through the §0 contract-replay handlers
