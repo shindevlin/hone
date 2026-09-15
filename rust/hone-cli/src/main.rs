@@ -489,6 +489,24 @@ enum WalletCommands {
         #[arg(long)]
         require_accounts: PathBuf,
     },
+    /// Decrypt a keystore (or every keystore in a vault) and PRINT all usable
+    /// private keys for each account: the BIP-39 mnemonic, the six HONE role
+    /// private keys, and the Ethereum / Solana / Bitcoin private keys. Recovery
+    /// / backup use only — secrets print to stderr after you supply the password.
+    Reveal {
+        /// A single <account>.keystore.json to reveal.
+        #[arg(long, conflicts_with = "vault")]
+        keystore: Option<PathBuf>,
+        /// A vault directory — reveal every *.keystore.json in it.
+        #[arg(long)]
+        vault: Option<PathBuf>,
+        /// Instead of printing to the terminal, write one readable
+        /// <account>.keys.txt (mnemonic + every private key) per account into
+        /// this dir — for you to seal into a password-protected archive
+        /// (WinRAR/7-Zip, AES-256). PLAINTEXT on disk: shred the dir afterward.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1451,6 +1469,9 @@ fn run() -> Result<()> {
                     // documented exit-2-fail contract for the launch gate.
                     process::exit(2);
                 }
+            }
+            WalletCommands::Reveal { keystore, vault, out } => {
+                vault::cmd_wallet_reveal(keystore.as_deref(), vault.as_deref(), out.as_deref())?;
             }
         },
 

@@ -1,0 +1,69 @@
+diff --git a/rust/hone-node/src/main.rs b/rust/hone-node/src/main.rs
+index 65b0c136f..f5d32abb9 100644
+--- a/rust/hone-node/src/main.rs
++++ b/rust/hone-node/src/main.rs
+@@ -1884,7 +1884,25 @@ fn emit_epoch_rewards(
+     let recycle_split  = reserve_total
+         .saturating_sub(testnet_top_up)
+         .saturating_sub(treasury_split);                                  // 1.5%
+-    let activity_pool  = raw_pool.saturating_sub(reserve_total);
++    // ── Layer D clock base: carved from the epoch budget, NOT minted on top ──
++    // The clock reward is part of the capped block-reward emission (whitepaper
++    // §1.2 Layer D), never an additive mint. Each SEALING clock node has a fixed
++    // base_clock_reward allotment this epoch; the total is carved out of the budget
++    // here so total emission can never exceed block_reward_at(epoch). Sealers earn
++    // their allotment scaled by uptime; the unearned remainder recycles below.
++    // Sized on sealers (not merely registered/staked nodes): bootstrapping nodes
++    // hold zero stake until they earn it, so a stake-gated allotment would pay no
++    // one at launch; gating on actual seals also stops idle/fake registrations from
++    // inflating the carve.
++    let base_clock_reward = clock_reward_at(epoch);
++    let clock_allotment = base_clock_reward.saturating_mul(clock_sealers.len() as u64);
++    let post_reserve = raw_pool.saturating_sub(reserve_total);
++    if clock_allotment > post_reserve {
++        warn!("clock: epoch {} clock_allotment {} exceeds post-reserve budget {} — \
++activity pool starved (sealing clock-node count too high for era budget)",
++            epoch, clock_allotment, post_reserve);
++    }
++    let activity_pool  = post_reserve.saturating_sub(clock_allotment);
+ 
+     if recycle_split > 0 {
+         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_split);
+@@ -1903,8 +1921,6 @@ fn emit_epoch_rewards(
+     const CLOCK_UPTIME_WINDOW: u64 = 100;
+     const CLOCK_UPTIME_MIN_EPOCHS: u64 = 10;
+ 
+-    let base_clock_reward = clock_reward_at(epoch);
+-
+     // Collect all registered clock nodes for the uptime window update.
+     let registered_nodes: Vec<String> = chain.store.state_scan_prefix("clock_reg:")
+         .into_iter()
+@@ -1942,7 +1958,9 @@ fn emit_epoch_rewards(
+         ).unwrap_or_default());
+     }
+ 
+-    // Emit ClockReward for each sealer, scaled by uptime.
++    // Emit ClockReward for each sealer, scaled by uptime. Whatever of the carved
++    // clock allotment is not earned here recycles below (paid-or-recycled).
++    let mut clock_paid: u64 = 0;
+     for node_id in clock_sealers {
+         if base_clock_reward == 0 { break; }
+         let uptime_key = format!("clock_uptime:{}", node_id);
+@@ -1963,9 +1981,17 @@ fn emit_epoch_rewards(
+             warn!("clock: clock reward failed for {} epoch {}: {}", node_id, epoch, e);
+             continue;
+         }
++        clock_paid = clock_paid.saturating_add(scaled_reward);
+         // No broadcast: rewards are replay-derived from the winning EpochFinalize on
+         // every node; gossiping ClockReward would double-credit (no idempotency guard).
+     }
++    // Unearned clock allotment (uptime shortfall, skipped/failed payouts, or any
++    // budget-capped remainder) recycles — the clock line is conserved and never
++    // minted beyond the epoch budget carved above.
++    let clock_recycle = clock_allotment.saturating_sub(clock_paid);
++    if clock_recycle > 0 {
++        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, clock_recycle);
++    }
+ 
+     // ── Layer E: testnet operator rewards (from testnet fund) ────────────────
+     let testnet_ops: Vec<(String, String)> = chain.store.state_scan_prefix("testnet_op:")

@@ -299,3 +299,48 @@ pub fn submit_post_job(
         Err(anyhow!("{}", resp.get("error").and_then(|v| v.as_str()).unwrap_or("rejected")))
     }
 }
+
+
+/// Generate a brand-new standalone HONE account for an AI agent and save its
+/// signing key file to ~/.hone/agents/<account>.key.json. Returns
+/// (public_key_hex, key_file_path). The agent spends only this account's own
+/// balance — the user's vault keys are never involved.
+pub fn create_agent_key(account: &str) -> Result<(String, String)> {
+    let account = account.trim();
+    if account.is_empty() {
+        return Err(anyhow!("agent name is required"));
+    }
+    let wallet = hone_sdk::Wallet::generate(account).context("generating agent wallet")?;
+    let active_priv = wallet
+        .hone_role_keypair("active")
+        .context("deriving active key")?
+        .private_key_hex();
+    let posting_pub = wallet
+        .hone_role_keypair("posting")
+        .context("deriving posting key")?
+        .public_key_hex();
+    let mnemonic = wallet.mnemonic.to_string();
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let dir = std::path::Path::new(&home).join(".hone").join("agents");
+    std::fs::create_dir_all(&dir).context("creating ~/.hone/agents")?;
+    let path = dir.join(format!("{account}.key.json"));
+    if path.exists() {
+        return Err(anyhow!(
+            "an agent key named '{account}' already exists at {} — pick another name",
+            path.display()
+        ));
+    }
+    let doc = json!({
+        "account": account,
+        "hone_public_key_hex": posting_pub,
+        "hone_active_private_key": active_priv,
+        "private_key_hex": active_priv,
+        "mnemonic": mnemonic,
+        "note": "HONE agent spending key (active role). Fund the account by its name; the \
+                 agent spends only up to its balance. Keep this file on the agent's machine only."
+    });
+    std::fs::write(&path, serde_json::to_string_pretty(&doc)?)
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok((posting_pub, path.to_string_lossy().to_string()))
+}

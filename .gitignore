@@ -112,3 +112,15 @@ reports/health/
 reports/devlog/
 reports/opsec/
 .dryrun/
+
+# Ferryman nested bridge config (server runs in WSL; data Linux-side)
+/.ferryman/
+
+# Ferryman bridge attachment (own git repo; token is local-only)
+/.ferryman/
+
+# Android signing secrets (properties file holding store/key passwords) — never commit
+android/keystore.properties
+
+# Windows-native cargo build output for hone-gui
+**/target-win/

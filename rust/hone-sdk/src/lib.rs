@@ -16,7 +16,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path};
 
@@ -1362,6 +1362,24 @@ impl KeyPair {
     }
 }
 
+/// Verify an ed25519 signature (both keys/sig given as hex, as produced by
+/// `KeyPair::public_key_hex` / `sign_bytes`). Returns Ok(true) only when the
+/// signature is valid for `message` under `public_key_hex`. Never opens or
+/// needs a private key — this is the password-free half of the verify flow.
+pub fn verify_ed25519_hex(public_key_hex: &str, message: &[u8], sig_hex: &str) -> Result<bool> {
+    let pk = hex::decode(public_key_hex.trim()).context("public key not valid hex")?;
+    let pk: [u8; 32] = pk
+        .try_into()
+        .map_err(|_| anyhow!("public key must be exactly 32 bytes"))?;
+    let vk = VerifyingKey::from_bytes(&pk).map_err(|_| anyhow!("invalid ed25519 public key"))?;
+    let sig = hex::decode(sig_hex.trim()).context("signature not valid hex")?;
+    let sig: [u8; 64] = sig
+        .try_into()
+        .map_err(|_| anyhow!("signature must be exactly 64 bytes"))?;
+    let sig = Signature::from_bytes(&sig);
+    Ok(vk.verify(message, &sig).is_ok())
+}
+
 // ── Wallet: BIP39 mnemonic + multi-chain key derivation ──────────────────────
 
 /// On-disk wallet identity file.
@@ -1401,6 +1419,27 @@ pub mod paths {
     pub const HONE_HIDE: &[u32] = &[44 | H, HONE_COIN | H, 4 | H, 0 | H];
     /// HONE seek key: encrypted buyer delivery.
     pub const HONE_SEEK: &[u32] = &[44 | H, HONE_COIN | H, 5 | H, 0 | H];
+    /// HONE agent-spend key: a scoped, per-account key an automated agent uses
+    /// to transact for this account. Distinct from `active` so it can be handed
+    /// to a bot and rotated without exposing the account's real spending key.
+    pub const HONE_AGENT: &[u32] = &[44 | H, HONE_COIN | H, 6 | H, 0 | H];
+    pub const HONE_AGENT_STR: &str = "m/44'/6942'/6'/0'";
+    /// HONE verify key: a ZERO-POWER, same-seed sibling of every other role.
+    /// It can't spend, post, or vote — its only job is to prove liveness. A
+    /// valid signature from this key proves the wallet's seed is intact, which
+    /// means every other key derived from that seed (owner..agent) is intact
+    /// too. Because it holds no authority, its signatures (and, once the node
+    /// enforces zero-power, even its private key) are safe to publish and to
+    /// hand to a third party or an AI for independent verification.
+    pub const HONE_VERIFY: &[u32] = &[44 | H, HONE_COIN | H, 7 | H, 0 | H];
+    pub const HONE_VERIFY_STR: &str = "m/44'/6942'/7'/0'";
+    /// Canonical ordered list of HONE key roles. Wallet tools (export, reveal,
+    /// GUI) should iterate THIS so that adding a new role here — plus its path
+    /// and a `hone_role_keypair` arm — makes every tool produce the new key
+    /// automatically. Re-exporting an existing wallet then yields the new keys.
+    pub const HONE_ROLES: &[&str] = &[
+        "owner", "active", "posting", "memo", "hide", "seek", "agent", "verify",
+    ];
     /// Canonical HONE signing key for backwards-compatible callers: posting.
     pub const HONE: &[u32] = HONE_POSTING;
     /// Legacy SDK v1 path. Use only to migrate older public wallet files.
@@ -1485,6 +1524,8 @@ impl Wallet {
             "memo" => paths::HONE_MEMO,
             "hide" => paths::HONE_HIDE,
             "seek" => paths::HONE_SEEK,
+            "agent" => paths::HONE_AGENT,
+            "verify" => paths::HONE_VERIFY,
             other => return Err(anyhow!("unknown HONE wallet role '{}'", other)),
         };
         let key_bytes = slip10_ed25519_derive(&self.seed, path);
@@ -1499,7 +1540,9 @@ impl Wallet {
 
     pub fn hone_role_public_keys(&self) -> Result<std::collections::HashMap<String, String>> {
         let mut out = std::collections::HashMap::new();
-        for role in ["owner", "active", "posting", "memo", "hide", "seek"] {
+        // Iterate the canonical list so new roles (agent, verify, …) appear
+        // everywhere automatically.
+        for &role in paths::HONE_ROLES {
             out.insert(role.to_string(), self.hone_role_keypair(role)?.public_key_hex());
         }
         Ok(out)

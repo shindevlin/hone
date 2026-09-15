@@ -429,3 +429,147 @@ mod tests {
         assert!(!dir.join("missing-keystore.keystore.json").exists());
     }
 }
+
+// ── hone wallet reveal ───────────────────────────────────────────────────────
+
+const REVEAL_ROLES: [&str; 6] = ["owner", "active", "posting", "memo", "hide", "seek"];
+
+fn account_from_keystore_path(p: &Path) -> Result<String> {
+    let name = p
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| anyhow!("not a keystore file path: {}", p.display()))?;
+    Ok(name.strip_suffix(".keystore.json").unwrap_or(name).to_string())
+}
+
+/// Build the human-readable key sheet for one already-decrypted wallet:
+/// mnemonic + every HONE role private key + the external-chain private keys.
+fn render_key_sheet(account: &str, mnemonic: &str, wallet: &Wallet) -> Result<String> {
+    let mut s = String::new();
+    s.push_str(&format!("account: {account}\n"));
+    s.push_str(&format!("mnemonic (BIP-39): {mnemonic}\n"));
+    s.push_str("\nHONE role private keys (hex):\n");
+    for role in REVEAL_ROLES {
+        let kp = wallet
+            .hone_role_keypair(role)
+            .with_context(|| format!("deriving {role} keypair"))?;
+        s.push_str(&format!("  {role:<8} {}\n", kp.private_key_hex()));
+    }
+    s.push_str("\nexternal chain private keys:\n");
+    match wallet.evm_private_key_hex() {
+        Ok(k) => s.push_str(&format!("  ethereum (hex)    {k}\n")),
+        Err(e) => s.push_str(&format!("  ethereum          <error: {e}>\n")),
+    }
+    s.push_str(&format!("  solana (base58)   {}\n", wallet.solana_private_key_base58()));
+    match wallet.bitcoin_private_key() {
+        Ok((hex, wif)) => {
+            s.push_str(&format!("  bitcoin (hex)     {hex}\n"));
+            s.push_str(&format!("  bitcoin (WIF)     {wif}\n"));
+        }
+        Err(e) => s.push_str(&format!("  bitcoin           <error: {e}>\n")),
+    }
+    Ok(s)
+}
+
+/// Decrypt a keystore (or every keystore in a vault) and surface ALL usable
+/// private keys for each account. With `out`, writes one readable
+/// `<account>.keys.txt` per account (for you to seal into a password-protected
+/// archive); otherwise prints them to stderr. Recovery/backup use only.
+pub fn cmd_wallet_reveal(
+    keystore: Option<&Path>,
+    vault: Option<&Path>,
+    out: Option<&Path>,
+) -> Result<()> {
+    let targets: Vec<(String, PathBuf)> = match (keystore, vault) {
+        (Some(f), None) => vec![(account_from_keystore_path(f)?, f.to_path_buf())],
+        (None, Some(dir)) => {
+            let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
+                .with_context(|| format!("reading vault dir {}", dir.display()))?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.ends_with(".keystore.json"))
+                        .unwrap_or(false)
+                })
+                .collect();
+            paths.sort();
+            if paths.is_empty() {
+                bail!("no *.keystore.json files found in {}", dir.display());
+            }
+            paths
+                .into_iter()
+                .map(|p| account_from_keystore_path(&p).map(|a| (a, p)))
+                .collect::<Result<_>>()?
+        }
+        (Some(_), Some(_)) => bail!("pass only one of --keystore or --vault, not both"),
+        (None, None) => bail!("pass --keystore <file> or --vault <dir>"),
+    };
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("creating output dir {}", dir.display()))?;
+    } else {
+        eprintln!(
+            "{}",
+            "=== REVEALING PRIVATE KEYS — offline terminal only; never share or screenshot ==="
+                .red()
+                .bold()
+        );
+    }
+
+    for (account, path) in targets {
+        let ks = Keystore::load(&path)
+            .with_context(|| format!("loading keystore {}", path.display()))?;
+        let password = prompt_unlock_password(&account)?;
+        let mnemonic = ks
+            .open(&password)
+            .context("decrypt failed — wrong password, or keystore doesn't match this account")?;
+        let wallet = Wallet::from_phrase(&mnemonic, &account)
+            .context("decrypted secret is not a valid BIP-39 mnemonic")?;
+        let sheet = render_key_sheet(&account, &mnemonic, &wallet)?;
+
+        match out {
+            Some(dir) => {
+                let f = dir.join(format!("{account}.keys.txt"));
+                std::fs::write(&f, &sheet)
+                    .with_context(|| format!("writing {}", f.display()))?;
+                println!("wrote {}", f.display());
+            }
+            None => {
+                eprintln!("\n──────── {} ────────", account.bold());
+                eprintln!("{sheet}");
+            }
+        }
+    }
+
+    if let Some(dir) = out {
+        let readme = dir.join("READ_ME_FIRST.txt");
+        let _ = std::fs::write(
+            &readme,
+            "These *.keys.txt files are PLAINTEXT private keys — one per account.\n\
+             Next steps (do this on an offline machine):\n\
+             1. Add this whole folder to a NEW archive with WinRAR or 7-Zip.\n\
+             2. Encryption: RAR5 / AES-256, a LONG password, and turn ON\n\
+                'Encrypt file names'. (Never ZipCrypto.)\n\
+             3. Store that encrypted archive in two separate places; you can also\n\
+                nest it inside your main vault archive as a second layer.\n\
+             4. Securely delete (shred) this plaintext folder afterward.\n",
+        );
+        println!(
+            "\n{}",
+            "Wrote plaintext key sheets. Encrypt the folder (WinRAR/7-Zip, AES-256, \
+             encrypt filenames) then shred the plaintext — see READ_ME_FIRST.txt."
+                .red()
+                .bold()
+        );
+    } else {
+        eprintln!(
+            "\n{}",
+            "=== end — write these down offline, then clear your terminal ==="
+                .red()
+                .bold()
+        );
+    }
+    Ok(())
+}

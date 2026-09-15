@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod explorer;
 pub mod inference;
 pub mod node;
@@ -10,6 +11,7 @@ pub mod wallet;
 pub enum PaneKind {
     NodeStatus,
     Wallet,
+    Agent,
     Explorer,
     Inference,
     Staking,
@@ -54,6 +56,12 @@ pub struct FormState {
 
     // Tools panel sub-section: 0=AI, 1=Storage, 2=Sensors, 3=Freeport, 4=LinkGit
     pub tools_section: usize,
+
+    // Agent spending key
+    pub agent_name: String,
+    pub agent_pubkey: Option<String>,
+    pub agent_keyfile: Option<String>,
+    pub agent_result: Option<(bool, String)>,
 }
 
 pub struct AppData {
@@ -206,6 +214,7 @@ impl<'a> egui_tiles::Behavior<PaneKind> for HoneBehavior<'a> {
         match pane {
             PaneKind::NodeStatus => "Node".into(),
             PaneKind::Wallet     => "Wallet".into(),
+            PaneKind::Agent      => "Agent".into(),
             PaneKind::Explorer   => "Explorer".into(),
             PaneKind::Inference  => "Tools".into(),
             PaneKind::Staking    => "Staking".into(),
@@ -226,6 +235,7 @@ impl<'a> egui_tiles::Behavior<PaneKind> for HoneBehavior<'a> {
                 match pane {
                     PaneKind::NodeStatus => node::show(ui, self.data),
                     PaneKind::Wallet     => wallet::show(ui, self.data),
+                    PaneKind::Agent      => agent::show(ui, self.data),
                     PaneKind::Explorer   => explorer::show(ui, self.data),
                     PaneKind::Inference  => tools::show(ui, self.data),
                     PaneKind::Staking    => staking::show(ui, self.data),

@@ -1,0 +1,21 @@
+[package]
+name = "hone-export"
+version = "0.1.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+description = "HONE — export vault keys into a password-encrypted archive (offline, native)"
+
+[[bin]]
+name = "hone-export"
+path = "src/main.rs"
+
+# Standalone crate (own workspace), like hone-gui.
+[workspace]
+
+[dependencies]
+eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.34"
+anyhow = "1"
+serde_json = "1"
+hone-sdk = { path = "../hone-sdk" }
+rfd = "0.15"

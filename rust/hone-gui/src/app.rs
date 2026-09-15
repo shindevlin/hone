@@ -206,18 +206,21 @@ fn try_login(login: &mut LoginState) -> Option<Session> {
 
 fn layout_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home).join(".hone").join("gui-layout.json")
+    // v2: bumped when panes were added (Agent tab) so existing saved layouts
+    // don't hide the new tab — a one-time layout reset.
+    std::path::PathBuf::from(home).join(".hone").join("gui-layout-v2.json")
 }
 
 fn default_tree() -> egui_tiles::Tree<PaneKind> {
     let mut tiles = egui_tiles::Tiles::default();
     let node      = tiles.insert_pane(PaneKind::NodeStatus);
     let wallet    = tiles.insert_pane(PaneKind::Wallet);
+    let agent     = tiles.insert_pane(PaneKind::Agent);
     let staking   = tiles.insert_pane(PaneKind::Staking);
     let explorer  = tiles.insert_pane(PaneKind::Explorer);
     let inference = tiles.insert_pane(PaneKind::Inference);
     let settings  = tiles.insert_pane(PaneKind::Settings);
-    let main_tabs = tiles.insert_tab_tile(vec![wallet, staking, inference, explorer, settings]);
+    let main_tabs = tiles.insert_tab_tile(vec![wallet, agent, staking, inference, explorer, settings]);
     let root      = tiles.insert_horizontal_tile(vec![node, main_tabs]);
     egui_tiles::Tree::new("hone_layout", root, tiles)
 }

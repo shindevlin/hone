@@ -1,0 +1,33 @@
+diff --git a/rust/hone-node/src/chain.rs b/rust/hone-node/src/chain.rs
+index 1bbc820cc..d9329b313 100644
+--- a/rust/hone-node/src/chain.rs
++++ b/rust/hone-node/src/chain.rs
+@@ -1570,11 +1570,25 @@ impl Chain {
+                     &serde_json::to_vec(&cell).unwrap_or_default());
+             }
+ 
+-            LedgerEntry::BlobStore { .. }
+-            | LedgerEntry::ContractDeploy { .. }
+-            | LedgerEntry::ContractCall { .. } => {
++            LedgerEntry::BlobStore { .. } => {
+                 // Accepted, no balance mutations needed at base layer
+             }
++            LedgerEntry::ContractDeploy { .. }
++            | LedgerEntry::ContractCall { .. } => {
++                // SECURITY GATE (external review 2026-08-03): the WASM contract runtime is an
++                // unaudited execution surface. DISABLED by default; accepted only when governance
++                // sets chain_param:contracts_enabled = "true". Deterministic (replicated chain_param,
++                // every node reads the same value) and fail-closed.
++                let contracts_enabled = self.store.state_get("chain_param:contracts_enabled")
++                    .and_then(|bytes| String::from_utf8(bytes).ok())
++                    .map(|s| s.trim() == "true")
++                    .unwrap_or(false);
++                if !contracts_enabled {
++                    return Err(anyhow::anyhow!(
++                        "contracts disabled: WASM runtime gated off pending audit (set chain_param:contracts_enabled)"));
++                }
++                // Accepted when explicitly enabled; execution handled on the contract path.
++            }
+ 
+             // Track storage heartbeats so the clock can compute storage rewards at seal time.
+             // Verify the Merkle range proof (T4-1) — proof_valid=true earns full reward.
