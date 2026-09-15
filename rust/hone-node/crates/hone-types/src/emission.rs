@@ -717,6 +717,26 @@ pub fn block_reward_at(epoch: u64) -> u64 {
     BLOCK_REWARD_HUNITS.min(remaining)
 }
 
+/// Total block reward for every epoch from genesis up to — but not including —
+/// the first sealed epoch `first_sealed_epoch` (i.e. epochs `1..first_sealed`).
+///
+/// When the genesis timestamp predates go-live, the epochs between genesis and
+/// the first quorum-sealed epoch were never sealed, so their block rewards were
+/// never paid. The supply cap is accounted by epoch number (see `block_reward_at`),
+/// so those rewards would otherwise be forfeited. This is the exact amount to
+/// credit ONCE to `RECYCLE_FUND_ACCOUNT` (the end-of-chain pool) so nothing is
+/// lost and realized supply still reaches `SUPPLY_CAP_HUNITS`. Era- and cap-aware.
+pub fn genesis_gap_recycle_hunits(first_sealed_epoch: u64) -> u64 {
+    // Epoch 0 is the genesis marker (no reward); sum 1..first_sealed_epoch.
+    let mut total: u64 = 0;
+    let mut e: u64 = 1;
+    while e < first_sealed_epoch {
+        total = total.saturating_add(block_reward_at(e));
+        e += 1;
+    }
+    total
+}
+
 /// Wall-clock offset in milliseconds from genesis for the start of `epoch`.
 ///
 /// Not relative to Unix epoch — add genesis_timestamp_ms to get absolute time.
@@ -823,6 +843,36 @@ mod tests {
             .map(block_reward_at)
             .sum();
         assert_eq!(total, SUPPLY_CAP_HUNITS);
+    }
+
+    #[test]
+    fn genesis_gap_recycle_basic() {
+        assert_eq!(genesis_gap_recycle_hunits(0), 0);
+        assert_eq!(genesis_gap_recycle_hunits(1), 0);
+        assert_eq!(genesis_gap_recycle_hunits(2), BLOCK_REWARD_HUNITS);
+        assert_eq!(genesis_gap_recycle_hunits(66_571), 66_570 * BLOCK_REWARD_HUNITS);
+        assert_eq!(genesis_gap_recycle_hunits(66_571), 133_140 * 10_000_000_000); // 133,140 HONE
+    }
+
+    #[test]
+    fn genesis_gap_recycle_matches_block_reward_sum() {
+        for f in [1u64, 2, 100, 5_000, 20_000] {
+            let direct: u64 = (1..f).map(block_reward_at).sum();
+            assert_eq!(genesis_gap_recycle_hunits(f), direct, "f={f}");
+        }
+    }
+
+    #[test]
+    fn genesis_gap_plus_realized_preserves_cap() {
+        // gap (recycled) + rewards payable from F onward == all new-supply from epoch 1.
+        // Epoch 0 is the genesis marker (block_reward_at(0) counted in the cap sum but
+        // never paid), the same with or without backdating.
+        let f = 66_571u64;
+        let gap = genesis_gap_recycle_hunits(f);
+        let rest: u64 = (f..5 * DOUBLING_INTERVAL).map(block_reward_at).sum();
+        let all_from_epoch_1: u64 = (1..5 * DOUBLING_INTERVAL).map(block_reward_at).sum();
+        assert_eq!(gap + rest, all_from_epoch_1);
+        assert_eq!(all_from_epoch_1, SUPPLY_CAP_HUNITS - block_reward_at(0));
     }
 
     #[test]

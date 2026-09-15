@@ -516,6 +516,98 @@ async fn main() -> Result<()> {
                             .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
                             .unwrap_or_default();
                         if !sealers.is_empty() {
+                            // ── BUG 6 genesis gap credit — epoch-anchored, possession-gated,
+                            // write-once, guard-after-success (ruling Beastly c1f8b2e6).
+                            //
+                            // When genesis predates go-live, epochs 1..F (F = the first epoch a
+                            // real quorum ever sealed) were never negative-attested by anyone —
+                            // not a finalized-empty recycle case, just no epoch_meta at all — so
+                            // their block reward was neither paid nor recycled: silently
+                            // forfeited against the supply cap. `genesis_gap_recycle_hunits(F)`
+                            // is the exact amount to return to the recycle fund, exactly once.
+                            //
+                            // Anchored HERE, inside the depth-gated epoch-ordered finalized
+                            // replay, at the moment epoch F itself finalizes — NOT on the
+                            // wall-clock tick. Applying it on the tick meant each node credited
+                            // whenever it happened to restart on the new binary, so two cohort
+                            // nodes upgrading minutes apart disagreed on `__recycle_fund__` for
+                            // that interval — a transient state_root fork during rollout that
+                            // the 2-clock gate cannot see. Anchoring to F's finalize makes every
+                            // node apply it at the same CHAIN HEIGHT; the possession gate already
+                            // makes the amount identical.
+                            //
+                            // Possession, not a local window: the ordered-replay derivation below
+                            // only returns a value when this node has contiguous epoch_meta from
+                            // epoch 1 through F. A late joiner's negative attestation only covers
+                            // `cur-64..cur`, so it has no epoch_meta for epoch 1 and this returns
+                            // None forever — it does NOT credit, and is correctly left in the
+                            // "needs state-sync" bucket.
+                            // F is derived from the ORDERED REPLAY, not from arrival and not
+                            // from a storage scan (ruling Beastly c2a8f5d1).
+                            //
+                            // This walk is strictly ascending and contiguous — it refuses to
+                            // process e+1 until e is applied — so the first quorum-sealed epoch
+                            // it reaches is the MINIMUM sealed epoch of the applied set. That is
+                            // a commutative function of the set, so every node computes the same
+                            // F no matter what order gossip delivered the finalizes in.
+                            //
+                            // Both earlier derivations failed for the opposite reasons, and both
+                            // were caught by the 3-clock gate rather than by review:
+                            //  - "contiguous epoch_meta from epoch 1" never fired at all: under a
+                            //    backdated genesis nobody exists during 1..F-1, so no node holds
+                            //    meta for epoch 1.
+                            //  - "first finalize I apply that has sealers" forked the cohort:
+                            //    A applied 122's finalize first and locked F=122 while B locked
+                            //    F=121, so their credits differed by 2 HONE and state_root split.
+                            //
+                            // `genesis_gap_recycled` being unset is what makes "first reached"
+                            // meaningful: once the credit lands the guard is set, so this can
+                            // only ever fire on the lowest sealed epoch the replay walks.
+                            if chain_ref.store.state_get("genesis_gap_recycled").is_none() {
+                                let credit = hone_types::genesis_gap_recycle_hunits(e);
+                                // Guard AFTER success only. Previously the credit result was
+                                // discarded with `let _` while the durable guard was set
+                                // regardless: a failed credit left `genesis_gap_recycled` set
+                                // with no balance applied, and write-once meant it could never
+                                // retry — that node's `__recycle_fund__` stayed permanently short
+                                // versus every node where the credit succeeded, a permanent
+                                // state_root divergence with no self-healing path. That is the
+                                // exact fork class this change exists to close, so the guard now
+                                // follows the credit, never precedes it — same discipline as
+                                // `epoch_finalized_done:{e}` below.
+                                let applied = if credit > 0 {
+                                    match chain_ref.store.credit(
+                                        hone_types::RECYCLE_FUND_ACCOUNT,
+                                        hone_types::NATIVE_TOKEN,
+                                        credit,
+                                    ) {
+                                        Ok(_) => true,
+                                        Err(err) => {
+                                            error!("[genesis-gap] credit FAILED at F={} ({} hunits): {} \
+                                                — guard NOT set, will retry; this node has not \
+                                                applied the gap credit", e, credit, err);
+                                            false
+                                        }
+                                    }
+                                } else {
+                                    true // nothing to credit (F==1): trivially applied
+                                };
+                                if applied {
+                                    let _ = chain_ref.store.state_set(
+                                        "genesis_first_sealed_epoch", e.to_string().as_bytes());
+                                    if let Err(err) =
+                                        chain_ref.store.state_set("genesis_gap_recycled", b"1")
+                                    {
+                                        error!("[genesis-gap] credit applied at F={} but guard \
+                                            write failed: {} — MUST NOT double-credit; \
+                                            investigate before restart", e, err);
+                                    } else {
+                                        info!("[genesis-gap] epoch-anchored one-time credit at \
+                                            F={} (first real sealed epoch), {} hunits → recycle \
+                                            fund (backdated genesis gap)", e, credit);
+                                    }
+                                }
+                            }
                             // Sealed by quorum → replay-derive and apply its rewards.
                             emit_epoch_rewards(e, &sealers, &chain_ref);
                         } else {
@@ -1884,7 +1976,25 @@ fn emit_epoch_rewards(
     let recycle_split  = reserve_total
         .saturating_sub(testnet_top_up)
         .saturating_sub(treasury_split);                                  // 1.5%
-    let activity_pool  = raw_pool.saturating_sub(reserve_total);
+    // ── Layer D clock base: carved from the epoch budget, NOT minted on top ──
+    // The clock reward is part of the capped block-reward emission (whitepaper
+    // §1.2 Layer D), never an additive mint. Each SEALING clock node has a fixed
+    // base_clock_reward allotment this epoch; the total is carved out of the budget
+    // here so total emission can never exceed block_reward_at(epoch). Sealers earn
+    // their allotment scaled by uptime; the unearned remainder recycles below.
+    // Sized on sealers (not merely registered/staked nodes): bootstrapping nodes
+    // hold zero stake until they earn it, so a stake-gated allotment would pay no
+    // one at launch; gating on actual seals also stops idle/fake registrations from
+    // inflating the carve.
+    let base_clock_reward = clock_reward_at(epoch);
+    let clock_allotment = base_clock_reward.saturating_mul(clock_sealers.len() as u64);
+    let post_reserve = raw_pool.saturating_sub(reserve_total);
+    if clock_allotment > post_reserve {
+        warn!("clock: epoch {} clock_allotment {} exceeds post-reserve budget {} — \
+activity pool starved (sealing clock-node count too high for era budget)",
+            epoch, clock_allotment, post_reserve);
+    }
+    let activity_pool  = post_reserve.saturating_sub(clock_allotment);
 
     if recycle_split > 0 {
         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_split);
@@ -1902,8 +2012,6 @@ fn emit_epoch_rewards(
     // New nodes earn full reward for the first CLOCK_UPTIME_MIN_EPOCHS epochs.
     const CLOCK_UPTIME_WINDOW: u64 = 100;
     const CLOCK_UPTIME_MIN_EPOCHS: u64 = 10;
-
-    let base_clock_reward = clock_reward_at(epoch);
 
     // Collect all registered clock nodes for the uptime window update.
     let registered_nodes: Vec<String> = chain.store.state_scan_prefix("clock_reg:")
@@ -1942,7 +2050,9 @@ fn emit_epoch_rewards(
         ).unwrap_or_default());
     }
 
-    // Emit ClockReward for each sealer, scaled by uptime.
+    // Emit ClockReward for each sealer, scaled by uptime. Whatever of the carved
+    // clock allotment is not earned here recycles below (paid-or-recycled).
+    let mut clock_paid: u64 = 0;
     for node_id in clock_sealers {
         if base_clock_reward == 0 { break; }
         let uptime_key = format!("clock_uptime:{}", node_id);
@@ -1963,8 +2073,16 @@ fn emit_epoch_rewards(
             warn!("clock: clock reward failed for {} epoch {}: {}", node_id, epoch, e);
             continue;
         }
+        clock_paid = clock_paid.saturating_add(scaled_reward);
         // No broadcast: rewards are replay-derived from the winning EpochFinalize on
         // every node; gossiping ClockReward would double-credit (no idempotency guard).
+    }
+    // Unearned clock allotment (uptime shortfall, skipped/failed payouts, or any
+    // budget-capped remainder) recycles — the clock line is conserved and never
+    // minted beyond the epoch budget carved above.
+    let clock_recycle = clock_allotment.saturating_sub(clock_paid);
+    if clock_recycle > 0 {
+        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, clock_recycle);
     }
 
     // ── Layer E: testnet operator rewards (from testnet fund) ────────────────
@@ -2904,4 +3022,17 @@ mod reward_driver_tests {
         let chain = Chain::new(store, "n1".into(), "hone-test".into());
         assert_eq!(highest_contiguous_rewarded(&chain), 3, "restart must resume, not reset to 0");
     }
+
+    fn mark_epoch(chain: &Chain, epoch: u64, sealed: bool) {
+        let sealed_by: Vec<&str> = if sealed { vec!["node-a"] } else { vec![] };
+        chain.store.set_epoch_meta(epoch, &serde_json::json!({
+            "finalized": true,
+            "sealed_by": sealed_by,
+        })).unwrap();
+    }
+
+
+
+
+
 }
