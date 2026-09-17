@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 description = "WASM execution runtime for HONE smart contracts — runs inside hone-p2p sidecar"
 authors = ["Shin Devlin <shindevlin@proton.me>"]
-license = "MIT OR Apache-2.0"
+license = "LicenseRef-UFL-1.1"
 
 [[bin]]
 name = "hone-contract-runtime"
