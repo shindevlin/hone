@@ -1,17 +1,95 @@
-Business Source License 1.1
+The Usufruct License (UFL) — Version 1.1
+Canonical text, whitepaper, and FAQ: https://github.com/estejosh/UFL-Usufruct-License
 
-Licensor:             Shin Devlin
-Licensed Work:        HONE
-                      The Licensed Work is (c) 2026 Shin Devlin
-Additional Use Grant: You may use the Licensed Work for personal, non-commercial,
-                      and evaluation purposes. Running a node on the HONE network
-                      for the purpose of earning rewards is permitted. You may not
-                      offer the Licensed Work or a derivative of it as a commercial
-                      hosted service or use it to launch a competing network.
-Change Date:          2030-05-21
-Change License:       Business Source License 1.1
+Copyright (c) 2026 Shin Devlin
+
+## 1. Grant of Use
+
+Subject to the terms below, the Licensor grants anyone the free,
+perpetual, worldwide right to use the Software — in source or compiled
+form, for any purpose, including commercial purposes, at any scale —
+without payment or a separate license. This includes running the
+Software, deploying it, integrating with it through its published
+interfaces, and operating a product or service built on top of it.
+
+## 2. Reserved Rights
+
+The following rights are reserved to the Licensor and are NOT granted by
+Section 1. They require a separate written license from the Licensor,
+except as Section 2A permits:
+
+  (a) Distributing the Software, or any modified version, fork, or
+      substantially similar reimplementation of it, to any third party,
+      in source or compiled form.
+  (b) Incorporating the Software's source code into another product or
+      service that is distributed, sold, or otherwise made available to
+      third parties.
+  (c) Using the Licensor's name, marks, or claims of compatibility
+      ("HONE-compatible," "built on HONE," etc.) in
+      connection with a distributed derivative.
+
+## 2A. Forks of Decentralized or Network Software
+
+If the Software is designed to run as a node, client, or peer in a
+decentralized network, blockchain, or similar peer-to-peer protocol,
+Section 2(a) does not require a separate license for distributing a
+modified version, fork, or independent reimplementation of it —
+including to operate a competing network — provided the distributed
+work:
+
+  (i) prominently and accurately credits HONE as the origin
+      of the Software or protocol, in its README, whitepaper, or
+      equivalent primary documentation; and
+  (ii) keeps the canonical-source notice required by Section 7 intact.
+
+Distributing a fork that removes, obscures, or falsifies this
+attribution is not permitted under this exception and still requires a
+separate license under Section 2(a). This section does not affect
+Sections 2(b) or 2(c): incorporating the Software into another
+distributed product, and using the Licensor's name or marks to claim
+compatibility, still require a separate license regardless of
+attribution.
+
+## 3. Why "Usufruct"
+
+In civil law, a usufruct is the right to use property belonging to
+another and enjoy its benefits, without the right to alter its substance
+or transfer ownership to someone else. This license grants exactly that:
+full use, no transfer.
+
+## 4. Contributions
+
+Contributions submitted to a Software repository under this license are
+accepted under these same terms and are granted back to the Licensor to
+the extent necessary to keep this license enforceable across the
+combined work.
+
+## 5. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+OTHER LIABILITY ARISING FROM THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+
+## 6. Note on Classification
+
+This is a source-available license, not an OSI-approved open source
+license. The Open Source Definition requires unrestricted redistribution
+rights, which Section 2 intentionally withholds. The source is public
+and free to use at any scale; only redistribution of the Software itself
+requires a separate license.
+
+## 7. Notice
+
+The canonical-source line at the top of this license text (or an
+equivalent pointer to https://github.com/estejosh/UFL-Usufruct-License)
+must be kept intact when this license text is copied into another
+project. This is a notice requirement on the license text itself, not a
+condition on using the Software — Section 1's grant is unconditional.
 
 ---
-
-The standard Business Source License 1.1 terms apply and are incorporated herein
-by reference. The full text is available at: https://mariadb.com/bsl11/
+SPDX identifier: UFL is not on the official SPDX license list. Per SPDX
+convention for licenses outside that list, use `LicenseRef-UFL-1.1` —
+not a bare `UFL-1.1`, which would misrepresent it as SPDX-registered.
