@@ -20,7 +20,7 @@ anyhow = "1"
 hex = "0.4"
 sha2 = "0.10"
 hmac = "0.12"
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 uuid = { version = "1", features = ["v4"] }
 dirs-next = "2"
 tracing = "0.1"
