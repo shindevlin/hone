@@ -106,7 +106,7 @@
     "telegram"
   ],
   "author": "Shin Devlin <shindevlin@proton.me>",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "LicenseRef-UFL-3.4-D",
   "repository": {
     "type": "git",
     "url": "https://github.com/shindevlin/hone.git"

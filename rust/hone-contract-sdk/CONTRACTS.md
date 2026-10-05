@@ -1055,4 +1055,4 @@ hone contract view HONEsc<address> ft_balance_of \
 
 ---
 
-*HONE Contract SDK — MIT OR Apache-2.0 — [github.com/hone-network/hone-contract-sdk](https://github.com/hone-network/hone-contract-sdk)*
+*HONE Contract SDK — LicenseRef-UFL-3.4-D — [github.com/hone-network/hone-contract-sdk](https://github.com/hone-network/hone-contract-sdk)*

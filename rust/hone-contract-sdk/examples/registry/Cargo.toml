@@ -4,6 +4,7 @@ description = "HONE on-chain key-value registry — first system contract"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["cdylib"]

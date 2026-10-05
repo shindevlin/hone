@@ -3,6 +3,7 @@ name = "hone-wallet-create"
 version = "0.1.0"
 edition = "2021"
 authors = ["HONE contributors"]
+license = "LicenseRef-UFL-3.4-D"
 description = "Standalone HONE wallet and account creation app"
 
 [[bin]]

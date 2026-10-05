@@ -292,4 +292,13 @@ HONE nodes are built for non-technical operators: every failure path recovers au
 
 ## License
 
-MIT
+HONE is source-available under the [Usufruct License (UFL) 3.4](LICENSE),
+Operational Scope: Decentralized (`LicenseRef-UFL-3.4-D`). Use is free at any
+scale and nothing is paid. Redistribution is reserved, except that Section 2A
+lets you distribute a fork of network software if it credits HONE and keeps the
+canonical-source notice. The Decentralized terms (exclusive online ICC
+arbitration, a mutual liability cap of US$1 in value) take effect through the
+acceptance step every HONE binary presents before first run: see
+[docs/LICENSE_ACCEPTANCE.md](docs/LICENSE_ACCEPTANCE.md).
+
+Third-party code in this repository keeps its own license. See [NOTICE](NOTICE).

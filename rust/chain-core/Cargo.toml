@@ -2,6 +2,7 @@
 name = "hone-chain-core"
 version = "0.1.0"
 edition = "2021"
+license = "LicenseRef-UFL-3.4-D"
 
 [lib]
 name = "hone_chain_core"

@@ -3,6 +3,7 @@ name = "hone-gnss-capture"
 version = "0.1.0"
 edition = "2021"
 authors = ["Shin Devlin <shindevlin@proton.me>"]
+license = "LicenseRef-UFL-3.4-D"
 
 [[bin]]
 name = "hone-gnss-capture"

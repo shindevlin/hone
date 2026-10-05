@@ -3,6 +3,7 @@ name = "betchu-bot"
 version = "1.0.0"
 edition = "2021"
 authors = ["natoshisakamoto"]
+license = "LicenseRef-UFL-3.4-D"
 description = "HONE-compliant P2P sports betting Telegram bot"
 
 

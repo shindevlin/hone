@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "HONE Desktop — one-click mining for any computer"
 authors = ["Shin Devlin"]
 edition = "2021"
+license = "LicenseRef-UFL-3.4-D"
 
 [build-dependencies]
 tauri-build = { version = "2.0.0", features = [] }

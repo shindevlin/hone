@@ -1,16 +1,129 @@
-The Usufruct License (UFL) — Version 1.1
+The Usufruct License (UFL) — Version 3.4
 Canonical text, whitepaper, and FAQ: https://github.com/estejosh/UFL-Usufruct-License
 
-Copyright (c) 2026 Shin Devlin
+Copyright (c) 2026 <HOLDER>
+
+Operational Scope: Decentralized
 
 ## 1. Grant of Use
 
-Subject to the terms below, the Licensor grants anyone the free,
-perpetual, worldwide right to use the Software — in source or compiled
-form, for any purpose, including commercial purposes, at any scale —
-without payment or a separate license. This includes running the
+Subject to the terms below and the Operational Scope declared above, the
+Licensor grants anyone the free, perpetual, worldwide right to use the
+Software — in source or compiled form, at any scale — without payment,
+except as Section 1A limits that grant. This includes running the
 Software, deploying it, integrating with it through its published
-interfaces, and operating a product or service built on top of it.
+interfaces, and operating a product or service built on top of it, as
+scoped by Section 1A. A use that Section 1A withholds from the free
+grant is licensed under Section 8, on the terms of this license.
+
+## 1A. Operational Scope
+
+The Operational Scope declared above states the only limit, if any, on
+Section 1's free grant. Exactly one scope applies to this Software:
+
+Decentralized — Section 1's grant is unconditional, as in Unconditional,
+and no use is Paid Use, so Sections 8 and 10 through 13 do not operate
+and Section 9 does. The Software is released as is to the public. Every
+dispute arising from its use is decided exclusively by arbitration under
+the Rules of Arbitration of the International Chamber of Commerce,
+conducted online before a single arbitrator seated in California, on an
+individual basis and not as a class or collective action, and no party
+consents to the jurisdiction of any court by using the Software. The
+arbitrator applies the UNIDROIT Principles of International Commercial
+Contracts and, for any matter they do not answer, California law. Native
+token of the Software: HONE. Each party's total liability to the
+other for all claims arising from the Software or this license is
+limited, to the extent the law allows, to one United States dollar in
+value. The paying party chooses whether to pay in money or, if a native
+token is named in this paragraph, in that token valued at one United
+States dollar at its market price when paid, and the party being paid
+must accept payment in the token if the paying party chooses it. The
+paying party pays in the token by notifying the other party in writing
+that payment is available; if that party gives no wallet address within
+90 days of the notice, the payment is complete and the obligation is
+discharged. The market price of the token is its volume-weighted average
+price over the 24 hours before payment on the exchange with the highest
+trading volume for it. A token is unlisted if no exchange publishes such
+a price for it when payment is made, and one unit of an unlisted token
+is treated as worth one United States dollar. If the token cannot be
+delivered for any reason other than the payee's failure to give an
+address, payment is one United States dollar in money, and the payee
+bears the cost of the wire or transfer, which the paying party may
+deduct from the payment. This scope's dispute process, limit of
+liability, and own-risk terms take effect for a Licensee only when the
+Licensee completes the affirmative step in Section 9, which the Software
+must present before first use and which shows them. The Software must
+not run until the Licensee has completed that step, so a Licensee found
+running the Software is treated as having completed it, and running the
+Software with that step bypassed, removed, or forged breaches this
+license and makes that copy a modified version, so the Licensor owes the
+person running it no liability of any kind, including the amount stated
+below. A Licensor adopts this scope only by building that step into the
+Software as a gate, and Software that does not have it is licensed under
+the Unconditional scope instead. A modified version, fork, or
+independent reimplementation of the Software is not the Software for the
+purposes of this scope. Whoever creates, distributes, or uses one does
+so entirely at their own risk, and the Licensor has no liability for it
+of any kind, including the amount stated above. In any arbitration or
+court proceeding under this license, each party bears its own costs and
+attorney fees, except that the arbitrator or court may award reasonable
+costs and fees against a party whose claim or defense is frivolous or
+brought in bad faith, and that award is outside the limit. Nothing in
+this scope limits liability that the law does not allow to be limited,
+waives a claim or right that the law gives a party and does not allow to
+be waived, or limits a party's right to seek an injunction in court to
+stop conduct that Section 2 reserves or that infringes the Licensor's
+intellectual property.
+
+## 1B. Definitions
+
+"Licensor" means the copyright holder named above. "Licensee" means
+anyone who uses the Software; when an individual uses it for an
+organization, the organization is the Licensee.
+
+"Production Use" means any use of the Software that is not
+Non-Production Use. "Non-Production Use" means evaluating, developing,
+testing, or demonstrating the Software. It does not include using the
+Software on real work or live data for business purposes, or delivering
+its output to a court, regulator, client, or customer as finished work.
+
+"Seat" means each individual — employee, contractor, or other personnel
+of the Licensee — whose role includes using the Software or relying on
+its output in the ordinary course of that role, whether or not that
+individual operates the Software. Individuals whose contact with the
+Software or its output is incidental or one-time are not Seats. Where a
+count of Seats matters under this license, it is the highest number of
+Seats at any time during the period being counted.
+
+## 1C. Releases
+
+A "Release" is a version of the Software that the Licensor publishes
+under its own version number, tag, or date. This license applies to each
+Release separately, and where it refers to the Software, it means the
+Release the Licensee uses.
+
+With each Release, the Licensor states which version of this license,
+and which Operational Scope, governs that Release (its "Ruling
+License"). The statement names both, for example "UFL 3.4, Operational
+Scope: Noncommercial", and appears where users get the Release: in its
+release notes, its tag, or its package metadata. The Release includes
+the full text of its Ruling License. If a Release does not state its
+Ruling License, the license text included with it governs; if none is
+included, the license text in the Software's repository at the commit
+the Release was made from governs.
+
+A Release's Ruling License is fixed when the Release is published. For
+that Release, the Licensor grants every Licensee the rights its Ruling
+License gives, perpetually and irrevocably, on that Ruling License's own
+terms. Nothing the Licensor later does, including publishing a later
+Release, changing the license in the Software's repository, or adopting
+a later version of this license, changes, narrows, or ends those rights.
+
+The Licensor may license a later Release under a later version of this
+license, under a different Operational Scope, or under other terms. A
+Licensee who uses that later Release does so under its Ruling License. A
+Licensee who keeps using an earlier Release keeps the Ruling License
+that Release states.
 
 ## 2. Reserved Rights
 
@@ -25,7 +138,7 @@ except as Section 2A permits:
       service that is distributed, sold, or otherwise made available to
       third parties.
   (c) Using the Licensor's name, marks, or claims of compatibility
-      ("HONE-compatible," "built on HONE," etc.) in
+      ("Hone-compatible," "built on Hone," etc.) in
       connection with a distributed derivative.
 
 ## 2A. Forks of Decentralized or Network Software
@@ -37,9 +150,9 @@ modified version, fork, or independent reimplementation of it —
 including to operate a competing network — provided the distributed
 work:
 
-  (i) prominently and accurately credits HONE as the origin
-      of the Software or protocol, in its README, whitepaper, or
-      equivalent primary documentation; and
+  (i) prominently and accurately credits Hone as the origin of
+      the Software or protocol, in its README, whitepaper, or equivalent
+      primary documentation; and
   (ii) keeps the canonical-source notice required by Section 7 intact.
 
 Distributing a fork that removes, obscures, or falsifies this
@@ -50,6 +163,47 @@ distributed product, and using the Licensor's name or marks to claim
 compatibility, still require a separate license regardless of
 attribution.
 
+## 2B. Reproducing This License Text
+
+The text of this license — this document itself, independent of any
+particular copy's Operational Scope, copyright holder, or project name —
+may be freely copied and reproduced by anyone to license their own
+software, including verbatim reproduction in a project's own LICENSE
+file. This permission is not limited by Section 2(a) and applies
+regardless of Operational Scope: licensing your own software under this
+text is not "distributing the Software" of any other project that also
+uses it, and requires no separate permission from any Licensor who has
+used it. This section grants no right to any particular Licensor's
+Software — only to the legal text of this license itself.
+
+## 2C. Version Fidelity
+
+The permission granted by Section 2B is a permission to reproduce, not
+to modify. A copy of this text is adopted as-is. For each Release
+(Section 1C), a Licensor makes two choices and no others: which version
+of this license to adopt, and which single Operational Scope in Section
+1A applies, stated exactly as that version's canonical text provides for
+that scope, including the free threshold the Seat-Limited scope calls
+for and the native token, or none, that the Decentralized scope names.
+The only blanks a Licensor fills in are the copyright year, the
+copyright holder, and the project name given near the top of this text.
+Every other term, including the terms on paid use, acceptance, usage
+statements, retroactive licenses, and disputes, is set by this text and
+is the same for every project under this version. No wording in this
+license, including this section, may be added to, removed, or altered in
+any copy that is presented, cited, or identified as "the Usufruct
+License," "UFL," or by any `LicenseRef-UFL-*` identifier, and no
+separate document may add to or change its terms (see Section 15). A
+project that needs different terms is free to write its own license,
+including one derived from this text under its own name — it is not free
+to alter this text and continue to call the result UFL.
+
+Anyone may propose a change for a future version at the canonical source
+named in Section 7. An adopted proposal becomes a new official version,
+never a retroactive edit: once a version of this license is published,
+its text is not changed, and a project that wants a later version's
+provisions adopts that version's text in full.
+
 ## 3. Why "Usufruct"
 
 In civil law, a usufruct is the right to use property belonging to
@@ -59,10 +213,32 @@ full use, no transfer.
 
 ## 4. Contributions
 
-Contributions submitted to a Software repository under this license are
-accepted under these same terms and are granted back to the Licensor to
-the extent necessary to keep this license enforceable across the
-combined work.
+A "Contribution" is any fix, change, or addition to the Software that
+someone submits to the Licensor, by pull request, patch, message, or any
+other means, whether or not the Licensor accepts it.
+
+By submitting a Contribution, its author grants the Licensor a
+perpetual, worldwide, irrevocable, royalty-free, non-exclusive license
+to use, reproduce, modify, distribute, sublicense, and relicense that
+Contribution, as part of the Software or any other work, under this
+license or any other terms. The grant includes every patent right the
+author holds that the Contribution, or its combination with the
+Software, would infringe. Nothing is owed to the author for this
+license, now or later. The author keeps ownership of the Contribution.
+
+Submitting a Contribution is the author's agreement to this Section 4.
+An author submits only what the author has the right to license: if an
+employer, client, or anyone else has rights in a Contribution, the
+author must have that party's authority to grant this license before
+submitting it.
+
+A Contribution that becomes part of the Software is licensed to everyone
+under this license, including the reservations in Section 2.
+
+Where the Licensor requires a recorded step before it will consider a
+Contribution, such as a signed acknowledgement in a pull request, the
+author will complete it. The step records the author's agreement to this
+Section 4 and adds no term to it.
 
 ## 5. No Warranty
 
@@ -73,23 +249,183 @@ IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR
 OTHER LIABILITY ARISING FROM THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 
+Neither the Licensor nor this license claims that the Software or its
+output is accurate, complete, or compliant with any law, regulation,
+rule, or standard, or that any court or regulator has approved it.
+Output can be wrong or incomplete, and it does not replace review by a
+qualified professional.
+
 ## 6. Note on Classification
 
 This is a source-available license, not an OSI-approved open source
 license. The Open Source Definition requires unrestricted redistribution
-rights, which Section 2 intentionally withholds. The source is public
-and free to use at any scale; only redistribution of the Software itself
-requires a separate license.
+rights, which Section 2 intentionally withholds regardless of
+Operational Scope. Some Operational Scopes under Section 1A also
+withhold uses the Open Source Definition requires to be unrestricted.
+The source is public; which uses are free depends on the Operational
+Scope declared above, and Section 8 sets how any other use is licensed.
 
 ## 7. Notice
 
 The canonical-source line at the top of this license text (or an
 equivalent pointer to https://github.com/estejosh/UFL-Usufruct-License)
 must be kept intact when this license text is copied into another
-project. This is a notice requirement on the license text itself, not a
-condition on using the Software — Section 1's grant is unconditional.
+project. This is a notice requirement on the license text itself, not an
+additional condition on using the Software.
+
+## 8. Paid Use
+
+A use that the Operational Scope withholds from Section 1's free grant
+("Paid Use") is licensed under this license, on all of its terms, when
+the Licensee pays the Licensor's Published Price for it. The "Published
+Price" is the price the Licensor publishes for that use at a location
+identified in the Software's repository or documentation. It may be set
+per Seat, per device, per year, by tier, or by any other measure, but it
+is a price only: it cannot add to, remove, or change any term of this
+license.
+
+Paid Use is licensed for the period the Published Price covers and
+renews at the Published Price in effect when the next period begins. A
+change to the Published Price applies only to periods that begin after
+the change. If the Licensor has not published a price for a withheld
+use, that use is not available under this license.
+
+## 9. Acceptance
+
+Using the Software is acceptance of this license. Where the Operational
+Scope withholds any use, or sets its own limit of liability and dispute
+process (as the Decentralized scope does), the Software presents, before
+first use, an affirmative step that names this license's version and
+Operational Scope, shows any such limit and process, and must be
+completed: an on-screen agreement, an interactive prompt, or, for
+non-interactive use, an explicit setting or flag naming the version.
+Under any other Operational Scope, the Licensor may build in the same
+step. Where the Software provides that step, the Licensee will complete
+it and will not bypass it. The Software may record the license version
+accepted, the time, and the name of the accepting party, and keeps that
+record only on the Licensee's own systems.
+
+In accepting this license, the Licensee acknowledges that the Software
+is protected by copyright from its creation, whether or not that
+copyright is registered, and that any use the Operational Scope
+withholds, made without Paid Use or a Retroactive License covering it,
+is use of a copyrighted work outside this license. Nothing in this
+license limits the Licensor's rights and remedies under copyright law.
+
+## 10. Usage Statements
+
+Where the Operational Scope withholds any use, the Licensee will, within
+30 days of the Licensor's written request and no more than once in any
+12 months, give the Licensor a statement signed by a person authorized
+to act for the Licensee. The statement gives the period covered; whether
+the Licensee made any use the Operational Scope withholds during that
+period and, if so, its extent, measured the way the Published Price
+measures it (for example, in Seats); and any counts of work processed
+that the Software keeps. It contains no content of any data the Software
+processed and no identity of the Licensee's clients or customers. The
+Software may provide a command that produces the statement from its
+local records.
+
+This license does not require or permit the Software to send information
+about the Licensee's use to the Licensor for the purpose of enforcing
+this license. Compliance is shown by the statement in this section, not
+by monitoring.
+
+## 11. Output Marks
+
+The Software may embed technical marks in its output showing that the
+Software produced it and whether it was produced under Paid Use, free
+Production Use, or Non-Production Use. A mark may not contain the
+Licensee's identity or the content of any data the Software processed,
+and may not change the substance of any output. This section discloses
+those marks to every Licensee. The Licensee will not remove, alter, or
+forge them.
+
+## 12. Retroactive Licenses
+
+Use that the Operational Scope withholds, made without Paid Use covering
+it, is licensed retroactively once the Licensee pays the following for
+each period of that use (a "Retroactive License"):
+
+  (a) the Published Price in effect at the start of that period, if the
+      Licensee disclosed the use to the Licensor in writing before the
+      Licensor gave the Licensee written notice of it; or
+  (b) three times that Published Price, if it did not;
+
+plus simple interest at 10 percent per year, or the highest rate the law
+allows if that is lower, from the end of each period until paid. A
+Retroactive License reaches back no more than three years before the
+earlier of the Licensee's disclosure or the Licensor's notice.
+
+The Published Price is the price of a license taken up front or
+disclosed promptly. A Retroactive License covers use the Licensor had to
+find, and its price reflects that. These amounts are prices for
+licenses, fixed in advance by this license and the same for every
+Licensee; they are not damages. Once paid, the use they cover is
+licensed as Paid Use.
+
+## 13. Continued Use
+
+The grant in Section 1 is perpetual and is not revoked for nonpayment. A
+Licensee that owes amounts under Section 8 or Section 12 keeps its
+rights under Section 1 and may keep using the Software. It remains
+liable for those amounts, which continue to accrue under Section 12 for
+any continued use the Operational Scope withholds, until it is brought
+current, either by paying them or by a written agreement with the
+Licensor on how and when they will be paid. Once current, the Licensee
+continues under this license as before. This section does not limit the
+Licensor's remedies for conduct that Section 2 reserves.
+
+## 14. Disputes
+
+This license is governed by California law, without regard to its
+conflict-of-laws rules, unless the Operational Scope states otherwise.
+
+Unless the Operational Scope provides its own dispute process, mediation
+and arbitration under this section cover a dispute between the Licensor
+and a Licensee about whether a use is Paid Use, about any amount owed
+under Section 8, 12, or 13, or about a usage statement under Section 10
+(a "Payment Dispute"). They do not cover a Licensee's use under Section
+1's free grant that raises none of those questions. Any other dispute
+arising out of this license or the Software is left to the law and the
+courts that would otherwise apply.
+
+A Payment Dispute goes first to mediation. Either party may start
+mediation by written notice to the other, and the mediation must begin
+within 30 days of that notice. If the dispute is not resolved within 60
+days of the notice, either party may submit it to binding arbitration
+under the Rules of Arbitration of the International Chamber of Commerce,
+before a single arbitrator seated in California. The parties may agree
+in writing to a different schedule.
+
+Mediation and arbitration may be conducted entirely by video conference
+and electronic submission, and no party is required to attend in person
+unless the parties agree otherwise. Judgment on an arbitration award may
+be entered in any court with jurisdiction.
+
+Either party may go directly to court for an injunction to stop conduct
+that Section 2 reserves or that infringes the Licensor's intellectual
+property, without first mediating or arbitrating.
+
+Unless the Operational Scope provides its own rule on costs, in any
+arbitration or court proceeding under this license, the prevailing party
+is entitled to its reasonable attorney fees and costs.
+
+## 15. Entire License
+
+This license is the complete set of terms on which the Software is used.
+No other document, including any document the Licensor publishes, adds
+to, removes, or changes these terms. A Published Price sets an amount
+only. The only other agreements this license recognizes are a written
+agreement under Section 13 on paying amounts already owed, an author's
+recorded acknowledgement of Section 4, and a separate license for the
+rights Section 2 reserves, which this license does not grant.
+
+If any provision of this license is held unenforceable, the remaining
+provisions stay in effect, and the unenforceable provision is enforced
+to the greatest extent the law allows.
 
 ---
 SPDX identifier: UFL is not on the official SPDX license list. Per SPDX
-convention for licenses outside that list, use `LicenseRef-UFL-1.1` —
-not a bare `UFL-1.1`, which would misrepresent it as SPDX-registered.
+convention for licenses outside that list, use `LicenseRef-UFL-3.4-D` —
+not a bare `UFL-3.4-D`, which would misrepresent it as SPDX-registered.

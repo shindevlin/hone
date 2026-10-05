@@ -96,4 +96,4 @@ irm https://honemesh.net/hone-start.ps1 | iex
 **Website:** https://honemesh.net
 **Telegram:** @honebot
 **GitHub:** https://github.com/shindevlin/hone
-**License:** AGPL-3.0
+**License:** UFL 3.4, Operational Scope: Decentralized (`LicenseRef-UFL-3.4-D`), source-available

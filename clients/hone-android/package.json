@@ -12,7 +12,7 @@
   },
   "keywords": ["hone", "android", "capacitor", "pwa"],
   "author": "Shin Devlin <shin@hone.network>",
-  "license": "MIT",
+  "license": "LicenseRef-UFL-3.4-D",
   "dependencies": {
     "@capacitor/android": "^8.3.0",
     "@capacitor/cli": "^8.3.0",

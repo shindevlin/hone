@@ -3,6 +3,7 @@ name = "wiiv"
 version = "0.1.0"
 edition = "2021"
 authors = ["Shin Devlin <shindevlin@proton.me>"]
+license = "LicenseRef-UFL-3.4-D"
 description = "Wiiv — HONE decentralized rendering platform (image/3D/audio/video)"
 
 # Standalone crate — deliberately NOT a member of rust/Cargo.toml's workspace, so

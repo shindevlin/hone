@@ -3,6 +3,7 @@ name = "hone-p2p"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "HONE P2P sidecar — libp2p Kademlia DHT peer discovery"
 
 [[bin]]

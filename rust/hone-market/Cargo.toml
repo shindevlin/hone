@@ -3,6 +3,7 @@ name = "hone-market"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "HONE Market — commerce HTTP service (stores, products, orders, reputation)"
 
 [[bin]]

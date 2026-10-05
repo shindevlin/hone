@@ -1817,6 +1817,6 @@ sure the dock is always open.
 *Freeport Protocol v3.1 — April 2026*
 *Shin Devlin — shindevlin@proton.me*
 *Native token: HONE*
-*License: AGPL-3.0*
+*License: UFL 3.4, Operational Scope: Decentralized (LicenseRef-UFL-3.4-D)*
 *GitHub: https://github.com/shindevlin/hone*
 *Website: https://honemesh.net*

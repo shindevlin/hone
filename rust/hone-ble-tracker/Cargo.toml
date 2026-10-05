@@ -3,6 +3,7 @@ name = "hone-ble-tracker"
 version = "1.0.0"
 edition = "2021"
 authors = ["Shin Devlin <shindevlin@proton.me>"]
+license = "LicenseRef-UFL-3.4-D"
 description = "HONE BLE tracker scanner — passive detection of AirTags, Find My Device tags, Tile, Samsung SmartTags, with acoustic ownership challenge"
 
 [[bin]]

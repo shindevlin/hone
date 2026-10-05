@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "HONE Desktop — one-click mining for any computer",
   "private": true,
+  "license": "LicenseRef-UFL-3.4-D",
   "type": "module",
   "scripts": {
     "tauri": "tauri",

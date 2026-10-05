@@ -3,6 +3,7 @@ name = "hone-node"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "HONE sovereign chain node — networking, consensus, state, API"
 
 [[bin]]
