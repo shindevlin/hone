@@ -49,10 +49,20 @@ jobs:
           cp target/release/hone-cli                              ../hone-x86_64-linux
           cp target/aarch64-unknown-linux-gnu/release/hone-cli    ../hone-aarch64-linux
 
+      # UFL Section 1C: every Release states its Ruling License and ships its
+      # full text. Print the statement with the UFL repo's generator:
+      #   sh generate.sh -r -s decentralized -k HONE
+      # When HONE moves to a later UFL version or scope, change both lines below
+      # and the LICENSE file in the same commit as the tag.
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
+          append_body: true
+          body: |
+            Ruling License (UFL Section 1C): UFL 3.4, Operational Scope: Decentralized (LicenseRef-UFL-3.4-D)
           files: |
+            LICENSE
+            NOTICE
             hone-node-x86_64-linux
             hone-node-aarch64-linux
             hone-x86_64-linux

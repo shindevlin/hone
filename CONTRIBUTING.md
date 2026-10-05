@@ -65,6 +65,22 @@ Report vulnerabilities to shindevlin@proton.me. Do NOT file public issues for se
 
 The P2P protocol requires cryptographic signatures on messages (v2.16.1+). Set `HONE_REQUIRE_SIGNATURES=true` for strict enforcement.
 
-## License
+## License and contributions
 
-AGPL-3.0-or-later. See [LICENSE](LICENSE).
+HONE is licensed under the Usufruct License (UFL) 3.4, Operational Scope:
+Decentralized (`LicenseRef-UFL-3.4-D`). See [LICENSE](LICENSE).
+
+Contributions are governed by Section 4 of that license. A Contribution is any
+fix, change, or addition you submit, by pull request, patch, message, or any
+other means, whether or not it is accepted. By submitting one you grant the
+Licensor a perpetual, worldwide, irrevocable, royalty-free, non-exclusive
+license to use, reproduce, modify, distribute, sublicense, and relicense it,
+under the UFL or any other terms, including any patent rights you hold that it
+would infringe. Nothing is owed to you for it, and you keep ownership. Submit
+only what you have the right to license: if an employer, client, or anyone else
+has rights in your work, you need their authority first.
+
+This is a summary. Section 4 of [LICENSE](LICENSE) governs. This repository
+does not currently require a separate recorded acknowledgement (CLA) step.
+
+Third-party code in this repository keeps its own license; see [NOTICE](NOTICE).

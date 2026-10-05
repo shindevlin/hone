@@ -1,0 +1,55 @@
+HONE
+Licensed under the Usufruct License (UFL) 3.4, Operational Scope: Decentralized
+(LicenseRef-UFL-3.4-D). See LICENSE.
+
+The UFL covers HONE's own code only. The third-party code listed below is
+included in this repository under its own license. The UFL does not relicense
+it, and the UFL acceptance step, dispute process, and liability terms do not
+apply to it. Each component's license file stays in place next to it.
+
+ludicrous/                                  MIT
+  Fork of the Rio terminal. Copyright (c) 2022-present Raphael Amorim.
+  License: ludicrous/LICENSE and the LICENSE file in each sub-crate
+  (corcovado, rio-backend, rio-grapheme-width, rio-proc-macros, rio-window,
+  sugarloaf, teletypewriter, frontends/rioterm, frontends/wasm). Crates in
+  ludicrous/ that declare `license.workspace = true` inherit MIT from
+  ludicrous/Cargo.toml.
+
+ludicrous/copa/                             Apache-2.0 OR MIT
+  Fork of Alacritty's vte parser.
+  License: ludicrous/copa/ORIGINAL-LICENSE-APACHE, ORIGINAL-LICENSE-MIT.
+
+ludicrous/plugins/ludicrous/                MIT
+  Copyright (c) 2025 Warp. License: ludicrous/plugins/ludicrous/LICENSE.
+
+ludicrous/sugarloaf/src/font/resources/CascadiaCode/      SIL OFL 1.1
+  Copyright (c) 2019-present Microsoft Corporation, Reserved Font Name
+  Cascadia Code. License: the LICENSE file in that directory.
+
+ludicrous/sugarloaf/src/font/resources/SymbolsNerdFontMono/   (see upstream)
+ludicrous/sugarloaf/resources/test-fonts/                     (see upstream)
+  Fonts bundled by the upstream Rio project (Nerd Fonts symbols, DejaVu,
+  Exo 2, Garamond No. 8, Open Sans, WenQuanYi Micro Hei). Each font stays
+  under its own upstream font license, as distributed by the Rio project.
+
+ludicrous/misc/windows/License.rtf
+  Installer license text carried over from upstream Rio.
+
+flipper/hone_sensor/qrcodegen.c, qrcodegen.h            MIT
+  QR Code generator library. Copyright (c) Project Nayuki.
+  License: the header of each file.
+
+android/gradlew, android/gradlew.bat                    Apache-2.0
+clients/hone-android/android/gradlew, gradlew.bat
+  Gradle wrapper scripts. Copyright the original authors (Gradle).
+
+contracts/lib/forge-std  (git submodule)                MIT OR Apache-2.0
+  Foundry standard library, fetched as a submodule; not vendored here.
+
+docs/hardware/flipper_gpio_api.h
+  Reference copy of a Flipper Zero firmware GPIO header (Flipper Devices
+  Inc.), kept for documentation only. It is under the Flipper Zero firmware's
+  license (GPL-3.0), not the UFL.
+
+Third-party packages pulled in by Cargo, npm, Gradle, or Foundry at build time
+are under their own licenses as published by their authors.
