@@ -13,6 +13,7 @@ path = "src/main.rs"
 # Standalone crate — not a member of rust/Cargo.toml workspace.
 [workspace]
 [dependencies]
+hone-license = { path = "../hone-license" }
 eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
 egui = "0.34"
 egui_tiles = { version = "0.15", features = ["serde"] }

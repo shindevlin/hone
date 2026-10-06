@@ -948,6 +948,7 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "hex",
+ "hone-license",
  "rand 0.8.8",
  "reqwest",
  "rustfft",
@@ -960,6 +961,10 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
 ]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "http"

@@ -516,12 +516,17 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "hex",
+ "hone-license",
  "reqwest",
  "serde",
  "serde_json",
  "sha2",
  "tokio",
 ]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "http"

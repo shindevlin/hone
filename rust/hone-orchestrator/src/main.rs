@@ -26,7 +26,7 @@ struct Config {
 
 impl Config {
     fn from_args() -> Result<Self, String> {
-        let args: Vec<String> = std::env::args().collect();
+        let args: Vec<String> = hone_license::args();
         if args.len() == 1 || args.iter().any(|arg| arg == "--help" || arg == "-h") {
             return Err(usage(&args[0]));
         }
@@ -138,6 +138,10 @@ struct SelectedApiReport {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
+    hone_license::require_acceptance_or_exit(&hone_license::default_data_dir());
+
     let config = match Config::from_args() {
         Ok(config) => config,
         Err(message) => {

@@ -55,6 +55,11 @@ services:
       HONE_MONGO_MODE: ${HONE_MONGO_MODE:-disabled}
       MONGODB_URI: ${MONGODB_URI:-}
       OLLAMA_URL: http://ollama:11434
+      # License gate: HONE exits until its license (UFL 3.4, Operational
+      # Scope: Decentralized) is accepted. Setting HONE_ACCEPT_LICENSE=UFL-3.4-D
+      # in your shell or .env is the act of accepting it. No value is set here.
+      # See docs/LICENSE_ACCEPTANCE.md.
+      HONE_ACCEPT_LICENSE: ${HONE_ACCEPT_LICENSE:-}
       # JWT_SECRET is auto-generated on first run if not set. The hone-start
       # scripts generate a random 64-char hex secret and write it to .env in
       # the compose directory. For manual setups, set HONE_JWT_SECRET yourself.

@@ -29,6 +29,10 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 
 fn main() {
+    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
+    hone_license::require_acceptance_or_exit(&hone_license::default_data_dir());
+
     match run() {
         Ok(code) => exit(code),
         Err(e) => {
@@ -39,7 +43,7 @@ fn main() {
 }
 
 fn run() -> Result<i32> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = hone_license::args().into_iter().skip(1).collect();
     let mut it = args.iter();
     match it.next().map(String::as_str) {
         Some("manifest") => match it.next().map(String::as_str) {

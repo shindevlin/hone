@@ -24,6 +24,10 @@ fn arg(args: &[String], name: &str) -> Option<String> {
 }
 
 fn main() {
+    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
+    hone_license::require_acceptance_or_exit(&hone_license::default_data_dir());
+
     if let Err(e) = run() {
         eprintln!("keycheck: {e:#}");
         std::process::exit(1);
@@ -31,7 +35,7 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = hone_license::args().into_iter().skip(1).collect();
     let account = arg(&args, "--account").unwrap_or_else(|| "(unnamed)".into());
 
     let mnemonic = std::env::var("HONE_MNEMONIC")
