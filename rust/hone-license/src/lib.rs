@@ -218,7 +218,7 @@ pub fn require_acceptance(data_dir: &Path, mode: Mode) -> Result<Acceptance, Gat
         env: std::env::var(ENV_VAR).ok(),
         flag: flag_value(std::env::args_os()),
         tty: io::stdin().is_terminal() && io::stderr().is_terminal(),
-        binary: binary_name(),
+        binary: current_binary(),
         now_utc: now_utc(),
     };
     let stdin = io::stdin();
@@ -238,7 +238,7 @@ pub fn require_acceptance_mode_or_exit(data_dir: &Path, mode: Mode) -> Acceptanc
     match require_acceptance(data_dir, mode) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{}: {e}", binary_name());
+            eprintln!("{}: {e}", current_binary());
             std::process::exit(EXIT_NOT_ACCEPTED);
         }
     }
@@ -432,7 +432,8 @@ pub fn strip_flag<I: IntoIterator<Item = OsString>>(args: I) -> Vec<OsString> {
     out
 }
 
-fn binary_name() -> String {
+/// File stem of this process's executable (e.g. `hone-node`).
+pub fn current_binary() -> String {
     std::env::args_os()
         .next()
         .map(PathBuf::from)
