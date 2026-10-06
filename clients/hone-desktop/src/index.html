@@ -115,6 +115,22 @@
       line-height: 1.8;
     }
     .hardware-info .label { color: #94a3b8; }
+    .license-text {
+      text-align: left;
+      white-space: pre-wrap;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #cbd5e1;
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 50vh;
+      overflow: auto;
+      margin-bottom: 16px;
+    }
+    .license-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -122,6 +138,17 @@
   <div class="header">
     <div class="logo">⚡ HONE</div>
     <div class="status-pill" id="status-pill">Idle</div>
+  </div>
+
+  <div id="license-section" class="setup-needed" style="display:none;">
+    <h2>HONE license</h2>
+    <p id="license-ruling">Before HONE starts, read and accept its license.</p>
+    <pre class="license-text" id="license-text"></pre>
+    <div class="license-actions">
+      <button class="btn btn-secondary" id="license-toggle" onclick="toggleLicense()">Show full license</button>
+      <button class="btn" id="license-accept" onclick="acceptLicense()">I accept</button>
+      <button class="btn btn-stop" onclick="declineLicense()">Decline and quit</button>
+    </div>
   </div>
 
   <div id="setup-section" class="setup-needed" style="display:none;">
@@ -184,8 +211,53 @@
       while (log.childElementCount > 50) log.removeChild(log.firstChild);
     }
 
+    // UFL 3.4 Decentralized acceptance gate: nothing else is shown or
+    // started until the license is accepted (the Rust side enforces it too).
+    let license = null;
+    let licenseFull = false;
+
+    function renderLicense() {
+      document.getElementById('license-ruling').textContent =
+        'Before HONE starts, read and accept its license: ' + license.ruling + ' (' + license.spdx + ').';
+      document.getElementById('license-text').textContent = licenseFull ? license.text : license.summary;
+      document.getElementById('license-toggle').textContent = licenseFull ? 'Show summary' : 'Show full license';
+    }
+
+    function toggleLicense() {
+      licenseFull = !licenseFull;
+      renderLicense();
+    }
+
+    async function acceptLicense() {
+      try {
+        await invoke('accept_license');
+        license.accepted = true;
+        document.getElementById('license-section').style.display = 'none';
+        await refresh();
+      } catch (e) {
+        alert('Could not record your acceptance: ' + e);
+      }
+    }
+
+    async function declineLicense() {
+      await invoke('decline_license');
+    }
+
+    async function licenseAccepted() {
+      if (license && license.accepted) return true;
+      if (!license) license = await invoke('license_terms');
+      else license.accepted = (await invoke('license_terms')).accepted;
+      if (license.accepted) return true;
+      document.getElementById('license-section').style.display = 'block';
+      document.getElementById('setup-section').style.display = 'none';
+      document.getElementById('main-section').style.display = 'none';
+      renderLicense();
+      return false;
+    }
+
     async function refresh() {
       try {
+        if (!(await licenseAccepted())) return;
         const status = await invoke('get_status');
         state.installed = status.has_hone;
         state.running = status.running;
