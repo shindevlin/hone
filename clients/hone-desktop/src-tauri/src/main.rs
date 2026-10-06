@@ -9,6 +9,55 @@ use tauri::Manager;
 mod hardware;
 mod installer;
 
+// ── UFL 3.4 Decentralized acceptance gate (UFL Section 9) ─────────────────
+// Nothing that installs or runs HONE works until the user has accepted the
+// license on the first-run screen. The record is the same file the Rust node
+// reads (~/.hone/license-acceptance.json, or $HONE_DATA_DIR).
+// See docs/LICENSE_ACCEPTANCE.md.
+
+const LICENSE_REQUIRED: &str =
+    "HONE's license has not been accepted. Accept it on the license screen first.";
+
+fn license_accepted() -> bool {
+    hone_license::require_acceptance(
+        &hone_license::default_data_dir(),
+        hone_license::Mode::Headless,
+    )
+    .is_ok()
+}
+
+#[derive(Serialize)]
+struct LicenseTerms {
+    accepted: bool,
+    ruling: &'static str,
+    spdx: &'static str,
+    summary: String,
+    text: &'static str,
+}
+
+#[tauri::command]
+fn license_terms() -> LicenseTerms {
+    LicenseTerms {
+        accepted: license_accepted(),
+        ruling: hone_license::RULING_LICENSE,
+        spdx: hone_license::SPDX,
+        summary: hone_license::summary(),
+        text: hone_license::LICENSE_TEXT,
+    }
+}
+
+#[tauri::command]
+fn accept_license() -> Result<(), String> {
+    let path = hone_license::record_path(&hone_license::default_data_dir());
+    hone_license::write_record(&path, &hone_license::current_binary(), &hone_license::now_utc())
+        .map_err(|e| format!("could not save the acceptance record at {}: {e}", path.display()))
+}
+
+#[tauri::command]
+fn decline_license(app: tauri::AppHandle) {
+    app.exit(hone_license::EXIT_NOT_ACCEPTED);
+}
+
 #[derive(Default)]
 struct MinerState {
     process: Mutex<Option<Child>>,
@@ -54,6 +103,9 @@ fn detect_hardware() -> serde_json::Value {
 
 #[tauri::command]
 async fn install_hone() -> Result<String, String> {
+    if !license_accepted() {
+        return Err(LICENSE_REQUIRED.to_string());
+    }
     installer::install().await.map_err(|e| e.to_string())
 }
 
@@ -62,6 +114,9 @@ fn start_node(
     config: StartConfig,
     state: tauri::State<MinerState>,
 ) -> Result<String, String> {
+    if !license_accepted() {
+        return Err(LICENSE_REQUIRED.to_string());
+    }
     let mut process = state.process.lock().unwrap();
     if process.is_some() {
         return Err("Node already running".to_string());
@@ -124,7 +179,10 @@ fn main() {
             install_hone,
             start_node,
             stop_node,
-            fetch_balance
+            fetch_balance,
+            license_terms,
+            accept_license,
+            decline_license
         ])
         .setup(|app| {
             // Hide window initially if minimized to tray

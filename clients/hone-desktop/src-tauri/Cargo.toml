@@ -10,6 +10,7 @@ license = "LicenseRef-UFL-3.4-D"
 tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
+hone-license = { path = "../../../rust/hone-license" }
 tauri = { version = "2.0.0", features = ["tray-icon"] }
 tauri-plugin-shell = "2.0.0"
 tauri-plugin-fs = "2.0.0"

@@ -164,25 +164,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hone-desktop"
-version = "0.1.0"
-dependencies = [
- "dirs 5.0.1",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sysinfo",
- "tauri",
- "tauri-build",
- "tauri-plugin-fs",
- "tauri-plugin-http",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tokio",
- "which",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1422,6 +1403,30 @@ checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
 dependencies = [
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "hone-desktop"
+version = "0.1.0"
+dependencies = [
+ "dirs 5.0.1",
+ "hone-license",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-fs",
+ "tauri-plugin-http",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tokio",
+ "which",
+]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "html5ever"
