@@ -80,7 +80,24 @@ would infringe. Nothing is owed to you for it, and you keep ownership. Submit
 only what you have the right to license: if an employer, client, or anyone else
 has rights in your work, you need their authority first.
 
-This is a summary. Section 4 of [LICENSE](LICENSE) governs. This repository
-does not currently require a separate recorded acknowledgement (CLA) step.
+This is a summary. Section 4 of [LICENSE](LICENSE) governs.
+
+### Contributor acknowledgement (CLA)
+
+HONE records each contributor's agreement to Section 4 before merging:
+
+1. Open a pull request. Patches sent any other way are not considered.
+2. The CLA check comments on your pull request. Post the sign comment it shows
+   (see [CLA.md](CLA.md)). You sign once; it covers your later pull requests.
+   The record (GitHub username and numeric ID, time, pull request) is kept in
+   `signatures/cla.json` on the public `cla-signatures` branch.
+3. Sign your commits (`git config commit.gpgsign true`, with a GPG, SSH, or
+   S/MIME key added to your GitHub account). Unsigned commits are not merged.
+4. If an employer or client has rights in your work, get their authority before
+   you submit it (Section 4).
+
+A pull request opened by an automated agent is submitted by whoever runs that
+agent, and that person or organization signs. [CLA.md](CLA.md) adds nothing to
+Section 4 and changes nothing in it.
 
 Third-party code in this repository keeps its own license; see [NOTICE](NOTICE).
