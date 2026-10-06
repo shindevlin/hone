@@ -51,5 +51,12 @@ docs/hardware/flipper_gpio_api.h
   Inc.), kept for documentation only. It is under the Flipper Zero firmware's
   license (GPL-3.0), not the UFL.
 
+contracts/*.sol, contracts/deploy/, contracts/test/              MIT
+  HONE's own Solidity contracts. These were published and deployed under MIT
+  before HONE adopted the UFL, and their verified on-chain source carries that
+  identifier, so they stay MIT and are outside the UFL. The OpenZeppelin
+  imports they use are MIT as well. Future contracts may be licensed
+  differently; each states its license in its SPDX header.
+
 Third-party packages pulled in by Cargo, npm, Gradle, or Foundry at build time
 are under their own licenses as published by their authors.
