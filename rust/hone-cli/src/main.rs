@@ -1283,7 +1283,7 @@ enum RepoCommands {
 }
 
 fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = Cli::parse_from(hone_license::args_os());
 
     match cli.command {
         Commands::Balance { account, token } => {
@@ -1861,6 +1861,10 @@ fn cmd_whoami() -> Result<()> {
 }
 
 fn main() {
+    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
+    hone_license::require_acceptance_or_exit(&hone_license::default_data_dir());
+
     if let Err(e) = run() {
         eprintln!("{}: {:#}", colored::Colorize::red("error"), e);
         process::exit(1);

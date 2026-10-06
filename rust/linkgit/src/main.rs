@@ -7,7 +7,11 @@ use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
+    hone_license::require_acceptance_or_exit(&hone_license::default_data_dir());
+
+    let args: Vec<String> = hone_license::args();
 
     // Check for subcommands
     if args.get(1).map(|s| s.as_str()) == Some("mirror") {

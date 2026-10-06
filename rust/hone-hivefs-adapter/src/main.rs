@@ -96,7 +96,11 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
+    hone_license::require_acceptance_or_exit(&hone_license::default_data_dir());
+
+    let cli = Cli::parse_from(hone_license::args_os());
 
     match cli.command {
         Command::Write { cid, file, kind } => {

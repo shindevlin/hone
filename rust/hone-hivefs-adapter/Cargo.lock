@@ -101,23 +101,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hone-hivefs-adapter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "bs58",
- "clap",
- "ed25519-dalek",
- "hex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -522,6 +505,28 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hone-hivefs-adapter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bs58",
+ "clap",
+ "ed25519-dalek",
+ "hex",
+ "hone-license",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "http"

@@ -10,6 +10,7 @@ description = "HONE-compliant P2P sports betting Telegram bot"
 # Standalone crate — not a member of rust/Cargo.toml workspace.
 [workspace]
 [dependencies]
+hone-license = { path = "../hone-license" }
 # Telegram bot framework
 teloxide = { version = "0.13", features = ["macros"] }
 

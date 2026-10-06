@@ -150,6 +150,10 @@ async fn main() -> Result<()> {
 
     let cfg = Config::from_env();
 
+    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
+    hone_license::require_acceptance_or_exit(&cfg.data_dir);
+
     // Prevent multiple instances on the same machine.
     // Port pre-check works everywhere including WSL↔Windows cross-instance conflicts,
     // since WSL2 and Windows share the localhost port namespace.

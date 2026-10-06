@@ -141,29 +141,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hone-sdk"
-version = "1.0.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "argon2",
- "base64",
- "bip39",
- "bs58",
- "ed25519-dalek",
- "hex",
- "hmac",
- "k256",
- "rand",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "sha3",
- "tokio",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -648,6 +625,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest",
+]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
+
+[[package]]
+name = "hone-sdk"
+version = "1.0.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "argon2",
+ "base64",
+ "bip39",
+ "bs58",
+ "ed25519-dalek",
+ "hex",
+ "hmac",
+ "hone-license",
+ "k256",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sha3",
+ "tokio",
 ]
 
 [[package]]

@@ -68,6 +68,11 @@ services:
       JWT_EXPIRES_IN: 7d
       HONE_MINER: ${HONE_MINER:-}
       HONE_MODEL: ${HONE_MODEL:-qwen3:4b}
+      # License gate: HONE exits until its license (UFL 3.4, Operational
+      # Scope: Decentralized) is accepted. Setting HONE_ACCEPT_LICENSE=UFL-3.4-D
+      # in your shell or .env is the act of accepting it. No value is set here.
+      # See docs/LICENSE_ACCEPTANCE.md.
+      HONE_ACCEPT_LICENSE: ${HONE_ACCEPT_LICENSE:-}
     ports:
       - "3000:3000"   # HTTP API
       - "4242:4242"   # Block explorer
@@ -104,6 +109,11 @@ services:
       HONE_JWT_SECRET: ${JWT_SECRET}
       HONE_TELEGRAM_BOT_TOKEN: ${HONE_TELEGRAM_BOT_TOKEN:-}
       HONE_TELEGRAM_CHAT_ID: ${HONE_TELEGRAM_CHAT_ID:-}
+      # License gate: HONE exits until its license (UFL 3.4, Operational
+      # Scope: Decentralized) is accepted. Setting HONE_ACCEPT_LICENSE=UFL-3.4-D
+      # in your shell or .env is the act of accepting it. No value is set here.
+      # See docs/LICENSE_ACCEPTANCE.md.
+      HONE_ACCEPT_LICENSE: ${HONE_ACCEPT_LICENSE:-}
     ports:
       - "7042:7042"   # Commerce API
     volumes:

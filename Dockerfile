@@ -13,7 +13,8 @@ RUN mkdir -p rust/hone-node/src && echo "fn main(){}" > rust/hone-node/src/main.
     mkdir -p rust/hone-contract-runtime/src && echo "" > rust/hone-contract-runtime/src/lib.rs && \
     cd rust/hone-node && cargo build --release 2>/dev/null; true
 
-# Full source build
+# Full source build (LICENSE is embedded by rust/hone-license)
+COPY LICENSE NOTICE ./
 COPY rust ./rust
 RUN cd rust/hone-node && cargo build --release && \
     cd /build/rust/hone-cli && cargo build --release
@@ -33,6 +34,7 @@ COPY --from=builder /build/rust/hone-cli/target/release/hone      /usr/local/bin
 COPY rust/hone-node/genesis.json         /app/genesis.json
 COPY rust/hone-node/testnet-genesis.json /app/testnet-genesis.json
 COPY website /app/website
+COPY LICENSE NOTICE /app/
 
 RUN mkdir -p /app/data /app/.hone
 

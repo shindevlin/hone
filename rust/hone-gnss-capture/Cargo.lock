@@ -60,25 +60,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hone-gnss-capture"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "ed25519-dalek",
- "hex",
- "rand",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -472,6 +453,30 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hone-gnss-capture"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "ed25519-dalek",
+ "hex",
+ "hone-license",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "http"

@@ -39,6 +39,11 @@ jobs:
             cargo build --release -p hone-node --target aarch64-unknown-linux-gnu
           cp target/release/hone-node                              ../hone-node-x86_64-linux
           cp target/aarch64-unknown-linux-gnu/release/hone-node    ../hone-node-aarch64-linux
+          cargo build --release -p hone-license
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+            cargo build --release -p hone-license --target aarch64-unknown-linux-gnu
+          cp target/release/hone-license                              ../hone-license-x86_64-linux
+          cp target/aarch64-unknown-linux-gnu/release/hone-license    ../hone-license-aarch64-linux
 
       - name: Build CLI binaries
         run: |
@@ -65,5 +70,7 @@ jobs:
             NOTICE
             hone-node-x86_64-linux
             hone-node-aarch64-linux
+            hone-license-x86_64-linux
+            hone-license-aarch64-linux
             hone-x86_64-linux
             hone-aarch64-linux

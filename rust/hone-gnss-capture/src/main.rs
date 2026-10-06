@@ -13,6 +13,10 @@ use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
+    hone_license::require_acceptance_or_exit(&hone_license::default_data_dir());
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()

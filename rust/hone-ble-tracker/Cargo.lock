@@ -266,32 +266,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hone-ble-tracker"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "axum",
- "btleplug",
- "chrono",
- "clap",
- "cpal",
- "ed25519-dalek",
- "futures",
- "hex",
- "rand 0.8.6",
- "reqwest",
- "rustfft",
- "serde",
- "serde_json",
- "sha2",
- "sled",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "btleplug"
 version = "0.11.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -939,6 +913,37 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hone-ble-tracker"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "btleplug",
+ "chrono",
+ "clap",
+ "cpal",
+ "ed25519-dalek",
+ "futures",
+ "hex",
+ "hone-license",
+ "rand 0.8.6",
+ "reqwest",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sled",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "http"

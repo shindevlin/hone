@@ -20,6 +20,7 @@ name = "wiiv"
 path = "src/main.rs"
 
 [dependencies]
+hone-license = { path = "../hone-license" }
 # Wiiv render workers are one consumer of the node-wide capability provisioner.
 hone-provision = { path = "../hone-provision" }
 tokio = { version = "1", features = ["full"] }

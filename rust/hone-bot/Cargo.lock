@@ -68,20 +68,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4512299f36f043ab09a583e57bceb5a5aab7a73db1805848e8fef3c9e8c78b3"
 
 [[package]]
-name = "hone-bot"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "teloxide",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -483,6 +469,25 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "hone-bot"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "hone-license",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "teloxide",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "http"
