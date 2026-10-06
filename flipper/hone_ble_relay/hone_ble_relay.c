@@ -35,6 +35,7 @@
  */
 
 #include <furi.h>
+#include "hone_license_gate.h"
 #include <furi_hal_version.h>
 #include <furi_hal_adc.h>
 #include <furi_hal_power.h>
@@ -477,6 +478,10 @@ static void handle_usb_cmd(RelayApp* app, const char* cmd) {
 
 int32_t hone_ble_relay_app(void* p) {
     UNUSED(p);
+
+    /* UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+     * until HONE's license is accepted. See docs/LICENSE_ACCEPTANCE.md. */
+    if(!hone_license_gate("hone_ble_relay")) return 0;
 
     RelayApp* app = malloc(sizeof(RelayApp));
     if(!app) return 1;
