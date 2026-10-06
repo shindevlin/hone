@@ -2640,6 +2640,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hone-license"
+version = "0.1.0"
+
+[[package]]
 name = "hone-market"
 version = "1.2.2"
 dependencies = [

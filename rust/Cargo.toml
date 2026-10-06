@@ -2,6 +2,7 @@
 members = [
     "hone-node",
     "hone-node/crates/hone-types",
+    "hone-license",
     "hone-p2p",
     "hone-market",
     "hone-contract-runtime",
