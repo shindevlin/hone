@@ -308,8 +308,8 @@ pub struct HoneApp {
 }
 
 impl HoneApp {
-    pub fn new(cc: &eframe::CreationContext) -> Self {
-        setup_theme(&cc.egui_ctx);
+    pub fn from_ctx(ctx: &egui::Context) -> Self {
+        setup_theme(ctx);
         let session = load_session();
         let lp = layout_path();
 

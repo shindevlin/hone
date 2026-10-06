@@ -1,0 +1,17 @@
+[package]
+name = "hone-license-egui"
+version = "0.1.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+license = "LicenseRef-UFL-3.4-D"
+description = "First-run UFL 3.4 Decentralized license screen for HONE's egui apps"
+publish = false
+
+# Standalone like the GUI crates that use it: eframe needs a newer rustc than
+# the rust/ workspace pin, so this crate stays out of that workspace.
+[workspace]
+
+[dependencies]
+hone-license = { path = "../hone-license" }
+eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+egui = "0.34"
