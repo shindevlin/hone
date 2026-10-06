@@ -78,6 +78,14 @@ public class StorageService extends Service {
             return START_NOT_STICKY;
         }
 
+        // UFL 3.4 Decentralized acceptance gate (UFL Section 9): do no work
+        // until the license has been accepted in LicenseActivity.
+        if (!LicenseGate.isAccepted(this)) {
+            stopForeground(true);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         String account = prefs.getAccount();
         String jwt     = prefs.getJwt();
         quotaBytes = (long) prefs.getStorageQuotaMb() * 1024 * 1024;

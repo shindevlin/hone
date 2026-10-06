@@ -58,6 +58,18 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
+
+        // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing in the
+        // app runs until the license is accepted. LicenseActivity comes back
+        // here with the original intent. See docs/LICENSE_ACCEPTANCE.md.
+        if (!LicenseGate.isAccepted(this)) {
+            Intent gate = new Intent(this, LicenseActivity.class);
+            gate.putExtra(LicenseActivity.EXTRA_NEXT, getIntent());
+            startActivity(gate);
+            finish();
+            return;
+        }
+
         setContentView(R.layout.activity_main);
 
         AppPrefs prefs = new AppPrefs(this);

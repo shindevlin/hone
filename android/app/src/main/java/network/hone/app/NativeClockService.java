@@ -80,6 +80,14 @@ public class NativeClockService extends Service {
             return START_NOT_STICKY;
         }
 
+        // UFL 3.4 Decentralized acceptance gate (UFL Section 9): do no work
+        // until the license has been accepted in LicenseActivity.
+        if (!LicenseGate.isAccepted(this)) {
+            stopForeground(true);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         if (!nativeAvailable) {
             updateNotification("Library missing — rebuild APK with cargo-ndk");
             return START_NOT_STICKY;

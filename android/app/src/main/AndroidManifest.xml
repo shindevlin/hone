@@ -40,6 +40,12 @@
 
         </activity>
 
+        <!-- First-run license screen (UFL 3.4 Decentralized, Section 9) -->
+        <activity
+            android:name=".LicenseActivity"
+            android:label="HONE license"
+            android:theme="@style/AppTheme"
+            android:exported="false" />
         <activity
             android:name=".StakeActivity"
             android:label="Stake"
