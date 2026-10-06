@@ -116,13 +116,23 @@ flag never reaches the parser.
 Not gated (no standalone HONE runtime): libraries (`hone-types`,
 `chain-core`, `hone-provision`, `hone-contract-sdk` and its example
 contracts), the `uniffi-bindgen` build tool in `hone-android`, and the Android
-`cdylib` miner libraries, which are loaded by the Android app (see the client
-note below). The deprecated Node.js prototype (`src/`, `bin/`) is not gated.
+`cdylib` miner libraries, which the Android app gates. The deprecated Node.js
+prototype (`src/`, `bin/`) is not gated.
 
-GUI binaries (`hone-gui`, `hone-wallet-create`) prompt only when launched from
-a terminal. Launched from a desktop shortcut they have no terminal, so they
-exit 3 unless the record or the variable is present. A first-run dialog is a
-follow-up; see [LICENSE_GATE_CLIENTS.md](LICENSE_GATE_CLIENTS.md).
+GUI binaries (`hone-gui`, `hone-wallet-create`) show a first-run license window
+instead of the terminal prompt (`rust/hone-license-egui`); the real app is
+built only after "I accept", and "Decline and quit" exits 3.
+
+The desktop app, the Android app, the Flipper apps, and the installers have
+their own first-run step with the same terms and record. See
+[LICENSE_GATE_CLIENTS.md](LICENSE_GATE_CLIENTS.md).
+
+## Contributor acknowledgement (CLA)
+
+Contributions are governed by UFL Section 4. Pull requests are checked by
+`.github/workflows/cla.yml`: the author posts the sign comment from
+[`CLA.md`](../CLA.md) once, and the record goes to `signatures/cla.json` on the
+`cla-signatures` branch. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Using the gate in a new binary
 
