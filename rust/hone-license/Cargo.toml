@@ -1,0 +1,18 @@
+[package]
+name = "hone-license"
+version = "0.1.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+license = "LicenseRef-UFL-3.4-D"
+description = "UFL 3.4 Decentralized acceptance gate (UFL Section 9) shared by every HONE binary"
+publish = false
+
+# Deliberately dependency-free: most HONE binaries are standalone crates with
+# their own lockfiles, and the gate must not pull anything into them.
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hone-license"
+path = "src/main.rs"
