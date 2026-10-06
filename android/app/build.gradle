@@ -37,6 +37,17 @@ android {
     }
 }
 
+// UFL 3.4 Decentralized: ship the repo's LICENSE in the APK so the first-run
+// license screen (LicenseActivity) can show the full text offline.
+def licenseAssetsDir = layout.buildDirectory.dir('generated/license-assets').get().asFile
+task copyLicenseAsset(type: Copy) {
+    from rootProject.file('../LICENSE')
+    into licenseAssetsDir
+    rename { 'LICENSE.txt' }
+}
+android.sourceSets.main.assets.srcDirs += licenseAssetsDir
+preBuild.dependsOn copyLicenseAsset
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
