@@ -7,6 +7,7 @@
  */
 
 #include "hone.h"
+#include "hone_license_gate.h"
 #include "hone_ble.h"
 #include "scenes/hone_scene_main.h"
 #include "scenes/hone_scene_identity.h"
@@ -197,6 +198,10 @@ void hone_pub_to_hex(const uint8_t pk[HONE_PK_LEN], char out[HONE_PK_LEN * 2 + 1
 
 int32_t hone_app(void* p) {
     UNUSED(p);
+
+    /* UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+     * until HONE's license is accepted. See docs/LICENSE_ACCEPTANCE.md. */
+    if(!hone_license_gate("hone")) return 0;
 
     HoneApp* app = hone_app_alloc();
 

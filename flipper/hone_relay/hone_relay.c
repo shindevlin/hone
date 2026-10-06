@@ -27,6 +27,7 @@
  */
 
 #include <furi.h>
+#include "hone_license_gate.h"
 #include <gui/gui.h>
 #include <input/input.h>
 #include <storage/storage.h>
@@ -171,6 +172,10 @@ static void input_callback(InputEvent* event, void* ctx) {
 
 int32_t hone_relay_app(void* p) {
     UNUSED(p);
+
+    /* UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+     * until HONE's license is accepted. See docs/LICENSE_ACCEPTANCE.md. */
+    if(!hone_license_gate("hone_relay")) return 0;
 
     RelayApp* app   = malloc(sizeof(RelayApp));
     app->mutex      = furi_mutex_alloc(FuriMutexTypeNormal);

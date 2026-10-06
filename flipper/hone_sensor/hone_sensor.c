@@ -1,4 +1,5 @@
 #include <furi.h>
+#include "hone_license_gate.h"
 #include <furi_hal_adc.h>
 #include <furi_hal_bt.h>
 #include <furi_hal_gpio.h>
@@ -747,6 +748,10 @@ static void app_free(HoneSensorApp* app) {
 
 int32_t hone_sensor_app(void* p) {
     (void)p;
+    /* UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+     * until HONE's license is accepted. See docs/LICENSE_ACCEPTANCE.md. */
+    if(!hone_license_gate("hone_sensor")) return 0;
+
     HoneSensorApp* app = app_alloc();
     if(!app || !app->gui || !app->view_dispatcher || !app->submenu || !app->diagnostics_submenu || !app->text_box) {
         app_free(app);
