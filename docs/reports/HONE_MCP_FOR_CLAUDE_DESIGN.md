@@ -286,7 +286,7 @@ For a local repo checkout before a `hone mcp serve` CLI exists, Claude can be co
     "hone": {
       "command": "npm",
       "args": ["run", "mcp:hone"],
-      "cwd": "X:\\hone"
+      "cwd": "X:\\ferry\\repos\\hone"
     }
   }
 }
