@@ -102,6 +102,8 @@ struct EpochState {
     /// Extended deadline: if we have 1 seal and live peers, wait until this
     /// before self-sealing. Set to deadline + PEER_SEAL_WAIT_MS on first wait.
     peer_fallback_deadline: Option<Instant>,
+    /// Insufficient-quorum warning already logged for this epoch.
+    quorum_warned: bool,
 }
 
 struct RewardState {
@@ -121,6 +123,8 @@ struct Inner {
     /// Current registered clock node set — updated at each epoch seal via
     /// `set_registered_clocks()`. Used as the quorum denominator.
     registered_clocks: Vec<String>,
+    /// Last time the pending-quorum summary was logged (rate-limits it to 1/min).
+    last_quorum_summary: Option<Instant>,
 }
 
 // ── ClockConsensus ────────────────────────────────────────────────────────────
@@ -145,6 +149,7 @@ impl ClockConsensus {
                 current_epoch: 0,
                 observer_mode: false,
                 registered_clocks: Vec::new(),
+                last_quorum_summary: None,
             })),
             sealed_tx,
             finalized_tx,
@@ -264,6 +269,7 @@ impl ClockConsensus {
                     winner: None,
                     deadline: Instant::now() + Duration::from_millis(SEAL_COLLECT_MS),
                     peer_fallback_deadline: None,
+                    quorum_warned: false,
                 });
 
             if state.resolved {
@@ -329,6 +335,7 @@ impl ClockConsensus {
             winner: None,
             deadline: Instant::now() + Duration::from_millis(SEAL_COLLECT_MS),
             peer_fallback_deadline: None,
+            quorum_warned: false,
         });
     }
 
@@ -546,10 +553,25 @@ impl ClockConsensus {
                     (denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize,
                 );
                 if voting_inliers.len() < quorum_needed {
-                    warn!(
-                        "[clock] epoch {}: insufficient quorum ({} registered inliers / {} registered, need {}; {} total seals received)",
-                        epoch, voting_inliers.len(), denominator, quorum_needed, seals.len()
-                    );
+                    // Log once per epoch; this path re-runs on every incoming seal/tick.
+                    let first = inner.epoch_states.get_mut(&epoch)
+                        .map(|s| !std::mem::replace(&mut s.quorum_warned, true))
+                        .unwrap_or(false);
+                    if first {
+                        warn!(
+                            "[clock] epoch {}: insufficient quorum ({} registered inliers / {} registered, need {}; {} total seals received)",
+                            epoch, voting_inliers.len(), denominator, quorum_needed, seals.len()
+                        );
+                    }
+                    let due = inner.last_quorum_summary.map_or(true, |t| t.elapsed() >= Duration::from_secs(60));
+                    if due {
+                        inner.last_quorum_summary = Some(Instant::now());
+                        let pending: Vec<u64> = inner.epoch_states.iter()
+                            .filter(|(_, s)| s.quorum_warned && !s.resolved).map(|(e, _)| *e).collect();
+                        if let (Some(lo), Some(hi)) = (pending.iter().min(), pending.iter().max()) {
+                            info!("[clock] {} epochs pending quorum: oldest {} newest {}", pending.len(), lo, hi);
+                        }
+                    }
                     return;
                 }
 
