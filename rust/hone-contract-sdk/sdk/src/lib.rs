@@ -40,10 +40,10 @@ impl Counter {
 #[cfg(target_arch = "wasm32")]
 extern crate alloc;
 
-#[cfg(feature = "wee_alloc")]
+#[cfg(feature = "dlmalloc")]
 #[cfg(target_arch = "wasm32")]
 #[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+static ALLOC: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
 
 pub mod env;
 pub mod storage;
