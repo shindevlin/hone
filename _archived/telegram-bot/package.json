@@ -1,7 +1,7 @@
 {
   "name": "hone-bot",
   "version": "1.0.0",
-  "description": "HONE Telegram bot — check balances, mining stats, epoch info",
+  "description": "HONE Telegram bot \u2014 check balances, mining stats, epoch info",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -11,5 +11,9 @@
     "mongoose": "^8.0.3",
     "node-telegram-bot-api": "^0.66.0",
     "ws": "^8.20.0"
+  },
+  "overrides": {
+    "request": "npm:@cypress/request@^3.0.10",
+    "qs": "^6.16.1"
   }
 }
