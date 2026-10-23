@@ -69,7 +69,7 @@ dependencies {
     // QR generation for receive flow (Phase 2) — no copy-paste; show/scan a code.
     implementation("com.google.zxing:core:3.5.3")
     // uniffi runtime dep for the generated bindings (JNA), added in Phase 0b:
-    // implementation("net.java.dev.jna:jna:5.14.0@aar")
+    implementation("net.java.dev.jna:jna:5.14.0@aar")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

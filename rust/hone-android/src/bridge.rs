@@ -64,6 +64,10 @@ pub struct NodeStatus {
     pub epoch: u64,
     /// Balance of the node's own account, in hunits.
     pub balance_hunits: u64,
+    /// Distinct connected peers.
+    pub peers: u32,
+    /// True when running as a listen-only observer (no account/key).
+    pub read_only: bool,
 }
 
 /// Typed errors surfaced to Kotlin as a sealed `NodeException`.
@@ -179,12 +183,16 @@ impl HoneNode {
                     .chain
                     .store
                     .get_balance(&r.handle.chain.node_id, hone_types::NATIVE_TOKEN),
+                peers: r.handle.peers.load(std::sync::atomic::Ordering::Relaxed),
+                read_only: r.handle.read_only,
             },
             None => NodeStatus {
                 running: false,
                 status_text: "Stopped".to_owned(),
                 epoch: 0,
                 balance_hunits: 0,
+                peers: 0,
+                read_only: false,
             },
         }
     }

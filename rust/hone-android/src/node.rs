@@ -2,6 +2,7 @@
 //! inference worker, and P2P swarm with no dependency on any remote API.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 use parking_lot::Mutex as PLMutex;
 use tokio::sync::{broadcast, mpsc};
@@ -36,6 +37,11 @@ pub struct NodeHandle {
     pub status:      Arc<PLMutex<String>>,
     pub cmd_tx:      mpsc::Sender<NetCmd>,
     pub shutdown_tx: broadcast::Sender<()>,
+    /// Live count of connected peers (updated by the swarm task).
+    pub peers:       Arc<AtomicU32>,
+    /// True when the node runs as a read-only observer (no account/key):
+    /// it listens to gossip but never publishes anything to the network.
+    pub read_only:   bool,
 }
 
 pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Result<NodeHandle> {
@@ -52,6 +58,15 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     let (cmd_tx, cmd_rx) = mpsc::channel::<NetCmd>(256);
     let (event_tx, mut event_rx) = mpsc::channel::<NetworkEvent>(256);
 
+    // Observer mode: with no account or posting key the node only listens.
+    // It runs no miner, inference worker or verifier, and the swarm drops every
+    // outbound publish, so nothing this engine computes can reach the network.
+    let read_only = cfg.account.is_empty() || cfg.posting_key.is_empty();
+    let peers = Arc::new(AtomicU32::new(0));
+    if read_only {
+        info!("micronode: read-only observer mode (no account/key) — publishing disabled");
+    }
+
     // ── P2P swarm ─────────────────────────────────────────────────────────────
     {
         let swarm_cfg = SwarmConfig {
@@ -59,6 +74,8 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
             data_dir:        cfg.data_dir.clone(),
             p2p_port:        cfg.p2p_port,
             bootstrap_peers: cfg.bootstrap_peers.clone(),
+            read_only,
+            peers:           peers.clone(),
         };
         let sd = shutdown_tx.subscribe();
         tokio::spawn(async move {
@@ -94,7 +111,7 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     ));
 
     // ── Block miner (inference-based) ─────────────────────────────────────────
-    if cfg.is_miner {
+    if cfg.is_miner && !read_only {
         let ch    = chain.clone();
         let acct  = cfg.account.clone();
         let gen   = cfg.genesis_ts;
@@ -107,7 +124,7 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     }
 
     // ── Inference job worker ──────────────────────────────────────────────────
-    {
+    if !read_only {
         let acct    = cfg.account.clone();
         let chain_r = chain.clone();
         let cmd     = cmd_tx.clone();
@@ -121,7 +138,7 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     }
 
     // ── Inference verifier ────────────────────────────────────────────────────
-    {
+    if !read_only {
         let acct    = cfg.account.clone();
         let chain_r = chain.clone();
         let cmd     = cmd_tx.clone();
@@ -160,6 +177,10 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
                     _ = tokio::time::sleep(Duration::from_secs(5)) => {}
                 }
                 let epoch = ch.current_epoch();
+                if acct.is_empty() {
+                    *st.lock() = format!("Observing (read-only) · epoch {}", epoch);
+                    continue;
+                }
                 let bal   = ch.store.get_balance(&acct, NATIVE_TOKEN);
                 let hone = bal as f64 / 10_000_000_000.0;
                 *st.lock() = format!("epoch {} | {:.4} HONE | {}", epoch, hone, acct);
@@ -175,6 +196,8 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
         status,
         cmd_tx,
         shutdown_tx,
+        peers,
+        read_only,
     })
 }
 

@@ -1,11 +1,12 @@
 package network.hone.app.ui.screens
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import network.hone.app.data.MockNodeRepository
+import network.hone.app.data.NodeRepositories
 import network.hone.app.data.NodeRepository
 import network.hone.app.data.NodeSnapshot
 
@@ -14,9 +15,10 @@ import network.hone.app.data.NodeSnapshot
  * swaps to the bridge-backed repo in Phase 0b via constructor injection — no UI
  * change). The `state` StateFlow is what Compose collects.
  */
-class NodeViewModel(
-    private val repo: NodeRepository = MockNodeRepository(),
-) : ViewModel() {
+class NodeViewModel(application: Application) : AndroidViewModel(application) {
+
+    // Phase 0b: the real Rust core (observer-only until the phone has its own account).
+    private val repo: NodeRepository = NodeRepositories.get(application)
 
     val state = repo.observe().stateIn(
         scope = viewModelScope,
