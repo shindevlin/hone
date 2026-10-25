@@ -118,7 +118,9 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         | E::TrackerSubscription { .. }
         | E::SessionListingBuy { .. }
         | E::NameAuctionBid { .. } | E::NameAuctionSettle { .. }
-        | E::FreeportAuctionBid { .. } | E::FreeportAuctionSettle { .. } => Value,
+        | E::FreeportAuctionBid { .. } | E::FreeportAuctionSettle { .. }
+        | E::IdentityNftTransfer { .. }
+        | E::IdentityNftSetSoulbound { .. } | E::IdentityNftUnsetSoulbound { .. } => Value,
 
         // â”€â”€ Deliver: fulfillment + escrow resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         E::OrderFulfill { .. } | E::EscrowRelease { .. }
@@ -179,7 +181,9 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         | E::NameAuctionOpen { .. } | E::NameAuctionCancel { .. }
         | E::FreeportAuctionOpen { .. }
         | E::TonActivationIntent { .. } | E::AmberPillMint { .. }
-        | E::FineTuneJobComplete { .. } | E::ComputerUseJobComplete { .. } => Operate,
+        | E::FineTuneJobComplete { .. } | E::ComputerUseJobComplete { .. }
+        | E::IdentityNftMint { .. } | E::IdentityNftAccept { .. } | E::IdentityNftReject { .. }
+        | E::IdentityNftSetPrimary { .. } => Operate,
     }
 }
 
@@ -228,5 +232,25 @@ mod tests {
         for k in [KeyType::Owner, KeyType::Active, KeyType::Posting] {
             assert!(!authorize(k, System));
         }
+    }
+
+    #[test]
+    fn identity_nft_transfer_is_value_others_are_operate() {
+        use LedgerEntry as E;
+        // A name is an asset: moving it needs Value (active/owner), never posting.
+        assert_eq!(required_capability(&E::IdentityNftTransfer {
+            name: "x".into(), from: "a".into(), to: "b".into(),
+            epoch: 0, nonce: 0, signed_by: "a".into(), signature: None,
+        }), Capability::Value);
+        assert!(!authorize(KeyType::Posting, Capability::Value));
+        // Minting / receipt / primary are everyday Operate actions.
+        assert_eq!(required_capability(&E::IdentityNftMint {
+            name: "x".into(), to: "a".into(),
+            epoch: 0, nonce: 0, signed_by: "a".into(), signature: None,
+        }), Capability::Operate);
+        assert_eq!(required_capability(&E::IdentityNftSetPrimary {
+            account: "a".into(), name: "x".into(),
+            epoch: 0, nonce: 0, signed_by: "a".into(), signature: None,
+        }), Capability::Operate);
     }
 }

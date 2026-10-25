@@ -3681,6 +3681,42 @@ impl Chain {
                 crate::finetune::apply_post(self, job_id, requester, base_model, dataset_cid, *max_fee, *epoch)?;
             }
             LedgerEntry::FineTuneJobComplete { job_id, worker, adapter_cid, epoch, .. } => {
+            // â”€â”€ Identity NFTs (names as transferable assets) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            LedgerEntry::IdentityNftMint { name, to, epoch, signed_by, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                self.ensure_account(signed_by, *epoch)?;
+                self.ensure_account(to, *epoch)?;
+                crate::identity_nft::apply_mint(self, name, to, signed_by, *epoch)?;
+            }
+            LedgerEntry::IdentityNftTransfer { name, from, to, epoch, .. } => {
+                self.touch_alive(from, *epoch);
+                self.ensure_account(from, *epoch)?;
+                self.ensure_account(to, *epoch)?;
+                crate::identity_nft::apply_transfer(self, name, from, to, *epoch)?;
+            }
+            LedgerEntry::IdentityNftAccept { name, to, epoch, .. } => {
+                self.touch_alive(to, *epoch);
+                self.ensure_account(to, *epoch)?;
+                crate::identity_nft::apply_accept(self, name, to, *epoch)?;
+            }
+            LedgerEntry::IdentityNftReject { name, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_reject(self, name, signed_by)?;
+            }
+            LedgerEntry::IdentityNftSetSoulbound { name, mode, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_set_soulbound(self, name, signed_by, mode)?;
+            }
+            LedgerEntry::IdentityNftUnsetSoulbound { name, signed_by, cosigner, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_unset_soulbound(self, name, signed_by, cosigner.as_deref())?;
+            }
+            LedgerEntry::IdentityNftSetPrimary { account, name, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::identity_nft::apply_set_primary(self, account, name)?;
+            }
+
                 self.touch_alive(worker, *epoch);
                 self.ensure_account(worker, *epoch)?;
                 crate::finetune::apply_complete(self, job_id, worker, adapter_cid, *epoch)?;

@@ -1945,6 +1945,100 @@ pub fn validate_and_apply(
             check_signature(chain, signed_by, entry, sig_hex, "active")?;
             chain.apply_entry(entry)?;
             let _ = bump_nonce(chain, account);
+        // â”€â”€ Identity NFTs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        LedgerEntry::IdentityNftMint { name, to, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            // Issuing a reserved name, issuing as the issuer account, or minting into
+            // another account is high-value asset creation -> active/owner only (no
+            // posting fallback). Ordinary open-phase self-mint stays an Operate action.
+            let high_value = signed_by == crate::identity_nft::ISSUER_ACCOUNT
+                || to != signed_by
+                || crate::identity_nft::is_reserved(name);
+            if high_value {
+                check_value_signature(chain, signed_by, entry, sig_hex)?;
+            } else {
+                check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            }
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::IdentityNftTransfer { from, to, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            if signed_by != from { bail!("signed_by '{}' must equal from '{}'", signed_by, from); }
+            if from == to { bail!("cannot transfer a name to its current owner"); }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, from, *nonce)?;
+            // VALUE move: active or owner only. A posting key can NEVER move an asset.
+            check_value_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, from);
+        }
+        LedgerEntry::IdentityNftAccept { to, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            if signed_by != to { bail!("signed_by '{}' must equal recipient '{}'", signed_by, to); }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, to, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, to);
+        }
+        LedgerEntry::IdentityNftReject { signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::IdentityNftSetSoulbound { signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            // Locking an asset (esp. near-irreversible permalock) is value-tier: active/owner, no posting fallback.
+            check_value_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::IdentityNftUnsetSoulbound { name, signed_by, cosigner, cosigner_signature, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            match crate::identity_nft::get(chain, name).map(|n| n.soulbound) {
+                Some(crate::identity_nft::Soulbound::Permalock) => {
+                    // Founder 2-of-3: both sign against OWNER keys, no posting fallback.
+                    verify_founder_owner_sig(chain, signed_by, entry, sig_hex)?;
+                    let co = cosigner.as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("permalock unlock requires a founder cosigner"))?;
+                    verify_founder_owner_sig(chain, co, entry, cosigner_signature.as_deref())?;
+                }
+                Some(crate::identity_nft::Soulbound::Soft) => {
+                    check_value_signature(chain, signed_by, entry, sig_hex)?;
+                }
+                Some(crate::identity_nft::Soulbound::None) => bail!("'{}' is not soulbound", name),
+                None => bail!("name '{}' is not minted", name),
+            }
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::IdentityNftSetPrimary { account, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            if signed_by != account { bail!("signed_by '{}' must equal account '{}'", signed_by, account); }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+
         }
 
         // ── Fine-tune jobs ────────────────────────────────────────────────────
@@ -2114,6 +2208,13 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
 pub fn bump_nonce(chain: &Chain, account: &str) -> Result<()> {
     if let Some(mut state) = chain.store.get_account(account)? {
         let current = state
+        LedgerEntry::IdentityNftMint { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftTransfer { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftAccept { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftReject { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftSetSoulbound { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftUnsetSoulbound { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftSetPrimary { epoch, .. } => Some(*epoch),
             .get("nonce")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
@@ -2537,6 +2638,45 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "type": "ACCOUNT_CREATE",
                 "account": account,
                 "keys": sorted_keys,
+/// Require the identity-NFT activation epoch before any IdentityNft* entry is valid.
+fn ensure_identity_active(chain: &Chain) -> Result<()> {
+    let cur = chain.current_epoch();
+    if cur < hone_types::IDENTITY_NFT_ACTIVATION_EPOCH {
+        bail!("identity NFTs are not active until epoch {} (current {})",
+              hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, cur);
+    }
+    Ok(())
+}
+
+/// Verify a VALUE-moving entry: the signer must sign with their ACTIVE key (or OWNER,
+/// which outranks active). There is NO posting fallback â€” a posting key can never move
+/// an asset. Mirrors the capability model (Value in {Owner, Active}).
+fn check_value_signature(chain: &Chain, signed_by: &str, entry: &LedgerEntry, sig_hex: Option<&str>) -> Result<()> {
+    let state = chain.store.get_account(signed_by)?
+        .ok_or_else(|| anyhow::anyhow!("unknown account '{}' cannot sign", signed_by))?;
+    let key = |r: &str| state.get("keys").and_then(|v| v.get(r)).and_then(|v| v.as_str())
+        .filter(|k| !k.is_empty()).map(str::to_owned);
+    let pubkey_hex = key("active").or_else(|| key("owner")).ok_or_else(|| anyhow::anyhow!(
+        "'{}' has no active or owner key â€” a posting key cannot authorise a value move; \
+         register an active key first", signed_by))?;
+    verify_against_pubkey(chain, &pubkey_hex, entry, sig_hex)
+}
+
+/// Verify a founder signature for the permalock multisig, against the account's OWNER
+/// key only (no fallback). Founder-set membership is required here too.
+fn verify_founder_owner_sig(chain: &Chain, account: &str, entry: &LedgerEntry, sig_hex: Option<&str>) -> Result<()> {
+    if !hone_types::IDENTITY_FOUNDER_ACCOUNTS.contains(&account) {
+        bail!("'{}' is not a founder", account);
+    }
+    let state = chain.store.get_account(account)?
+        .ok_or_else(|| anyhow::anyhow!("unknown founder account '{}'", account))?;
+    let owner = state.get("keys").and_then(|v| v.get("owner")).and_then(|v| v.as_str())
+        .filter(|k| !k.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("founder '{}' has no owner key registered", account))?
+        .to_owned();
+    verify_against_pubkey(chain, &owner, entry, sig_hex)
+}
+
                 "chain_proofs": proofs,
                 "funded_by": funded_by,
             })
@@ -3039,6 +3179,20 @@ mod tests {
         (chain, dir)
     }
 
+        LedgerEntry::IdentityNftMint { name, to, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_MINT", "name": name, "to": to, "nonce": nonce }),
+        LedgerEntry::IdentityNftTransfer { name, from, to, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_TRANSFER", "name": name, "from": from, "to": to, "nonce": nonce }),
+        LedgerEntry::IdentityNftAccept { name, to, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_ACCEPT", "name": name, "to": to, "nonce": nonce }),
+        LedgerEntry::IdentityNftReject { name, signed_by, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_REJECT", "name": name, "signed_by": signed_by, "nonce": nonce }),
+        LedgerEntry::IdentityNftSetSoulbound { name, mode, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_SOULBOUND", "name": name, "mode": mode, "nonce": nonce }),
+        LedgerEntry::IdentityNftUnsetSoulbound { name, cosigner, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_UNSET_SOULBOUND", "name": name, "cosigner": cosigner, "nonce": nonce }),
+        LedgerEntry::IdentityNftSetPrimary { account, name, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_PRIMARY", "account": account, "name": name, "nonce": nonce }),
     /// Create account + fund it. Registers a deterministic posting key so
     /// require_key() passes. Uses seed = first byte of account name.
     fn fund(chain: &Chain, account: &str, amount: u64) {
@@ -3948,3 +4102,141 @@ mod tests {
             "a forged-signature contract call must be rejected at seal");
     }
 }
+
+    // â”€â”€ Identity NFT: signature / activation enforcement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    fn at_identity_epoch(chain: &Chain) {
+        chain.apply_entry(&LedgerEntry::EpochSeal {
+            node_id: "test-node".into(), epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH,
+            timestamp: 0, seal_hash: "h".into(), signature: None, node_version: None,
+        }).unwrap();
+        assert!(chain.current_epoch() >= hone_types::IDENTITY_NFT_ACTIVATION_EPOCH);
+    }
+
+    fn mint_direct(chain: &Chain, name: &str, to: &str) {
+        chain.apply_entry(&LedgerEntry::IdentityNftMint {
+            name: name.into(), to: to.into(),
+            epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, nonce: 0,
+            signed_by: to.into(), signature: None,
+        }).unwrap();
+    }
+
+    fn id_transfer(from: &str, to: &str, nonce: u64) -> LedgerEntry {
+        LedgerEntry::IdentityNftTransfer {
+            name: "coolname".into(), from: from.into(), to: to.into(),
+            epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, nonce,
+            signed_by: from.into(), signature: None,
+        }
+    }
+
+    #[test]
+    fn identity_transfer_posting_signature_rejected_active_accepted() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000); // posting key seed 'a'
+        fund(&chain, "bob", 0);
+        let active = register_key(&chain, "alice", "active", 7);
+        at_identity_epoch(&chain);
+        mint_direct(&chain, "coolname", "alice");
+
+        let e = id_transfer("alice", "bob", 1);
+        // Signed with the POSTING key -> must be rejected: posting can never move an asset.
+        let posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let bad = sign(&posting, &e);
+        assert!(validate_and_apply(&chain, &e, Some(&bad)).is_err(),
+            "a posting-key signature must NOT authorise a name transfer");
+        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().owner, "alice");
+
+        // Signed with the ACTIVE key -> accepted (pending offer; ownership unchanged until accept).
+        let good = sign(&active, &e);
+        validate_and_apply(&chain, &e, Some(&good)).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().owner, "alice");
+    }
+
+    #[test]
+    fn identity_transfer_requires_an_active_or_owner_key() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000); // ONLY a posting key
+        fund(&chain, "bob", 0);
+        at_identity_epoch(&chain);
+        mint_direct(&chain, "coolname", "alice");
+        let e = id_transfer("alice", "bob", 1);
+        let posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&posting, &e);
+        assert!(validate_and_apply(&chain, &e, Some(&sig)).is_err(),
+            "without an active/owner key a name cannot be transferred");
+    }
+
+    #[test]
+    fn identity_entries_rejected_before_activation_epoch() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        let _active = register_key(&chain, "alice", "active", 7);
+        // Deliberately do NOT advance to the activation epoch.
+        let e = LedgerEntry::IdentityNftMint {
+            name: "coolname".into(), to: "alice".into(),
+            epoch: 1, nonce: 1, signed_by: "alice".into(), signature: None,
+        };
+        let posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&posting, &e);
+        assert!(validate_and_apply(&chain, &e, Some(&sig)).is_err(),
+            "identity entries must be rejected before the activation epoch");
+    }
+
+
+    #[test]
+    fn identity_setsoulbound_rejects_posting_signature() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        let active = register_key(&chain, "alice", "active", 7);
+        at_identity_epoch(&chain);
+        mint_direct(&chain, "coolname", "alice");
+        let e = LedgerEntry::IdentityNftSetSoulbound {
+            name: "coolname".into(), mode: "permalock".into(),
+            epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, nonce: 1,
+            signed_by: "alice".into(), signature: None,
+        };
+        let posting = SigningKey::from_bytes(&[b'a'; 32]);
+        assert!(validate_and_apply(&chain, &e, Some(&sign(&posting, &e))).is_err(),
+            "a posting key must NOT permalock a name");
+        validate_and_apply(&chain, &e, Some(&sign(&active, &e))).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().soulbound,
+                   crate::identity_nft::Soulbound::Permalock);
+    }
+
+    #[test]
+    fn identity_issuer_mint_of_reserved_name_rejects_posting() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "shindevlin", 1_000_000_000_000); // posting seed 's'
+        let active = register_key(&chain, "shindevlin", "active", 9);
+        fund(&chain, "buyer", 0);
+        at_identity_epoch(&chain);
+        // "a" is a reserved single-letter name; only shindevlin may issue it, and
+        // issuing is high-value -> active key required, posting rejected.
+        let e = LedgerEntry::IdentityNftMint {
+            name: "a".into(), to: "buyer".into(),
+            epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, nonce: 1,
+            signed_by: "shindevlin".into(), signature: None,
+        };
+        let posting = SigningKey::from_bytes(&[b's'; 32]);
+        assert!(validate_and_apply(&chain, &e, Some(&sign(&posting, &e))).is_err(),
+            "issuer posting key must NOT mint reserved names");
+        validate_and_apply(&chain, &e, Some(&sign(&active, &e))).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "a").unwrap().owner, "buyer");
+    }
+
+    #[test]
+    fn identity_ordinary_self_mint_accepts_posting() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        at_identity_epoch(&chain);
+        // Non-reserved, self-mint, non-issuer -> ordinary Operate action, posting OK.
+        let e = LedgerEntry::IdentityNftMint {
+            name: "coolname".into(), to: "alice".into(),
+            epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, nonce: 1,
+            signed_by: "alice".into(), signature: None,
+        };
+        let posting = SigningKey::from_bytes(&[b'a'; 32]);
+        validate_and_apply(&chain, &e, Some(&sign(&posting, &e))).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().owner, "alice");
+    }
+
