@@ -2,6 +2,7 @@ pub mod account;
 pub mod block;
 pub mod emission;
 pub mod entry;
+pub mod capabilities;
 
 pub use account::*;
 pub use block::*;
