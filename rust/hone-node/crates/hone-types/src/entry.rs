@@ -2671,6 +2671,148 @@ pub enum LedgerEntry {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
+
+    // â”€â”€ Identity NFTs (names as transferable assets) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    IdentityNftMint {
+        name: String,
+        to: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    IdentityNftTransfer {
+        name: String,
+        from: AccountId,
+        to: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    IdentityNftAccept {
+        name: String,
+        to: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    IdentityNftReject {
+        name: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    IdentityNftSetRecovery {
+        name: String,
+        guardians: Vec<AccountId>,
+        threshold: u8,
+        destination: AccountId,
+        founder_backstop: bool,
+        seq: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cosignatures: Vec<(AccountId, String)>,
+    },
+    IdentityNftLock {
+        name: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    IdentityNftUnlock {
+        name: String,
+        seq: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cosignatures: Vec<(AccountId, String)>,
+    },
+    IdentityNftRecover {
+        name: String,
+        seq: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cosignatures: Vec<(AccountId, String)>,
+    },
+    IdentityNftSetBackstop {
+        name: String,
+        enabled: bool,
+        seq: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cosignatures: Vec<(AccountId, String)>,
+    },
+    IdentityNftSetPrimary {
+        account: AccountId,
+        name: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    // â”€â”€ Soulbound credential tokens (bound to a name) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    SoulboundIssue {
+        token_id: String,
+        name: String,
+        class: String,
+        #[serde(default)]
+        wallet_bound: bool,
+        data: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    SoulboundAccept {
+        token_id: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    SoulboundReject {
+        token_id: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    SoulboundRevoke {
+        token_id: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 }
 
 /// A single chain address within a wallet family.
@@ -2880,6 +3022,20 @@ impl LedgerEntry {
             Self::AgentTaskVerifierCommit { epoch, .. } => *epoch,
             Self::AgentTaskVerifierReveal { epoch, .. } => *epoch,
             Self::AgentTaskSettle { epoch, .. } => *epoch,
+            Self::IdentityNftMint { epoch, .. } => *epoch,
+            Self::IdentityNftTransfer { epoch, .. } => *epoch,
+            Self::IdentityNftAccept { epoch, .. } => *epoch,
+            Self::IdentityNftReject { epoch, .. } => *epoch,
+            Self::IdentityNftSetRecovery { epoch, .. } => *epoch,
+            Self::IdentityNftLock { epoch, .. } => *epoch,
+            Self::IdentityNftUnlock { epoch, .. } => *epoch,
+            Self::IdentityNftRecover { epoch, .. } => *epoch,
+            Self::IdentityNftSetBackstop { epoch, .. } => *epoch,
+            Self::IdentityNftSetPrimary { epoch, .. } => *epoch,
+            Self::SoulboundIssue { epoch, .. } => *epoch,
+            Self::SoulboundAccept { epoch, .. } => *epoch,
+            Self::SoulboundReject { epoch, .. } => *epoch,
+            Self::SoulboundRevoke { epoch, .. } => *epoch,
         }
     }
 
@@ -3131,5 +3287,21 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::GatewayRewardSplit { .. }
         | LedgerEntry::TonWalletActivated { .. }
         | LedgerEntry::AgentTaskSettle { .. } => ENTRY_WEIGHT_SYSTEM,
+
+        // â”€â”€ Identity NFTs â”€â”€
+        LedgerEntry::IdentityNftMint { .. } => ENTRY_WEIGHT_REGISTRATION,
+        LedgerEntry::IdentityNftTransfer { .. }
+        | LedgerEntry::IdentityNftAccept { .. }
+        | LedgerEntry::IdentityNftReject { .. }
+        | LedgerEntry::IdentityNftSetRecovery { .. }
+        | LedgerEntry::IdentityNftLock { .. }
+        | LedgerEntry::IdentityNftUnlock { .. }
+        | LedgerEntry::IdentityNftRecover { .. }
+        | LedgerEntry::IdentityNftSetBackstop { .. }
+        | LedgerEntry::IdentityNftSetPrimary { .. }
+        | LedgerEntry::SoulboundIssue { .. }
+        | LedgerEntry::SoulboundAccept { .. }
+        | LedgerEntry::SoulboundReject { .. }
+        | LedgerEntry::SoulboundRevoke { .. } => ENTRY_WEIGHT_STANDARD,
     }
 }
