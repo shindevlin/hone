@@ -15,7 +15,7 @@ name = "hone_contract_runtime"
 path = "src/lib.rs"
 
 [dependencies]
-wasmtime = { version = "23" }
+wasmtime = { version = "50" }
 base64 = "0.22"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
