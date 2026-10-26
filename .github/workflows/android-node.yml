@@ -21,6 +21,14 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
+      # rust/rust-toolchain.toml pins 1.90.0, which overrides the stable toolchain
+      # above inside rust/ — so the Android targets must be added to the pinned one.
+      - name: Add Android targets to pinned toolchain
+        working-directory: rust/hone-android
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:

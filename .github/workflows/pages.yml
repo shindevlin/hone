@@ -1,4 +1,8 @@
-name: Deploy HONE Market to GitHub Pages
+name: Publish website to gh-pages
+
+# Pages serves the gh-pages branch (legacy build, custom domain honemesh.net).
+# This keeps gh-pages in sync with website/ on main, so site changes only need
+# one push to main. CNAME lives on gh-pages and is never touched here.
 
 on:
   push:
@@ -8,32 +12,30 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload website artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/checkout@v4
         with:
-          path: website
+          ref: gh-pages
+          path: _site
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Sync website/ into gh-pages
+        run: |
+          rsync -a --delete --exclude .git --exclude CNAME website/ _site/
+          cd _site
+          git add -A
+          if git diff --cached --quiet; then echo "gh-pages already up to date"; exit 0; fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "publish website from ${GITHUB_SHA::7}"
+          git push
