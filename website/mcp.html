@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Use HONE via MCP — honemesh.net</title>
+  <meta name="description" content="Talk to a HONE node from Claude or any MCP client: check chain state, install, and operate a node conversationally with hone-mcp.">
+  <meta property="og:title" content="Use HONE via MCP">
+  <meta property="og:description" content="An MCP server that wraps a running hone-node's HTTP API so an agentic client can read chain state and drive install/onboarding conversationally.">
+  <meta property="og:url" content="https://honemesh.net/mcp">
+  <meta property="og:image" content="https://honemesh.net/hone-logo.jpeg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --orange: #f7931a;
+      --orange-dim: rgba(247,147,26,0.12);
+      --orange-border: rgba(247,147,26,0.3);
+      --bg: #0a0e17;
+      --bg2: #111827;
+      --bg3: #1a2236;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --green: #22c55e;
+      --cyan: #22d3ee;
+      --red: #ef4444;
+      --radius: 12px;
+      --font: 'Courier New', Courier, monospace;
+    }
+    html, body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; min-height: 100vh; }
+
+    #nav-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+      display: flex; align-items: center; padding: 6px 16px;
+      background: rgba(10,14,23,0.95); border-bottom: 1px solid var(--orange-border);
+      font-size: 12px; gap: 16px;
+    }
+    #nav-bar a { color: #c8ccd4; text-decoration: none; }
+    #nav-bar a:first-child { color: var(--orange); font-weight: bold; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+    #nav-bar a:hover { color: var(--orange); }
+
+    .page { padding-top: 64px; max-width: 900px; margin: 0 auto; padding-bottom: 100px; }
+
+    .hero {
+      text-align: center;
+      padding: 72px 24px 40px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(247,147,26,0.08) 0%, transparent 70%);
+      position: relative;
+    }
+    .hero h1 { font-size: 46px; font-weight: 900; letter-spacing: -2px; margin-bottom: 12px; line-height: 1.1; }
+    .hero h1 .orange { color: var(--orange); }
+    .hero .tagline { font-size: 17px; color: var(--text-muted); max-width: 640px; margin: 0 auto; }
+    .hero .tagline span { color: var(--text); }
+
+    .section { padding: 48px 24px 0; }
+    .section-label {
+      font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+      color: var(--orange); margin-bottom: 12px; font-weight: bold;
+    }
+    .section h2 { font-size: 26px; font-weight: 800; margin-bottom: 18px; color: var(--text); }
+    .section p.lead { color: var(--text-muted); font-size: 13.5px; margin-bottom: 20px; max-width: 720px; }
+
+    .code-block {
+      background: #0d1117; border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px; padding: 16px 18px; margin-bottom: 14px;
+      font-family: var(--font); font-size: 13px; color: #a6e3a1;
+      position: relative; overflow-x: auto; white-space: pre;
+    }
+    .copy-btn {
+      position: absolute; top: 10px; right: 10px;
+      background: rgba(247,147,26,0.15); border: 1px solid var(--orange-border);
+      border-radius: 6px; padding: 4px 10px; font-size: 11px; color: var(--orange);
+      cursor: pointer; font-family: var(--font);
+    }
+    .copy-btn:hover { background: rgba(247,147,26,0.25); }
+    .code-block .comment { color: #6272a4; }
+
+    .step { background: var(--bg2); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius); padding: 24px; margin-bottom: 16px; }
+    .step:hover { border-color: var(--orange-border); }
+    .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--orange); color: #0a0e17; font-weight: 900; font-size: 13px;
+      margin-bottom: 10px;
+    }
+    .step h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; color: var(--text); }
+    .step .step-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; }
+
+    .tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 8px; }
+    .tier-card { background: var(--bg2); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius); padding: 20px; }
+    .tier-card .tier-num { font-size: 11px; color: var(--orange); font-weight: bold; letter-spacing: 1px; margin-bottom: 6px; }
+    .tier-card h4 { font-size: 14px; color: var(--text); margin-bottom: 6px; }
+    .tier-card p { font-size: 12.5px; color: var(--text-muted); line-height: 1.55; }
+    .tier-card code { color: var(--cyan); font-size: 11.5px; }
+
+    .warn-box {
+      background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.3);
+      border-radius: var(--radius); padding: 18px 20px; margin: 20px 0;
+      font-size: 13px; color: #fca5a5;
+    }
+    .warn-box b { color: var(--red); }
+
+    .tool-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .tool-pill {
+      background: var(--bg3); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 999px; padding: 5px 12px; font-size: 11.5px; color: var(--text-muted);
+    }
+    .tool-pill.write { color: var(--orange); border-color: var(--orange-border); }
+
+    table.cfg-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+    table.cfg-table th { text-align: left; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.08); padding: 8px 10px; }
+    table.cfg-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); color: var(--text); }
+    table.cfg-table code { color: var(--cyan); }
+
+    .cta-block {
+      max-width: 700px; margin: 60px auto 0; padding: 36px;
+      background: linear-gradient(180deg, rgba(247,147,26,0.08), var(--bg2));
+      border: 1px solid var(--orange-border); border-radius: 16px; text-align: center;
+    }
+    .cta-block h2 { font-size: 22px; margin-bottom: 10px; }
+    .cta-block p { color: var(--text-muted); font-size: 13px; margin-bottom: 18px; }
+    .btn-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn-primary, .btn-secondary {
+      display: inline-block; padding: 10px 22px; border-radius: 8px; font-size: 13px;
+      text-decoration: none; font-weight: bold;
+    }
+    .btn-primary { background: var(--orange); color: #0a0e17; }
+    .btn-secondary { background: transparent; color: var(--text); border: 1px solid rgba(255,255,255,0.15); }
+
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 32px; }
+      .hero .tagline { font-size: 14px; }
+      .cta-block { padding: 26px 20px; }
+    }
+  </style>
+</head>
+<body>
+<script src="/nav.js?v=2"></script>
+
+<!-- Nav -->
+  <a href="/"><img src="/hone-logo.jpeg" alt="HONE" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">HONE</a>
+  <a href="/#tutorial">Get Started</a>
+  <a href="/run-a-node">Run a Node</a>
+  <a href="/mcp" style="color:var(--orange);font-weight:bold;">MCP</a>
+  <a href="/buy">Buy HONE</a>
+  <a href="/dashboard">Explorer</a>
+  <a href="https://t.me/honebot" target="_blank">Telegram</a>
+</div>
+
+<div class="page">
+
+  <div class="hero">
+    <h1>Talk to HONE<br><span class="orange">from your agent.</span></h1>
+    <p class="tagline">
+      <span>hone-mcp</span> wraps a running hone-node's local HTTP API as MCP tools &mdash;
+      so Claude (or any MCP client) can check balances, stake, sensors, and clock status,
+      and drive install/onboarding, as part of a normal conversation.
+    </p>
+  </div>
+
+  <!-- Quickstart -->
+  <div class="section">
+    <div class="section-label">Quickstart</div>
+    <h2>Run it in two commands</h2>
+    <p class="lead">hone-mcp talks to a node already running on <code>HONE_API_PORT</code> (4242 by default). Install a node first if you haven't &mdash; see <a href="/run-a-node" style="color:var(--orange);">Run a Node</a>.</p>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Get the server</h3>
+      <p class="step-desc">hone-mcp lives in the main HONE repo, under <code>clients/hone-mcp</code>.</p>
+      <div class="code-block" id="cmd1">git clone https://github.com/shindevlin/hone.git
+cd hone/clients/hone-mcp
+pip install -e .<button class="copy-btn" onclick="copyCmd('cmd1')">copy</button></div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Point Claude Desktop at it</h3>
+      <p class="step-desc">Add this to <code>claude_desktop_config.json</code>, then restart Claude Desktop. Swap the path for wherever you cloned the repo.</p>
+      <div class="code-block" id="cmd2">{
+  "mcpServers": {
+    "hone": {
+      "command": "python",
+      "args": ["-m", "hone_mcp.server"],
+      "env": { "HONE_NODE_URL": "http://127.0.0.1:4242" }
+    }
+  }
+}<button class="copy-btn" onclick="copyCmd('cmd2')">copy</button></div>
+      <p class="step-desc" style="margin-top:4px;">Any other MCP client works the same way &mdash; it's plain stdio MCP, nothing Claude-specific. Run it standalone with <code>python -m hone_mcp.server</code>.</p>
+    </div>
+  </div>
+
+  <!-- What you can ask it -->
+  <div class="section">
+    <div class="section-label">What it's for</div>
+    <h2>Ask it things like&hellip;</h2>
+    <p class="lead">Once it's connected, no special syntax &mdash; just ask.</p>
+    <div class="code-block" style="color:var(--text);">&ldquo;What's my HONE balance?&rdquo;
+&ldquo;Is my node healthy and how many peers does it see?&rdquo;
+&ldquo;Register this machine for clock consensus.&rdquo;
+&ldquo;Opt this node into testnet operator rewards.&rdquo;
+&ldquo;Build me the message I need to sign to create a new account.&rdquo;
+&ldquo;Submit this signed transfer.&rdquo;</div>
+  </div>
+
+  <!-- Security model -->
+  <div class="section">
+    <div class="section-label">Security model</div>
+    <h2>It never touches your keys</h2>
+    <p class="lead">hone-mcp never accepts, stores, derives, or transmits a private key, BIP-39 mnemonic, or any signature-producing secret as a tool argument or return value &mdash; a private key passing through an LLM's context window is not an acceptable design. Every tool falls into one of four tiers, in order of how much trust it requires:</p>
+
+    <div class="tier-grid">
+      <div class="tier-card">
+        <div class="tier-num">TIER 1 &mdash; READS</div>
+        <h4>Unrestricted</h4>
+        <p>Chain state is public anyway: balances, accounts, stake, sensors, clock status, network snapshot.</p>
+      </div>
+      <div class="tier-card">
+        <div class="tier-num">TIER 2 &mdash; BOOTSTRAP WRITE</div>
+        <h4>No signature needed</h4>
+        <p>Registering a key on a role that has none yet. The node's own grace-period rule covers this &mdash; <code>hone_register_key</code> only.</p>
+      </div>
+      <div class="tier-card">
+        <div class="tier-num">TIER 3 &mdash; NODE SELF-SIGN</div>
+        <h4>No external signature</h4>
+        <p>The node signs with its own already-configured key, which never leaves that process: clock self-register, testnet opt-in.</p>
+      </div>
+      <div class="tier-card">
+        <div class="tier-num">TIER 4 &mdash; SIGNED WRITES</div>
+        <h4>You sign, outside this process</h4>
+        <p>hone-mcp builds the message and the submission body, but signing happens with whatever ed25519 signer you already trust. The signature comes back in via <code>hone_submit_signed_entry</code>.</p>
+      </div>
+    </div>
+
+    <div class="warn-box">
+      <b>No raw-key tool exists, on purpose.</b> If something ever asks you to paste a private key or seed phrase into a chat to use HONE's MCP tools, that's not how this works &mdash; stop and don't do it.
+    </div>
+  </div>
+
+  <!-- Tool list -->
+  <div class="section">
+    <div class="section-label">Reference</div>
+    <h2>Tool list</h2>
+    <p class="lead">Reads (unrestricted):</p>
+    <div class="tool-list">
+      <span class="tool-pill">hone_node_health</span>
+      <span class="tool-pill">hone_get_balance</span>
+      <span class="tool-pill">hone_get_all_balances</span>
+      <span class="tool-pill">hone_get_account</span>
+      <span class="tool-pill">hone_get_account_history</span>
+      <span class="tool-pill">hone_get_stake</span>
+      <span class="tool-pill">hone_staking_requirements</span>
+      <span class="tool-pill">hone_node_role_positions</span>
+      <span class="tool-pill">hone_clock_status</span>
+      <span class="tool-pill">hone_clock_uptime</span>
+      <span class="tool-pill">hone_list_sensors</span>
+      <span class="tool-pill">hone_get_sensor</span>
+      <span class="tool-pill">hone_explorer_status</span>
+      <span class="tool-pill">hone_faucet_status</span>
+      <span class="tool-pill">hone_testnet_status</span>
+    </div>
+    <p class="lead" style="margin-top:20px;">Writes:</p>
+    <div class="tool-list">
+      <span class="tool-pill write">hone_register_key</span>
+      <span class="tool-pill write">hone_clock_self_register</span>
+      <span class="tool-pill write">hone_testnet_toggle</span>
+      <span class="tool-pill write">hone_create_account</span>
+      <span class="tool-pill write">hone_prepare_signing_message</span>
+      <span class="tool-pill write">hone_submit_signed_entry</span>
+    </div>
+
+    <p class="lead" style="margin-top:24px;">Config (environment variables):</p>
+    <table class="cfg-table">
+      <thead><tr><th>Variable</th><th>Default</th><th>Used by</th></tr></thead>
+      <tbody>
+        <tr><td><code>HONE_NODE_URL</code></td><td><code>http://127.0.0.1:4242</code></td><td>every tool</td></tr>
+        <tr><td><code>HONE_CHAIN_ID</code></td><td>&mdash;</td><td><code>hone_prepare_signing_message</code> only &mdash; <code>hone</code> (mainnet) or <code>hone-testnet</code>; can also be passed per-call</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta-block">
+    <h2>Don't have a node yet?</h2>
+    <p>hone-mcp talks to a node running on the same machine. Install one first &mdash; it's one command.</p>
+    <div class="btn-row">
+      <a href="/run-a-node" class="btn-primary">Run a node</a>
+      <a href="https://github.com/shindevlin/hone/tree/main/clients/hone-mcp" class="btn-secondary" target="_blank">View source on GitHub</a>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+function copyCmd(id) {
+  var el = document.getElementById(id);
+  var clone = el.cloneNode(true);
+  var btn = clone.querySelector('.copy-btn');
+  if (btn) btn.remove();
+  var text = clone.innerText || clone.textContent;
+  navigator.clipboard.writeText(text.trim()).then(function() {
+    var b = document.querySelector('#' + id + ' .copy-btn');
+    if (b) { b.textContent = 'copied!'; setTimeout(function(){ b.textContent = 'copy'; }, 1500); }
+  }).catch(function() {
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+  });
+}
+</script>
+
+</body>
+</html>
