@@ -243,7 +243,7 @@
       <div class="req-card">
         <div class="req-icon">&#x1F5A5;&#xFE0F;</div>
         <div class="req-title">Linux / macOS / Windows</div>
-        <div class="req-desc">Node.js 18+ and Ollama run everywhere. Native packages available for Linux and Windows.</div>
+        <div class="req-desc">No dependencies to install by hand &mdash; the installer fetches a prebuilt binary. Ollama is used for inference if you run the miner role.</div>
       </div>
       <div class="req-card">
         <div class="req-icon">&#x1F310;</div>
@@ -261,25 +261,24 @@
 
       <div class="step">
         <div class="step-num">1</div>
-        <h3>Install</h3>
-        <p class="step-desc">Clone the repo and install dependencies. Takes about 60 seconds.</p>
-        <div class="code-block" id="cmd1">git clone https://github.com/shindevlin/hone.git &amp;&amp; cd hone &amp;&amp; npm install<button class="copy-btn" onclick="copyCmd('cmd1')">copy</button></div>
+        <h3>Install &amp; start</h3>
+        <p class="step-desc">One command. Downloads the hone-node binary (building from source if needed), sets your account, and installs it as a background service. Takes about a minute.</p>
+        <div class="code-block" id="cmd1">curl -fsSL https://honemesh.net/install.sh | bash<button class="copy-btn" onclick="copyCmd('cmd1')">copy</button></div>
       </div>
 
       <div class="step">
         <div class="step-num">2</div>
-        <h3>Configure</h3>
-        <p class="step-desc">Copy the example config and edit your username in. Run the interactive setup to register your account on-chain. <a href="/setup.html" class="step-link">Full setup guide &rarr;</a></p>
-        <div class="code-block" id="cmd2"><span class="comment"># Copy the template, then open .env and set HONE_MINER to your username</span>
-cp .env.example .env
-node bin/hone-setup<button class="copy-btn" onclick="copyCmd('cmd2')">copy</button></div>
+        <h3>Pick your role</h3>
+        <p class="step-desc">The installer asks interactively &mdash; clock only, clock + miner (default, needs Ollama), or a full node with storage. Set your username and role up front to skip the prompts. <a href="/setup.html" class="step-link">Full setup guide &rarr;</a></p>
+        <div class="code-block" id="cmd2"><span class="comment"># Non-interactive: pick a name and role before installing</span>
+HONE_ACCOUNT=yourname HONE_ROLE_CHOICE=2 curl -fsSL https://honemesh.net/install.sh | bash<button class="copy-btn" onclick="copyCmd('cmd2')">copy</button></div>
       </div>
 
       <div class="step">
         <div class="step-num">3</div>
-        <h3>Mine</h3>
-        <p class="step-desc">Start the mining daemon. Rewards arrive every 30-second epoch, scaled to your model's parameter count.</p>
-        <div class="code-block" id="cmd3">node bin/hone-mine --miner &lt;yourname&gt;<button class="copy-btn" onclick="copyCmd('cmd3')">copy</button></div>
+        <h3>Check it's running</h3>
+        <p class="step-desc">The installer starts the node as a systemd (or launchd) service, so it keeps running after you log out. Rewards arrive every 30-second epoch, scaled to your model's parameter count.</p>
+        <div class="code-block" id="cmd3">journalctl --user -u hone-node -f<button class="copy-btn" onclick="copyCmd('cmd3')">copy</button></div>
       </div>
 
     </div>
@@ -379,7 +378,7 @@ node bin/hone-setup<button class="copy-btn" onclick="copyCmd('cmd2')">copy</butt
       <a href="/name-auction.html" class="btn-primary">Get your username first</a>
       <a href="#cmd3" class="btn-secondary">Already have one? Start mining</a>
     </div>
-    <div class="mine-cmd">node bin/hone-mine --miner &lt;yourname&gt;</div>
+    <div class="mine-cmd">HONE_ACCOUNT=&lt;yourname&gt; curl -fsSL https://honemesh.net/install.sh | bash</div>
   </div>
 
 </div><!-- /page -->
