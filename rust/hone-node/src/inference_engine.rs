@@ -500,7 +500,7 @@ mod candle_backend {
 // against an operator-selected model, without needing a running server. Gated
 // behind env so it only runs when a model is actually available:
 //
-//   HONE_MODEL_DIR=/mnt/x/hone-models/gguf HONE_MODEL=qwen2.5-0.5b.gguf \
+//   HONE_MODEL_DIR=/mnt/x/ferry/hone-data/hone-models/gguf HONE_MODEL=qwen2.5-0.5b.gguf \
 //     cargo +1.90.0 test -p hone-node --release embedded_candle_smoke -- --ignored --nocapture
 //
 #[cfg(all(test, feature = "inference-embedded"))]

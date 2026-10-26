@@ -36,7 +36,7 @@ wall-clock (`(now − genesis_ts)/30s`). It advances whether or not anyone seals
 ## Root cause — a stack of startup gaps, not a chain failure
 
 ### 1. This is a dev/sim node, never launched as a production sealer
-- **Startup line:** `hone-node starting — account=genesis chain=hone-testnet data="X:/hone-inference-data"`.
+- **Startup line:** `hone-node starting — account=genesis chain=hone-testnet data="X:/ferry/hone-data/hone-inference-data"`.
   It booted as the placeholder `genesis` account, on **testnet**, and **printed a brand-new
   throwaway mnemonic at boot** ("NEW HONE WALLET — WRITE DOWN YOUR MNEMONIC"). A real founder
   clock runs a founder wallet, not a boot-generated one.

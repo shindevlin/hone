@@ -159,3 +159,12 @@ Rules:
 - IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
 - For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## Where Hone lives
+
+- **Code:** this repo, `X:\ferry\repos\hone` (WSL `/mnt/x/ferry/repos/hone`). Set `HONE_HOME` to it; scripts fall back to `git rev-parse --show-toplevel`. Never hardcode a drive path.
+- **Data:** `HONE_DATA_ROOT` = `X:\ferry\hone-data` (WSL `/mnt/x/ferry/hone-data`): hone-models, hone-inference-data (sensitive), hone-control, hone-tools, hone-export-dist, hone-gui-dist, hone-seal-dist, hone-worker-adapter, HONE_SECURITY_BACKUPS_LOCAL_ONLY (sensitive), OpenClaw HONE. Config lives in `X:\ferry\hone-data\hone-home.env`.
+- **Channel:** `X:\ferry\comms\hone-ferryman` via `.ferryman/bridge.toml` (project `hone`). Read `FERRYMAN.md` for how to use it. This is not hone-bridge (a separate project).
+- **Old checkout:** `X:\hone` is retired to `X:\ferry\_retired\hone`. Its 51 branches are local branches here and `legacy/*` remote refs. Local main follows origin/main; the old btcpc lineage shares no history with it.
+- Ask `ferry where hone` once available.
+- Remotes: push access to shindevlin/hone is Shin's; do not push from this machine.

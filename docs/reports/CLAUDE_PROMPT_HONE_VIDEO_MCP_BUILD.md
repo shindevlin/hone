@@ -3,7 +3,7 @@
 Use this prompt when Claude can work on the repo again.
 
 ```text
-You are Claude continuing implementation in X:\hone.
+You are Claude continuing implementation in X:\ferry\repos\hone.
 
 Codex started the HONE video-generation MCP vertical. Read these files first:
 

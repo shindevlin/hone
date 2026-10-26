@@ -1,7 +1,7 @@
 # Codex Review Handoff For Claude
 
 Date: 2026-07-05
-Repo: `X:\hone`
+Repo: `X:\ferry\repos\hone`
 Reviewer: Codex
 
 ## Codex Follow-Up Fixes Applied

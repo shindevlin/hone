@@ -18,7 +18,7 @@
 
 set -e
 
-HONE_REPO="https://github.com/hone-network/hone.git"
+HONE_REPO="https://github.com/shindevlin/hone.git"
 HONE_BRANCH="main"
 HONE_DIR="$HOME/hone"
 SERVICE_NAME="hone-nebra"
