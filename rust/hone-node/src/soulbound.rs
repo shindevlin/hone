@@ -146,6 +146,24 @@ pub fn active_on(chain: &Chain, name: &str) -> Vec<String> {
         .collect()
 }
 
+/// A holder change (transfer/sale) strips HolderScoped credentials from the name,
+/// keeping each as inactive provenance (`stripped=true`), while Provenance-class tokens
+/// persist. Called from `identity_nft::apply_accept`. Recovery does NOT call this: it is
+/// the same holder on a new key, and tokens are keyed by name, so everything survives
+/// automatically.
+pub fn strip_holder_scoped(chain: &Chain, name: &str) -> Result<()> {
+    for tid in active_on(chain, name) {
+        if let Some(mut t) = get(chain, &tid) {
+            if t.class == SbtClass::HolderScoped {
+                t.stripped = true;
+                put(chain, &t)?;
+                chain.store.state_delete(&on_key(name, &tid))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,4 +239,38 @@ mod tests {
         assert_eq!(SbtClass::parse("provenance").unwrap(), SbtClass::Provenance);
         assert!(SbtClass::parse("bogus").is_err());
     }
+
+    #[test]
+    fn transfer_strips_holder_scoped_keeps_provenance() {
+        let (c, _d) = make_chain();
+        mint(&c, "alice", "alice");
+        apply_issue(&c, "kyc", "alice", "verifier", "holder_scoped", false, "x", 2).unwrap();
+        apply_accept(&c, "kyc", "alice").unwrap();
+        apply_issue(&c, "mintedby", "alice", "alice", "provenance", false, "y", 2).unwrap();
+        apply_accept(&c, "mintedby", "alice").unwrap();
+        // a real holder change: transfer + accept
+        crate::identity_nft::apply_transfer(&c, "alice", "alice", "bob", 3).unwrap();
+        crate::identity_nft::apply_accept(&c, "alice", "bob", 4).unwrap();
+        assert!(get(&c, "kyc").unwrap().stripped, "holder-scoped must strip on transfer");
+        assert!(!get(&c, "mintedby").unwrap().stripped, "provenance must persist");
+        let act = active_on(&c, "alice");
+        assert!(act.contains(&"mintedby".to_string()));
+        assert!(!act.contains(&"kyc".to_string()));
+    }
+
+    #[test]
+    fn recovery_keeps_all_credentials() {
+        let (c, _d) = make_chain();
+        mint(&c, "alice", "alice");
+        apply_issue(&c, "kyc", "alice", "verifier", "holder_scoped", false, "x", 2).unwrap();
+        apply_accept(&c, "kyc", "alice").unwrap();
+        crate::identity_nft::apply_set_recovery(&c, "alice", "alice", vec!["bk".into()], 1, "alice-bk", false).unwrap();
+        crate::identity_nft::apply_lock(&c, "alice", "alice").unwrap();
+        let seq = crate::identity_nft::get(&c, "alice").unwrap().recovery_seq;
+        crate::identity_nft::apply_recover(&c, "alice", seq).unwrap();
+        assert_eq!(crate::identity_nft::get(&c, "alice").unwrap().owner, "alice-bk");
+        assert!(!get(&c, "kyc").unwrap().stripped, "recovery keeps credentials");
+        assert!(active_on(&c, "alice").contains(&"kyc".to_string()));
+    }
+
 }

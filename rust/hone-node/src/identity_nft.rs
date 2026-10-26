@@ -212,6 +212,9 @@ pub fn apply_accept(chain: &Chain, name: &str, to: &str, epoch: u64) -> Result<(
         chain.store.state_delete(&primary_key(&from))?;
     }
     chain.store.state_delete(&pending_key(name))?;
+    // A holder change strips holder-scoped credentials (kept as provenance); provenance
+    // tokens persist. Recovery (same holder) does not strip.
+    crate::soulbound::strip_holder_scoped(chain, name)?;
     Ok(())
 }
 
