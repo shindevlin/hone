@@ -1,0 +1,92 @@
+# HONE Docker Compose — Standalone (no clone required)
+# Usage:
+#   1. Download this file to an empty folder
+#   2. Download hone-image.tar.gz from honemesh.net to the same folder
+#   3. docker load -i hone-image.tar.gz
+#   4. HONE_MINER=yourname docker compose up -d
+# Or run hone-start.bat from honemesh.net/install which does all of this.
+#
+# Phase F: MongoDB is optional. By default the hone node starts without it
+# (HONE_MONGO_MODE defaults to "disabled"). Chain state lives on-disk in
+# stateStore + blockStore. Auth uses secretStore (file-based).
+#
+# To re-enable MongoDB for legacy migration:
+#   HONE_MONGO_MODE=enabled MONGODB_URI=... docker compose --profile legacy up -d
+#
+# The mongo service only starts when the "legacy" profile is requested:
+#   docker compose --profile legacy up -d
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: hone-mongo
+    restart: unless-stopped
+    profiles: [legacy]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in your environment}
+    volumes:
+      - mongo_data:/data/db
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hone-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  hone:
+    # Load this image locally first:
+    #   docker load -i hone-image.tar.gz
+    # hone-start.bat handles this for you automatically.
+    image: hone:latest
+    container_name: hone-node
+    restart: unless-stopped
+    pull_policy: never
+    depends_on:
+      - ollama
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Phase F: MongoDB is disabled by default. Chain state lives in stateStore.
+      # Set HONE_MONGO_MODE=enabled and provide MONGODB_URI to opt back in.
+      HONE_MONGO_MODE: ${HONE_MONGO_MODE:-disabled}
+      MONGODB_URI: ${MONGODB_URI:-}
+      OLLAMA_URL: http://ollama:11434
+      # JWT_SECRET is auto-generated on first run if not set. The hone-start
+      # scripts generate a random 64-char hex secret and write it to .env in
+      # the compose directory. For manual setups, set HONE_JWT_SECRET yourself.
+      JWT_SECRET: ${HONE_JWT_SECRET:?Set HONE_JWT_SECRET in your environment}
+      JWT_EXPIRES_IN: 7d
+      HONE_MINER: ${HONE_MINER:-}
+      HONE_MODEL: ${HONE_MODEL:-qwen3:4b}
+      # Multi-role supervisor: defaults to running every role the node
+      # supports (api, miner, clock, storage). Override to a subset
+      # like "miner,clock" to save resources, or "api" for an API-only
+      # node that doesn't mine.
+      HONE_ROLES: ${HONE_ROLES:-all}
+      HONE_STORAGE_CAPACITY_GB: ${HONE_STORAGE_CAPACITY_GB:-10}
+      # Bootstrap peers so a fresh container joins the real HONE chain
+      # instead of starting a solo fork. The Cloudflare relay is a
+      # public, always-on P2P gateway into the live network.
+      HONE_SEED_PEERS: ${HONE_SEED_PEERS:-wss://hone-relay.shindevlin.workers.dev/ws}
+      HONE_RELAY_URL: ${HONE_RELAY_URL:-wss://hone-relay.shindevlin.workers.dev/ws}
+    ports:
+      - "3000:3000"    # HTTP API (routes, wallet, commerce, services)
+      - "4242:4242"    # Explorer
+      - "4243:4243"    # HONE-FS storage host HTTP
+      - "6942:6942"    # P2P miner
+      - "6943:6943"    # P2P clock
+    volumes:
+      - hone_data:/app/data
+      - hone_blocks:/app/blocks
+      - hone_blobs:/root/.hone/blobs
+
+volumes:
+  mongo_data:
+  ollama_models:
+  hone_data:
+  hone_blocks:
+  hone_blobs:

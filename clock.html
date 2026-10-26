@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HONE Browser Clock — Mine While You Browse</title>
+  <meta name="description" content="Run a HONE clock node in your browser. No installation. Earn clock rewards for keeping the network's epoch timing alive.">
+  <meta property="og:title" content="HONE Browser Clock">
+  <meta property="og:description" content="Zero install. Mine HONE clock rewards from any browser, including phones.">
+  <link rel="manifest" href="/clock-manifest.json">
+  <meta name="theme-color" content="#0a0e17">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0e17;
+      color: #e2e8f0;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      padding-top: 48px;
+    }
+    .container { max-width: 480px; width: 100%; text-align: center; }
+    .logo {
+      font-size: 32px;
+      font-weight: 800;
+      color: #f7931a;
+      margin-bottom: 8px;
+      letter-spacing: -1px;
+    }
+    .subtitle {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 32px;
+    }
+    .pulse {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #f7931a 0%, transparent 70%);
+      margin: 0 auto 24px;
+      animation: pulse 2s ease-in-out infinite;
+      opacity: 0.3;
+      transition: opacity 0.3s;
+    }
+    .pulse.active { opacity: 1; }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+    .status-card {
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(42, 53, 80, 0.5);
+      font-size: 14px;
+    }
+    .status-row:last-child { border-bottom: none; }
+    .status-label { color: #94a3b8; }
+    .status-value { color: #f7931a; font-weight: 700; }
+    .status-value.online { color: #10b981; }
+    .status-value.offline { color: #ef4444; }
+    .input-card {
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .input-card label {
+      display: block;
+      color: #94a3b8;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .input-card input {
+      width: 100%;
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      border-radius: 8px;
+      color: #e2e8f0;
+      padding: 12px;
+      font-family: inherit;
+      font-size: 14px;
+    }
+    .input-card input:focus { outline: none; border-color: #f7931a; }
+    .btn {
+      background: #f7931a;
+      color: #0a0e17;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 12px;
+      transition: opacity 0.2s;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.stop { background: #ef4444; color: white; }
+    .log {
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 11px;
+      color: #94a3b8;
+      max-height: 120px;
+      overflow-y: auto;
+      text-align: left;
+      margin-top: 16px;
+    }
+    .log-line { padding: 2px 0; }
+    .log-line .ts { color: #64748b; }
+    .footer {
+      margin-top: 24px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .footer a { color: #f7931a; text-decoration: none; }
+    .reward-info {
+      background: rgba(247, 147, 26, 0.08);
+      border: 1px solid rgba(247, 147, 26, 0.2);
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #cbd5e1;
+      margin-top: 12px;
+    }
+    .tab-btn {
+      flex: 1;
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      color: #94a3b8;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      background: #f7931a;
+      color: #0a0e17;
+      border-color: #f7931a;
+      font-weight: 700;
+    }
+    .verified-badge {
+      display: inline-block;
+      background: #10b981;
+      color: #0a0e17;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+<script src="/nav.js?v=2"></script>
+<div class="container">
+    <div class="logo">⏰ HONE Clock</div>
+    <p class="subtitle">Browser-based clock node. No installation.</p>
+
+    <div class="pulse" id="pulse"></div>
+
+    <div class="status-card">
+      <div class="status-row">
+        <span class="status-label">Status</span>
+        <span class="status-value offline" id="status">Idle</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Network</span>
+        <span class="status-value" id="network">--</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Current Epoch</span>
+        <span class="status-value" id="epoch">--</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Heartbeats Sent</span>
+        <span class="status-value" id="count">0</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Account</span>
+        <span class="status-value" id="account-display">--</span>
+      </div>
+    </div>
+
+    <div class="input-card" id="setup">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button id="tab-anon" class="tab-btn active" onclick="setMode('anon')">Anonymous</button>
+        <button id="tab-signin" class="tab-btn" onclick="setMode('signin')">Sign In</button>
+      </div>
+      <div id="anon-form">
+        <label>Your HONE Username</label>
+        <input type="text" id="account" placeholder="e.g. shindevlin" maxlength="20" autocomplete="off">
+        <button class="btn" id="start" onclick="start()">Start Clock</button>
+        <div class="reward-info">
+          Anonymous mode — anyone can clock for any account. Rewards go to the named account regardless. Casual participation, zero proof.
+        </div>
+      </div>
+      <div id="signin-form" style="display:none;">
+        <label>Username</label>
+        <input type="text" id="signin-account" placeholder="username" maxlength="20" autocomplete="username">
+        <label style="margin-top:8px;">Password</label>
+        <input type="password" id="signin-password" placeholder="password" autocomplete="current-password">
+        <button class="btn" id="signin-btn" onclick="signIn()">Sign In &amp; Start</button>
+        <div class="reward-info">
+          Signed-in mode — proves you control the account. Verified clock counts more authoritatively. Don't have an account? <a href="/app" style="color:#c8ccd4;text-decoration:none;">App</a>
+  <a href="https://t.me/honebot" style="color:#f7931a;">@honebot</a> on Telegram.
+        </div>
+      </div>
+    </div>
+
+    <div class="input-card" id="running" style="display:none;">
+      <button class="btn stop" onclick="stop()">Stop Clock</button>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="footer">
+      <a href="/install">Other install options</a> · <a href="/">honemesh.net</a> · <a href="https://hone.substack.com">Substack</a>
+    </div>
+  </div>
+
+  <script>
+    // Use same-origin /public — served through the website proxy
+    var API = location.origin + '/public';
+
+    var state = {
+      account: null,
+      running: false,
+      timer: null,
+      networkTimer: null,
+      count: 0,
+      jwt: null,
+      verified: false,
+    };
+
+    // Restore JWT from localStorage if present
+    try {
+      var savedJwt = localStorage.getItem('hone_jwt');
+      var savedUser = localStorage.getItem('hone_jwt_user');
+      if (savedJwt && savedUser) {
+        state.jwt = savedJwt;
+        state.account = savedUser;
+        state.verified = true;
+      }
+    } catch (e) {}
+
+    function setMode(mode) {
+      document.getElementById('tab-anon').classList.toggle('active', mode === 'anon');
+      document.getElementById('tab-signin').classList.toggle('active', mode === 'signin');
+      document.getElementById('anon-form').style.display = mode === 'anon' ? 'block' : 'none';
+      document.getElementById('signin-form').style.display = mode === 'signin' ? 'block' : 'none';
+    }
+
+    async function signIn() {
+      var account = document.getElementById('signin-account').value.trim().toLowerCase();
+      var password = document.getElementById('signin-password').value;
+      if (!account || !password) {
+        alert('Username and password required.');
+        return;
+      }
+      try {
+        var res = await fetch('/api/user/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: account, password: password }),
+        });
+        var data = await res.json();
+        if (!res.ok || !data.token) {
+          alert('Sign-in failed: ' + (data.error || 'unknown error'));
+          return;
+        }
+        state.jwt = data.token;
+        state.account = account;
+        state.verified = true;
+        try {
+          localStorage.setItem('hone_jwt', data.token);
+          localStorage.setItem('hone_jwt_user', account);
+        } catch (e) {}
+        // Auto-start the clock
+        document.getElementById('account').value = account;
+        start();
+      } catch (e) {
+        alert('Sign-in error: ' + e.message);
+      }
+    }
+
+    function logMsg(msg) {
+      var line = document.createElement('div');
+      line.className = 'log-line';
+      var ts = new Date().toLocaleTimeString();
+      line.innerHTML = '<span class="ts">' + ts + '</span> ' + msg;
+      var log = document.getElementById('log');
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+      // Keep last 20 lines
+      while (log.childElementCount > 20) log.removeChild(log.firstChild);
+    }
+
+    function setStatus(text, cls) {
+      var el = document.getElementById('status');
+      el.textContent = text;
+      el.className = 'status-value ' + (cls || '');
+    }
+
+    async function fetchNetwork() {
+      try {
+        var res = await fetch(API + '/network', { cache: 'no-store' });
+        if (!res.ok) throw new Error('Network error ' + res.status);
+        var data = await res.json();
+        var status = data.alive ? 'live' : 'stale';
+        var nodes = data.peer_count === 1 ? '1 node' : data.peer_count + ' nodes';
+        document.getElementById('network').textContent = nodes + ' (' + status + ')';
+        document.getElementById('epoch').textContent = '#' + data.epoch;
+      } catch (e) {
+        document.getElementById('network').textContent = 'Offline';
+        document.getElementById('epoch').textContent = '--';
+      }
+    }
+
+    function getClientId() {
+      var id = null;
+      try { id = localStorage.getItem('hone_clock_client_id'); } catch (e) {}
+      if (!id) {
+        // Generate a 32-char hex client ID locally
+        var bytes = new Uint8Array(16);
+        (window.crypto || window.msCrypto).getRandomValues(bytes);
+        id = Array.from(bytes).map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+        try { localStorage.setItem('hone_clock_client_id', id); } catch (e) {}
+      }
+      return id;
+    }
+
+    async function sendHeartbeat() {
+      try {
+        var headers = { 'Content-Type': 'application/json' };
+        if (state.jwt) headers['Authorization'] = 'Bearer ' + state.jwt;
+        var res = await fetch(API + '/clock-heartbeat', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            account: state.account,
+            client_id: getClientId(),
+            verified: state.verified || false,
+          }),
+        });
+        var data = await res.json();
+        if (res.ok) {
+          state.count++;
+          document.getElementById('count').textContent = state.count;
+          document.getElementById('pulse').classList.add('active');
+          logMsg('Heartbeat sent for epoch #' + data.epoch + ' (' + data.active_browser_clocks + ' browser clocks)');
+          setTimeout(function () { document.getElementById('pulse').classList.remove('active'); }, 1000);
+        } else {
+          logMsg('Error: ' + (data.error || 'unknown'));
+        }
+      } catch (e) {
+        logMsg('Network error: ' + e.message);
+      }
+    }
+
+    function start() {
+      var account = (document.getElementById('account').value.trim().toLowerCase()) || state.account;
+      if (!/^[a-z0-9][a-z0-9-]{2,19}$/.test(account)) {
+        alert('Username must be 3-20 chars, lowercase letters, numbers, hyphens only.');
+        return;
+      }
+      state.account = account;
+      state.running = true;
+      state.count = 0;
+      var badge = state.verified ? ' <span class="verified-badge">VERIFIED</span>' : '';
+      document.getElementById('account-display').innerHTML = account + badge;
+      document.getElementById('setup').style.display = 'none';
+      document.getElementById('running').style.display = 'block';
+      setStatus('Active', 'online');
+      logMsg('Starting clock for ' + account + (state.verified ? ' (verified)' : ' (anonymous)'));
+      sendHeartbeat();
+      state.timer = setInterval(sendHeartbeat, 35000);
+      state.networkTimer = setInterval(fetchNetwork, 15000);
+      try { localStorage.setItem('hone_clock_account', account); } catch (e) {}
+    }
+
+    function stop() {
+      state.running = false;
+      clearInterval(state.timer);
+      clearInterval(state.networkTimer);
+      document.getElementById('setup').style.display = 'block';
+      document.getElementById('running').style.display = 'none';
+      setStatus('Idle', 'offline');
+      logMsg('Clock stopped');
+      try { localStorage.removeItem('hone_clock_account'); } catch (e) {}
+    }
+
+    // Auto-restart from localStorage
+    fetchNetwork();
+    setInterval(fetchNetwork, 15000);
+    try {
+      var saved = localStorage.getItem('hone_clock_account');
+      if (saved) {
+        document.getElementById('account').value = saved;
+      }
+    } catch (e) {}
+
+    // Warn before close while running
+    window.addEventListener('beforeunload', function (e) {
+      if (state.running) {
+        e.preventDefault();
+        e.returnValue = 'Stopping the clock will end your participation.';
+      }
+    });
+  </script>
+
+</body>
+</html>
