@@ -44,4 +44,3 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 - **Channel:** `X:\ferry\comms\hone-ferryman` via `.ferryman/bridge.toml` (project `hone`). Read `FERRYMAN.md` for how to use it. This is not hone-bridge (a separate project).
 - **Old checkout:** `X:\hone` is retired to `X:\ferry\_retired\hone`. Its 51 branches are local branches here and `legacy/*` remote refs. Local main follows origin/main; the old btcpc lineage shares no history with it.
 - Ask `ferry where hone` once available.
-- Remotes: push access to shindevlin/hone is Shin's; do not push from this machine.
