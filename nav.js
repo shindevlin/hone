@@ -144,6 +144,7 @@
     { label: 'Install',  href: '/install',      match: '/install' },
     { label: 'Buy',      href: '/buy',          match: '/buy' },
     { label: 'Explorer', href: '/dashboard',    match: '/dashboard' },
+    { label: 'MCP',      href: '/mcp',          match: '/mcp' },
     { label: 'Profile',  href: '/profile.html', match: '/profile' },
   ];
 
