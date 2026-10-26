@@ -184,7 +184,9 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         | E::TonActivationIntent { .. } | E::AmberPillMint { .. }
         | E::FineTuneJobComplete { .. } | E::ComputerUseJobComplete { .. }
         | E::IdentityNftMint { .. } | E::IdentityNftAccept { .. } | E::IdentityNftReject { .. }
-        | E::IdentityNftSetPrimary { .. } => Operate,
+        | E::IdentityNftSetPrimary { .. }
+        | E::SoulboundIssue { .. } | E::SoulboundAccept { .. }
+        | E::SoulboundReject { .. } | E::SoulboundRevoke { .. } => Operate,
     }
 }
 

@@ -2775,6 +2775,44 @@ pub enum LedgerEntry {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
+    // â”€â”€ Soulbound credential tokens (bound to a name) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    SoulboundIssue {
+        token_id: String,
+        name: String,
+        class: String,
+        #[serde(default)]
+        wallet_bound: bool,
+        data: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    SoulboundAccept {
+        token_id: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    SoulboundReject {
+        token_id: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    SoulboundRevoke {
+        token_id: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 }
 
 /// A single chain address within a wallet family.
@@ -2994,6 +3032,10 @@ impl LedgerEntry {
             Self::IdentityNftRecover { epoch, .. } => *epoch,
             Self::IdentityNftSetBackstop { epoch, .. } => *epoch,
             Self::IdentityNftSetPrimary { epoch, .. } => *epoch,
+            Self::SoulboundIssue { epoch, .. } => *epoch,
+            Self::SoulboundAccept { epoch, .. } => *epoch,
+            Self::SoulboundReject { epoch, .. } => *epoch,
+            Self::SoulboundRevoke { epoch, .. } => *epoch,
         }
     }
 
@@ -3256,6 +3298,10 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::IdentityNftUnlock { .. }
         | LedgerEntry::IdentityNftRecover { .. }
         | LedgerEntry::IdentityNftSetBackstop { .. }
-        | LedgerEntry::IdentityNftSetPrimary { .. } => ENTRY_WEIGHT_STANDARD,
+        | LedgerEntry::IdentityNftSetPrimary { .. }
+        | LedgerEntry::SoulboundIssue { .. }
+        | LedgerEntry::SoulboundAccept { .. }
+        | LedgerEntry::SoulboundReject { .. }
+        | LedgerEntry::SoulboundRevoke { .. } => ENTRY_WEIGHT_STANDARD,
     }
 }

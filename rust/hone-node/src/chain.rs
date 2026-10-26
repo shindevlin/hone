@@ -3729,6 +3729,24 @@ impl Chain {
                 self.ensure_account(account, *epoch)?;
                 crate::identity_nft::apply_set_primary(self, account, name)?;
             }
+            // â”€â”€ Soulbound credential tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            LedgerEntry::SoulboundIssue { token_id, name, class, wallet_bound, data, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                self.ensure_account(signed_by, *epoch)?;
+                crate::soulbound::apply_issue(self, token_id, name, signed_by, class, *wallet_bound, data, *epoch)?;
+            }
+            LedgerEntry::SoulboundAccept { token_id, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::soulbound::apply_accept(self, token_id, signed_by)?;
+            }
+            LedgerEntry::SoulboundReject { token_id, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::soulbound::apply_reject(self, token_id, signed_by)?;
+            }
+            LedgerEntry::SoulboundRevoke { token_id, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::soulbound::apply_revoke(self, token_id, signed_by)?;
+            }
 
                 self.touch_alive(worker, *epoch);
                 self.ensure_account(worker, *epoch)?;

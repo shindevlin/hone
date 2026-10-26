@@ -90,6 +90,7 @@ mod private_auth;
 mod memory_service;
 mod amber_pill;
 mod identity_nft;
+mod soulbound;
 mod blob_bandwidth;
 mod blob_serve;
 mod hive_replica;

@@ -2075,6 +2075,43 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
             let _ = bump_nonce(chain, account);
         }
+        // â”€â”€ Soulbound credential tokens (posting-level; must-accept gates spam) â”€â”€â”€
+        LedgerEntry::SoulboundIssue { signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::SoulboundAccept { signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::SoulboundReject { signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::SoulboundRevoke { signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
 
         }
 
@@ -2255,6 +2292,18 @@ pub fn bump_nonce(chain: &Chain, account: &str) -> Result<()> {
         LedgerEntry::IdentityNftRecover { epoch, .. } => Some(*epoch),
         LedgerEntry::IdentityNftSetBackstop { epoch, .. } => Some(*epoch),
         LedgerEntry::IdentityNftSetPrimary { epoch, .. } => Some(*epoch),
+        LedgerEntry::SoulboundIssue { epoch, .. } => Some(*epoch),
+        LedgerEntry::SoulboundAccept { epoch, .. } => Some(*epoch),
+        LedgerEntry::SoulboundReject { epoch, .. } => Some(*epoch),
+        LedgerEntry::SoulboundRevoke { epoch, .. } => Some(*epoch),
+        _ => None,
+    }
+}
+
+/// Make a deployer nonce check+bump publicly callable (used by ContractEngine).
+pub fn bump_nonce(chain: &Chain, account: &str) -> Result<()> {
+    if let Some(mut state) = chain.store.get_account(account)? {
+        let current = state
             .get("nonce")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
@@ -3238,6 +3287,34 @@ mod tests {
     use tempfile::TempDir;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+        LedgerEntry::IdentityNftMint { name, to, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_MINT", "name": name, "to": to, "nonce": nonce }),
+        LedgerEntry::IdentityNftTransfer { name, from, to, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_TRANSFER", "name": name, "from": from, "to": to, "nonce": nonce }),
+        LedgerEntry::IdentityNftAccept { name, to, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_ACCEPT", "name": name, "to": to, "nonce": nonce }),
+        LedgerEntry::IdentityNftReject { name, signed_by, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_REJECT", "name": name, "signed_by": signed_by, "nonce": nonce }),
+        LedgerEntry::IdentityNftSetRecovery { name, guardians, threshold, destination, founder_backstop, seq, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_RECOVERY", "name": name, "guardians": guardians, "threshold": threshold, "destination": destination, "founder_backstop": founder_backstop, "seq": seq }),
+        LedgerEntry::IdentityNftLock { name, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_LOCK", "name": name, "nonce": nonce }),
+        LedgerEntry::IdentityNftUnlock { name, seq, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_UNLOCK", "name": name, "seq": seq }),
+        LedgerEntry::IdentityNftRecover { name, seq, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_RECOVER", "name": name, "seq": seq }),
+        LedgerEntry::IdentityNftSetBackstop { name, enabled, seq, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_BACKSTOP", "name": name, "enabled": enabled, "seq": seq }),
+        LedgerEntry::IdentityNftSetPrimary { account, name, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_PRIMARY", "account": account, "name": name, "nonce": nonce }),
+        LedgerEntry::SoulboundIssue { token_id, name, class, wallet_bound, data, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SOULBOUND_ISSUE", "token_id": token_id, "name": name, "class": class, "wallet_bound": wallet_bound, "data": data, "nonce": nonce }),
+        LedgerEntry::SoulboundAccept { token_id, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SOULBOUND_ACCEPT", "token_id": token_id, "nonce": nonce }),
+        LedgerEntry::SoulboundReject { token_id, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SOULBOUND_REJECT", "token_id": token_id, "nonce": nonce }),
+        LedgerEntry::SoulboundRevoke { token_id, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SOULBOUND_REVOKE", "token_id": token_id, "nonce": nonce }),
 
     fn make_chain() -> (Chain, TempDir) {
         let dir = tempfile::Builder::new().prefix("hone_tx_test_").tempdir().unwrap();
@@ -4344,3 +4421,28 @@ mod tests {
         assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().owner, "backup");
     }
 }
+
+    #[test]
+    fn soulbound_issue_and_accept_signed() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        fund(&chain, "verifier", 1_000_000_000_000);
+        at_identity_epoch(&chain);
+        mint_direct(&chain, "alice", "alice");
+        let iss = LedgerEntry::SoulboundIssue {
+            token_id: "kyc1".into(), name: "alice".into(), class: "holder_scoped".into(),
+            wallet_bound: false, data: "ipfs://x".into(),
+            epoch: ACT, nonce: 1, signed_by: "verifier".into(), signature: None,
+        };
+        let vk = SigningKey::from_bytes(&[b'v'; 32]);
+        validate_and_apply(&chain, &iss, Some(&sign(&vk, &iss))).unwrap();
+        assert!(!crate::soulbound::get(&chain, "kyc1").unwrap().accepted);
+        // a non-holder cannot accept
+        let acc_bad = LedgerEntry::SoulboundAccept { token_id: "kyc1".into(), epoch: ACT, nonce: 2, signed_by: "verifier".into(), signature: None };
+        assert!(validate_and_apply(&chain, &acc_bad, Some(&sign(&vk, &acc_bad))).is_err());
+        // the holder accepts
+        let acc = LedgerEntry::SoulboundAccept { token_id: "kyc1".into(), epoch: ACT, nonce: 1, signed_by: "alice".into(), signature: None };
+        let ak = SigningKey::from_bytes(&[b'a'; 32]);
+        validate_and_apply(&chain, &acc, Some(&sign(&ak, &acc))).unwrap();
+        assert!(crate::soulbound::get(&chain, "kyc1").unwrap().accepted);
+    }
