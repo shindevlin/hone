@@ -6,7 +6,7 @@ HONE is a blockchain where mining means doing useful AI work instead of solving 
 
 ## The One-Paragraph Version
 
-Bitcoin Proof of Compute (HONE) is a sovereign blockchain — its own chain, not a token on someone else's platform — where miners earn HONE tokens by providing real AI inference to the network. Instead of dedicating electricity to SHA-256 hash puzzles that only produce security (like Bitcoin), HONE miners run AI models and answer real questions from real users. The energy spent mining HONE produces actual, useful AI output. It's the first blockchain where the work that secures the network IS the work that serves users.
+HONE (Proof of Useful Compute) is a sovereign blockchain — its own chain, not a token on someone else's platform — where miners earn HONE tokens by providing real AI inference to the network. Instead of dedicating electricity to SHA-256 hash puzzles that only produce security (like Bitcoin), HONE miners run AI models and answer real questions from real users. The energy spent mining HONE produces actual, useful AI output. It's the first blockchain where the work that secures the network IS the work that serves users.
 
 ## How It's Different From Bitcoin
 

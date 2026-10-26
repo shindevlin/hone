@@ -1,6 +1,6 @@
 # HONE Network Update — April 20, 2026
 
-**Bitcoin Proof of Compute** — sovereign blockchain where mining = useful AI inference. 42M HONE supply. No burn, ever.
+**HONE (Proof of Useful Compute)** — sovereign blockchain where mining = useful AI inference. 42M HONE supply. No burn, ever.
 
 ---
 

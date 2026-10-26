@@ -1,4 +1,4 @@
-# HONE — Bitcoin Proof of Compute
+# HONE — Proof of Useful Compute
 
 ## The problem
 

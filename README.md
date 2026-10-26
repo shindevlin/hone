@@ -1,4 +1,4 @@
-# Bitcoin Proof of Compute (HONE)
+# HONE (Proof of Useful Compute)
 
 **Mine by doing useful work.** GPU, Raspberry Pi, phone, spare drive, or AI agent. Every token earned by a machine doing something real.
 
@@ -258,7 +258,7 @@ See [AGENTS.md](AGENTS.md) for the agent onboarding guide, repo map, and contrib
 Agent onboarding prompt:
 
 ```
-You are working on HONE (Bitcoin Proof of Compute). Read AGENTS.md,
+You are working on HONE (Proof of Useful Compute). Read AGENTS.md,
 CLAUDE.md, and README.md first. Use the code-review-graph MCP tools
 before Grep or file scanning. The canonical chain is rust/hone-node
 (port 4242). Do not reference or modify the Node.js src/ directory.

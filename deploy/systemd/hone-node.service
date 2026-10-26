@@ -1,5 +1,5 @@
 [Unit]
-Description=HONE Node — Bitcoin Proof of Compute
+Description=HONE Node — Proof of Useful Compute
 Documentation=https://hone.network
 After=network.target
 

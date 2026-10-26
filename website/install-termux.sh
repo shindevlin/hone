@@ -5,7 +5,7 @@
 set -e
 
 echo "========================================="
-echo "  HONE — Bitcoin Proof of Compute"
+echo "  HONE — Proof of Useful Compute"
 echo "  Termux Installer (clock node)"
 echo "========================================="
 echo ""

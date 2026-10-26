@@ -171,7 +171,7 @@ All LinkGit operations are expressed as first-class HONE ledger entries. No WASM
   "repo_id": "shindevlin/hone",
   "visibility": "public",
   "hide_pubkey": null,
-  "description": "Bitcoin Proof of Compute",
+  "description": "Proof of Useful Compute",
   "epoch": 1,
   "sig": "..."
 }
