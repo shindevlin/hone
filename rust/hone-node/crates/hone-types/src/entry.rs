@@ -2709,26 +2709,62 @@ pub enum LedgerEntry {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
-    IdentityNftSetSoulbound {
+    IdentityNftSetRecovery {
         name: String,
-        mode: String,
+        guardians: Vec<AccountId>,
+        threshold: u8,
+        destination: AccountId,
+        founder_backstop: bool,
+        seq: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cosignatures: Vec<(AccountId, String)>,
+    },
+    IdentityNftLock {
+        name: String,
         epoch: Epoch,
         nonce: u64,
         signed_by: AccountId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
-    IdentityNftUnsetSoulbound {
+    IdentityNftUnlock {
         name: String,
+        seq: u64,
         epoch: Epoch,
         nonce: u64,
         signed_by: AccountId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        cosigner: Option<AccountId>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        cosigner_signature: Option<String>,
+        signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cosignatures: Vec<(AccountId, String)>,
+    },
+    IdentityNftRecover {
+        name: String,
+        seq: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cosignatures: Vec<(AccountId, String)>,
+    },
+    IdentityNftSetBackstop {
+        name: String,
+        enabled: bool,
+        seq: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cosignatures: Vec<(AccountId, String)>,
     },
     IdentityNftSetPrimary {
         account: AccountId,
@@ -2952,8 +2988,11 @@ impl LedgerEntry {
             Self::IdentityNftTransfer { epoch, .. } => *epoch,
             Self::IdentityNftAccept { epoch, .. } => *epoch,
             Self::IdentityNftReject { epoch, .. } => *epoch,
-            Self::IdentityNftSetSoulbound { epoch, .. } => *epoch,
-            Self::IdentityNftUnsetSoulbound { epoch, .. } => *epoch,
+            Self::IdentityNftSetRecovery { epoch, .. } => *epoch,
+            Self::IdentityNftLock { epoch, .. } => *epoch,
+            Self::IdentityNftUnlock { epoch, .. } => *epoch,
+            Self::IdentityNftRecover { epoch, .. } => *epoch,
+            Self::IdentityNftSetBackstop { epoch, .. } => *epoch,
             Self::IdentityNftSetPrimary { epoch, .. } => *epoch,
         }
     }
@@ -3212,8 +3251,11 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         LedgerEntry::IdentityNftTransfer { .. }
         | LedgerEntry::IdentityNftAccept { .. }
         | LedgerEntry::IdentityNftReject { .. }
-        | LedgerEntry::IdentityNftSetSoulbound { .. }
-        | LedgerEntry::IdentityNftUnsetSoulbound { .. }
+        | LedgerEntry::IdentityNftSetRecovery { .. }
+        | LedgerEntry::IdentityNftLock { .. }
+        | LedgerEntry::IdentityNftUnlock { .. }
+        | LedgerEntry::IdentityNftRecover { .. }
+        | LedgerEntry::IdentityNftSetBackstop { .. }
         | LedgerEntry::IdentityNftSetPrimary { .. } => ENTRY_WEIGHT_STANDARD,
     }
 }

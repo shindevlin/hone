@@ -3703,13 +3703,26 @@ impl Chain {
                 self.touch_alive(signed_by, *epoch);
                 crate::identity_nft::apply_reject(self, name, signed_by)?;
             }
-            LedgerEntry::IdentityNftSetSoulbound { name, mode, signed_by, epoch, .. } => {
+            LedgerEntry::IdentityNftSetRecovery { name, signed_by, guardians, threshold, destination, founder_backstop, epoch, .. } => {
                 self.touch_alive(signed_by, *epoch);
-                crate::identity_nft::apply_set_soulbound(self, name, signed_by, mode)?;
+                self.ensure_account(destination, *epoch)?;
+                crate::identity_nft::apply_set_recovery(self, name, signed_by, guardians.clone(), *threshold, destination, *founder_backstop)?;
             }
-            LedgerEntry::IdentityNftUnsetSoulbound { name, signed_by, cosigner, epoch, .. } => {
+            LedgerEntry::IdentityNftLock { name, signed_by, epoch, .. } => {
                 self.touch_alive(signed_by, *epoch);
-                crate::identity_nft::apply_unset_soulbound(self, name, signed_by, cosigner.as_deref())?;
+                crate::identity_nft::apply_lock(self, name, signed_by)?;
+            }
+            LedgerEntry::IdentityNftUnlock { name, seq, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_unlock(self, name, *seq)?;
+            }
+            LedgerEntry::IdentityNftRecover { name, seq, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_recover(self, name, *seq)?;
+            }
+            LedgerEntry::IdentityNftSetBackstop { name, enabled, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_set_backstop(self, name, signed_by, *enabled)?;
             }
             LedgerEntry::IdentityNftSetPrimary { account, name, epoch, .. } => {
                 self.touch_alive(account, *epoch);

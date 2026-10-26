@@ -120,7 +120,8 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         | E::NameAuctionBid { .. } | E::NameAuctionSettle { .. }
         | E::FreeportAuctionBid { .. } | E::FreeportAuctionSettle { .. }
         | E::IdentityNftTransfer { .. }
-        | E::IdentityNftSetSoulbound { .. } | E::IdentityNftUnsetSoulbound { .. } => Value,
+        | E::IdentityNftSetRecovery { .. } | E::IdentityNftLock { .. } | E::IdentityNftUnlock { .. }
+        | E::IdentityNftRecover { .. } | E::IdentityNftSetBackstop { .. } => Value,
 
         // â”€â”€ Deliver: fulfillment + escrow resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         E::OrderFulfill { .. } | E::EscrowRelease { .. }

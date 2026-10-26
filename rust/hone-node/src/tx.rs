@@ -1996,35 +1996,72 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
             let _ = bump_nonce(chain, signed_by);
         }
-        LedgerEntry::IdentityNftSetSoulbound { signed_by, nonce, .. } => {
+        LedgerEntry::IdentityNftSetRecovery { name, signed_by, guardians, threshold, destination, nonce, .. } => {
             let _guard = chain.write_lock.lock();
             ensure_identity_active(chain)?;
             require_key(chain, signed_by)?;
             check_nonce(chain, signed_by, *nonce)?;
-            // Locking an asset (esp. near-irreversible permalock) is value-tier: active/owner, no posting fallback.
+            crate::identity_nft::validate_recovery(guardians, *threshold, destination)?;
+            let nft = crate::identity_nft::get(chain, name)
+                .ok_or_else(|| anyhow::anyhow!("name '{}' is not minted", name))?;
+            if nft.owner != *signed_by { bail!("signed_by '{}' does not own '{}'", signed_by, name); }
+            // Owner-controlled config: active/owner key, no posting fallback. apply enforces
+            // that this is only allowed while the name is unlocked.
             check_value_signature(chain, signed_by, entry, sig_hex)?;
             chain.apply_entry(entry)?;
             let _ = bump_nonce(chain, signed_by);
         }
-        LedgerEntry::IdentityNftUnsetSoulbound { name, signed_by, cosigner, cosigner_signature, nonce, .. } => {
+        LedgerEntry::IdentityNftLock { name, signed_by, nonce, .. } => {
             let _guard = chain.write_lock.lock();
             ensure_identity_active(chain)?;
             require_key(chain, signed_by)?;
             check_nonce(chain, signed_by, *nonce)?;
-            match crate::identity_nft::get(chain, name).map(|n| n.soulbound) {
-                Some(crate::identity_nft::Soulbound::Permalock) => {
-                    // Founder 2-of-3: both sign against OWNER keys, no posting fallback.
-                    verify_founder_owner_sig(chain, signed_by, entry, sig_hex)?;
-                    let co = cosigner.as_deref()
-                        .ok_or_else(|| anyhow::anyhow!("permalock unlock requires a founder cosigner"))?;
-                    verify_founder_owner_sig(chain, co, entry, cosigner_signature.as_deref())?;
-                }
-                Some(crate::identity_nft::Soulbound::Soft) => {
-                    check_value_signature(chain, signed_by, entry, sig_hex)?;
-                }
-                Some(crate::identity_nft::Soulbound::None) => bail!("'{}' is not soulbound", name),
-                None => bail!("name '{}' is not minted", name),
-            }
+            let nft = crate::identity_nft::get(chain, name)
+                .ok_or_else(|| anyhow::anyhow!("name '{}' is not minted", name))?;
+            if nft.owner != *signed_by { bail!("signed_by '{}' does not own '{}'", signed_by, name); }
+            // Tightening: active/owner key, no posting fallback.
+            check_value_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::IdentityNftUnlock { name, signed_by, cosignatures, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            let nft = crate::identity_nft::get(chain, name)
+                .ok_or_else(|| anyhow::anyhow!("name '{}' is not minted", name))?;
+            let rec = nft.recovery.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("'{}' has no recovery authority to unlock it", name))?;
+            // Loosening: recovery authority.
+            verify_recovery_authority(chain, entry, rec, signed_by, sig_hex, cosignatures)?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::IdentityNftRecover { name, signed_by, cosignatures, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            let nft = crate::identity_nft::get(chain, name)
+                .ok_or_else(|| anyhow::anyhow!("name '{}' is not minted", name))?;
+            let rec = nft.recovery.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("'{}' has no recovery authority", name))?;
+            // Loosening: recovery authority. Destination is pinned â€” no arbitrary target.
+            verify_recovery_authority(chain, entry, rec, signed_by, sig_hex, cosignatures)?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, signed_by);
+        }
+        LedgerEntry::IdentityNftSetBackstop { name, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            ensure_identity_active(chain)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            let nft = crate::identity_nft::get(chain, name)
+                .ok_or_else(|| anyhow::anyhow!("name '{}' is not minted", name))?;
+            if nft.owner != *signed_by { bail!("signed_by '{}' does not own '{}'", signed_by, name); }
+            // Owner-controlled: active/owner key. apply enforces re-enabling only while unlocked.
+            check_value_signature(chain, signed_by, entry, sig_hex)?;
             chain.apply_entry(entry)?;
             let _ = bump_nonce(chain, signed_by);
         }
@@ -2212,8 +2249,11 @@ pub fn bump_nonce(chain: &Chain, account: &str) -> Result<()> {
         LedgerEntry::IdentityNftTransfer { epoch, .. } => Some(*epoch),
         LedgerEntry::IdentityNftAccept { epoch, .. } => Some(*epoch),
         LedgerEntry::IdentityNftReject { epoch, .. } => Some(*epoch),
-        LedgerEntry::IdentityNftSetSoulbound { epoch, .. } => Some(*epoch),
-        LedgerEntry::IdentityNftUnsetSoulbound { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftSetRecovery { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftLock { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftUnlock { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftRecover { epoch, .. } => Some(*epoch),
+        LedgerEntry::IdentityNftSetBackstop { epoch, .. } => Some(*epoch),
         LedgerEntry::IdentityNftSetPrimary { epoch, .. } => Some(*epoch),
             .get("nonce")
             .and_then(|v| v.as_u64())
@@ -2662,19 +2702,46 @@ fn check_value_signature(chain: &Chain, signed_by: &str, entry: &LedgerEntry, si
     verify_against_pubkey(chain, &pubkey_hex, entry, sig_hex)
 }
 
-/// Verify a founder signature for the permalock multisig, against the account's OWNER
-/// key only (no fallback). Founder-set membership is required here too.
-fn verify_founder_owner_sig(chain: &Chain, account: &str, entry: &LedgerEntry, sig_hex: Option<&str>) -> Result<()> {
-    if !hone_types::IDENTITY_FOUNDER_ACCOUNTS.contains(&account) {
-        bail!("'{}' is not a founder", account);
+/// Verify that an entry carries enough recovery-authority signatures: either a
+/// threshold of distinct guardians, or (if the backstop is on) a founder quorum.
+/// Every signature is checked against the signer's active/owner key over the entry's
+/// canonical message â€” no posting fallback. Primary signer is `primary`/`primary_sig`;
+/// the rest ride in `cosignatures`.
+fn verify_recovery_authority(
+    chain: &Chain,
+    entry: &LedgerEntry,
+    rec: &crate::identity_nft::Recovery,
+    primary: &str,
+    primary_sig: Option<&str>,
+    cosignatures: &[(String, String)],
+) -> Result<()> {
+    let mut valid: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Some(ps) = primary_sig {
+        if check_value_signature(chain, primary, entry, Some(ps)).is_ok() {
+            valid.insert(primary.to_string());
+        }
     }
-    let state = chain.store.get_account(account)?
-        .ok_or_else(|| anyhow::anyhow!("unknown founder account '{}'", account))?;
-    let owner = state.get("keys").and_then(|v| v.get("owner")).and_then(|v| v.as_str())
-        .filter(|k| !k.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("founder '{}' has no owner key registered", account))?
-        .to_owned();
-    verify_against_pubkey(chain, &owner, entry, sig_hex)
+    for (acct, sig) in cosignatures {
+        if acct == primary { continue; }
+        if check_value_signature(chain, acct, entry, Some(sig)).is_ok() {
+            valid.insert(acct.clone());
+        }
+    }
+    let guardian_hits = rec.guardians.iter().filter(|g| valid.contains(*g)).count();
+    if guardian_hits >= rec.threshold as usize {
+        return Ok(());
+    }
+    if rec.founder_backstop {
+        let founder_hits = valid.iter()
+            .filter(|a| hone_types::IDENTITY_FOUNDER_ACCOUNTS.contains(&a.as_str()))
+            .count();
+        if founder_hits >= hone_types::IDENTITY_FOUNDER_THRESHOLD {
+            return Ok(());
+        }
+    }
+    bail!("recovery not authorized: need {} of {} guardians{}",
+        rec.threshold, rec.guardians.len(),
+        if rec.founder_backstop { format!(" or {} founders", hone_types::IDENTITY_FOUNDER_THRESHOLD) } else { String::new() })
 }
 
                 "chain_proofs": proofs,
@@ -3187,10 +3254,16 @@ mod tests {
             serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_ACCEPT", "name": name, "to": to, "nonce": nonce }),
         LedgerEntry::IdentityNftReject { name, signed_by, nonce, .. } =>
             serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_REJECT", "name": name, "signed_by": signed_by, "nonce": nonce }),
-        LedgerEntry::IdentityNftSetSoulbound { name, mode, nonce, .. } =>
-            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_SOULBOUND", "name": name, "mode": mode, "nonce": nonce }),
-        LedgerEntry::IdentityNftUnsetSoulbound { name, cosigner, nonce, .. } =>
-            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_UNSET_SOULBOUND", "name": name, "cosigner": cosigner, "nonce": nonce }),
+        LedgerEntry::IdentityNftSetRecovery { name, guardians, threshold, destination, founder_backstop, seq, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_RECOVERY", "name": name, "guardians": guardians, "threshold": threshold, "destination": destination, "founder_backstop": founder_backstop, "seq": seq }),
+        LedgerEntry::IdentityNftLock { name, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_LOCK", "name": name, "nonce": nonce }),
+        LedgerEntry::IdentityNftUnlock { name, seq, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_UNLOCK", "name": name, "seq": seq }),
+        LedgerEntry::IdentityNftRecover { name, seq, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_RECOVER", "name": name, "seq": seq }),
+        LedgerEntry::IdentityNftSetBackstop { name, enabled, seq, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_BACKSTOP", "name": name, "enabled": enabled, "seq": seq }),
         LedgerEntry::IdentityNftSetPrimary { account, name, nonce, .. } =>
             serde_json::json!({ "chain_id": chain_id, "type": "IDENTITY_NFT_SET_PRIMARY", "account": account, "name": name, "nonce": nonce }),
     /// Create account + fund it. Registers a deterministic posting key so
@@ -4103,7 +4176,7 @@ mod tests {
     }
 }
 
-    // â”€â”€ Identity NFT: signature / activation enforcement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Identity NFT: signature / activation / recovery enforcement
 
     fn at_identity_epoch(chain: &Chain) {
         chain.apply_entry(&LedgerEntry::EpochSeal {
@@ -4184,23 +4257,18 @@ mod tests {
 
 
     #[test]
-    fn identity_setsoulbound_rejects_posting_signature() {
+    fn identity_ordinary_self_mint_accepts_posting() {
         let (chain, _d) = make_chain();
         fund(&chain, "alice", 1_000_000_000_000);
         let active = register_key(&chain, "alice", "active", 7);
         at_identity_epoch(&chain);
-        mint_direct(&chain, "coolname", "alice");
-        let e = LedgerEntry::IdentityNftSetSoulbound {
-            name: "coolname".into(), mode: "permalock".into(),
-            epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, nonce: 1,
-            signed_by: "alice".into(), signature: None,
+        let e = LedgerEntry::IdentityNftMint {
+            name: "coolname".into(), to: "alice".into(),
+            epoch: ACT, nonce: 1, signed_by: "alice".into(), signature: None,
         };
         let posting = SigningKey::from_bytes(&[b'a'; 32]);
-        assert!(validate_and_apply(&chain, &e, Some(&sign(&posting, &e))).is_err(),
-            "a posting key must NOT permalock a name");
-        validate_and_apply(&chain, &e, Some(&sign(&active, &e))).unwrap();
-        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().soulbound,
-                   crate::identity_nft::Soulbound::Permalock);
+        validate_and_apply(&chain, &e, Some(&sign(&posting, &e))).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().owner, "alice");
     }
 
     #[test]
@@ -4214,29 +4282,65 @@ mod tests {
         // issuing is high-value -> active key required, posting rejected.
         let e = LedgerEntry::IdentityNftMint {
             name: "a".into(), to: "buyer".into(),
-            epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, nonce: 1,
-            signed_by: "shindevlin".into(), signature: None,
+            epoch: ACT, nonce: 1, signed_by: "shindevlin".into(), signature: None,
         };
         let posting = SigningKey::from_bytes(&[b's'; 32]);
         assert!(validate_and_apply(&chain, &e, Some(&sign(&posting, &e))).is_err(),
             "issuer posting key must NOT mint reserved names");
         validate_and_apply(&chain, &e, Some(&sign(&active, &e))).unwrap();
         assert_eq!(crate::identity_nft::get(&chain, "a").unwrap().owner, "buyer");
+    const ACT: u64 = hone_types::IDENTITY_NFT_ACTIVATION_EPOCH;
+
     }
 
     #[test]
-    fn identity_ordinary_self_mint_accepts_posting() {
+    fn identity_lock_needs_recovery_and_rejects_posting() {
         let (chain, _d) = make_chain();
         fund(&chain, "alice", 1_000_000_000_000);
         at_identity_epoch(&chain);
-        // Non-reserved, self-mint, non-issuer -> ordinary Operate action, posting OK.
-        let e = LedgerEntry::IdentityNftMint {
-            name: "coolname".into(), to: "alice".into(),
-            epoch: hone_types::IDENTITY_NFT_ACTIVATION_EPOCH, nonce: 1,
-            signed_by: "alice".into(), signature: None,
+        mint_direct(&chain, "coolname", "alice");
+        // cannot lock before a recovery path exists
+        let lk0 = LedgerEntry::IdentityNftLock { name: "coolname".into(), epoch: ACT, nonce: 1, signed_by: "alice".into(), signature: None };
+        assert!(validate_and_apply(&chain, &lk0, Some(&sign(&active, &lk0))).is_err(), "cannot lock without recovery");
+        let sr = LedgerEntry::IdentityNftSetRecovery {
+            name: "coolname".into(), guardians: vec!["backup".into()], threshold: 1,
+            destination: "backup".into(), founder_backstop: false, seq: 0,
+            epoch: ACT, nonce: 1, signed_by: "alice".into(), signature: None, cosignatures: vec![],
         };
         let posting = SigningKey::from_bytes(&[b'a'; 32]);
-        validate_and_apply(&chain, &e, Some(&sign(&posting, &e))).unwrap();
-        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().owner, "alice");
+        assert!(validate_and_apply(&chain, &sr, Some(&sign(&posting, &sr))).is_err(), "posting cannot configure recovery");
+        validate_and_apply(&chain, &sr, Some(&sign(&active, &sr))).unwrap();
+        let lk = LedgerEntry::IdentityNftLock { name: "coolname".into(), epoch: ACT, nonce: 2, signed_by: "alice".into(), signature: None };
+        assert!(validate_and_apply(&chain, &lk, Some(&sign(&posting, &lk))).is_err(), "posting cannot lock");
+        validate_and_apply(&chain, &lk, Some(&sign(&active, &lk))).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().level(), "locked");
     }
 
+    #[test]
+    fn identity_recover_requires_guardian_and_goes_to_pinned_destination() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        let a = register_key(&chain, "alice", "active", 7);
+        fund(&chain, "g1", 1_000_000_000_000);
+        let g1 = register_key(&chain, "g1", "active", 8);
+        fund(&chain, "backup", 0);
+        at_identity_epoch(&chain);
+        mint_direct(&chain, "coolname", "alice");
+        let sr = LedgerEntry::IdentityNftSetRecovery {
+            name: "coolname".into(), guardians: vec!["g1".into()], threshold: 1,
+            destination: "backup".into(), founder_backstop: false, seq: 0,
+            epoch: ACT, nonce: 1, signed_by: "alice".into(), signature: None, cosignatures: vec![],
+        };
+        validate_and_apply(&chain, &sr, Some(&sign(&a, &sr))).unwrap();
+        let lk = LedgerEntry::IdentityNftLock { name: "coolname".into(), epoch: ACT, nonce: 2, signed_by: "alice".into(), signature: None };
+        validate_and_apply(&chain, &lk, Some(&sign(&a, &lk))).unwrap();
+        let seq = crate::identity_nft::get(&chain, "coolname").unwrap().recovery_seq;
+        // a non-guardian cannot recover
+        let rb = LedgerEntry::IdentityNftRecover { name: "coolname".into(), seq, epoch: ACT, nonce: 3, signed_by: "alice".into(), signature: None, cosignatures: vec![] };
+        assert!(validate_and_apply(&chain, &rb, Some(&sign(&a, &rb))).is_err(), "a non-guardian cannot recover");
+        // the guardian can â€” and the name can go ONLY to the pinned destination
+        let rg = LedgerEntry::IdentityNftRecover { name: "coolname".into(), seq, epoch: ACT, nonce: 1, signed_by: "g1".into(), signature: None, cosignatures: vec![] };
+        validate_and_apply(&chain, &rg, Some(&sign(&g1, &rg))).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "coolname").unwrap().owner, "backup");
+    }
+}
