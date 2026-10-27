@@ -21,6 +21,43 @@ pub struct Store {
     db: Arc<DB>,
 }
 
+/// Where the reward driver has actually got to. See `Store::reward_cursor`.
+///
+/// All fields are absolute epoch numbers, and everything is relative to `floor` —
+/// the lowest epoch this node ever rewarded — never to epoch 1. On a backdated chain
+/// epochs below the floor are covered by the genesis-gap credit and are not this
+/// node's work to do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewardCursor {
+    /// Lowest epoch this node has applied rewards for. 0 if it has applied none.
+    pub floor: u64,
+    /// Highest epoch applied, contiguous or not.
+    pub highest: u64,
+    /// Highest epoch applied with no hole between it and `floor`. This is what the
+    /// driver resumes from, so it is the figure that stops moving when it stalls.
+    pub contiguous: u64,
+    /// How many epochs have been applied in total.
+    pub applied: usize,
+    /// The epoch the walk is blocked on: the lowest missing epoch that has applied
+    /// work above it. `None` means no hole — the driver is simply at the tip.
+    pub first_gap: Option<u64>,
+    /// Every epoch in `floor..=highest` that has NOT been applied.
+    ///
+    /// Needed to state supply conservation exactly. While the driver holds a hole it
+    /// has legitimately credited epochs ABOVE the hole, so issued supply exceeds the
+    /// emission of any contiguous range — comparing against `cumulative_emission_
+    /// through(contiguous)` reports a phantom surplus of precisely the above-the-gap
+    /// credits. Measured on live mainnet mid-recovery: a 2,319,539,999,948 hunit
+    /// "surplus" that was entirely this artefact. Capped, since the only consumer
+    /// needs a correction term rather than a complete list.
+    pub missing: Vec<u64>,
+}
+
+impl RewardCursor {
+    /// True when a hole is holding the walk back. A cold-start floor is NOT a stall.
+    pub fn stalled(&self) -> bool { self.first_gap.is_some() }
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         std::fs::create_dir_all(path)?;
@@ -267,6 +304,107 @@ impl Store {
     }
 
     /// Iterate all account IDs. Used by the entropy decay sweep in finalize.
+    /// Total staked across all accounts (CF_STAKES).
+    ///
+    /// Staked tokens are EMITTED supply that no longer sits in CF_BALANCES, so a
+    /// supply total built only from balances undercounts by everything staked. That
+    /// is not hypothetical: during the clock bootstrap grace a ClockReward is paid
+    /// into stake rather than balance (chain.rs, CLOCK_BOOTSTRAP_GRACE), so a fresh
+    /// chain's first rewards are invisible to a balances-only total — which is
+    /// exactly how a conservation check reported 10,000,000 hunits "missing" when
+    /// they had been correctly paid into a node's stake.
+    pub fn total_staked(&self) -> u128 {
+        let Some(cf) = self.db.cf_handle(CF_STAKES) else { return 0 };
+        let mut total: u128 = 0;
+        for item in self.db.iterator_cf(&cf, IteratorMode::Start) {
+            let Ok((_, v)) = item else { continue };
+            if let Ok(b) = <[u8; 8]>::try_from(v.as_ref()) {
+                total += u64::from_le_bytes(b) as u128;
+            }
+        }
+        total
+    }
+
+    /// Reward-driver progress, reckoned from the node's own reward FLOOR.
+    ///
+    /// Exists because the driver's stall was invisible. The walk applies each finalized
+    /// epoch exactly once and refuses to step over a gap (skipping is what forks state),
+    /// so a single epoch that can never be finalized halts reward emission permanently —
+    /// on every node, including ones that were never down. That happened on live mainnet
+    /// and presented as "the clocks don't earn", with nothing in the API to distinguish
+    /// it from a reward-schedule problem.
+    ///
+    /// Everything here is relative to `floor` (the lowest epoch this node ever rewarded)
+    /// rather than to epoch 1. On a backdated chain the driver deliberately aligns its
+    /// start to the tracking window, so epochs `1..floor` were never applied by this node
+    /// and never will be — they are covered by the genesis-gap credit instead. Measuring
+    /// contiguity from epoch 1 therefore reports a permanent phantom hole at epoch 1 and
+    /// a cursor of 0 on a perfectly healthy node, which is exactly what a first cut of
+    /// this did: it made `/api/supply` report `accounting_ok: false` always. A check that
+    /// always cries wolf is worse than no check, because it gets ignored.
+    pub fn reward_cursor(&self) -> RewardCursor {
+        let done: std::collections::BTreeSet<u64> = self
+            .state_scan_prefix("epoch_finalized_done:")
+            .into_iter()
+            .filter_map(|(k, _)| k.rsplit(':').next().and_then(|s| s.parse::<u64>().ok()))
+            .collect();
+        let Some(&floor) = done.iter().next() else {
+            return RewardCursor {
+                floor: 0, highest: 0, contiguous: 0, applied: 0,
+                first_gap: None, missing: Vec::new(),
+            };
+        };
+        let highest = *done.iter().next_back().unwrap_or(&floor);
+        // Walk up from the floor while each successive epoch is present.
+        let mut c = floor;
+        while c < highest && done.contains(&(c + 1)) {
+            c += 1;
+        }
+        // A real hole exists only if work was applied ABOVE the contiguous frontier.
+        let first_gap = if c < highest { Some(c + 1) } else { None };
+        // Holes inside the applied span. Capped: the consumer needs a correction term,
+        // and an unbounded list on a badly fragmented chain would be a memory hazard on
+        // an endpoint anyone can call.
+        const MAX_MISSING: usize = 8_192;
+        let mut missing = Vec::new();
+        if first_gap.is_some() {
+            for e in (c + 1)..highest {
+                if !done.contains(&e) {
+                    missing.push(e);
+                    if missing.len() >= MAX_MISSING { break; }
+                }
+            }
+        }
+        RewardCursor { floor, highest, contiguous: c, applied: done.len(), first_gap, missing }
+    }
+
+    /// Sum of every balance held in `token`, across ALL accounts — including
+    /// reserve accounts like `__recycle_fund__` that hold a balance but never get
+    /// a CF_ACCOUNTS record.
+    ///
+    /// Deliberately iterates CF_BALANCES rather than `scan_account_ids()`: the
+    /// latter reads CF_ACCOUNTS, so it cannot see the reserve pools, and a supply
+    /// total built on it silently undercounts by everything that recycled. That
+    /// mistake is what made a first pass at the emission-conservation test report a
+    /// 99.9% shortfall that did not exist.
+    pub fn total_supply(&self, token: &str) -> u128 {
+        let Some(cf) = self.db.cf_handle(CF_BALANCES) else { return 0 };
+        let mut total: u128 = 0;
+        let suffix = {
+            let mut v = vec![0u8];
+            v.extend_from_slice(token.as_bytes());
+            v
+        };
+        for item in self.db.iterator_cf(&cf, IteratorMode::Start) {
+            let Ok((k, v)) = item else { continue };
+            if !k.ends_with(&suffix) { continue; }
+            if let Ok(b) = <[u8; 8]>::try_from(v.as_ref()) {
+                total += u64::from_le_bytes(b) as u128;
+            }
+        }
+        total
+    }
+
     pub fn scan_account_ids(&self) -> Vec<String> {
         let Some(cf) = self.db.cf_handle(CF_ACCOUNTS) else { return vec![] };
         let iter = self.db.iterator_cf(&cf, IteratorMode::Start);

@@ -180,6 +180,35 @@ async fn main() -> Result<()> {
         lf // keep alive until process exits
     };
 
+    // BOX-LEVEL single-instance guard for PRODUCTION chains. The per-data-dir lock above
+    // only catches two nodes sharing a data dir — it does NOT catch a second node with a
+    // different data dir/port joining the same production chain from the same machine.
+    // That is exactly how a leftover replay node (HONE_ISOLATED=true, HONE_CHAIN_ID=hone,
+    // loopback bind, but mDNS still discovering the LAN) joined the mainnet mesh and
+    // inflated peer_count. Enforce at most ONE node per box per REAL chain. Test/gate
+    // chains use their own HONE_CHAIN_ID and are exempt, so isolated local meshes (which
+    // run several nodes on one box under a throwaway chain id) still work. flock releases
+    // on process exit, so a crash never leaves a stale lock.
+    #[cfg(unix)]
+    let _box_lock_file = if cfg.chain_id == hone_types::MAINNET_CHAIN_ID
+        || cfg.chain_id == hone_types::TESTNET_CHAIN_ID
+    {
+        use std::os::unix::io::AsRawFd;
+        let path = std::env::temp_dir().join(format!("hone-node.{}.boxlock", cfg.chain_id));
+        let lf = std::fs::OpenOptions::new().create(true).write(true).open(&path)?;
+        let locked = unsafe { libc::flock(lf.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if locked != 0 {
+            eprintln!("hone-node: another '{}' node is already running on this box (lock: {:?}). \
+                       Refusing to start a second — one production node per box. An isolated \
+                       test/replay MUST use a distinct HONE_CHAIN_ID, not a real chain.",
+                       cfg.chain_id, path);
+            std::process::exit(1);
+        }
+        Some(lf) // hold until process exit
+    } else {
+        None
+    };
+
     // Signing key is derived from the wallet's posting role key below, AFTER
     // wallet::init() — so the seal-signing identity is byte-identical to the
     // posting key registered on-chain. (Historically this parsed HONE_POSTING_KEY
@@ -242,6 +271,11 @@ async fn main() -> Result<()> {
     // One-time backfill: populate txglobal: from existing txhist: entries so historical
     // transactions appear in the explorer even before the txglobal index existed.
     backfill_txglobal(&chain);
+
+    // One-time repair: chains that credited the genesis gap before the counter bypass
+    // was fixed under-report lifetime recycling by exactly that credit. Idempotent,
+    // touches no balances, cannot fork (the counter is not in state_root).
+    repair_recycled_cumulative(&chain);
 
     // Register this account on-chain (no-op if already exists) — links all public keys.
     if let Err(e) = wallet::register_account(&chain, &cfg.account, &wallet_keys) {
@@ -327,7 +361,19 @@ async fn main() -> Result<()> {
     // ── Clock consensus ───────────────────────────────────────────────────────
     let clock = Arc::new(clock::ClockConsensus::new());
     // Populate registered_clocks immediately from store so quorum is correct from epoch 1.
-    clock.set_registered_clocks(clock::registered_clock_nodes(&chain.store, chain.current_epoch()));
+    {
+        let epoch_now = chain.current_epoch();
+        let reg_now = clock::registered_clock_nodes(&chain.store, epoch_now);
+        // Restart-invariance (spec §9): seed the weights for the pending epoch from committed
+        // state, so a node that restarts under an active weighted-quorum gate does NOT run one
+        // epoch on the flat rule while its peers run weighted. Recomputed from the same anchor a
+        // live node would have, so it matches byte-for-byte. Anchored to current_epoch + 1 — the
+        // next epoch this node will help resolve.
+        let wq_enabled = clock::weighted_quorum_active_for(&chain.store, epoch_now + 1);
+        let weights_now = clock::compute_clock_weights(&chain.store, &reg_now);
+        clock.set_registered_clocks(reg_now);
+        clock.set_clock_weights(epoch_now + 1, weights_now, wq_enabled);
+    }
     {
         let clock_ref = clock.clone();
         let chain_ref = chain.clone();
@@ -386,7 +432,8 @@ async fn main() -> Result<()> {
                 if cur > last_tracked {
                     // Cap the catch-up so a huge genesis-to-now gap can't stall the loop;
                     // only the recent window matters for finalization.
-                    let start = last_tracked.saturating_add(1).max(cur.saturating_sub(64));
+                    let start = last_tracked.saturating_add(1)
+                        .max(cur.saturating_sub(hone_types::NEGATIVE_ATTESTATION_WINDOW));
                     for e in start..=cur {
                         clock_ref.ensure_epoch_tracked(e);
                     }
@@ -428,7 +475,7 @@ async fn main() -> Result<()> {
                     // stale value before it syncs to wall-clock, and marking aligned then
                     // with last_rewarded still 0 latches the guard permanently → driver stuck
                     // at epoch 1 forever. Retry every tick until cur > 65, THEN align once.
-                    let window_floor = cur.saturating_sub(64);
+                    let window_floor = cur.saturating_sub(hone_types::NEGATIVE_ATTESTATION_WINDOW);
                     if window_floor > 1 {
                         last_rewarded = window_floor.saturating_sub(1);
                         reward_floor_aligned = true;
@@ -508,6 +555,30 @@ async fn main() -> Result<()> {
                         }
                         // Must be finalized locally before we can apply it. If not yet,
                         // STOP — do not advance past this gap; retry from here next tick.
+                        //
+                        // REMOVED (2026-07-30): a rule that declared an epoch "permanently
+                        // unfinalizable" once the chain passed its attestation window with no
+                        // local quorum EpochFinalize, and recycled its whole budget.
+                        //
+                        // It was UNSOUND. "No quorum finalize exists" is not a fact about the
+                        // chain, only about THIS NODE'S COPY of it. A node that was merely away
+                        // — while consensus continued perfectly well without it — returns behind
+                        // on finalizes that genuinely exist, concludes nobody earned, and
+                        // recycles other accounts' rewards.
+                        //
+                        // Mainnet: Nebra is named in sealed_by for epoch 72792, which grouchly
+                        // holds as quorum=2 finalized, and Nebra wrote it off. 137 epochs that
+                        // way. gate8 reproduced it in a controlled 3-clock run: the lagging node
+                        // declared 33 epochs dead that the quorum had finalized, while the two
+                        // nodes that kept quorum declared zero.
+                        //
+                        // The predicate is not locally decidable, so no tightening of the local
+                        // condition can fix it. The replacement is backfill, not a death
+                        // certificate: a node behind on finalizes should fetch them from peers
+                        // (/api/sync/blocks already exists) and pay the real earners. See
+                        // proposal p1a4f0c7. Until that lands, blocking is correct — a stalled
+                        // driver is visible and recoverable, silently recycling someone else's
+                        // rewards is neither.
                         let meta = match chain_ref.store.get_epoch_meta(e) {
                             Ok(Some(m)) if m["finalized"].as_bool().unwrap_or(false) => m,
                             _ => break, // not finalized yet — leave last_rewarded before e
@@ -516,14 +587,117 @@ async fn main() -> Result<()> {
                             .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
                             .unwrap_or_default();
                         if !sealers.is_empty() {
+                            // ── BUG 6 genesis gap credit — epoch-anchored, possession-gated,
+                            // write-once, guard-after-success (ruling Beastly c1f8b2e6).
+                            //
+                            // When genesis predates go-live, epochs 1..F (F = the first epoch a
+                            // real quorum ever sealed) were never negative-attested by anyone —
+                            // not a finalized-empty recycle case, just no epoch_meta at all — so
+                            // their block reward was neither paid nor recycled: silently
+                            // forfeited against the supply cap. `genesis_gap_recycle_hunits(F)`
+                            // is the exact amount to return to the recycle fund, exactly once.
+                            //
+                            // Anchored HERE, inside the depth-gated epoch-ordered finalized
+                            // replay, at the moment epoch F itself finalizes — NOT on the
+                            // wall-clock tick. Applying it on the tick meant each node credited
+                            // whenever it happened to restart on the new binary, so two cohort
+                            // nodes upgrading minutes apart disagreed on `__recycle_fund__` for
+                            // that interval — a transient state_root fork during rollout that
+                            // the 2-clock gate cannot see. Anchoring to F's finalize makes every
+                            // node apply it at the same CHAIN HEIGHT; the possession gate already
+                            // makes the amount identical.
+                            //
+                            // Possession, not a local window: the ordered-replay derivation below
+                            // only returns a value when this node has contiguous epoch_meta from
+                            // epoch 1 through F. A late joiner's negative attestation only covers
+                            // `cur-64..cur`, so it has no epoch_meta for epoch 1 and this returns
+                            // None forever — it does NOT credit, and is correctly left in the
+                            // "needs state-sync" bucket.
+                            // F is derived from the ORDERED REPLAY, not from arrival and not
+                            // from a storage scan (ruling Beastly c2a8f5d1).
+                            //
+                            // This walk is strictly ascending and contiguous — it refuses to
+                            // process e+1 until e is applied — so the first quorum-sealed epoch
+                            // it reaches is the MINIMUM sealed epoch of the applied set. That is
+                            // a commutative function of the set, so every node computes the same
+                            // F no matter what order gossip delivered the finalizes in.
+                            //
+                            // Both earlier derivations failed for the opposite reasons, and both
+                            // were caught by the 3-clock gate rather than by review:
+                            //  - "contiguous epoch_meta from epoch 1" never fired at all: under a
+                            //    backdated genesis nobody exists during 1..F-1, so no node holds
+                            //    meta for epoch 1.
+                            //  - "first finalize I apply that has sealers" forked the cohort:
+                            //    A applied 122's finalize first and locked F=122 while B locked
+                            //    F=121, so their credits differed by 2 HONE and state_root split.
+                            //
+                            // `genesis_gap_recycled` being unset is what makes "first reached"
+                            // meaningful: once the credit lands the guard is set, so this can
+                            // only ever fire on the lowest sealed epoch the replay walks.
+                            if chain_ref.store.state_get("genesis_gap_recycled").is_none() {
+                                let credit = hone_types::genesis_gap_recycle_hunits(e);
+                                // Guard AFTER success only. Previously the credit result was
+                                // discarded with `let _` while the durable guard was set
+                                // regardless: a failed credit left `genesis_gap_recycled` set
+                                // with no balance applied, and write-once meant it could never
+                                // retry — that node's `__recycle_fund__` stayed permanently short
+                                // versus every node where the credit succeeded, a permanent
+                                // state_root divergence with no self-healing path. That is the
+                                // exact fork class this change exists to close, so the guard now
+                                // follows the credit, never precedes it — same discipline as
+                                // `epoch_finalized_done:{e}` below.
+                                // Goes through recycle_credit, NOT store.credit directly: the
+                                // gap is the single largest recycle event in the chain's life,
+                                // and crediting it straight to the fund left it invisible to
+                                // `supply:recycled_cumulative`. On live mainnet that under-counted
+                                // the lifetime recycle figure by 145,534 HONE — the recycle ledger
+                                // is supposed to be the honest public record of what the chain
+                                // defined as emittable but nobody earned, so a bypass here is not
+                                // a cosmetic bug. See `repair_recycled_cumulative` for chains
+                                // where the credit already fired uncounted.
+                                let applied = if credit > 0 {
+                                    match recycle_credit_checked(&chain_ref, credit) {
+                                        Ok(_) => true,
+                                        Err(err) => {
+                                            error!("[genesis-gap] credit FAILED at F={} ({} hunits): {} \
+                                                — guard NOT set, will retry; this node has not \
+                                                applied the gap credit", e, credit, err);
+                                            false
+                                        }
+                                    }
+                                } else {
+                                    true // nothing to credit (F==1): trivially applied
+                                };
+                                if applied {
+                                    let _ = chain_ref.store.state_set(
+                                        "genesis_first_sealed_epoch", e.to_string().as_bytes());
+                                    // Credited AND counted in the same breath, so a chain that
+                                    // starts on this code never needs the repair path.
+                                    let _ = chain_ref.store.state_set("genesis_gap_counted", b"1");
+                                    if let Err(err) =
+                                        chain_ref.store.state_set("genesis_gap_recycled", b"1")
+                                    {
+                                        error!("[genesis-gap] credit applied at F={} but guard \
+                                            write failed: {} — MUST NOT double-credit; \
+                                            investigate before restart", e, err);
+                                    } else {
+                                        info!("[genesis-gap] epoch-anchored one-time credit at \
+                                            F={} (first real sealed epoch), {} hunits → recycle \
+                                            fund (backdated genesis gap)", e, credit);
+                                    }
+                                }
+                            }
                             // Sealed by quorum → replay-derive and apply its rewards.
                             emit_epoch_rewards(e, &sealers, &chain_ref);
                         } else {
                             // Earned nothing (empty sealer set) → its block reward recycles.
+                            // Also via recycle_credit: this lane bypassed the cumulative counter
+                            // too, so every empty finalized epoch went unrecorded in the lifetime
+                            // recycle figure. Same defect class as the genesis-gap bypass above,
+                            // and unlike that one it recurred every quiet epoch.
                             let reward = hone_types::block_reward_at(e);
                             if reward > 0 {
-                                let _ = chain_ref.store.credit(
-                                    hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN, reward);
+                                recycle_credit(&chain_ref, reward);
                                 info!("[finalize] epoch {} earned nothing (finalized) — {} hunits → recycle fund", e, reward);
                             }
                         }
@@ -687,7 +861,24 @@ async fn main() -> Result<()> {
                             &format!("epoch_validators:{}", sealed_epoch),
                             &serde_json::to_vec(&reg_clocks).unwrap_or_default(),
                         );
+                        // Reputation-weighted quorum (v1) — compute each registered clock's
+                        // on-chain weight from committed-state-through-`sealed_epoch`, and anchor
+                        // it to the NEXT epoch it governs (`sealed_epoch + 1`). Every node derives
+                        // the identical weights for that epoch from the identical committed state,
+                        // and a restarted node recomputes the same anchor (spec §9). Persist the
+                        // snapshot like epoch_validators so the cohort can byte-diff it during the
+                        // gate. Gate defaults OFF: until chain_param:weighted_quorum is set, the
+                        // flat count rule governs and these weights are ignored. Branch-only until
+                        // gated + Shin-in-person activation.
+                        let govern_epoch = sealed_epoch + 1;
+                        let wq_enabled = clock::weighted_quorum_active_for(&chain_ref.store, govern_epoch);
+                        let clock_weights = clock::compute_clock_weights(&chain_ref.store, &reg_clocks);
+                        let _ = chain_ref.store.state_set(
+                            &format!("epoch_clock_weights:{}", govern_epoch),
+                            &serde_json::to_vec(&clock_weights).unwrap_or_default(),
+                        );
                         clock_ref.set_registered_clocks(reg_clocks);
+                        clock_ref.set_clock_weights(govern_epoch, clock_weights, wq_enabled);
 
                         // Epoch entropy: XOR all winning seal hashes → SHA-256.
                         let seal_hashes: Vec<&str> = sealed.signing_clocks.iter().map(|_| {
@@ -1443,25 +1634,17 @@ async fn main() -> Result<()> {
         });
     }
 
-    // ── Periodic sweeper (session market only) ──────────────────────────────────
-    // session_market::sweep_expired flips a ListingStatus via state_set → CF_META
-    // only; it credits/debits no balance, so balance_merkle_root() (CF_BALANCES) can
-    // never fork on it. A wall-clock timer is the correct home for a non-consensus,
-    // UI-facing status flip.
-    //
-    // The three balance-MUTATING sweepers (ensemble, agent_session, vrf) that used to
-    // live here were moved onto the deterministic finalized-epoch path inside
-    // emit_epoch_rewards. On a 30s wall-clock timer they read current_epoch() (a local
-    // view), so which commits/jobs a node swept — and thus which RECYCLE_FUND credits
-    // it applied — depended on that node's clock, forking state_root. See BUG-6 audit
-    // (commit 588050782) and emit_epoch_rewards for the quorum-driven placement.
+    // ── Periodic sweepers (ensemble, session market, agent sessions, VRF) ───────
     {
         let chain_ref = chain.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 let epoch = chain_ref.current_epoch();
+                ensemble::sweep_expired(&chain_ref, epoch);
                 session_market::sweep_expired(&chain_ref, epoch);
+                agent_session::sweep_expired(&chain_ref, epoch);
+                vrf::sweep_epoch(&chain_ref, epoch);
             }
         });
     }
@@ -1755,7 +1938,30 @@ async fn run_inference_verifier(
 /// first missing epoch and return the one before it, so an unresolved gap is where we
 /// resume, never something we start above. Returns 0 on a fresh node (no keys), which
 /// correctly means "nothing rewarded yet."
+/// Where the driver resumes after a restart: the highest epoch applied contiguously
+/// **from this node's own reward floor**.
+///
+/// It used to walk up from epoch 1, and on a backdated chain that is catastrophic: epoch 1
+/// is never applied (the driver aligns its start to the tracking window), so this returned
+/// 0 on a node with real history. Returning 0 makes the driver treat the restart as a COLD
+/// START, which jumps the floor to `cur - NEGATIVE_ATTESTATION_WINDOW` and **silently skips
+/// the entire backlog below it** — exactly the silent fork the residual fix
+/// (Grouchly 7c1f9e83) exists to prevent, reintroduced through the front door.
+///
+/// Observed on live mainnet after the quorum-loss deploy: floor 72768, contiguous 72790,
+/// highest applied 73215, but only 152 epochs applied across a 447-epoch span. The driver
+/// was paying the tip and had abandoned ~295 epochs, so the recycle divergence between the
+/// two clocks stayed frozen at 3,139,6xx,xxx,xxx hunits instead of closing.
+///
+/// Floor-relative resume keeps the guarantee that matters — a restart can never outrun an
+/// unresolved gap — while not mistaking "started above epoch 1" for "has done nothing".
 fn highest_contiguous_rewarded(chain: &Chain) -> u64 {
+    chain.store.reward_cursor().contiguous
+}
+
+/// Retained for the tests that pin the old epoch-1-relative behaviour explicitly.
+#[cfg(test)]
+fn highest_contiguous_rewarded_from_epoch_one(chain: &Chain) -> u64 {
     let done: std::collections::HashSet<u64> = chain.store
         .state_scan_prefix("epoch_finalized_done:")
         .into_iter()
@@ -1819,33 +2025,109 @@ fn backfill_txglobal(chain: &Chain) {
 /// redundant AND dangerous — ClockReward's apply arm has no per-epoch idempotency guard,
 /// so a received-then-recomputed reward would double-credit. The EpochFinalize entry is
 /// the only thing that gossips; rewards are a pure function of it.
+/// Credit the recycle fund AND advance the durable cumulative counter.
+///
+/// The fund's *balance* is not the same as "total ever recycled": from
+/// RECYCLE_ERA onward the epoch budget is drawn FROM the fund, so the balance
+/// falls again. Anyone reading liquidity history off the balance alone would see
+/// recycling apparently reverse. `supply:recycled_cumulative` is monotonic and
+/// survives restarts, so it is the honest lifetime figure.
+fn recycle_credit(chain: &Chain, amount: u64) {
+    let _ = recycle_credit_checked(chain, amount);
+}
+
+/// As `recycle_credit`, but surfaces the credit failure instead of swallowing it.
+///
+/// The genesis-gap caller needs this: it must only set its write-once guard if the
+/// credit actually landed, because a guard set over a failed credit can never retry
+/// and leaves that node permanently short against every node where it succeeded.
+/// The counter is advanced only on a successful credit, so the two can never
+/// disagree about whether the tokens exist.
+fn recycle_credit_checked(chain: &Chain, amount: u64) -> anyhow::Result<()> {
+    if amount == 0 { return Ok(()); }
+    chain.store.credit(
+        hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN, amount)?;
+    bump_recycled_cumulative(chain, amount as u128);
+    Ok(())
+}
+
+fn bump_recycled_cumulative(chain: &Chain, amount: u128) {
+    let prev = read_recycled_cumulative(chain);
+    let _ = chain.store.state_set(
+        "supply:recycled_cumulative",
+        prev.saturating_add(amount).to_string().as_bytes());
+}
+
+fn read_recycled_cumulative(chain: &Chain) -> u128 {
+    chain.store.state_get("supply:recycled_cumulative")
+        .and_then(|v| String::from_utf8(v).ok())
+        .and_then(|s| s.trim().parse::<u128>().ok())
+        .unwrap_or(0)
+}
+
+/// One-time repair for chains where the genesis-gap credit landed WITHOUT being
+/// counted (any chain that ran a binary before the bypass was fixed).
+///
+/// Live mainnet is such a chain: the gap credit fired at F and went straight to the
+/// fund via `store.credit`, so `supply:recycled_cumulative` under-reported lifetime
+/// recycling by exactly `genesis_gap_recycle_hunits(F)` — 145,534 HONE. The write-once
+/// `genesis_gap_recycled` guard means the credit itself can never re-fire, so no code
+/// change fixes the figure going forward; it has to be repaired once, explicitly.
+///
+/// Deterministic and node-independent: the amount is a pure function of `F`, which is
+/// durable in `genesis_first_sealed_epoch`, so every node computes the same number
+/// from its own state. Safe to run on every startup — `genesis_gap_counted` makes it
+/// idempotent, and a chain that started on the fixed code sets that guard at credit
+/// time and skips this entirely.
+///
+/// This does NOT touch balances, only the counter. The counter is not part of
+/// `state_root` (which covers the balance tree) and has no consensus reader — it is
+/// read by `/api/supply` alone — so repairing it cannot fork the chain. Balances were
+/// already correct; it was only the record of them that was wrong.
+fn repair_recycled_cumulative(chain: &Chain) {
+    if chain.store.state_get("genesis_gap_counted").is_some() {
+        return; // already counted, or credited by the fixed path
+    }
+    if chain.store.state_get("genesis_gap_recycled").is_none() {
+        return; // gap credit has not fired yet — the fixed path will count it
+    }
+    let Some(f) = chain.store.state_get("genesis_first_sealed_epoch")
+        .and_then(|v| String::from_utf8(v).ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+    else {
+        warn!("[supply] genesis gap credited but genesis_first_sealed_epoch is unreadable — \
+               cannot compute the uncounted amount; recycled_cumulative stays low. \
+               /api/supply will report accounting_ok=false rather than hide it.");
+        return;
+    };
+    let missed = hone_types::genesis_gap_recycle_hunits(f) as u128;
+    if missed == 0 {
+        let _ = chain.store.state_set("genesis_gap_counted", b"1");
+        return;
+    }
+    let before = read_recycled_cumulative(chain);
+    bump_recycled_cumulative(chain, missed);
+    if let Err(err) = chain.store.state_set("genesis_gap_counted", b"1") {
+        error!("[supply] recycled_cumulative repaired ({} -> {}) but the guard write failed: {} \
+                — MUST NOT repair twice; investigate before restart",
+               before, before.saturating_add(missed), err);
+        return;
+    }
+    info!("[supply] one-time repair: genesis-gap credit at F={} was applied but never counted; \
+           recycled_cumulative {} -> {} (+{} hunits). Balances unchanged — the tokens were always \
+           in the fund, only the lifetime record was short.",
+          f, before, before.saturating_add(missed), missed);
+}
+
 fn emit_epoch_rewards(
     epoch: u64,
     clock_sealers: &[String],
     chain: &Arc<Chain>,
 ) {
-    // ── Deterministic expiry sweeps (run FIRST, before any early-return) ─────────
-    // All five sweeps below run once per finalized epoch, on the quorum-agreed `epoch`
-    // passed in here — never on a node-local wall-clock view. They are hoisted ahead of
-    // BOTH the empty-sealer no-op path and the `raw_pool == 0` early-return: a sweep
-    // that credits/debits balances MUST NOT be skipped on a zero-reward epoch, or nodes
-    // that took the early-return would diverge from nodes that did not. Refunds/slashes
-    // are delayed to finalization, never dropped.
-    //
-    // The last three (ensemble, agent_session, vrf) were moved here from a 30s wall-clock
-    // timer where their timing forked state_root (BUG-6 audit, commit 588050782).
-    //
-    // TRACKED MITIGATION (not closed): ensemble::sweep_expired → finalize_job() tallies
-    // majority_hash(&job.votes). If a vote for a job can still be sealed AFTER the
-    // finalized epoch in which the job is swept, the fix relocates the nondeterminism
-    // rather than removing it. Shipped as a tracked risk; see the ensemble vote-timing
-    // item in ROAD_TO_LIVE / the sweeper design report.
-    sweep_expired_pending_transfers(epoch, chain);   // existing, safe (quorum-driven)
-    agent_task::sweep_expired(chain, epoch);          // existing, safe (quorum-driven)
-    ensemble::sweep_expired(chain, epoch);            // MOVED off 30s timer
-    agent_session::sweep_expired(chain, epoch);       // MOVED off 30s timer
-    vrf::sweep_epoch(chain, epoch);                   // MOVED off 30s timer (window now
-                                                      // measured in finalized epochs)
+    // Sweep expired pending token transfers → refund sender.
+    sweep_expired_pending_transfers(epoch, chain);
+    // Sweep expired agentic tasks → refund escrow.
+    agent_task::sweep_expired(chain, epoch);
 
     let raw_pool = if era(epoch) >= RECYCLE_ERA {
         let fund = chain.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
@@ -1872,29 +2154,56 @@ fn emit_epoch_rewards(
     let adjusted_pool     = (raw_pool as u128 * long_term_scalar as u128 / LAYER_A_SCALAR_DENOM as u128) as u64;
     let layer_a_damped    = raw_pool.saturating_sub(adjusted_pool);
     if layer_a_damped > 0 {
-        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, layer_a_damped);
+        recycle_credit(chain, layer_a_damped);
     }
     let raw_pool = adjusted_pool; // shadow: all downstream logic operates on the scaled pool
 
     // ── Mandatory 2% reserve split (Layer D, always fires) ───────────────────
     // 1.5% → recycle fund  |  0.4% → testnet fund  |  0.1% → treasury (DAO)
     let reserve_total  = (raw_pool as u128 * 2 / 100) as u64;
-    let testnet_top_up = (raw_pool as u128 * 4 / 1000) as u64;          // 0.4%
-    let treasury_split = (raw_pool as u128 / 1000) as u64;              // 0.1%
+    // Testnet is NOT a fixed skim off the ceiling any more (Shin, 2026-07-29): it is
+    // sized on what was actually EARNED this epoch and paid at the bottom of this
+    // function, once `distributed` is known. A budget-proportional top-up accrued
+    // 0.4% every epoch whether or not a single testnet operator existed — tokens
+    // emitted, nobody earned them, and they sat in a pool instead of recycling,
+    // which is the one thing the conservation rule forbids.
+    // Neither testnet nor treasury skims the ceiling any more (Shin, 2026-07-29).
+    // Both are funded as a share of EARNINGS, carved from the earners' pool further
+    // down, so a dead epoch funds neither. What used to be their 0.5% of the budget
+    // now stays in the 2% reserve and recycles.
+    let testnet_top_up = 0u64;
+    let treasury_split = 0u64;
     let recycle_split  = reserve_total
         .saturating_sub(testnet_top_up)
         .saturating_sub(treasury_split);                                  // 1.5%
-    let activity_pool  = raw_pool.saturating_sub(reserve_total);
+    // ── Layer D clock base: carved from the epoch budget, NOT minted on top ──
+    // The clock reward is part of the capped block-reward emission (whitepaper
+    // §1.2 Layer D), never an additive mint. Each SEALING clock node has a fixed
+    // base_clock_reward allotment this epoch; the total is carved out of the budget
+    // here so total emission can never exceed block_reward_at(epoch). Sealers earn
+    // their allotment scaled by uptime; the unearned remainder recycles below.
+    // Sized on sealers (not merely registered/staked nodes): bootstrapping nodes
+    // hold zero stake until they earn it, so a stake-gated allotment would pay no
+    // one at launch; gating on actual seals also stops idle/fake registrations from
+    // inflating the carve.
+    let base_clock_reward = clock_reward_at(epoch);
+    let clock_allotment = base_clock_reward.saturating_mul(clock_sealers.len() as u64);
+    let post_reserve = raw_pool.saturating_sub(reserve_total);
+    if clock_allotment > post_reserve {
+        warn!("clock: epoch {} clock_allotment {} exceeds post-reserve budget {} — \
+activity pool starved (sealing clock-node count too high for era budget)",
+            epoch, clock_allotment, post_reserve);
+    }
+    let activity_pool  = post_reserve.saturating_sub(clock_allotment);
 
     if recycle_split > 0 {
-        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_split);
+        recycle_credit(chain, recycle_split);
     }
     if testnet_top_up > 0 {
         let _ = chain.store.credit(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN, testnet_top_up);
     }
-    if treasury_split > 0 {
-        let _ = chain.store.credit(TREASURY_ACCOUNT, NATIVE_TOKEN, treasury_split);
-    }
+    // treasury is paid from earnings at the bottom of this function, not here
+    let _ = treasury_split;
 
     // ── Layer D: era-scaled clock reward (infrastructure base) ──────────────
     // Reward is scaled by uptime reputation: 0.5× (low uptime) → 1.0× (perfect).
@@ -1903,15 +2212,20 @@ fn emit_epoch_rewards(
     const CLOCK_UPTIME_WINDOW: u64 = 100;
     const CLOCK_UPTIME_MIN_EPOCHS: u64 = 10;
 
-    let base_clock_reward = clock_reward_at(epoch);
-
     // Collect all registered clock nodes for the uptime window update.
     let registered_nodes: Vec<String> = chain.store.state_scan_prefix("clock_reg:")
         .into_iter()
         .filter_map(|(_, v)| {
             let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
-            // Only track nodes that still have stake (not slashed).
-            if j["stake"].as_u64().unwrap_or(0) == 0 { return None; }
+            // Only track nodes that still have stake (not slashed) — EXCEPT during
+            // the bootstrap grace, when no operator can be staked yet: staking
+            // debits balance, balance comes from rewards, and rewards were gated on
+            // stake. Observed live: both clocks sealed at quorum 2/2 for 19 epochs,
+            // were counted for consensus, and earned nothing because this filter
+            // dropped them — clock_uptime:<node> stayed null. Sealing was never
+            // stake-gated; only earning was, which made the two disagree.
+            let staked = j["stake"].as_u64().unwrap_or(0) > 0;
+            if !staked && epoch > hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH { return None; }
             j["node_id"].as_str().map(|s| s.to_owned())
         })
         .collect();
@@ -1942,7 +2256,80 @@ fn emit_epoch_rewards(
         ).unwrap_or_default());
     }
 
-    // Emit ClockReward for each sealer, scaled by uptime.
+    // ── Real per-device attendance (seal-anchored) for reputation-weighted quorum ──
+    // GATED behind the weighted-quorum chain param: this writes NEW state, so it stays
+    // dormant until a coordinated, Shin-in-person activation — the live chain's state_root
+    // is untouched while the param is off.
+    //
+    // clock_uptime above measures REGISTRATION, not reliability: it is fed by `sealer_set`
+    // = the registered snapshot, so it sits at ~100% for every staked clock and cannot tell
+    // a rock-solid box from a flaky laptop. This record instead reads the ACTUAL per-device
+    // seal — `epoch_node_seal:{epoch}:{node}`, the equivocation-guarded, never-pruned entry
+    // written on EpochSeal apply (chain.rs:1064). A registered device that goes dark has no
+    // seal for those epochs → its attendance rate decays → its consensus weight sinks. That
+    // is the "flaky sinks" signal registration-fed uptime can't provide.
+    //
+    // DETERMINISM: consumed HERE, inside the ordered contiguous reward walk, which runs at
+    // REWARD_FINALITY_DEPTH (~10 min) behind the tip. By then `epoch`'s seals have long since
+    // flood-propagated to every node, so this update is replay-identical across the cohort —
+    // the same "settled and propagated ahead" bar the reward derivation already trusts. The
+    // residual risk is a straggler seal for `epoch` arriving on one node after its walk passed
+    // `epoch`; that is exactly what the cross-arch / cross-NAT gate must stress before
+    // activation (§0 of docs/REPUTATION_WEIGHTED_QUORUM.md), and why this is gate-then-Shin,
+    // not a live flip.
+    // Epoch-anchored gate: accrue only for epochs at/after the agreed activation height (NOT a
+    // bare "is the flag set now" — the walk runs behind the tip, so "now" is always past
+    // activation and reading it here would fold a per-node pre-activation tail into the record).
+    // Write-once per epoch (`device_attend_done:{epoch}`) so the accrual is idempotent regardless
+    // of how emit_epoch_rewards is reached — it must never depend on an upstream caller's
+    // dedup. Set derived from `registered_clock_nodes` — the SAME set the quorum denominator and
+    // compute_clock_weights use — so a device never has weight without an attendance record or
+    // vice versa.
+    if clock::weighted_quorum_active_for(&chain.store, epoch) {
+        let attend_done_key = format!("device_attend_done:{}", epoch);
+        if chain.store.state_get(&attend_done_key).is_none() {
+            // Set is EPOCH-ANCHORED: the `epoch_validators:{epoch}` snapshot persisted when this
+            // epoch sealed (main.rs, seal handler) — the SAME bytes `sealed_by` and
+            // compute_rewards_hash are built on, identical across nodes by the BUG-6 guarantee.
+            // NOT a live registered_clock_nodes() scan, which reads today's registration state and
+            // would diverge between nodes whose walks reach this epoch at different moments. If the
+            // snapshot is absent, do NOT fall back to a live scan — skip accrual for this epoch
+            // (deterministic: every node that finalized the epoch holds the snapshot).
+            let attend_set: Vec<String> = chain.store
+                .state_get(&format!("epoch_validators:{}", epoch))
+                .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+                .unwrap_or_default();
+            for node_id in &attend_set {
+                let attend_key = format!("device_attend:{}", node_id);
+                let prev: serde_json::Value = chain.store.state_get(&attend_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or(serde_json::json!({"sealed": 0, "epochs": 0}));
+                let mut sealed_ct = prev["sealed"].as_u64().unwrap_or(0);
+                let mut epochs = prev["epochs"].as_u64().unwrap_or(0);
+
+                epochs = (epochs + 1).min(CLOCK_UPTIME_WINDOW);
+                // ACTUAL attendance: did THIS device's own seal for `epoch` land on-chain?
+                let attended = chain.store
+                    .state_get(&format!("epoch_node_seal:{}:{}", epoch, node_id))
+                    .is_some();
+                if attended {
+                    sealed_ct = (sealed_ct + 1).min(epochs);
+                } else if epochs == CLOCK_UPTIME_WINDOW {
+                    // Steady-state: a missed epoch leaks one point from the window.
+                    sealed_ct = sealed_ct.saturating_sub(1);
+                }
+
+                let _ = chain.store.state_set(&attend_key, &serde_json::to_vec(
+                    &serde_json::json!({ "sealed": sealed_ct, "epochs": epochs })
+                ).unwrap_or_default());
+            }
+            let _ = chain.store.state_set(&attend_done_key, b"1");
+        }
+    }
+
+    // Emit ClockReward for each sealer, scaled by uptime. Whatever of the carved
+    // clock allotment is not earned here recycles below (paid-or-recycled).
+    let mut clock_paid: u64 = 0;
     for node_id in clock_sealers {
         if base_clock_reward == 0 { break; }
         let uptime_key = format!("clock_uptime:{}", node_id);
@@ -1963,8 +2350,16 @@ fn emit_epoch_rewards(
             warn!("clock: clock reward failed for {} epoch {}: {}", node_id, epoch, e);
             continue;
         }
+        clock_paid = clock_paid.saturating_add(scaled_reward);
         // No broadcast: rewards are replay-derived from the winning EpochFinalize on
         // every node; gossiping ClockReward would double-credit (no idempotency guard).
+    }
+    // Unearned clock allotment (uptime shortfall, skipped/failed payouts, or any
+    // budget-capped remainder) recycles — the clock line is conserved and never
+    // minted beyond the epoch budget carved above.
+    let clock_recycle = clock_allotment.saturating_sub(clock_paid);
+    if clock_recycle > 0 {
+        recycle_credit(chain, clock_recycle);
     }
 
     // ── Layer E: testnet operator rewards (from testnet fund) ────────────────
@@ -2339,10 +2734,22 @@ fn emit_epoch_rewards(
         0
     };
 
-    let gated_pool   = gated_pool_base.saturating_add(fee_boost);
+    let gated_pool_pre_testnet = gated_pool_base.saturating_add(fee_boost);
+    // ── Testnet's slice comes OUT of what earners share (Shin, 2026-07-29) ──────
+    // 0.4% is carved off the earners' pool here, before the lanes divide it, so the
+    // slice genuinely comes out of the earned 100 rather than being added on top or
+    // skimmed off the ceiling. Only the portion matching what actually gets earned
+    // is paid to testnet at the bottom of this function; the rest of the carve
+    // recycles, so a quiet epoch funds testnet proportionally less and an epoch
+    // that earns nothing funds it with nothing.
+    let testnet_carve  = ((gated_pool_pre_testnet as u128 * 4) / 1000) as u64;   // 0.4%
+    let treasury_carve = ((gated_pool_pre_testnet as u128 * 1) / 1000) as u64;   // 0.1%
+    let gated_pool     = gated_pool_pre_testnet
+        .saturating_sub(testnet_carve)
+        .saturating_sub(treasury_carve);
     let idle_recycle = idle_before_c.saturating_sub(fee_boost);
     if idle_recycle > 0 {
-        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, idle_recycle);
+        recycle_credit(chain, idle_recycle);
     }
 
     // Budget allocation: proportional to each pool's normalized utilization
@@ -2387,7 +2794,7 @@ fn emit_epoch_rewards(
                          + scatter_verify + scatter_svc + scatter_mem + scatter_track
                          + scatter_git + scatter_build;
     if scarcity_recycle > 0 {
-        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, scarcity_recycle);
+        recycle_credit(chain, scarcity_recycle);
     }
 
     distribute_rewards_desktop(epoch, &mines, inference_pool, chain, |miner, amount, ep| {
@@ -2507,8 +2914,37 @@ fn emit_epoch_rewards(
                      + verify_pool + service_pool + mempool_pool + tracker_pool
                      + linkgit_pool + build_pool;
     let remainder    = gated_pool.saturating_sub(distributed).saturating_sub(scarcity_recycle);
+
+    // ── Testnet share: 0.4% OF WHAT WAS EARNED ────────────────────────────────
+    // earned = every hunit that actually reached a participant this epoch (clock
+    // seals + all activity lanes). Testnet's entitlement is 0.4% of that, drawn
+    // from `testnet_carve` which was already removed from the earners' pool above —
+    // so it dilutes earners by 0.4% rather than being minted on top. Whatever the
+    // carve holds beyond the earned-proportional share recycles, so testnet is
+    // never funded for activity that did not happen.
+    let earned_total   = clock_paid.saturating_add(distributed);
+    let testnet_share  = ((earned_total as u128 * 4) / 1000) as u64;
+    let treasury_share = ((earned_total as u128 * 1) / 1000) as u64;
+    let testnet_paid   = testnet_share.min(testnet_carve);
+    let treasury_paid  = treasury_share.min(treasury_carve);
+    if testnet_paid > 0 {
+        let _ = chain.store.credit(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN, testnet_paid);
+    }
+    if treasury_paid > 0 {
+        let _ = chain.store.credit(TREASURY_ACCOUNT, NATIVE_TOKEN, treasury_paid);
+    }
+    if testnet_paid > 0 || treasury_paid > 0 {
+        info!("[earnings-share] epoch {} earned {} -> testnet {} (0.4%), treasury {} (0.1%); \
+              carves {}/{}, {} recycled", epoch, earned_total, testnet_paid, treasury_paid,
+              testnet_carve, treasury_carve,
+              testnet_carve.saturating_sub(testnet_paid)
+                  .saturating_add(treasury_carve.saturating_sub(treasury_paid)));
+    }
+    let carve_unused = testnet_carve.saturating_sub(testnet_paid)
+        .saturating_add(treasury_carve.saturating_sub(treasury_paid));
+    let remainder = remainder.saturating_add(carve_unused);
     if remainder > 0 {
-        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, remainder);
+        recycle_credit(chain, remainder);
     }
 
     info!(
@@ -2851,6 +3287,414 @@ mod reward_driver_tests {
         (chain, dir)
     }
 
+    fn mark_finalized(chain: &Chain, epoch: u64, sealers: &[&str]) {
+        chain.store.set_epoch_meta(epoch, &serde_json::json!({
+            "finalized": true,
+            "sealed_by": sealers,
+        })).unwrap();
+    }
+
+    // NOTE: the tests that pinned a "permanently unfinalizable" verdict were removed
+    // with the rule itself (2026-07-30). They asserted the verdict was independent of
+    // tip position, which was true — and irrelevant, because the verdict also has to be
+    // independent of what each node LOCALLY holds, and it was not. Tests that check the
+    // wrong property are worse than no tests: these were cited as evidence the rule was
+    // safe. See the removal comment in the driver, and proposal p1a4f0c7.
+
+
+
+
+
+
+    // ── recycled_cumulative repair ───────────────────────────────────────────────
+
+    /// The live-mainnet case: the gap credit landed via a path that bypassed the
+    /// counter, so the lifetime figure is short by exactly the gap. Repair once.
+    #[test]
+    fn repair_counts_a_genesis_gap_that_was_credited_but_never_counted() {
+        let (chain, _d) = make_chain("repair-gap");
+        let f = 5_000u64;
+        let gap = hone_types::genesis_gap_recycle_hunits(f);
+        assert!(gap > 0, "test needs a real gap");
+        // Simulate the old bypass: credit applied, guard set, counter never advanced.
+        chain.store.credit(hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN, gap).unwrap();
+        chain.store.state_set("genesis_gap_recycled", b"1").unwrap();
+        chain.store.state_set("genesis_first_sealed_epoch", f.to_string().as_bytes()).unwrap();
+        assert_eq!(read_recycled_cumulative(&chain), 0, "precondition: uncounted");
+
+        repair_recycled_cumulative(&chain);
+        assert_eq!(read_recycled_cumulative(&chain), gap as u128,
+            "repair must add exactly the gap amount");
+
+        // Idempotent — a restart must not double-count.
+        repair_recycled_cumulative(&chain);
+        repair_recycled_cumulative(&chain);
+        assert_eq!(read_recycled_cumulative(&chain), gap as u128,
+            "repair ran more than once — lifetime figure is now overstated");
+    }
+
+    /// Balances are NOT touched: the tokens were always in the fund, only the
+    /// record of them was short.
+    #[test]
+    fn repair_does_not_move_any_tokens() {
+        let (chain, _d) = make_chain("repair-nobalance");
+        let f = 5_000u64;
+        let gap = hone_types::genesis_gap_recycle_hunits(f);
+        chain.store.credit(hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN, gap).unwrap();
+        chain.store.state_set("genesis_gap_recycled", b"1").unwrap();
+        chain.store.state_set("genesis_first_sealed_epoch", f.to_string().as_bytes()).unwrap();
+        let before = chain.store.total_supply(hone_types::NATIVE_TOKEN);
+        repair_recycled_cumulative(&chain);
+        assert_eq!(chain.store.total_supply(hone_types::NATIVE_TOKEN), before,
+            "repair must be record-only — it altered issued supply");
+    }
+
+    /// A chain that never credited the gap must not be "repaired" — the fixed
+    /// credit path will count it when it fires.
+    #[test]
+    fn repair_is_a_noop_before_the_gap_credit_has_fired() {
+        let (chain, _d) = make_chain("repair-early");
+        chain.store.state_set("genesis_first_sealed_epoch", b"5000").unwrap();
+        repair_recycled_cumulative(&chain);
+        assert_eq!(read_recycled_cumulative(&chain), 0);
+        assert!(chain.store.state_get("genesis_gap_counted").is_none(),
+            "must not latch the guard before the credit exists");
+    }
+
+    // ── reward cursor visibility ─────────────────────────────────────────────────
+
+    /// The stall must be observable. A hole below applied work is the signature of
+    /// an epoch the walk is waiting on.
+    #[test]
+    fn reward_cursor_reports_the_hole_the_walk_is_waiting_on() {
+        let (chain, _d) = make_chain("cursor-gap");
+        mark_done(&chain, &[1, 2, 3, 5, 6]);
+        let c = chain.store.reward_cursor();
+        assert_eq!(c.contiguous, 3, "frontier stops below the hole");
+        assert_eq!(c.applied, 5);
+        assert_eq!(c.first_gap, Some(4), "epoch 4 is what the walk is blocked on");
+        assert!(c.stalled());
+    }
+
+    /// No hole → not stalled, and the frontier is the highest applied epoch.
+    #[test]
+    fn reward_cursor_reports_no_gap_when_contiguous() {
+        let (chain, _d) = make_chain("cursor-clean");
+        mark_done(&chain, &[1, 2, 3, 4, 5, 6, 7]);
+        let c = chain.store.reward_cursor();
+        assert_eq!((c.floor, c.contiguous, c.highest, c.applied), (1, 7, 7, 7));
+        assert!(!c.stalled());
+
+        let (empty, _d2) = make_chain("cursor-empty");
+        let e = empty.store.reward_cursor();
+        assert_eq!((e.floor, e.contiguous, e.applied), (0, 0, 0));
+        assert!(!e.stalled(), "a node that has rewarded nothing is not stalled");
+    }
+
+    /// THE COLD-START CASE. On a backdated chain the driver aligns its start to the
+    /// tracking window, so epochs 1..floor-1 were never applied by this node and never
+    /// will be — the genesis-gap credit covers them. Measuring contiguity from epoch 1
+    /// reported a phantom hole at epoch 1 and a frontier of 0 on a perfectly healthy
+    /// node, which made /api/supply compare real issued supply against zero and declare
+    /// `accounting_ok: false` permanently. Caught on a live gate node, not in review.
+    #[test]
+    fn reward_cursor_treats_a_cold_start_floor_as_healthy_not_stalled() {
+        let (chain, _d) = make_chain("cursor-coldstart");
+        mark_done(&chain, &[121, 122, 123, 124, 125]);
+        let c = chain.store.reward_cursor();
+        assert_eq!(c.floor, 121, "floor is the lowest epoch this node ever rewarded");
+        assert_eq!(c.contiguous, 125, "contiguous is measured FROM the floor, not epoch 1");
+        assert_eq!(c.highest, 125);
+        assert_eq!(c.first_gap, None, "epochs below the floor are not a hole");
+        assert!(!c.stalled(), "a cold-start floor must never read as a stall");
+    }
+
+    /// A hole ABOVE a cold-start floor is still a real stall.
+    #[test]
+    fn reward_cursor_still_detects_a_hole_above_a_cold_start_floor() {
+        let (chain, _d) = make_chain("cursor-coldstart-gap");
+        mark_done(&chain, &[121, 122, 124, 125]);
+        let c = chain.store.reward_cursor();
+        assert_eq!(c.floor, 121);
+        assert_eq!(c.contiguous, 122);
+        assert_eq!(c.first_gap, Some(123));
+        assert!(c.stalled());
+    }
+
+    /// The holes must be enumerated, because supply conservation is stated against the
+    /// epochs actually APPLIED, not against a contiguous range. While the driver holds a
+    /// hole it has legitimately credited epochs above it, so a contiguous comparison
+    /// shows a phantom surplus equal to exactly those credits — measured live on mainnet
+    /// mid-recovery as a 2,319,539,999,948 hunit "surplus" on a perfectly conserved chain.
+    #[test]
+    fn reward_cursor_enumerates_holes_so_conservation_can_exclude_them() {
+        let (chain, _d) = make_chain("cursor-missing");
+        // Applied 100..110 except 103, 104 and 107.
+        mark_done(&chain, &[100, 101, 102, 105, 106, 108, 109, 110]);
+        let c = chain.store.reward_cursor();
+        assert_eq!(c.floor, 100);
+        assert_eq!(c.contiguous, 102, "frontier stops below the first hole");
+        assert_eq!(c.highest, 110, "but work HAS been applied up to 110");
+        assert_eq!(c.first_gap, Some(103));
+        assert_eq!(c.missing, vec![103, 104, 107],
+            "every hole in the applied span must be reported, not just the first");
+
+        // The conservation correction: emission through `highest` minus the holes must
+        // equal emission over exactly the applied set.
+        let span = hone_types::cumulative_emission_through(c.highest);
+        let holes: u64 = c.missing.iter().map(|e| hone_types::block_reward_at(*e)).sum();
+        let applied_only: u64 = (1..=c.highest)
+            .filter(|e| !c.missing.contains(e))
+            .map(hone_types::block_reward_at)
+            .sum();
+        assert_eq!(span - holes, applied_only,
+            "span-minus-holes must equal the emission of the applied set");
+    }
+
+    /// No hole → nothing to exclude.
+    #[test]
+    fn reward_cursor_reports_no_holes_when_contiguous() {
+        let (chain, _d) = make_chain("cursor-nomissing");
+        mark_done(&chain, &[200, 201, 202, 203]);
+        let c = chain.store.reward_cursor();
+        assert!(c.missing.is_empty());
+        assert_eq!((c.contiguous, c.highest), (203, 203));
+    }
+
+
+    // ── Native emission conservation (Beastly e5b9d2f74a13, Shin's framing) ──
+    //
+    // The chain has ONE emission rule, not a set of features: each epoch's budget
+    // is block_reward_at(epoch), and every hunit of it is either PAID to something
+    // that earned it or CREDITED to __recycle_fund__. Never more (no minting "just
+    // for emitting"), never less (nothing forfeited). The genesis "reclaim" is not
+    // a separate mechanism — it is this same rule applied to a run of epochs that
+    // had zero earners.
+    //
+    // This asserts that invariant directly on total supply, so it covers every lane
+    // at once — layer_a damping, reserve splits, the clock carve, idle/scarcity
+    // recycle, rounding remainder, and all reward payouts — without enumerating
+    // them. A new lane that mints outside the budget fails this test even if nobody
+    // remembers to update it, which is the point: the clock lane was exactly such a
+    // leak and no existing test caught it.
+    fn total_supply(chain: &Chain) -> u128 {
+        // Balances AND stake. CF_BALANCES alone undercounts: reserve pools hold
+        // balances with no account record (so scan_account_ids() misses them), and
+        // staked tokens have left CF_BALANCES entirely — during the clock bootstrap
+        // grace a ClockReward is paid into stake, so a balances-only total reports
+        // correctly-paid rewards as missing supply.
+        chain.store.total_supply(hone_types::NATIVE_TOKEN) + chain.store.total_staked()
+    }
+
+    #[test]
+    fn emission_conserves_epoch_budget_exactly() {
+        let (chain, _d) = make_chain("emit_conserve");
+        let chain = std::sync::Arc::new(chain);
+        let sealers = vec!["clockA".to_string(), "clockB".to_string()];
+
+        // Several epochs inside era < RECYCLE_ERA, where the budget is
+        // block_reward_at(epoch) rather than drawn from the recycle fund.
+        for e in [1u64, 5, 121, 1_000, 71_603] {
+            assert!(hone_types::era(e) < hone_types::RECYCLE_ERA,
+                    "epoch {e} must be pre-recycle-era for this assertion");
+            let before = total_supply(&chain);
+            emit_epoch_rewards(e, &sealers, &chain);
+            let minted = total_supply(&chain) - before;
+            let budget = hone_types::block_reward_at(e) as u128;
+            assert_eq!(
+                minted, budget,
+                "epoch {e}: minted {minted} != budget {budget} (delta {}) — \
+                 something minted outside the ceiling or forfeited tokens",
+                minted as i128 - budget as i128
+            );
+        }
+    }
+
+    /// The same rule with NO sealers: nobody earned, so the entire budget must
+    /// land in the recycle fund — identical to a pre-launch epoch. This is the
+    /// genesis-gap case expressed as what it actually is.
+    #[test]
+    fn epoch_with_no_earners_recycles_whole_budget() {
+        let (chain, _d) = make_chain("emit_empty");
+        let chain = std::sync::Arc::new(chain);
+        let before_total = total_supply(&chain);
+        let before_recycle = chain.store.get_balance(
+            hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN);
+
+        emit_epoch_rewards(500, &[], &chain);
+
+        let budget = hone_types::block_reward_at(500) as u128;
+        let minted = total_supply(&chain) - before_total;
+        let recycled = (chain.store.get_balance(
+            hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN)
+            .saturating_sub(before_recycle)) as u128;
+        let treasury = chain.store.get_balance(
+            hone_types::TREASURY_ACCOUNT, hone_types::NATIVE_TOKEN) as u128;
+        let testnet = chain.store.get_balance(
+            hone_types::TESTNET_FUND_ACCOUNT, hone_types::NATIVE_TOKEN) as u128;
+        assert_eq!(minted, budget, "empty epoch still minted != budget");
+        // Now that BOTH testnet and treasury are funded from earnings rather than
+        // from the ceiling, an epoch with no earners must recycle the whole budget —
+        // nothing is entitled to a cut of activity that did not happen.
+        assert_eq!(treasury, 0, "empty epoch paid the treasury {treasury}");
+        assert_eq!(testnet, 0, "empty epoch paid testnet {testnet}");
+        assert_eq!(recycled, budget,
+            "empty epoch: recycled {recycled} != budget {budget} — an epoch with no \
+             earners must recycle all of it");
+    }
+
+
+    /// Seal-anchored attendance: gated ON, `emit_epoch_rewards` credits attendance from the
+    /// ACTUAL per-device seal record — the device that sealed gets a point, the dark one does
+    /// not — and gated OFF it writes nothing (live state_root untouched until activation).
+    #[test]
+    fn seal_anchored_attendance_credits_real_sealers_only_and_is_gated() {
+        let (chain, _d) = make_chain("attend_gate");
+        let chain = std::sync::Arc::new(chain);
+        let epoch = 5_000u64; // past bootstrap grace
+
+        // Two registered, staked clocks.
+        for n in ["present", "dark"] {
+            chain.store.state_set(
+                &format!("clock_reg:{n}"),
+                &serde_json::to_vec(&serde_json::json!({
+                    "node_id": n, "stake": 100_000_000_000u64, "registered_epoch": 0, "pubkey": "aa"
+                })).unwrap(),
+            ).unwrap();
+        }
+        // Only `present` actually sealed this epoch (its EpochSeal landed on-chain).
+        chain.store.state_set(
+            &format!("epoch_node_seal:{epoch}:present"), b"seal_hash_hex").unwrap();
+
+        // Epoch-anchored validator snapshot the accrual iterates (the same bytes the reward path
+        // uses), persisted per epoch when the epoch sealed.
+        chain.store.state_set(
+            &format!("epoch_validators:{epoch}"),
+            &serde_json::to_vec(&vec!["present".to_string(), "dark".to_string()]).unwrap(),
+        ).unwrap();
+
+        // ── Gated OFF (default): no device_attend is written at all. ──
+        emit_epoch_rewards(epoch, &["present".to_string(), "dark".to_string()], &chain);
+        assert!(chain.store.state_get("device_attend:present").is_none(),
+            "attendance must NOT be recorded before the activation epoch");
+        assert!(chain.store.state_get("device_attend:dark").is_none());
+
+        // ── Activation epoch is an EPOCH: set it ABOVE this epoch → still OFF here. ──
+        chain.store.state_set("chain_param:weighted_quorum",
+            &serde_json::to_vec(&(epoch + 100)).unwrap()).unwrap();
+        emit_epoch_rewards(epoch, &["present".to_string(), "dark".to_string()], &chain);
+        assert!(chain.store.state_get("device_attend:present").is_none(),
+            "epoch before the activation height must NOT accrue");
+
+        // ── Activation at/below this epoch → attendance accrues from the real seal record. ──
+        chain.store.state_set("chain_param:weighted_quorum",
+            &serde_json::to_vec(&1u64).unwrap()).unwrap();
+        emit_epoch_rewards(epoch, &["present".to_string(), "dark".to_string()], &chain);
+        // Idempotency: a second call for the SAME epoch must NOT double-count (write-once guard).
+        emit_epoch_rewards(epoch, &["present".to_string(), "dark".to_string()], &chain);
+
+        let present: serde_json::Value = serde_json::from_slice(
+            &chain.store.state_get("device_attend:present").expect("present attendance written")).unwrap();
+        let dark: serde_json::Value = serde_json::from_slice(
+            &chain.store.state_get("device_attend:dark").expect("dark attendance written")).unwrap();
+        // One epoch counted (NOT two, despite two calls); only the real sealer got a seal credit.
+        assert_eq!(present["epochs"].as_u64(), Some(1), "write-once guard must prevent double-count");
+        assert_eq!(present["sealed"].as_u64(), Some(1), "the device that sealed must be credited");
+        assert_eq!(dark["epochs"].as_u64(), Some(1));
+        assert_eq!(dark["sealed"].as_u64(), Some(0), "a registered device that did NOT seal earns no attendance");
+    }
+
+    /// Testnet is funded from EARNED, not from the ceiling (Shin, 2026-07-29).
+    ///
+    /// An epoch where nobody earned anything must fund testnet with nothing — the
+    /// old budget-proportional top-up paid 0.4% regardless, so the fund accrued
+    /// tokens nobody earned while reading as "emitted" rather than recycled.
+    #[test]
+    fn testnet_share_is_zero_when_nothing_was_earned() {
+        let (chain, _d) = make_chain("testnet_empty");
+        let chain = std::sync::Arc::new(chain);
+        let before = chain.store.get_balance(
+            hone_types::TESTNET_FUND_ACCOUNT, hone_types::NATIVE_TOKEN);
+
+        // No sealers, no registered workers -> nothing is earned this epoch.
+        emit_epoch_rewards(600, &[], &chain);
+
+        let after = chain.store.get_balance(
+            hone_types::TESTNET_FUND_ACCOUNT, hone_types::NATIVE_TOKEN);
+        assert_eq!(after, before,
+            "an epoch that earned nothing funded testnet with {} hunits — testnet must \
+             be a share of earnings, not a skim off the budget", after - before);
+    }
+
+    /// And it must never exceed its budget: whatever testnet receives comes out of
+    /// the remainder that would otherwise recycle, so total minted is unchanged.
+    #[test]
+    fn testnet_share_never_breaks_conservation() {
+        let (chain, _d) = make_chain("testnet_conserve");
+        let chain = std::sync::Arc::new(chain);
+        let sealers = vec!["clockA".to_string(), "clockB".to_string()];
+        for e in [50u64, 121, 5_000] {
+            let before = total_supply(&chain);
+            emit_epoch_rewards(e, &sealers, &chain);
+            let minted = total_supply(&chain) - before;
+            assert_eq!(minted, hone_types::block_reward_at(e) as u128,
+                "epoch {e}: testnet share pushed minted off the budget");
+        }
+    }
+
+
+    /// Bootstrap grace: a clock with ZERO stake must still be tracked for uptime and
+    /// earn, because during grace nobody can be staked — staking debits balance,
+    /// balance comes from rewards, rewards were gated on stake. Observed live: both
+    /// clocks sealed at 2/2 for 19 epochs and earned nothing.
+    #[test]
+    fn unstaked_clock_earns_during_bootstrap_grace() {
+        let (chain, _d) = make_chain("clk_grace");
+        let chain = std::sync::Arc::new(chain);
+        // Register a clock with no stake, exactly as a fresh node does.
+        chain.store.state_set("clock_reg:nodeA", br#"{"node_id":"nodeA","stake":0}"#).unwrap();
+        let in_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH - 1;
+        let before = total_supply(&chain);
+        emit_epoch_rewards(in_grace, &["nodeA".to_string()], &chain);
+        // It must now be in the uptime window at all — null was the live symptom.
+        assert!(chain.store.state_get("clock_uptime:nodeA").is_some(),
+            "unstaked clock was not tracked during grace — this is the live bug");
+        // During grace the reward builds STAKE, not balance (CLOCK_BOOTSTRAP_GRACE).
+        let reg = chain.store.state_get("clock_reg:nodeA")
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .expect("clock_reg should still exist");
+        assert!(reg["stake"].as_u64().unwrap_or(0) > 0,
+            "clock_reg record not kept in step with CF_STAKES — the eligibility filter reads it");
+        // Conservation now HOLDS: the stake portion is credited via set_stake, so the
+        // tokens are real and counted, and the spillover above the minimum goes to
+        // balance. Previously this shortfell by exactly one clock allotment because the
+        // amount was only written as a number into clock_reg JSON and never credited —
+        // neither paid nor recycled.
+        assert_eq!(total_supply(&chain) - before,
+                   hone_types::block_reward_at(in_grace) as u128,
+                   "grace-era epoch minted off-budget");
+        // And the stake must be visible where stake_weight() looks — CF_STAKES —
+        // not only in the clock_reg record the eligibility filter reads.
+        assert!(chain.store.get_stake("nodeA") > 0,
+            "stake top-up not visible via get_stake() — CF_STAKES must be canonical, \
+             or stake_weight() cannot see it");
+    }
+
+    /// After grace the stake GATE returns (an unstaked clock stops being tracked) —
+    /// but the earnings->stake top-up itself is permanent, so a clock that is tracked
+    /// still refills its minimum from rewards at any height. These are two separate
+    /// rules and only the gate is height-dependent.
+    #[test]
+    fn unstaked_clock_not_tracked_after_grace() {
+        let (chain, _d) = make_chain("clk_postgrace");
+        let chain = std::sync::Arc::new(chain);
+        chain.store.state_set("clock_reg:nodeB", br#"{"node_id":"nodeB","stake":0}"#).unwrap();
+        let post = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 1;
+        emit_epoch_rewards(post, &["nodeB".to_string()], &chain);
+        assert!(chain.store.state_get("clock_uptime:nodeB").is_none(),
+            "unstaked clock should be dropped once grace ends");
+    }
+
     fn mark_done(chain: &Chain, epochs: &[u64]) {
         for e in epochs {
             chain.store.state_set(&format!("epoch_finalized_done:{}", e), b"1").unwrap();
@@ -2860,6 +3704,7 @@ mod reward_driver_tests {
     #[test]
     fn fresh_node_resumes_at_zero() {
         let (chain, _d) = make_chain("fresh");
+        assert_eq!(highest_contiguous_rewarded_from_epoch_one(&chain), 0);
         assert_eq!(highest_contiguous_rewarded(&chain), 0);
     }
 
@@ -2880,12 +3725,32 @@ mod reward_driver_tests {
         assert_eq!(highest_contiguous_rewarded(&chain), 3);
     }
 
-    /// A gap at the very first epoch means nothing is contiguously done.
+    /// A node that never applied epoch 1 has a FLOOR of 2 — it has not "done nothing".
+    ///
+    /// This test previously asserted 0, encoding the epoch-1-relative reading, and that
+    /// premise is retired deliberately. Returning 0 here is what made a restarted mainnet
+    /// node look fresh: the driver took the cold-start branch, jumped its floor to
+    /// `cur - 64`, and silently abandoned ~295 epochs of backlog. On a backdated chain
+    /// EVERY node has a floor above 1, so the old reading misfired on all of them.
     #[test]
-    fn gap_at_one_resumes_at_zero() {
+    fn a_floor_above_epoch_one_is_not_a_fresh_node() {
         let (chain, _d) = make_chain("gap1");
-        mark_done(&chain, &[2, 3, 4]); // 1 missing
-        assert_eq!(highest_contiguous_rewarded(&chain), 0);
+        mark_done(&chain, &[2, 3, 4]);
+        assert_eq!(highest_contiguous_rewarded_from_epoch_one(&chain), 0,
+            "the old epoch-1-relative reading — retained only to document the bug");
+        assert_eq!(highest_contiguous_rewarded(&chain), 4,
+            "floor-relative: floor is 2, and 2..4 are contiguous, so resume at 4");
+    }
+
+    /// The guarantee that must survive the change: a restart can never outrun a gap
+    /// ABOVE the floor. Skipping one would drop that epoch's reward permanently on this
+    /// node while a node that finalized it sooner applies it → state_root fork.
+    #[test]
+    fn restart_cannot_outrun_a_gap_above_a_high_floor() {
+        let (chain, _d) = make_chain("gap-high-floor");
+        mark_done(&chain, &[72768, 72769, 72770, 72790, 72791]); // hole at 72771
+        assert_eq!(highest_contiguous_rewarded(&chain), 72770,
+            "must resume below the hole and retry it, not jump to the tip");
     }
 
     /// Restart recovery must survive a real reopen of the DB, not just an in-memory read —
@@ -2904,4 +3769,17 @@ mod reward_driver_tests {
         let chain = Chain::new(store, "n1".into(), "hone-test".into());
         assert_eq!(highest_contiguous_rewarded(&chain), 3, "restart must resume, not reset to 0");
     }
+
+    fn mark_epoch(chain: &Chain, epoch: u64, sealed: bool) {
+        let sealed_by: Vec<&str> = if sealed { vec!["node-a"] } else { vec![] };
+        chain.store.set_epoch_meta(epoch, &serde_json::json!({
+            "finalized": true,
+            "sealed_by": sealed_by,
+        })).unwrap();
+    }
+
+
+
+
+
 }

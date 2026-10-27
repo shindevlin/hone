@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "hone-chain-core"
+name = "btcpc-chain-core"
 version = "0.1.0"

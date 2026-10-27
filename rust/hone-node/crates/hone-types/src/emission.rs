@@ -150,6 +150,19 @@ pub const INFERENCE_FEE_RECYCLE_DISPUTED_BPS: u64 = 500;
 /// At era-0 (30s epochs), 20 epochs ≈ 10 minutes.
 pub const CLAIM_WINDOW_EPOCHS: u64 = 20;
 
+/// How far back negative attestation reaches: a node seeds `epoch_states` for
+/// `cur-NEGATIVE_ATTESTATION_WINDOW ..= cur` so that even epochs no clock sealed get
+/// resolved and finalized. Epochs older than this are never attested again.
+///
+/// This is therefore the point of no return for finalization: once the chain has
+/// progressed more than this many epochs past epoch `e` without a quorum
+/// `EpochFinalize` for `e`, no quorum can ever form for it. The reward driver relies on
+/// that to distinguish "not finalized YET" (wait) from "can never be finalized"
+/// (recycle the budget and move on). Must match the window the tracker actually seeds —
+/// they were both the bare literal 64 in two places, which is how the two ideas drifted
+/// apart in the first place.
+pub const NEGATIVE_ATTESTATION_WINDOW: u64 = 64;
+
 /// Minimum verifier votes required to resolve a dispute.
 pub const MIN_REVIEW_VOTES: u64 = 3;
 
@@ -717,6 +730,44 @@ pub fn block_reward_at(epoch: u64) -> u64 {
     BLOCK_REWARD_HUNITS.min(remaining)
 }
 
+/// Total block reward for every epoch from genesis up to — but not including —
+/// the first sealed epoch `first_sealed_epoch` (i.e. epochs `1..first_sealed`).
+///
+/// When the genesis timestamp predates go-live, the epochs between genesis and
+/// the first quorum-sealed epoch were never sealed, so their block rewards were
+/// never paid. The supply cap is accounted by epoch number (see `block_reward_at`),
+/// so those rewards would otherwise be forfeited. This is the exact amount to
+/// credit ONCE to `RECYCLE_FUND_ACCOUNT` (the end-of-chain pool) so nothing is
+/// lost and realized supply still reaches `SUPPLY_CAP_HUNITS`. Era- and cap-aware.
+pub fn genesis_gap_recycle_hunits(first_sealed_epoch: u64) -> u64 {
+    // Epoch 0 is the genesis marker (no reward); the gap is epochs 1..first_sealed.
+    cumulative_emission_through(first_sealed_epoch.saturating_sub(1))
+}
+
+/// Total hunits the schedule DEFINES as emittable over epochs `1..=epoch`.
+///
+/// This is the schedule side of the supply ledger, and it is what makes the
+/// 42,000,000 HONE total checkable rather than merely asserted. By the native
+/// emission rule every hunit this returns is in exactly one place: paid to an
+/// earner (balance or stake) or credited to a reserve. So
+/// `cumulative_emission_through(last_rewarded)` (from the schedule) and
+/// `total_supply() + total_staked()` (from RocksDB) are two INDEPENDENT
+/// measurements of the same quantity, and asserting them equal is an invariant
+/// that can actually fail and catch a leak. Note that `unissued = cap - issued`
+/// is not such an invariant: it is subtraction, and it reads 42M even when the
+/// accounting is wrong.
+///
+/// Epoch 0 is the genesis marker and emits nothing.
+pub fn cumulative_emission_through(epoch: u64) -> u64 {
+    let mut total: u64 = 0;
+    let mut e: u64 = 1;
+    while e <= epoch {
+        total = total.saturating_add(block_reward_at(e));
+        e += 1;
+    }
+    total
+}
+
 /// Wall-clock offset in milliseconds from genesis for the start of `epoch`.
 ///
 /// Not relative to Unix epoch — add genesis_timestamp_ms to get absolute time.
@@ -823,6 +874,70 @@ mod tests {
             .map(block_reward_at)
             .sum();
         assert_eq!(total, SUPPLY_CAP_HUNITS);
+    }
+
+    #[test]
+    fn genesis_gap_recycle_basic() {
+        assert_eq!(genesis_gap_recycle_hunits(0), 0);
+        assert_eq!(genesis_gap_recycle_hunits(1), 0);
+        assert_eq!(genesis_gap_recycle_hunits(2), BLOCK_REWARD_HUNITS);
+        assert_eq!(genesis_gap_recycle_hunits(66_571), 66_570 * BLOCK_REWARD_HUNITS);
+        assert_eq!(genesis_gap_recycle_hunits(66_571), 133_140 * 10_000_000_000); // 133,140 HONE
+    }
+
+    #[test]
+    fn genesis_gap_recycle_matches_block_reward_sum() {
+        for f in [1u64, 2, 100, 5_000, 20_000] {
+            let direct: u64 = (1..f).map(block_reward_at).sum();
+            assert_eq!(genesis_gap_recycle_hunits(f), direct, "f={f}");
+        }
+    }
+
+    /// The genesis-gap amount is now expressed via `cumulative_emission_through`.
+    /// Pin the two against each other so the refactor cannot drift the credit that
+    /// already fired on the live chain — a change here would be a silent hard fork.
+    #[test]
+    fn genesis_gap_is_cumulative_emission_through_f_minus_1() {
+        for f in [0u64, 1, 2, 3, 100, 5_000, 20_000, 66_571, 72_768] {
+            assert_eq!(
+                genesis_gap_recycle_hunits(f),
+                cumulative_emission_through(f.saturating_sub(1)),
+                "f={f}"
+            );
+        }
+    }
+
+    /// The schedule side of the 42M ledger: cumulative emission is monotonic,
+    /// starts at 0, and can never define more than the cap as emittable.
+    #[test]
+    fn cumulative_emission_never_exceeds_cap_and_is_monotonic() {
+        assert_eq!(cumulative_emission_through(0), 0, "epoch 0 emits nothing");
+        let mut prev = 0u64;
+        for e in [1u64, 2, 10, 1_000, 66_571, 100_000, 250_000] {
+            let cur = cumulative_emission_through(e);
+            assert!(cur >= prev, "not monotonic at e={e}: {cur} < {prev}");
+            assert!(cur <= SUPPLY_CAP_HUNITS,
+                "e={e} defines {cur} emittable, over the 42M cap {SUPPLY_CAP_HUNITS}");
+            prev = cur;
+        }
+        // And it converges ON the cap rather than short of it or past it: the whole
+        // schedule from epoch 1 accounts for every hunit except the genesis marker.
+        let all = cumulative_emission_through(5 * DOUBLING_INTERVAL - 1);
+        assert_eq!(all, SUPPLY_CAP_HUNITS - block_reward_at(0),
+            "the schedule must define exactly 42M minus the genesis marker");
+    }
+
+    #[test]
+    fn genesis_gap_plus_realized_preserves_cap() {
+        // gap (recycled) + rewards payable from F onward == all new-supply from epoch 1.
+        // Epoch 0 is the genesis marker (block_reward_at(0) counted in the cap sum but
+        // never paid), the same with or without backdating.
+        let f = 66_571u64;
+        let gap = genesis_gap_recycle_hunits(f);
+        let rest: u64 = (f..5 * DOUBLING_INTERVAL).map(block_reward_at).sum();
+        let all_from_epoch_1: u64 = (1..5 * DOUBLING_INTERVAL).map(block_reward_at).sum();
+        assert_eq!(gap + rest, all_from_epoch_1);
+        assert_eq!(all_from_epoch_1, SUPPLY_CAP_HUNITS - block_reward_at(0));
     }
 
     #[test]

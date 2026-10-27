@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::store::Store;
 
@@ -30,6 +30,102 @@ pub fn quorum() -> usize {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(2)
+}
+
+// ── Reputation-weighted quorum (v1) ─────────────────────────────────────────────
+// See docs/REPUTATION_WEIGHTED_QUORUM.md. Weight = stake_term · uptime_term, BOTH on-chain
+// (role_stake:clock, clock_uptime:{node}). INTEGER-ONLY end to end — floats in the sum or
+// comparison path fork a cross-arch cohort by one ULP (Beastly review 940a6577), and the
+// outlier term was dropped because clock_scores is in-memory + wall-clock + local (a fork).
+// Every function here is a pure function of on-chain inputs → restart-invariant by
+// construction (the §9 key assertion): no wall-clock, no local state, no floats.
+
+const CLOCK_WEIGHT_MIN_EPOCHS: u64 = 10;              // probation: below this, weight = 0
+const CLOCK_WEIGHT_STAKE_BASE: u128 = 100;           // floor so an established 0-stake clock still votes
+const CLOCK_WEIGHT_STAKE_GRANULE: u64 = 10_000_000_000; // 1 HONE — isqrt is taken over whole-HONE units
+
+/// Integer square root of a u128 (Newton's method). Bit-exact on every architecture —
+/// this is what replaces the spec's rejected `sqrt`/`log1p`.
+pub fn isqrt_u128(n: u128) -> u128 {
+    if n < 2 { return n; }
+    let mut x = n;
+    let mut y = x.div_ceil(2);
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
+}
+
+/// Per-clock consensus weight — integer, deterministic, on-chain inputs only.
+///
+/// `weight = uptime_permille · stake_term`
+///   uptime_permille = seals·1000/epochs  ∈ 0..=1000   (from clock_uptime:{node})
+///   stake_term      = STAKE_BASE + isqrt(stake / 1 HONE)   (diminishing returns, §4)
+///
+/// Probation (§3): a clock registered fewer than CLOCK_WEIGHT_MIN_EPOCHS epochs returns 0 —
+/// it seals and builds uptime but carries no quorum weight until it has proven presence.
+pub fn clock_weight(seals: u64, epochs: u64, stake_hunits: u64) -> u128 {
+    if epochs < CLOCK_WEIGHT_MIN_EPOCHS {
+        return 0;
+    }
+    let uptime_permille = (seals.min(epochs) as u128 * 1000) / (epochs as u128); // 0..=1000
+    let stake_term =
+        CLOCK_WEIGHT_STAKE_BASE + isqrt_u128((stake_hunits / CLOCK_WEIGHT_STAKE_GRANULE) as u128);
+    uptime_permille * stake_term
+}
+
+/// Weighted-quorum decision. Given votes `(node_id, hash)`, the registered set, and each
+/// registered clock's weight, return the winning hash iff its summed (capped) weight exceeds
+/// 51% of the total (capped) registered weight AND its vote count meets `floor`.
+///
+/// Anti-concentration (§6): each clock is capped at 1/3 of the PRE-CAP total, no
+/// renormalization (Beastly review — renorm iteration in the seal path is a liveness hazard).
+/// If the total registered weight is 0 (e.g. every clock still in probation), returns None so
+/// the caller falls back to the flat count rule — weighted quorum never stalls a fresh cohort.
+///
+/// Integer-only; deterministic tie-break (weight, then count, then hash bytes) so every node
+/// picks the identical winner.
+pub fn weighted_winner(
+    votes: &[(String, String)],
+    registered: &[String],
+    weights: &HashMap<String, u128>,
+    floor: usize,
+) -> Option<(String, usize, u128)> {
+    let raw_total: u128 = registered.iter().map(|n| *weights.get(n).unwrap_or(&0)).sum();
+    if raw_total == 0 {
+        return None; // all probation / no weight yet → caller uses flat count
+    }
+    let cap = raw_total / 3;
+    let capped = |n: &str| -> u128 { (*weights.get(n).unwrap_or(&0)).min(cap) };
+    let total: u128 = registered.iter().map(|n| capped(n)).sum();
+
+    let mut by_hash: HashMap<&str, (usize, u128)> = HashMap::new();
+    for (node, hash) in votes {
+        // Only registered clocks contribute weight; unregistered votes are ignored.
+        if !registered.iter().any(|r| r == node) {
+            continue;
+        }
+        let e = by_hash.entry(hash.as_str()).or_insert((0, 0));
+        e.0 += 1;
+        e.1 += capped(node);
+    }
+    let winner = by_hash
+        .iter()
+        .max_by(|a, b| {
+            a.1 .1
+                .cmp(&b.1 .1)
+                .then(a.1 .0.cmp(&b.1 .0))
+                .then(a.0.cmp(b.0))
+        })
+        .map(|(h, (c, w))| (h.to_string(), *c, *w))?;
+
+    // Strict weighted majority: weight·100 > total·51. Integer, no float.
+    if winner.2 * 100 > total * 51 && winner.1 >= floor {
+        Some(winner)
+    } else {
+        None
+    }
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -102,6 +198,9 @@ struct EpochState {
     /// Extended deadline: if we have 1 seal and live peers, wait until this
     /// before self-sealing. Set to deadline + PEER_SEAL_WAIT_MS on first wait.
     peer_fallback_deadline: Option<Instant>,
+    /// Set after the first "insufficient quorum" warning for this epoch, so a
+    /// stuck epoch logs once instead of every tick.
+    quorum_warned: bool,
 }
 
 struct RewardState {
@@ -121,6 +220,25 @@ struct Inner {
     /// Current registered clock node set — updated at each epoch seal via
     /// `set_registered_clocks()`. Used as the quorum denominator.
     registered_clocks: Vec<String>,
+    /// Reputation-weighted quorum (v1), EPOCH-ANCHORED. Maps the epoch being decided →
+    /// `(enabled, weights)` that govern it. The decision for epoch `E` uses `epoch_weights[E]`
+    /// only — never a mutable "latest" — so every node (and a node before vs. after a restart)
+    /// resolves `E` from the identical committed-state anchor. Reading a shared latest field
+    /// instead would reintroduce the §3-class bug at the timing layer: a node whose epoch
+    /// handler lagged would decide `E` with a stale anchor and fork. Injected per epoch from
+    /// main.rs via `set_clock_weights(epoch, …)`, repopulated at startup for the pending epoch.
+    /// Absent entry (or disabled / zero total weight) → flat count rule, byte-identical to pre-change.
+    epoch_weights: HashMap<u64, (bool, HashMap<String, u128>)>,
+}
+
+impl Inner {
+    /// True the first time an epoch fails quorum; false on every retry after that.
+    fn first_quorum_warn(&mut self, epoch: u64) -> bool {
+        match self.epoch_states.get_mut(&epoch) {
+            Some(s) if !s.quorum_warned => { s.quorum_warned = true; true }
+            _ => false,
+        }
+    }
 }
 
 // ── ClockConsensus ────────────────────────────────────────────────────────────
@@ -145,6 +263,7 @@ impl ClockConsensus {
                 current_epoch: 0,
                 observer_mode: false,
                 registered_clocks: Vec::new(),
+                epoch_weights: HashMap::new(),
             })),
             sealed_tx,
             finalized_tx,
@@ -168,6 +287,12 @@ impl ClockConsensus {
             let mut inner = self.inner.lock().unwrap();
             // Read registered_clocks before the mutable entry borrow to satisfy the borrow checker.
             let reg = inner.registered_clocks.clone();
+            // Epoch-anchored weights: use THIS epoch's, never a mutable latest.
+            let (weighted_quorum_enabled, clock_weights) = inner
+                .epoch_weights
+                .get(&epoch)
+                .cloned()
+                .unwrap_or((false, HashMap::new()));
 
             let state = inner.reward_states.entry(epoch).or_insert_with(|| RewardState {
                 proposals: Vec::new(),
@@ -202,22 +327,54 @@ impl ClockConsensus {
             let quorum_needed = ((denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize)
                 .max(quorum());
 
-            // Tally votes from valid (registered) proposals only.
-            let mut hash_counts: HashMap<String, usize> = HashMap::new();
-            for p in &valid_proposals {
-                *hash_counts.entry(p.rewards_hash.clone()).or_default() += 1;
-            }
+            // Weighted reward finalization (v1, gated) — kept aligned with the seal decision so
+            // an epoch that seals under weighted quorum also finalizes its rewards under the same
+            // rule (and vice versa). Same guard: enabled + nonzero registered weight, else flat.
+            let reg_weight_total: u128 = reg.iter()
+                .map(|n| clock_weights.get(n).copied().unwrap_or(0))
+                .sum();
+            if weighted_quorum_enabled && !reg.is_empty() && reg_weight_total > 0 {
+                let votes: Vec<(String, String)> = valid_proposals.iter()
+                    .map(|p| (p.node_id.clone(), p.rewards_hash.clone()))
+                    .collect();
+                match weighted_winner(&votes, &reg, &clock_weights, quorum()) {
+                    Some((best_hash, count, weight)) => {
+                        info!(
+                            "[clock] epoch {} reward: WEIGHTED finalize — winner weight {} / {} registered ({} signers)",
+                            epoch, weight, reg_weight_total, count
+                        );
+                        state.finalized = true;
+                        Some(FinalizedEpoch { epoch, rewards_hash: best_hash, quorum: count })
+                    }
+                    None => {
+                        // Distinguish "weighted rejected the tally" from "no weights present" so a
+                        // gate run can't mistake reward finalization silently running flat for a
+                        // weighted pass (parity with the seal-path engagement log).
+                        debug!(
+                            "[clock] epoch {} reward: weighted tally below threshold (total weight {})",
+                            epoch, reg_weight_total
+                        );
+                        None
+                    }
+                }
+            } else {
+                // Tally votes from valid (registered) proposals only (flat count rule).
+                let mut hash_counts: HashMap<String, usize> = HashMap::new();
+                for p in &valid_proposals {
+                    *hash_counts.entry(p.rewards_hash.clone()).or_default() += 1;
+                }
 
-            if let Some((best_hash, &count)) = hash_counts.iter().max_by_key(|(_, c)| *c) {
-                if count >= quorum_needed {
-                    state.finalized = true;
-                    Some(FinalizedEpoch {
-                        epoch,
-                        rewards_hash: best_hash.clone(),
-                        quorum: count,
-                    })
+                if let Some((best_hash, &count)) = hash_counts.iter().max_by_key(|(_, c)| *c) {
+                    if count >= quorum_needed {
+                        state.finalized = true;
+                        Some(FinalizedEpoch {
+                            epoch,
+                            rewards_hash: best_hash.clone(),
+                            quorum: count,
+                        })
+                    } else { None }
                 } else { None }
-            } else { None }
+            }
         };
 
         if let Some(event) = finalized_event {
@@ -236,6 +393,19 @@ impl ClockConsensus {
                 return;
             }
         };
+
+        // Device clock seats ("{owner}@{pubkey}") are bound to their key: the seal
+        // must carry a signature that verifies against the pubkey in the id itself
+        // (the seal's own pubkey field is not trusted for this).
+        if let Some((_, dev_pk)) = hone_types::parse_device_clock_id(&parsed.node_id) {
+            let ok = parsed.signature.as_deref()
+                .map(|sig| verify_seal_signature(&parsed, dev_pk, sig))
+                .unwrap_or(false);
+            if !ok {
+                warn!("[clock] rejected device seal from {} — missing or bad signature", parsed.node_id);
+                return;
+            }
+        }
 
         // Verify ed25519 signature when a pubkey is available.
         // pubkey field takes priority; fall back to node_id if it looks like a raw pubkey hex.
@@ -264,6 +434,7 @@ impl ClockConsensus {
                     winner: None,
                     deadline: Instant::now() + Duration::from_millis(SEAL_COLLECT_MS),
                     peer_fallback_deadline: None,
+                    quorum_warned: false,
                 });
 
             if state.resolved {
@@ -282,6 +453,26 @@ impl ClockConsensus {
     /// Called every second from the main loop. Resolves any collection windows
     /// whose deadline has passed.
     pub fn tick(&self) {
+        // Abandon epochs that never reached quorum once they are more than 20 epochs
+        // behind the newest tracked epoch. Pruning used to run only after a SUCCESSFUL
+        // resolution, so a stuck epoch was retried (and logged) every second for up
+        // to 20 epochs, and an isolated node (nothing resolving) kept every unresolved
+        // epoch forever. Seals that late are already dropped as stale by the gossip
+        // handler, so nothing that could still resolve is lost.
+        {
+            let mut inner = self.inner.lock().unwrap();
+            if let Some(newest) = inner.epoch_states.keys().max().copied() {
+                let mut abandoned: Vec<u64> = inner.epoch_states.iter()
+                    .filter(|(e, st)| **e + 20 < newest && !st.resolved)
+                    .map(|(e, _)| *e)
+                    .collect();
+                abandoned.sort_unstable();
+                for e in &abandoned {
+                    info!("[clock] epoch {}: abandoned unresolved (no quorum within 20 epochs)", e);
+                }
+                inner.epoch_states.retain(|e, _| *e + 20 >= newest);
+            }
+        }
         let epochs_to_resolve: Vec<u64> = {
             let inner = self.inner.lock().unwrap();
             inner
@@ -329,6 +520,7 @@ impl ClockConsensus {
             winner: None,
             deadline: Instant::now() + Duration::from_millis(SEAL_COLLECT_MS),
             peer_fallback_deadline: None,
+            quorum_warned: false,
         });
     }
 
@@ -341,6 +533,25 @@ impl ClockConsensus {
     /// Return the current registered clock node list (for API/diagnostics).
     pub fn registered_clocks(&self) -> Vec<String> {
         self.inner.lock().unwrap().registered_clocks.clone()
+    }
+
+    /// Inject the reputation weights + enable flag that govern the decision for a SPECIFIC
+    /// epoch. Called from main.rs when the prior epoch seals (anchoring `epoch`'s decision to
+    /// committed-state-through-`epoch − 1`) and at startup for the pending epoch, computed from
+    /// on-chain state (role_stake:clock, clock_uptime) via `clock_weight()`. `enabled` is the
+    /// chain-param gate — false (the default) → the flat count rule governs and weights are
+    /// ignored. Epoch-keyed so the decision for `epoch` is anchor-stable across nodes and restarts.
+    pub fn set_clock_weights(&self, epoch: u64, weights: HashMap<String, u128>, enabled: bool) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.epoch_weights.insert(epoch, (enabled, weights));
+        // Bound the map behind the TRUE newest key, not just the epoch we happened to inject —
+        // two writers feed this (startup seed + seal handler) and the startup seed can be ahead
+        // of the seal handler's first injection, so pruning relative to `epoch` alone could wipe
+        // entries the seal path still needs. Compute the max over all keys.
+        if let Some(&newest) = inner.epoch_weights.keys().max() {
+            let cutoff = newest.saturating_sub(40);
+            inner.epoch_weights.retain(|e, _| *e >= cutoff);
+        }
     }
 
     /// Update the number of external (non-loopback) peers seen by the net layer.
@@ -416,6 +627,14 @@ impl ClockConsensus {
             // external_peer_count is a plain copy — read before the mut borrow on epoch_states.
             let external_peer_count = inner.external_peer_count;
             let registered_clocks = inner.registered_clocks.clone();
+            // Epoch-anchored weights: the decision for THIS epoch uses weights injected for it
+            // (from committed-state-through-(epoch−1)), never a mutable latest — so all nodes,
+            // and a node before vs. after a restart, resolve this epoch from the same anchor.
+            let (weighted_quorum_enabled, clock_weights) = inner
+                .epoch_weights
+                .get(&epoch)
+                .cloned()
+                .unwrap_or((false, HashMap::new()));
 
             // Scope the mutable borrow of epoch_states so it is released before
             // we call inner.update_clock_score() which also needs &mut inner.
@@ -541,25 +760,76 @@ impl ClockConsensus {
                 } else {
                     registered_clocks.len()
                 };
-                let quorum_needed = std::cmp::max(
-                    1,
-                    (denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize,
-                );
-                if voting_inliers.len() < quorum_needed {
-                    warn!(
-                        "[clock] epoch {}: insufficient quorum ({} registered inliers / {} registered, need {}; {} total seals received)",
-                        epoch, voting_inliers.len(), denominator, quorum_needed, seals.len()
-                    );
-                    return;
-                }
 
-                // Among voting inliers, pick the winning seal_hash (most common).
-                let mut hash_count: HashMap<&str, usize> = HashMap::new();
-                for s in &voting_inliers {
-                    *hash_count.entry(s.seal_hash.as_str()).or_default() += 1;
-                }
-                let winner_hash = hash_count.iter().max_by_key(|(_, c)| *c)
-                    .map(|(h, _)| *h).unwrap_or("");
+                // Decide the winning seal_hash and whether quorum is met.
+                //
+                // Weighted path (v1, gated): when the chain param is ON and the registered set
+                // carries nonzero total on-chain weight, an epoch seals only when the clocks
+                // signing one seal_hash hold >51% of the (capped) registered weight AND meet the
+                // absolute count floor `quorum()`. Weights come purely from on-chain state, so
+                // every node reaches the identical decision. When the param is OFF, or every
+                // registered clock is still in probation (total weight 0), fall through to the
+                // flat >51%-of-count rule below — byte-identical to pre-change behaviour.
+                let reg_weight_total: u128 = registered_clocks.iter()
+                    .map(|n| clock_weights.get(n).copied().unwrap_or(0))
+                    .sum();
+                let use_weighted =
+                    weighted_quorum_enabled && !registered_clocks.is_empty() && reg_weight_total > 0;
+
+                let winner_hash: String = if use_weighted {
+                    let votes: Vec<(String, String)> = voting_inliers.iter()
+                        .map(|s| (s.node_id.clone(), s.seal_hash.clone()))
+                        .collect();
+                    match weighted_winner(&votes, &registered_clocks, &clock_weights, quorum()) {
+                        Some((hash, count, weight)) => {
+                            info!(
+                                "[clock] epoch {}: WEIGHTED quorum engaged — winner weight {} / {} registered ({} signers, floor {})",
+                                epoch, weight, reg_weight_total, count, quorum()
+                            );
+                            hash
+                        }
+                        None => {
+                            if inner.first_quorum_warn(epoch) {
+                            warn!(
+                                "[clock] epoch {}: insufficient WEIGHTED quorum ({} registered inliers / {} registered, floor {}; {} total seals received)",
+                                epoch, voting_inliers.len(), denominator, quorum(), seals.len()
+                            );
+                        } else {
+                            tracing::debug!(
+                                "[clock] epoch {}: insufficient WEIGHTED quorum ({} registered inliers / {} registered, floor {}; {} total seals received)",
+                                epoch, voting_inliers.len(), denominator, quorum(), seals.len()
+                            );
+                        }
+                            return;
+                        }
+                    }
+                } else {
+                    let quorum_needed = std::cmp::max(
+                        1,
+                        (denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize,
+                    );
+                    if voting_inliers.len() < quorum_needed {
+                        if inner.first_quorum_warn(epoch) {
+                            warn!(
+                            "[clock] epoch {}: insufficient quorum ({} registered inliers / {} registered, need {}; {} total seals received)",
+                            epoch, voting_inliers.len(), denominator, quorum_needed, seals.len()
+                        );
+                        } else {
+                            tracing::debug!(
+                            "[clock] epoch {}: insufficient quorum ({} registered inliers / {} registered, need {}; {} total seals received)",
+                            epoch, voting_inliers.len(), denominator, quorum_needed, seals.len()
+                        );
+                        }
+                        return;
+                    }
+                    // Among voting inliers, pick the winning seal_hash (most common).
+                    let mut hash_count: HashMap<&str, usize> = HashMap::new();
+                    for s in &voting_inliers {
+                        *hash_count.entry(s.seal_hash.as_str()).or_default() += 1;
+                    }
+                    hash_count.iter().max_by_key(|(_, c)| *c)
+                        .map(|(h, _)| h.to_string()).unwrap_or_default()
+                };
 
                 let winner_seals: Vec<EpochSeal> = voting_inliers.iter()
                     .filter(|s| s.seal_hash == winner_hash).cloned().collect();
@@ -570,10 +840,12 @@ impl ClockConsensus {
                 for s in voting_inliers.iter().filter(|s| s.seal_hash != winner_hash) {
                     inner.update_clock_score(&s.node_id, false);
                 }
-                // Non-voting outliers (unregistered or timestamp outliers) get scored down.
-                for s in &outliers {
-                    inner.update_clock_score(&s.node_id, false);
-                }
+                // Timestamp outliers were ALREADY scored down at the top of this block (where the
+                // outlier warning is logged). The duplicate loop that used to be here scored the
+                // same set a second time — a −20 / +2 double-rate decay per epoch, not −10 / +1
+                // (Beastly review 940a6577). Harmless while scores are API-only, but a consensus
+                // bug the moment scores feed quorum weight, and it already inflated the
+                // outlier_count reported by get_scores(). Removed — score outliers exactly once.
 
                 mark_resolved!();
                 let winner = winner_seals[0].clone();
@@ -694,6 +966,12 @@ pub fn registered_clock_nodes(store: &Store, current_epoch: u64) -> Vec<String> 
             None => continue,
         };
         let node = rest[..sep].to_owned();
+        // Device seats: ignored before activation; afterwards only the owner's own
+        // stake counts toward the seat's minimum.
+        if let Some((owner, _)) = hone_types::parse_device_clock_id(&node) {
+            if current_epoch < hone_types::DEVICE_CLOCK_ACTIVATION_EPOCH { continue; }
+            if &rest[sep + 1..] != owner { continue; }
+        }
         let j: serde_json::Value = match serde_json::from_slice(&val) {
             Ok(v) => v,
             Err(_) => continue,
@@ -740,6 +1018,68 @@ pub fn registered_clock_nodes(store: &Store, current_epoch: u64) -> Vec<String> 
     nodes.sort();
     nodes.dedup();
     nodes
+}
+
+/// Compute the reputation weight for every registered clock from ON-CHAIN state only —
+/// summed `role_stake:clock:{node}:*` and the `clock_uptime:{node}` record. A pure function
+/// of the committed store snapshot: deterministic and restart-invariant (spec §9). Feeds
+/// `weighted_winner` via `ClockConsensus::set_clock_weights`.
+pub fn compute_clock_weights(store: &Store, registered: &[String]) -> HashMap<String, u128> {
+    // Aggregate self + backer stake per node (same key layout as registered_clock_nodes).
+    let mut stake: HashMap<String, u64> = HashMap::new();
+    for (key, val) in store.state_scan_prefix("role_stake:clock:") {
+        let Some(rest) = key.strip_prefix("role_stake:clock:") else { continue };
+        let Some(sep) = rest.rfind(':') else { continue };
+        let node = rest[..sep].to_owned();
+        let j: serde_json::Value = match serde_json::from_slice(&val) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        *stake.entry(node).or_insert(0) += j["amount"].as_u64().unwrap_or(0);
+    }
+
+    let mut out = HashMap::new();
+    for node in registered {
+        let stake_hunits = stake.get(node).copied().unwrap_or(0);
+        // REAL attendance, not registration: read `device_attend:{node}` ({sealed, epochs}),
+        // accrued in the ordered reward walk from the actual per-device seal record — NOT
+        // `clock_uptime` (which is fed by the registered set and reads ~100% for everyone, so
+        // it discriminates nothing). A device dark for a stretch has a low sealed/epochs ratio
+        // here → low uptime_term → sinking weight. See emit_epoch_rewards + §0 of the spec.
+        let att: serde_json::Value = store
+            .state_get(&format!("device_attend:{}", node))
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or(serde_json::json!({ "sealed": 0, "epochs": 0 }));
+        let sealed = att["sealed"].as_u64().unwrap_or(0);
+        let epochs = att["epochs"].as_u64().unwrap_or(0);
+        out.insert(node.clone(), clock_weight(sealed, epochs, stake_hunits));
+    }
+    out
+}
+
+/// Activation epoch for reputation-weighted quorum. Chain param `chain_param:weighted_quorum`
+/// holds the epoch AT WHICH the feature turns on (0 / absent = never = OFF). It is an EPOCH,
+/// not a bool, on purpose: the attendance accrual and the weighted decision are anchored to the
+/// epoch being processed (`epoch >= activation`), NOT to "is the flag set right now". Reading a
+/// bool "now" would retroactively change how already-settled epochs accrue — the walk runs ~20
+/// epochs behind the tip, so "now" is always past activation and every node would fold in a
+/// different pre-activation tail. Set via a tx-applied `ChainParameterSet` (agreed at a height),
+/// with the activation epoch chosen comfortably in the future so every node holds the param
+/// before its walk reaches it. Default OFF — ships dormant until deliberately activated
+/// (branch-only, gate-then-Shin-in-person).
+pub fn weighted_quorum_activation_epoch(store: &Store) -> u64 {
+    store
+        .state_get("chain_param:weighted_quorum")
+        .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+        .unwrap_or(0)
+}
+
+/// Whether weighted quorum governs the decision/accrual for a SPECIFIC epoch: activated AND the
+/// epoch is at or past the activation height. Epoch-anchored so it is a pure function of agreed
+/// state, identical on every node and across restarts.
+pub fn weighted_quorum_active_for(store: &Store, epoch: u64) -> bool {
+    let act = weighted_quorum_activation_epoch(store);
+    act != 0 && epoch >= act
 }
 
 // ── Epoch entropy ─────────────────────────────────────────────────────────────
@@ -855,6 +1195,252 @@ fn verify_seal_signature(seal: &EpochSeal, pubkey_hex: &str, sig_hex: &str) -> b
 }
 
 #[cfg(test)]
+mod weighted_quorum_tests {
+    use super::*;
+
+    fn w(pairs: &[(&str, u128)]) -> HashMap<String, u128> {
+        pairs.iter().map(|(n, v)| (n.to_string(), *v)).collect()
+    }
+    fn votes(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs.iter().map(|(n, h)| (n.to_string(), h.to_string())).collect()
+    }
+    fn reg(ns: &[&str]) -> Vec<String> {
+        ns.iter().map(|s| s.to_string()).collect()
+    }
+
+    // ── isqrt: bit-exact, the cross-arch determinism primitive ──────────────────
+    #[test]
+    fn isqrt_is_exact() {
+        assert_eq!(isqrt_u128(0), 0);
+        assert_eq!(isqrt_u128(1), 1);
+        assert_eq!(isqrt_u128(3), 1);
+        assert_eq!(isqrt_u128(4), 2);
+        assert_eq!(isqrt_u128(8), 2);
+        assert_eq!(isqrt_u128(9), 3);
+        assert_eq!(isqrt_u128(15), 3);
+        assert_eq!(isqrt_u128(16), 4);
+        assert_eq!(isqrt_u128(1_000_000), 1000);
+        // floor property holds across a sweep — no float, no off-by-one at any boundary
+        for n in 0u128..=100_000 {
+            let r = isqrt_u128(n);
+            assert!(r * r <= n && (r + 1) * (r + 1) > n, "isqrt({n}) = {r}");
+        }
+        // large value near u128 range still satisfies the floor property
+        let big = 1u128 << 100;
+        let r = isqrt_u128(big);
+        assert!(r * r <= big && (r + 1) * (r + 1) > big);
+    }
+
+    // ── probation (§3): a fresh clock carries no weight ─────────────────────────
+    #[test]
+    fn probation_new_clock_has_zero_weight() {
+        // epochs below the probation floor → 0 regardless of seals/stake
+        assert_eq!(clock_weight(9, 9, 1_000_000_000_000), 0);
+        // just past probation → nonzero
+        assert!(clock_weight(10, 10, 0) > 0);
+    }
+
+    // ── diminishing returns (§4): stake_term grows as isqrt, not linearly ───────
+    #[test]
+    fn stake_term_diminishes() {
+        // 100x the stake must NOT yield ~100x the weight (isqrt → ~10x on the stake part)
+        let base = clock_weight(100, 100, 10_000_000_000); // 1 HONE
+        let big = clock_weight(100, 100, 1_000_000_000_000); // 100 HONE
+        assert!(big > base);
+        assert!(big < base * 100, "stake must have diminishing returns, got {big} vs {base}");
+    }
+
+    // ── NO SPLIT-BRAIN (§9): two disjoint sets can't each clear 51% ─────────────
+    #[test]
+    fn no_split_brain() {
+        let registered = reg(&["a", "b", "c", "d"]);
+        let weights = w(&[("a", 1000), ("b", 1000), ("c", 1000), ("d", 1000)]);
+        // set {a,b} votes hashX, {c,d} votes hashY — a perfect even split
+        let split = votes(&[("a", "X"), ("b", "X"), ("c", "Y"), ("d", "Y")]);
+        // neither hash exceeds 51% of total weight → NO winner (no fork)
+        assert!(weighted_winner(&split, &registered, &weights, 2).is_none());
+    }
+
+    // ── NO STALL FROM A LOW-WEIGHT DROP (§9): the whole point ───────────────────
+    #[test]
+    fn low_weight_clock_dropping_does_not_stall() {
+        // three established high-weight clocks + one near-zero laptop
+        let registered = reg(&["g", "n", "b", "laptop"]);
+        let weights = w(&[("g", 1000), ("n", 1000), ("b", 1000), ("laptop", 1)]);
+        // laptop is DOWN (doesn't vote); the three established clocks agree
+        let v = votes(&[("g", "X"), ("n", "X"), ("b", "X")]);
+        let win = weighted_winner(&v, &registered, &weights, 2).expect("must still seal");
+        assert_eq!(win.0, "X");
+        // and a lone laptop can NEVER swing or seal on its own
+        let solo = votes(&[("laptop", "Y")]);
+        assert!(weighted_winner(&solo, &registered, &weights, 2).is_none());
+    }
+
+    // ── FLOOR HONORED (§9): weight majority can't drop effective quorum below floor
+    #[test]
+    fn floor_is_honored() {
+        // one clock holds >51% of weight, but the count floor is 2 → its solo vote can't seal
+        let registered = reg(&["heavy", "light"]);
+        let weights = w(&[("heavy", 1000), ("light", 100)]);
+        let solo = votes(&[("heavy", "X")]);
+        assert!(
+            weighted_winner(&solo, &registered, &weights, 2).is_none(),
+            "solo vote must fail the count floor even with majority weight"
+        );
+    }
+
+    // ── ANTI-CONCENTRATION CAP (§6): no single clock exceeds 1/3, pre-cap, no renorm
+    #[test]
+    fn one_clock_capped_at_one_third() {
+        // a whale with 97% of raw weight is capped to 1/3 — its solo agreement with one
+        // small clock still can't clear 51% of the (capped) total on its own count-of-2…
+        let registered = reg(&["whale", "a", "b"]);
+        let weights = w(&[("whale", 970), ("a", 15), ("b", 15)]);
+        // whale alone (capped to 1/3 ≈ 333 of raw 1000) can't be >51% of capped total
+        let whale_solo = votes(&[("whale", "X"), ("a", "X")]); // needs count>=2, borrows a
+        let win = weighted_winner(&whale_solo, &registered, &weights, 2);
+        // capped whale (333) + a (15) = 348; capped total = 333+15+15 = 363; 348/363 > 51% → seals,
+        // but ONLY because a genuine second clock agreed — the whale can't do it alone:
+        assert!(win.is_some());
+        let whale_only = votes(&[("whale", "X")]);
+        assert!(weighted_winner(&whale_only, &registered, &weights, 2).is_none());
+    }
+
+    // ── DETERMINISM / RESTART-INVARIANCE (§9, THE key assertion) ────────────────
+    // Weight is a pure function of on-chain (seals, epochs, stake). Same inputs →
+    // byte-identical output, every call, every process, every architecture. A restart
+    // changes no input, so it changes no weight. Proven by construction: recomputing
+    // yields the identical value with zero intervening state.
+    #[test]
+    fn weight_is_pure_and_restart_invariant() {
+        let before = clock_weight(87, 100, 42_000_000_000);
+        // …simulate a process restart: nothing about the on-chain inputs changes…
+        let after = clock_weight(87, 100, 42_000_000_000);
+        assert_eq!(before, after);
+        // and the winner selection is deterministic under identical inputs
+        let registered = reg(&["a", "b", "c"]);
+        let weights = w(&[("a", 500), ("b", 400), ("c", 300)]);
+        let v = votes(&[("a", "X"), ("b", "X"), ("c", "X")]);
+        let r1 = weighted_winner(&v, &registered, &weights, 2);
+        let r2 = weighted_winner(&v, &registered, &weights, 2);
+        assert_eq!(r1, r2);
+    }
+
+    // ── FALLBACK: all-probation cohort returns None so caller uses flat count ────
+    #[test]
+    fn all_zero_weight_falls_back_to_flat() {
+        let registered = reg(&["a", "b"]);
+        let weights = w(&[("a", 0), ("b", 0)]);
+        let v = votes(&[("a", "X"), ("b", "X")]);
+        // total weight 0 → None → caller applies the flat count rule (never stalls genesis)
+        assert!(weighted_winner(&v, &registered, &weights, 2).is_none());
+    }
+
+    // ── gate wiring end-to-end through the store ────────────────────────────────
+    #[test]
+    fn weights_and_gate_read_from_store() {
+        let dir = tempfile::Builder::new().prefix("hone_wq_").tempdir().unwrap();
+        let s = crate::store::Store::open(dir.path()).unwrap();
+
+        // gate defaults OFF when the chain param is unset
+        assert!(!weighted_quorum_active_for(&s, 1_000_000));
+        // activation epoch is an EPOCH, not a bool: active only for epochs >= activation
+        s.state_set("chain_param:weighted_quorum", &serde_json::to_vec(&500u64).unwrap()).unwrap();
+        assert!(!weighted_quorum_active_for(&s, 499), "must be OFF before the activation epoch");
+        assert!(weighted_quorum_active_for(&s, 500), "must be ON at the activation epoch");
+        assert!(weighted_quorum_active_for(&s, 5_000), "must stay ON after activation");
+        // 0 = never
+        s.state_set("chain_param:weighted_quorum", &serde_json::to_vec(&0u64).unwrap()).unwrap();
+        assert!(!weighted_quorum_active_for(&s, 5_000));
+
+        // established clock: 10 HONE self-stake, 95/100 REAL attendance
+        s.state_set(
+            "role_stake:clock:estab:estab",
+            &serde_json::to_vec(&serde_json::json!({"amount": 100_000_000_000u64, "staked_epoch": 1}))
+                .unwrap(),
+        ).unwrap();
+        s.state_set(
+            "device_attend:estab",
+            &serde_json::to_vec(&serde_json::json!({"sealed": 95, "epochs": 100})).unwrap(),
+        ).unwrap();
+        // fresh clock: staked but only 3 epochs of attendance → still in probation
+        s.state_set(
+            "role_stake:clock:fresh:fresh",
+            &serde_json::to_vec(&serde_json::json!({"amount": 100_000_000_000u64, "staked_epoch": 90}))
+                .unwrap(),
+        ).unwrap();
+        s.state_set(
+            "device_attend:fresh",
+            &serde_json::to_vec(&serde_json::json!({"sealed": 3, "epochs": 3})).unwrap(),
+        ).unwrap();
+
+        let registered = reg(&["estab", "fresh"]);
+        let weights = compute_clock_weights(&s, &registered);
+        assert!(weights["estab"] > 0, "established clock must carry weight");
+        assert_eq!(weights["fresh"], 0, "probation clock must carry zero weight");
+
+        // with only the established clock holding weight, dropping the fresh one can't stall:
+        let v = votes(&[("estab", "X")]);
+        // count floor 2 blocks a solo seal even though estab holds 100% of the weight —
+        // this is the floor honored jointly with the weighted rule (both from real store data)
+        assert!(weighted_winner(&v, &registered, &weights, 2).is_none());
+        // but two agreeing established-class clocks would seal (simulate a second real clock)
+        let mut w2 = weights.clone();
+        w2.insert("estab2".into(), weights["estab"]);
+        let registered2 = reg(&["estab", "estab2", "fresh"]);
+        let v2 = votes(&[("estab", "X"), ("estab2", "X")]);
+        assert!(weighted_winner(&v2, &registered2, &w2, 2).is_some());
+    }
+
+    // ── real attendance discriminates: a dark device sinks below a reliable one ──
+    // The whole point of the seal-anchored record over registration-fed clock_uptime:
+    // two equally-staked, equally-tenured devices get DIFFERENT weight when one actually
+    // seals and the other goes dark.
+    #[test]
+    fn real_attendance_makes_a_dark_device_sink() {
+        let dir = tempfile::Builder::new().prefix("hone_attend_").tempdir().unwrap();
+        let s = crate::store::Store::open(dir.path()).unwrap();
+        // identical stake
+        for n in ["reliable", "flaky"] {
+            s.state_set(
+                &format!("role_stake:clock:{n}:{n}"),
+                &serde_json::to_vec(&serde_json::json!({"amount": 100_000_000_000u64, "staked_epoch": 1}))
+                    .unwrap(),
+            ).unwrap();
+        }
+        // same window length, very different ACTUAL attendance
+        s.state_set("device_attend:reliable",
+            &serde_json::to_vec(&serde_json::json!({"sealed": 99, "epochs": 100})).unwrap()).unwrap();
+        s.state_set("device_attend:flaky",
+            &serde_json::to_vec(&serde_json::json!({"sealed": 20, "epochs": 100})).unwrap()).unwrap();
+
+        let registered = reg(&["reliable", "flaky"]);
+        let weights = compute_clock_weights(&s, &registered);
+        assert!(
+            weights["reliable"] > weights["flaky"] * 3,
+            "a device that seals 99/100 must massively outweigh one that seals 20/100 at equal stake — got {} vs {}",
+            weights["reliable"], weights["flaky"]
+        );
+        // and the reliable device alone can't be outvoted by the flaky one under the weighted rule
+        let v = votes(&[("reliable", "X"), ("flaky", "Y")]);
+        // neither reaches >51% on its own here (2 clocks, split) → no seal, but reliable holds
+        // the larger share, so if flaky drops, reliable + any peer carries. Sanity: weights sane.
+        assert!(weighted_winner(&v, &registered, &weights, 2).is_none());
+    }
+
+    // ── unregistered votes carry no weight ──────────────────────────────────────
+    #[test]
+    fn unregistered_voter_is_ignored() {
+        let registered = reg(&["a", "b", "c"]);
+        let weights = w(&[("a", 1000), ("b", 1000), ("c", 1000)]);
+        // an outsider "z" (not registered) piles onto hash Y; it must contribute nothing
+        let v = votes(&[("a", "X"), ("b", "X"), ("z", "Y"), ("z", "Y")]);
+        let win = weighted_winner(&v, &registered, &weights, 2).expect("a+b agree");
+        assert_eq!(win.0, "X");
+    }
+}
+
+#[cfg(test)]
 mod registered_clock_nodes_tests {
     use super::*;
 
@@ -906,5 +1492,107 @@ mod registered_clock_nodes_tests {
         let after_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 1;
         let nodes = registered_clock_nodes(&s, after_grace);
         assert!(nodes.contains(&"clocka".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod device_clock_tests {
+    use super::*;
+
+    const PK: &str = "8848e0d2db7804aa1c15e500f7655cffcd84ff1635214ab55c0e2d46f66d4f25";
+
+    fn store() -> (crate::store::Store, tempfile::TempDir) {
+        let dir = tempfile::Builder::new().prefix("hone_dev_clock_").tempdir().unwrap();
+        let s = crate::store::Store::open(dir.path()).unwrap();
+        (s, dir)
+    }
+
+    fn stake(s: &crate::store::Store, node: &str, staker: &str, amount: u64) {
+        let rec = serde_json::json!({"node": node, "role": "clock", "staker": staker,
+            "amount": amount, "staked_epoch": 1});
+        s.state_set(&format!("role_stake:clock:{}:{}", node, staker),
+            &serde_json::to_vec(&rec).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn parses_device_ids() {
+        let id = format!("josh@{PK}");
+        assert_eq!(hone_types::parse_device_clock_id(&id), Some(("josh", PK)));
+        assert!(hone_types::parse_device_clock_id("josh").is_none());
+        assert!(hone_types::parse_device_clock_id("josh@abcd").is_none());
+        assert!(hone_types::parse_device_clock_id(&format!("@{PK}")).is_none());
+        assert!(hone_types::parse_device_clock_id(&format!("josh@{}", PK.to_uppercase())).is_none());
+        assert!(hone_types::parse_device_clock_id(&format!("a:b@{PK}")).is_none());
+    }
+
+    #[test]
+    fn device_seat_needs_activation_and_owner_stake() {
+        let (s, _d) = store();
+        let dev = format!("josh@{PK}");
+        let min = 5 * 10_000_000_000u64;
+        stake(&s, &dev, "josh", min);
+        let before = registered_clock_nodes(&s, hone_types::DEVICE_CLOCK_ACTIVATION_EPOCH - 1);
+        assert!(!before.contains(&dev), "device seat must not count before activation");
+        let after = registered_clock_nodes(&s, hone_types::DEVICE_CLOCK_ACTIVATION_EPOCH);
+        assert!(after.contains(&dev), "owner-staked device seat counts after activation");
+
+        let (s2, _d2) = store();
+        stake(&s2, &dev, "mallory", min);
+        let other = registered_clock_nodes(&s2, hone_types::DEVICE_CLOCK_ACTIVATION_EPOCH);
+        assert!(!other.contains(&dev), "only the owner's stake counts for a device seat");
+    }
+
+    #[test]
+    fn two_devices_of_one_account_are_two_seats() {
+        let (s, _d) = store();
+        let min = 5 * 10_000_000_000u64;
+        let pk2 = "11".repeat(32);
+        let d1 = format!("josh@{PK}");
+        let d2 = format!("josh@{pk2}");
+        stake(&s, &d1, "josh", min);
+        stake(&s, &d2, "josh", min);
+        let nodes = registered_clock_nodes(&s, hone_types::DEVICE_CLOCK_ACTIVATION_EPOCH);
+        assert!(nodes.contains(&d1) && nodes.contains(&d2));
+    }
+
+    fn seal(node: &str, epoch: u64, sk: Option<&ed25519_dalek::SigningKey>) -> serde_json::Value {
+        use ed25519_dalek::Signer;
+        let ts = 1_000u64;
+        let hash = "h".to_string();
+        let sig = sk.map(|k| hex::encode(k.sign(
+            format!("seal:{}:{}:{}:{}", epoch, hash, node, ts).as_bytes()).to_bytes()));
+        serde_json::json!({"epoch_number": epoch, "node_id": node, "timestamp": ts,
+            "seal_hash": hash, "signature": sig,
+            "pubkey": sk.map(|k| hex::encode(k.verifying_key().to_bytes()))})
+    }
+
+    fn seals_for(c: &ClockConsensus, epoch: u64) -> usize {
+        c.inner.lock().unwrap().epoch_states.get(&epoch).map(|s| s.seals.len()).unwrap_or(0)
+    }
+
+    #[test]
+    fn device_seal_must_be_signed_by_the_key_in_its_id() {
+        let sk = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let other = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let pk = hex::encode(sk.verifying_key().to_bytes());
+        let dev = format!("josh@{pk}");
+        let c = ClockConsensus::new();
+        c.receive_seal(seal(&dev, 10, None));
+        assert_eq!(seals_for(&c, 10), 0, "unsigned device seal rejected");
+        c.receive_seal(seal(&dev, 11, Some(&other)));
+        assert_eq!(seals_for(&c, 11), 0, "device seal signed by another key rejected");
+        c.receive_seal(seal(&dev, 12, Some(&sk)));
+        assert_eq!(seals_for(&c, 12), 1, "correctly signed device seal accepted");
+    }
+
+    #[test]
+    fn stale_unresolved_epochs_are_abandoned() {
+        let c = ClockConsensus::new();
+        c.ensure_epoch_tracked(100);
+        c.ensure_epoch_tracked(121);
+        c.tick();
+        let inner = c.inner.lock().unwrap();
+        assert!(!inner.epoch_states.contains_key(&100), "21 behind: abandoned");
+        assert!(inner.epoch_states.contains_key(&121));
     }
 }

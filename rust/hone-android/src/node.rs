@@ -2,6 +2,7 @@
 //! inference worker, and P2P swarm with no dependency on any remote API.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 use parking_lot::Mutex as PLMutex;
 use tokio::sync::{broadcast, mpsc};
@@ -36,6 +37,34 @@ pub struct NodeHandle {
     pub status:      Arc<PLMutex<String>>,
     pub cmd_tx:      mpsc::Sender<NetCmd>,
     pub shutdown_tx: broadcast::Sender<()>,
+    /// Live count of connected peers (updated by the swarm task).
+    pub peers:       Arc<AtomicU32>,
+    /// True when the node runs as a read-only observer (no account/key):
+    /// it listens to gossip but never publishes anything to the network.
+    pub read_only:   bool,
+    /// True when the node runs as a witness clock: it signs and publishes
+    /// epoch seals and nothing else (no miner, rewards, finalize or entries).
+    pub witness:     bool,
+    /// Hex ed25519 public key the seals are signed with (empty for observers).
+    pub pubkey:      String,
+}
+
+/// Load the 32-byte ed25519 seed (hex) from `path`, creating it on first use.
+/// Same seed format as hone-node's `load_signing_key`.
+fn load_or_create_witness_key(path: &str) -> anyhow::Result<ed25519_dalek::SigningKey> {
+    if let Ok(s) = std::fs::read_to_string(path) {
+        let bytes = hex::decode(s.trim())?;
+        let arr: [u8; 32] = bytes.try_into().map_err(|_| anyhow::anyhow!("witness key: bad length"))?;
+        return Ok(ed25519_dalek::SigningKey::from_bytes(&arr));
+    }
+    let sk = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+    std::fs::write(path, hex::encode(sk.to_bytes()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(sk)
 }
 
 pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Result<NodeHandle> {
@@ -52,6 +81,42 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     let (cmd_tx, cmd_rx) = mpsc::channel::<NetCmd>(256);
     let (event_tx, mut event_rx) = mpsc::channel::<NetworkEvent>(256);
 
+    // Observer mode: with no account or posting key the node only listens.
+    // It runs no miner, inference worker or verifier, and the swarm drops every
+    // outbound publish, so nothing this engine computes can reach the network.
+    //
+    // Witness mode: an account with no posting key gets a device key
+    // (`<data_dir>/witness.key`, created on first start) and runs as a witness
+    // clock — it signs seals in hone-node's exact format and publishes nothing
+    // else. Full mode (miner/inference/verifier and reward gossip) needs an
+    // explicit posting key AND HONE_ANDROID_FULL=1; it is off by default because
+    // that legacy path gossips reward entries the desktop nodes now derive.
+    let full = !cfg.account.is_empty() && !cfg.posting_key.is_empty()
+        && std::env::var("HONE_ANDROID_FULL").map(|v| v == "1").unwrap_or(false);
+    let signing_key: Option<ed25519_dalek::SigningKey> = if cfg.account.is_empty() {
+        None
+    } else if !cfg.posting_key.is_empty() {
+        hex::decode(cfg.posting_key.trim()).ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .map(|a| ed25519_dalek::SigningKey::from_bytes(&a))
+    } else {
+        match load_or_create_witness_key(&format!("{}/witness.key", cfg.data_dir)) {
+            Ok(k) => Some(k),
+            Err(e) => { warn!("micronode: witness key unavailable: {}", e); None }
+        }
+    };
+    let read_only = signing_key.is_none();
+    let witness = !read_only && !full;
+    let pubkey = signing_key.as_ref()
+        .map(|k| hex::encode(k.verifying_key().to_bytes()))
+        .unwrap_or_default();
+    let peers = Arc::new(AtomicU32::new(0));
+    if read_only {
+        info!("micronode: read-only observer mode (no account/key) — publishing disabled");
+    } else if witness {
+        info!("micronode: witness clock for '{}' pubkey={} — seals only", cfg.account, pubkey);
+    }
+
     // ── P2P swarm ─────────────────────────────────────────────────────────────
     {
         let swarm_cfg = SwarmConfig {
@@ -59,6 +124,9 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
             data_dir:        cfg.data_dir.clone(),
             p2p_port:        cfg.p2p_port,
             bootstrap_peers: cfg.bootstrap_peers.clone(),
+            read_only,
+            seals_only:      witness,
+            peers:           peers.clone(),
         };
         let sd = shutdown_tx.subscribe();
         tokio::spawn(async move {
@@ -72,10 +140,16 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     let (clock_arc, _) = ClockConsensus::new();
     {
         let clock_cfg = ClockConfig {
-            node_id:    format!("{}-android", cfg.account),
+            // A witness seals as a DEVICE SEAT of the account: "{account}@{device pubkey}"
+            // (hone_types::parse_device_clock_id). One account can run any number of
+            // devices; each seat is staked separately by the account and rewards go to
+            // the account. Full mode (explicit posting key) seals as the account itself.
+            node_id:    if witness { format!("{}@{}", cfg.account, pubkey) } else { cfg.account.clone() },
             chain_id:   cfg.chain_id.clone(),
             genesis_ts: cfg.genesis_ts,
-            is_clock:   cfg.is_clock,
+            is_clock:   !read_only && (cfg.is_clock || witness),
+            witness,
+            signing_key: signing_key.clone(),
             quorum:     std::env::var("HONE_CLOCK_QUORUM")
                 .ok().and_then(|v| v.parse().ok()).unwrap_or(2),
         };
@@ -94,7 +168,7 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     ));
 
     // ── Block miner (inference-based) ─────────────────────────────────────────
-    if cfg.is_miner {
+    if cfg.is_miner && full {
         let ch    = chain.clone();
         let acct  = cfg.account.clone();
         let gen   = cfg.genesis_ts;
@@ -107,7 +181,7 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     }
 
     // ── Inference job worker ──────────────────────────────────────────────────
-    {
+    if full {
         let acct    = cfg.account.clone();
         let chain_r = chain.clone();
         let cmd     = cmd_tx.clone();
@@ -121,7 +195,7 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     }
 
     // ── Inference verifier ────────────────────────────────────────────────────
-    {
+    if full {
         let acct    = cfg.account.clone();
         let chain_r = chain.clone();
         let cmd     = cmd_tx.clone();
@@ -150,7 +224,7 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
     // ── Status updater ────────────────────────────────────────────────────────
     {
         let ch      = chain.clone();
-        let acct    = cfg.account.clone();
+        let acct    = if read_only { String::new() } else { cfg.account.clone() };
         let st      = status.clone();
         let mut sd  = shutdown_tx.subscribe();
         tokio::spawn(async move {
@@ -160,9 +234,17 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
                     _ = tokio::time::sleep(Duration::from_secs(5)) => {}
                 }
                 let epoch = ch.current_epoch();
+                if acct.is_empty() {
+                    *st.lock() = format!("Observing (read-only) · epoch {}", epoch);
+                    continue;
+                }
                 let bal   = ch.store.get_balance(&acct, NATIVE_TOKEN);
                 let hone = bal as f64 / 10_000_000_000.0;
-                *st.lock() = format!("epoch {} | {:.4} HONE | {}", epoch, hone, acct);
+                if witness {
+                    *st.lock() = format!("Witness clock · epoch {} · {} · {:.4} HONE", epoch, acct, hone);
+                } else {
+                    *st.lock() = format!("epoch {} | {:.4} HONE | {}", epoch, hone, acct);
+                }
             }
         });
     }
@@ -175,6 +257,10 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
         status,
         cmd_tx,
         shutdown_tx,
+        peers,
+        read_only,
+        witness,
+        pubkey,
     })
 }
 

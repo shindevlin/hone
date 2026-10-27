@@ -42,7 +42,48 @@ pub const STAKE_EXEMPT_ACCOUNTS: &[&str] = &["shindevlin", "__testnet_fund__", "
 /// minimum is reached. After this epoch, the normal minimum-stake rule applies and
 /// the auto-build stops. Consensus-critical: every node MUST use this exact value.
 /// See docs/CLOCK_BOOTSTRAP_GRACE.md.
-pub const CLOCK_BOOTSTRAP_GRACE_END_EPOCH: u64 = 100_000;
+// Extended 100_000 -> 250_000 (Shin, 2026-07-30). At 30s epochs, 100k is ~35 days
+// from genesis and the chain was already 25 days in when it first sealed, leaving
+// ~10 days of grace. 250k is ~87 days, giving operators time to accumulate balance
+// and stake before fees and the stake gate take effect.
+pub const CLOCK_BOOTSTRAP_GRACE_END_EPOCH: u64 = 250_000;
+
+/// Signed-authorisation fix (security). Before this epoch, `check_signature` SKIPPED
+/// verification when the signer had no key registered for the required role (e.g. no
+/// "active" key — true for nearly every account), and when the signer had no account
+/// record at all (e.g. protocol funds). That let anyone submit an UNSIGNED Transfer,
+/// stake, etc. for such accounts. From this epoch: a missing role key falls back to the
+/// account's posting key, and a signer with no usable key (or no account) is rejected.
+/// The owner-role bootstrap for a keyless account (first AccountUpdateKey) is unchanged.
+/// Consensus-critical (tx acceptance): every node MUST use this exact value.
+pub const SIGNED_AUTH_ACTIVATION_EPOCH: u64 = 320_200;
+
+/// Device clocks: one account, many devices, each staked separately.
+///
+/// A device clock seat is the node id `"{owner}@{pubkey}"`, where `pubkey` is the
+/// device's 32-byte ed25519 key as 64 lowercase hex chars. The id binds the key, so
+/// a device seal is only valid when signed by that key, and nobody else can occupy
+/// the seat. The seat counts toward clock quorum when the OWNER has staked at least
+/// `clock_min_stake` on it (NodeRoleStake, node = the device id); only the owner may
+/// stake on it. Clock rewards earned by the seat are credited to the owner account.
+///
+/// Consensus-critical: device seats are ignored (not registered, no rewards) before
+/// this epoch, so every node must be upgraded before it. Every node MUST use this
+/// exact value.
+pub const DEVICE_CLOCK_ACTIVATION_EPOCH: u64 = 321_000;
+
+/// Split a device clock id `"{owner}@{pubkey_hex}"` into `(owner, pubkey_hex)`.
+/// Returns None for plain account ids or anything malformed.
+pub fn parse_device_clock_id(id: &str) -> Option<(&str, &str)> {
+    let (owner, pk) = id.split_once('@')?;
+    if owner.is_empty() || owner.contains(':') {
+        return None;
+    }
+    if pk.len() != 64 || !pk.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        return None;
+    }
+    Some((owner, pk))
+}
 
 /// Confirmation depth before an epoch's reward/recycle/decay mutation is applied.
 ///

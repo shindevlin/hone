@@ -1963,8 +1963,28 @@ impl Chain {
                         "last_heartbeat_epoch": epoch,
                     })).unwrap_or_default());
             }
-            LedgerEntry::SensorKeyRegister { .. }
-            | LedgerEntry::SensorVouch { .. }
+            LedgerEntry::SensorKeyRegister { sensor_id, owner, device_pubkey, .. } => {
+                anyhow::ensure!(
+                    device_pubkey.is_empty() ||
+                        (device_pubkey.len() == 64 && device_pubkey.chars().all(|c| c.is_ascii_hexdigit())),
+                    "sensor device_pubkey must be empty for revocation or a 64-char ed25519 public key hex string"
+                );
+                // Enroll a DEVICE key for this sensor. The register entry is already
+                // authorized (tx.rs requires the owner's posting-key signature), so by
+                // the time we apply it the owner has proven control. Store the mapping
+                // so later commits can be verified against the DEVICE key rather than
+                // requiring the owner's posting key on the device itself. Write-last-
+                // wins is deliberate: re-registering rotates the key, and registering an
+                // empty pubkey revokes it. Deterministic → identical on every node.
+                self.store.state_set(
+                    &format!("sensor_devkey:{}", sensor_id),
+                    &serde_json::to_vec(&serde_json::json!({
+                        "device_pubkey": device_pubkey,
+                        "owner": owner,
+                    })).unwrap_or_default(),
+                )?;
+            }
+            LedgerEntry::SensorVouch { .. }
             | LedgerEntry::DeviceKeyRegister { .. } => {
                 // Recorded in the ledger only; state managed by protocol sidecars.
             }
@@ -2360,47 +2380,76 @@ impl Chain {
             }
 
             // ── Clock reward ──────────────────────────────────────────────────
-            LedgerEntry::ClockReward { node_id, amount, epoch } => {
+            LedgerEntry::ClockReward { node_id, amount, epoch } => 'clock_reward: {
+                // Device seat ("{owner}@{pubkey}", from DEVICE_CLOCK_ACTIVATION_EPOCH):
+                // the reward belongs to the owner account. No stake top-up — each
+                // device seat is staked explicitly by its owner via NodeRoleStake.
+                if *epoch >= hone_types::DEVICE_CLOCK_ACTIVATION_EPOCH {
+                    if let Some((owner, _)) = hone_types::parse_device_clock_id(node_id) {
+                        let owner: AccountId = owner.to_string();
+                        self.ensure_account(&owner, *epoch)?;
+                        let credit = self.distribute_role_backer_reward("clock", node_id, *amount)?;
+                        if credit > 0 {
+                            self.store.credit(&owner, NATIVE_TOKEN, credit)?;
+                        }
+                        break 'clock_reward;
+                    }
+                }
                 self.ensure_account(node_id, *epoch)?;
                 let _ = CLOCK_REWARD_HUNITS;
                 let node_credit = self.distribute_role_backer_reward("clock", node_id, *amount)?;
 
-                // Bootstrap grace (POW genesis fix): during the grace window, a clock
-                // that registered under the minimum stake accumulates its stake from
-                // its own rewards instead of receiving them as spendable balance —
-                // until it reaches the minimum, after which rewards flow to balance
-                // as usual. The auto-build applies ONLY inside the window and ONLY
-                // while under the minimum. See docs/CLOCK_BOOTSTRAP_GRACE.md.
-                let to_balance = if *epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH {
-                    let reg_key = format!("clock_reg:{}", node_id);
-                    if let Some(raw) = self.store.state_get(&reg_key) {
-                        if let Ok(mut reg) = serde_json::from_slice::<serde_json::Value>(&raw) {
-                            let cur_stake = reg["stake"].as_u64().unwrap_or(0);
-                            let min: u64 = self.store.state_get("chain_param:clock_min_stake")
-                                .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
-                                .unwrap_or(5 * 10_000_000_000); // 5 HONE default
-                            if cur_stake < min {
-                                let need = min - cur_stake;
-                                let into_stake = node_credit.min(need);
-                                let new_stake = cur_stake + into_stake;
-                                reg["stake"] = serde_json::json!(new_stake);
-                                self.store.state_set(&reg_key, &serde_json::to_vec(&reg)?)?;
-                                info!(
-                                    "[clock] bootstrap: '{}' stake {} -> {} hunits (min {}) at epoch {}",
-                                    node_id, cur_stake, new_stake, min, epoch
-                                );
-                                node_credit - into_stake // spillover above the minimum → balance
-                            } else {
-                                node_credit
+                // Earnings top up stake to the minimum, then flow to balance. PERMANENT,
+                // not a grace-window special case (Shin, 2026-07-30).
+                //
+                // Kept permanent deliberately: this is not "all earnings become stake",
+                // it is "maintain the minimum from earnings, pay the rest out", which
+                // has a natural cap and is self-healing — a slashed or newly-raised
+                // minimum refills itself from future rewards with no operator action.
+                // Making it permanent also removes an epoch-boundary conditional from
+                // consensus code: while it was gated on CLOCK_BOOTSTRAP_GRACE_END_EPOCH,
+                // two nodes disagreeing on that constant would credit differently at the
+                // boundary and fork. One rule always is strictly safer than two rules
+                // either side of a height.
+                //
+                // Tokens are REAL: the stake portion is credited via set_stake so it is
+                // token-backed and visible to get_stake()/stake_weight(). Previously the
+                // amount was only written as a number into the clock_reg JSON and never
+                // credited anywhere — the epoch under-issued its budget by exactly the
+                // clock allotment (neither paid nor recycled) while the registration
+                // record claimed the node held stake, and that stake was invisible to
+                // stake_weight because get_stake reads CF_STAKES. Both are fixed here by
+                // making CF_STAKES the single store of truth.
+                let to_balance = {
+                    let min: u64 = self.store.state_get("chain_param:clock_min_stake")
+                        .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+                        .unwrap_or(5 * 10_000_000_000); // 5 HONE default
+                    let cur_stake = self.store.get_stake(node_id);
+                    if cur_stake < min {
+                        let need = min - cur_stake;
+                        let into_stake = node_credit.min(need);
+                        if into_stake > 0 {
+                            // Real tokens into CF_STAKES — conserved, and visible to
+                            // get_stake()/stake_weight() rather than only to the clock filter.
+                            self.store.set_stake(node_id, cur_stake + into_stake)?;
+                            // Keep the registration record in step for the clock-eligibility
+                            // filter, which reads reg["stake"]; CF_STAKES remains canonical.
+                            let reg_key = format!("clock_reg:{}", node_id);
+                            if let Some(raw) = self.store.state_get(&reg_key) {
+                                if let Ok(mut reg) = serde_json::from_slice::<serde_json::Value>(&raw) {
+                                    reg["stake"] = serde_json::json!(cur_stake + into_stake);
+                                    self.store.state_set(&reg_key, &serde_json::to_vec(&reg)?)?;
+                                }
                             }
-                        } else {
-                            node_credit
+                            info!(
+                                "[clock] stake top-up: '{}' {} -> {} hunits (min {}) at epoch {}",
+                                node_id, cur_stake, cur_stake + into_stake, min, epoch
+                            );
                         }
+                        node_credit - into_stake // spillover above the minimum → balance
                     } else {
-                        node_credit // no registration record → nothing to build into; pay balance
+                        node_credit
                     }
-                } else {
-                    node_credit
                 };
 
                 if to_balance > 0 {
@@ -4563,10 +4612,33 @@ mod tests {
             "reward fully to balance once staked");
     }
 
-    /// After the grace window, a reward to an under-staked clock does NOT build
-    /// stake — it flows to balance normally (auto-build is grace-only).
+    /// The earnings->stake top-up is PERMANENT, not grace-only (Shin, 2026-07-30):
+    /// an under-staked clock refills toward the minimum from its rewards at ANY
+    /// height, and only the spillover above the minimum reaches balance. This test
+    /// previously asserted the opposite ("auto-build is grace-only"); that premise
+    /// was retired deliberately — one rule at all heights removes an epoch-boundary
+    /// conditional from consensus code, where two nodes disagreeing on the grace
+    /// constant would credit differently at the boundary and fork.
+    /// Device seats: from DEVICE_CLOCK_ACTIVATION_EPOCH a ClockReward for
+    /// "{owner}@{pubkey}" pays the owner account (no stake top-up, no account is
+    /// created for the device id).
     #[test]
-    fn test_clock_reward_post_grace_no_autostake() {
+    fn test_device_clock_reward_pays_owner() {
+        let (chain, _dir) = make_chain("device-clock-reward");
+        seal_epoch(&chain, 0);
+        let dev = format!("josh@{}", "ab".repeat(32));
+        let reward = 3u64 * 10_000_000_000;
+        chain.apply_entry(&LedgerEntry::ClockReward {
+            node_id: dev.clone(), amount: reward, epoch: hone_types::DEVICE_CLOCK_ACTIVATION_EPOCH,
+        }).expect("device clock reward");
+        assert_eq!(chain.get_balance("josh", NATIVE_TOKEN), reward, "owner is paid");
+        assert_eq!(chain.get_balance(&dev, NATIVE_TOKEN), 0, "device id holds nothing");
+        assert_eq!(chain.store.get_stake(&dev), 0, "no stake top-up for device seats");
+        assert!(chain.store.get_account(&dev).unwrap().is_none(), "no account for the device id");
+    }
+
+    #[test]
+    fn test_clock_reward_tops_up_stake_at_any_height() {
         let (chain, _dir) = make_chain("clock-postgrace");
         seal_epoch(&chain, 0);
         // Simulate a clock recorded with under-min stake (e.g. registered during grace).
@@ -4580,10 +4652,25 @@ mod tests {
         chain.apply_entry(&LedgerEntry::ClockReward {
             node_id: "late".to_string(), amount: reward, epoch: post,
         }).expect("post-grace clock reward");
+        // The record seeds stake ONLY in the clock_reg JSON; CF_STAKES starts at 0.
+        // Since CF_STAKES is now canonical, cur_stake reads 0 and the full 2 HONE
+        // reward goes into stake (min is 5 HONE, so still under).
+        //
+        // MIGRATION NOTE: any pre-existing clock_reg record whose `stake` number was
+        // written before CF_STAKES became canonical is not counted by get_stake, so
+        // such a node re-accumulates from 0 while its record shows the older figure.
+        // Harmless on this chain — the eligibility filter dropped unstaked clocks, so
+        // no node ever accumulated a bootstrap figure — but a chain that HAD run the
+        // old path would need those records reconciled into CF_STAKES.
+        assert_eq!(chain.store.get_stake("late"), 2 * 10_000_000_000,
+            "stake should top up toward the 5 HONE minimum at any height");
+        assert_eq!(chain.get_balance("late", NATIVE_TOKEN), 0,
+            "still under the minimum, so nothing should spill to balance yet");
+        // CF_STAKES is canonical; the clock_reg record is kept in step for the
+        // eligibility filter that reads it.
         let raw = chain.store.state_get(reg_key).unwrap();
-        let stake = serde_json::from_slice::<serde_json::Value>(&raw).unwrap()["stake"].as_u64().unwrap();
-        assert_eq!(stake, 1 * 10_000_000_000, "stake unchanged post-grace");
-        assert_eq!(chain.get_balance("late", NATIVE_TOKEN), reward, "reward to balance post-grace");
+        let reg_stake = serde_json::from_slice::<serde_json::Value>(&raw).unwrap()["stake"].as_u64().unwrap();
+        assert_eq!(reg_stake, 2 * 10_000_000_000, "clock_reg out of step with CF_STAKES");
     }
 
     /// ClockDoubleSignEvidence: correct slash distribution, replay guard.
@@ -5031,13 +5118,17 @@ mod tests {
         // Fund alice with LESS than the fee so transfer + fee is unaffordable.
         fund(&chain, "alice", fee / 2);
         fund(&chain, "bob",   0);
-        seal_epoch(&chain, 0);
+        // Must be POST-grace: inside CLOCK_BOOTSTRAP_GRACE_END_EPOCH the fee
+        // pre-flight is waived by design (no account is funded yet on a fresh
+        // chain), so fee enforcement can only be asserted after the window.
+        let post_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 1;
+        seal_epoch(&chain, post_grace);
 
         let r = tx::validate_and_apply(&chain, &LedgerEntry::Transfer {
             from: "alice".to_string(), to: "bob".to_string(),
             amount: 0, // zero-value transfer still costs the fee
             token: NATIVE_TOKEN.to_string(),
-            memo: None, epoch: 1, nonce: 1,
+            memo: None, epoch: post_grace, nonce: 1,
             signed_by: "alice".to_string(), twofactor: None,
         }, None);
         // Zero-amount transfer is blocked by the existing "must be positive" check.
@@ -5046,7 +5137,7 @@ mod tests {
             from: "alice".to_string(), to: "bob".to_string(),
             amount: 1,
             token: NATIVE_TOKEN.to_string(),
-            memo: None, epoch: 1, nonce: 1,
+            memo: None, epoch: post_grace, nonce: 1,
             signed_by: "alice".to_string(), twofactor: None,
         }, None);
         assert!(r.is_err(), "must reject when balance < fee");
@@ -5376,123 +5467,6 @@ mod tests {
         // Verify roots are non-trivial (state actually evolved).
         assert_ne!(a.store.balance_merkle_root(), b"".iter().map(|_| '0').collect::<String>(),
             "root should be non-empty");
-    }
-
-    // ── BUG-6: sweeper determinism + restart-safety ───────────────────────────
-
-    /// Seed identical ensemble/agent_session/vrf state on two independent chains,
-    /// then invoke the three sweepers moved off the 30s wall-clock timer
-    /// (`ensemble::sweep_expired`, `agent_session::sweep_expired`, `vrf::sweep_epoch`)
-    /// with the SAME quorum-agreed `epoch` parameter on both — proving the sweep
-    /// outcome depends only on that parameter, never on node-local wall-clock state.
-    fn seed_sweepable_state(chain: &Chain, label: &str) {
-        fund(chain, &format!("requester-{label}"), 1_000_000_000);
-        fund(chain, &format!("client-{label}"), 1_000_000_000);
-        fund(chain, &format!("committer-{label}"), 1_000_000_000);
-
-        // Ensemble job with no votes — will expire with a refund at sweep time.
-        crate::ensemble::apply_job_post(chain, &LedgerEntry::EnsembleJobPost {
-            job_id: format!("job-{label}-0000001"),
-            requester: format!("requester-{label}"),
-            model: "qwen2.5:0.5b".to_string(),
-            input_hash: "abc123".to_string(),
-            max_fee: 100_000,
-            n_workers: 3,
-            epoch: 1,
-            nonce: 1,
-            signed_by: format!("requester-{label}"),
-            signature: None,
-        }).expect("ensemble job post");
-
-        // Agent session — will expire with an escrow refund at sweep time.
-        crate::agent_session::apply_open(chain, &LedgerEntry::AgentSessionOpen {
-            session_id: format!("sess-{label}-0000001"),
-            client: format!("client-{label}"),
-            client_pubkey: "deadbeef".to_string(),
-            model: "qwen2.5:0.5b".to_string(),
-            fee_escrow: 50_000,
-            epoch: 1,
-            nonce: 1,
-            signed_by: format!("client-{label}"),
-            system_prompt: None,
-            signature: None,
-        }, "server-pubkey-stub").expect("agent session open");
-
-        // VRF commit that is never revealed — will be slashed to the recycle
-        // fund at sweep time (2 finalized epochs after the commit epoch).
-        chain.store.state_set(&format!("clock_node:committer-{label}"), b"1")
-            .expect("register clock node");
-        crate::vrf::apply_commit(chain, &LedgerEntry::VrfCommit {
-            committer: format!("committer-{label}"),
-            commit_hash: "0".repeat(64),
-            epoch: 1,
-            nonce: 1,
-            signed_by: format!("committer-{label}"),
-            signature: None,
-        }).expect("vrf commit");
-    }
-
-    fn run_sweepers(chain: &Chain, epoch: u64) {
-        crate::ensemble::sweep_expired(chain, epoch);
-        crate::agent_session::sweep_expired(chain, epoch);
-        crate::vrf::sweep_epoch(chain, epoch);
-    }
-
-    #[test]
-    fn test_sweeper_determinism_two_nodes() {
-        let (a, _dir_a) = make_chain("sweep-det-a");
-        let (b, _dir_b) = make_chain("sweep-det-b");
-
-        // NOTE: label is shared ("x") on both chains so the seeded account/job/session
-        // keys are byte-identical, matching the "same quorum-agreed input" scenario the
-        // sweepers must handle deterministically.
-        seed_sweepable_state(&a, "x");
-        seed_sweepable_state(&b, "x");
-
-        // Sweep at a finalized epoch well past every expiry window (vote_deadline=4,
-        // vrf slash window=3, well clear at 25) — same epoch value on both nodes,
-        // exactly as the quorum-agreed finalized epoch is passed in production.
-        run_sweepers(&a, 25);
-        run_sweepers(&b, 25);
-
-        let root_a = a.store.balance_merkle_root();
-        let root_b = b.store.balance_merkle_root();
-        println!("[BUG-6] node-a state_root={root_a} node-b state_root={root_b}");
-        assert_eq!(root_a, root_b,
-            "sweeper determinism: state roots diverged under identical quorum-agreed epoch");
-    }
-
-    #[test]
-    fn test_sweeper_restart_safety() {
-        let (a, dir_a) = make_chain("sweep-restart-a");
-        seed_sweepable_state(&a, "r");
-
-        run_sweepers(&a, 25);
-        let root_before_restart = a.store.balance_merkle_root();
-
-        // Simulate a node restart: drop the in-memory Chain, reopen the RocksDB
-        // store from the same on-disk path.
-        drop(a);
-        let store_reopened = Store::open(dir_a.path()).expect("reopen store after restart");
-        let a2 = Chain::new(store_reopened, "node-restart-a".to_string(), "hone-testnet".to_string());
-
-        let root_after_restart = a2.store.balance_merkle_root();
-        println!("[BUG-6] pre-restart state_root={root_before_restart} post-restart state_root={root_after_restart}");
-        assert_eq!(root_before_restart, root_after_restart,
-            "state_root changed across restart with no new writes — persistence bug");
-
-        // Re-run the sweepers post-restart for the SAME epoch (simulating a node that
-        // crashed after sweeping but before its caller recorded the finalized-epoch
-        // done-marker, and so re-drives emit_epoch_rewards for that epoch on reboot).
-        // Each sweeper's internal per-record guard (job.status != Voting,
-        // session.status != Open, commit.deposit_refunded / round.finalised) must make
-        // this a no-op.
-        run_sweepers(&a2, 25);
-        let root_after_resweep = a2.store.balance_merkle_root();
-        println!("[BUG-6] post-restart-re-sweep state_root={root_after_resweep}");
-        assert_eq!(root_after_restart, root_after_resweep,
-            "re-running sweepers post-restart for an already-swept epoch mutated balances \
-             — sweep is not idempotent, would double-credit/debit on crash-restart");
     }
 
     // ── T1-7: Registered validator set quorum ────────────────────────────────

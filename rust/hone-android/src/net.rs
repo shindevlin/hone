@@ -39,7 +39,9 @@ struct Behaviour {
     kad:       kad::Behaviour<kad::store::MemoryStore>,
     identify:  identify::Behaviour,
     ping:      ping::Behaviour,
-    mdns:      mdns::tokio::Behaviour,
+    // Optional: Android 11+ restricts the netlink sockets mDNS needs, so a
+    // failed mDNS init must not take down the whole swarm.
+    mdns:      libp2p::swarm::behaviour::toggle::Toggle<mdns::tokio::Behaviour>,
 }
 
 // ── Swarm runner ──────────────────────────────────────────────────────────────
@@ -49,6 +51,13 @@ pub struct SwarmConfig {
     pub data_dir:        String,
     pub p2p_port:        u16,
     pub bootstrap_peers: Vec<String>,
+    /// Observer mode: drop every outbound publish (listen-only).
+    pub read_only:       bool,
+    /// Witness clock: publish ONLY on hone/seals. Every other topic is dropped,
+    /// so the phone can never gossip rewards, finalize or ledger entries.
+    pub seals_only:      bool,
+    /// Shared live peer count for the UI.
+    pub peers:           std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 pub async fn run_swarm(
@@ -85,8 +94,11 @@ pub async fn run_swarm(
     ).expect("gossipsub");
 
     // Subscribe to all chain topics.
+    // On-wire topic = "{chain_id}/{key}", exactly like hone-node (net.rs: t_seals etc.).
+    // Without the chain prefix the phone joined topics no desktop node uses, so it
+    // never received a message and its publishes failed with NoPeersSubscribedToTopic.
     for topic_str in &["hone/entries", "hone/seals", "hone/blocks", "hone/consensus"] {
-        let topic = gossipsub::IdentTopic::new(*topic_str);
+        let topic = gossipsub::IdentTopic::new(format!("{}/{}", cfg.chain_id, topic_str));
         gossipsub.subscribe(&topic).ok();
     }
 
@@ -103,8 +115,14 @@ pub async fn run_swarm(
 
     let ping = ping::Behaviour::default();
 
-    let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)
-        .map_err(|e| anyhow::anyhow!("mDNS init: {}", e))?;
+    let mdns = match mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            warn!("net: mDNS unavailable ({}), continuing without LAN discovery", e);
+            None
+        }
+    };
+    let mdns = libp2p::swarm::behaviour::toggle::Toggle::from(mdns);
 
     let behaviour = Behaviour { gossipsub, kad, identify, ping, mdns };
 
@@ -118,7 +136,11 @@ pub async fn run_swarm(
     // Listen on all interfaces.
     let listen_addr: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}", cfg.p2p_port)
         .parse().expect("listen addr");
-    swarm.listen_on(listen_addr)?;
+    // Non-fatal: if the OS refuses the listener (e.g. interface enumeration is
+    // blocked on newer Android), outbound dials to bootstrap peers still work.
+    if let Err(e) = swarm.listen_on(listen_addr) {
+        warn!("net: listen failed ({}), running outbound-only", e);
+    }
 
     // Dial bootstrap peers.
     for peer_addr in &cfg.bootstrap_peers {
@@ -148,14 +170,33 @@ pub async fn run_swarm(
             // Outbound commands from other subsystems.
             Some(cmd) = cmd_rx.recv() => {
                 let NetCmd::Broadcast { topic, data } = cmd;
-                let t = gossipsub::IdentTopic::new(topic);
-                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(t, data) {
-                    warn!("net: publish error on {}: {}", topic, e);
+                if cfg.read_only || (cfg.seals_only && topic != "hone/seals") {
+                    tracing::debug!("net: publish not allowed in this mode, dropped {} ({} bytes)", topic, data.len());
+                    continue;
+                }
+                let t = gossipsub::IdentTopic::new(format!("{}/{}", cfg.chain_id, topic));
+                match swarm.behaviour_mut().gossipsub.publish(t, data) {
+                    Ok(_) => info!("net: published on {}", topic),
+                    Err(e) => warn!("net: publish error on {}: {}", topic, e),
                 }
             }
 
             // Swarm events.
             event = swarm.select_next_some() => {
+                // Keep the UI peer count current (count distinct peers, not connections).
+                match &event {
+                    SwarmEvent::ConnectionEstablished { num_established, .. } if num_established.get() == 1 => {
+                        cfg.peers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    SwarmEvent::ConnectionClosed { num_established: 0, .. } => {
+                        let _ = cfg.peers.fetch_update(
+                            std::sync::atomic::Ordering::Relaxed,
+                            std::sync::atomic::Ordering::Relaxed,
+                            |n| Some(n.saturating_sub(1)),
+                        );
+                    }
+                    _ => {}
+                }
                 // Handle mDNS here so we can dial discovered addresses.
                 if let SwarmEvent::Behaviour(BehaviourEvent::Mdns(
                     mdns::Event::Discovered(peers)

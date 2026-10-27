@@ -1,4 +1,4 @@
-//! HTTP API server (Axum) — replaces Node.js hone-api.
+//! HTTP API server (Axum) — replaces Node.js btcpc-api.
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -250,6 +250,7 @@ pub fn router(state: AppState) -> Router {
         // ── Verasens: Sensors / IoT ───────────────────────────────────────
         .route("/api/sensors", get(get_all_sensors))
         .route("/api/sensor/register", post(post_sensor_register))
+        .route("/api/sensor/key-register", post(post_sensor_key_register))
         .route("/api/sensor/commit", post(post_sensor_commit))
         .route("/api/sensor/vouch", post(post_sensor_vouch))
         .route("/api/coverage/report", post(post_coverage_report))
@@ -275,6 +276,7 @@ pub fn router(state: AppState) -> Router {
         // ── State Proofs (Phase 7) ────────────────────────────────────────
         .route("/api/proof/balance/:account/:token", get(get_balance_proof))
         .route("/api/chain/state_root", get(get_state_root))
+        .route("/api/supply", get(get_supply))
         // ── Clock node reputation (Phase 8) ───────────────────────────────
         .route("/api/clock/register", post(post_clock_register))
         .route("/api/clock/self-register", post(post_clock_self_register))
@@ -588,7 +590,16 @@ async fn get_account(
         "key_policies":   slot_policies,      // which slots have 2FA enabled (no addresses)
         "chains_proven":  proven_chains,      // which external chains, no addresses
         "nonce":          data["nonce"],
-        "stake":          data["stake"],
+        // CF_STAKES, not the account record's legacy `stake` field. `set_stake` writes
+        // CF_STAKES and `get_stake`/`stake_weight` read it, but nothing maintains the
+        // copy on the account record — so this endpoint reported stake: 0 for clocks
+        // that were visibly accumulating stake every epoch. That is not a cosmetic
+        // difference: it is the surface used to answer "is this node staked yet", and
+        // reading it wrong led to the conclusion that the earnings->stake top-up was
+        // not firing when it was working correctly.
+        "stake":          s.chain.store.get_stake(
+                              data["account_id"].as_str().unwrap_or("")),
+        "stake_legacy_account_field": data["stake"],
     })))
 }
 
@@ -1974,6 +1985,187 @@ fn non_empty(s: &str) -> Option<&str> {
 // GET /api/sync/snapshot — full account state export for bootstrapping a diverged node.
 // Returns the current epoch checkpoint + every account record. A node can load this
 // as its starting state instead of replaying from genesis and diverging.
+/// GET /api/supply — the permanent supply ledger.
+///
+/// Reads that a person can audit: what the chain is allowed to emit, what
+/// actually exists, what is genuinely in someone's hands, and what has been
+/// recycled over the chain's whole life.
+///
+/// `recycled_cumulative` is a durable monotonic counter, NOT the recycle fund's
+/// balance. From RECYCLE_ERA onward the epoch budget is drawn from the fund, so
+/// the balance falls; reading lifetime recycling off the balance would show it
+/// going backwards. Both figures are returned so the difference is visible
+/// rather than hidden.
+async fn get_supply(State(s): State<AppState>) -> Json<serde_json::Value> {
+    // ISSUED, measured from the ledger: balances plus stakes. Stakes are NOT in
+    // CF_BALANCES — `set_stake` writes straight to CF_STAKES with nothing credited to
+    // a balance — so a balances-only total silently loses every hunit a clock has
+    // staked from its earnings. That is not hypothetical: the earnings->stake top-up
+    // routes a clock's whole reward there until it reaches the minimum.
+    let balances = s.chain.store.total_supply(hone_types::NATIVE_TOKEN);
+    let staked   = s.chain.store.total_staked();
+    let issued   = balances.saturating_add(staked);
+
+    let recycle = s.chain.store.get_balance(
+        hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN) as u128;
+    let treasury = s.chain.store.get_balance(
+        hone_types::TREASURY_ACCOUNT, hone_types::NATIVE_TOKEN) as u128;
+    let testnet = s.chain.store.get_balance(
+        hone_types::TESTNET_FUND_ACCOUNT, hone_types::NATIVE_TOKEN) as u128;
+    let reserves = recycle + treasury + testnet;
+    // Circulating excludes stake: staked hunits exist and are issued, but they are
+    // bonded, not spendable. Reported separately rather than folded into either side.
+    let circulating = balances.saturating_sub(reserves);
+
+    let recycled_cumulative: u128 = s.chain.store.state_get("supply:recycled_cumulative")
+        .and_then(|v| String::from_utf8(v).ok())
+        .and_then(|x| x.trim().parse::<u128>().ok())
+        .unwrap_or(0);
+
+    let cap = hone_types::SUPPLY_CAP_HUNITS as u128;
+    let unissued = cap.saturating_sub(issued);
+
+    // ── The cross-check ───────────────────────────────────────────────────────────
+    // Two INDEPENDENT measurements of the same quantity:
+    //   ledger side   — what RocksDB says exists (balances + stakes)
+    //   schedule side — what the emission schedule DEFINED as emittable over every
+    //                   epoch this node has actually applied rewards for
+    // By the native emission rule every hunit of the budget is either paid to an
+    // earner or credited to a reserve, so these must be equal. This is the invariant
+    // that can fail and catch a leak.
+    //
+    // `unissued = cap - issued` is deliberately NOT the invariant: `issued + unissued`
+    // reads exactly 42,000,000 HONE by construction, including when the accounting is
+    // broken. It is there for readability, not for proof.
+    let cur = s.chain.store.reward_cursor();
+    // The schedule side must be reckoned the way the chain actually emits, which is NOT
+    // "everything from epoch 1 that this node rewarded".
+    //
+    // Two segments make up issued supply:
+    //   epochs 1..floor-1  — never applied by this node (the driver aligns its start to
+    //                        the tracking window on a backdated chain). Those are covered
+    //                        by the ONE genesis-gap credit, which recycled their entire
+    //                        budget. Present only once `genesis_gap_recycled` is set.
+    //   epochs floor..contiguous — this node's own applied work.
+    //
+    // A first cut used `cumulative_emission_through(highest_contiguous_from_epoch_1)`,
+    // which on a backdated chain is 0 (epoch 1 was never applied) and so compared real
+    // issued supply against zero and declared every healthy node broken.
+    let gap_credited = s.chain.store.state_get("genesis_gap_recycled").is_some();
+    // Reckon against the epochs ACTUALLY APPLIED, up to `highest` — not a contiguous
+    // range. While the driver holds a hole it has legitimately credited epochs above it,
+    // so any contiguous-range comparison shows a phantom surplus exactly equal to the
+    // above-the-gap credits. Seen on live mainnet mid-recovery: a 2,319,539,999,948 hunit
+    // "surplus" that was entirely this artefact, on a chain that was perfectly conserved.
+    // Reporting a breach while the driver is catching up is the worst possible time to be
+    // wrong, because that is when someone is actually reading it.
+    let span_end = hone_types::cumulative_emission_through(cur.highest);
+    let missing_total: u64 = cur.missing.iter()
+        .map(|e| hone_types::block_reward_at(*e))
+        .fold(0u64, |a, b| a.saturating_add(b));
+    let scheduled: u128 = if cur.floor == 0 {
+        0 // nothing applied yet
+    } else if gap_credited {
+        // Genesis gap covers 1..floor-1; this node covers the applied set in
+        // floor..=highest. Subtract the holes it has not yet credited.
+        span_end.saturating_sub(missing_total) as u128
+    } else {
+        // No gap credit: only this node's own applied set counts.
+        span_end
+            .saturating_sub(hone_types::cumulative_emission_through(cur.floor.saturating_sub(1)))
+            .saturating_sub(missing_total) as u128
+    };
+    // Signed delta without going through i128 formatting surprises.
+    let (delta_abs, delta_sign) = if issued >= scheduled {
+        (issued - scheduled, 1i8)
+    } else {
+        (scheduled - issued, -1i8)
+    };
+    let conserved = delta_abs == 0;
+    let over_cap  = issued > cap;
+
+    let hone = |h: u128| -> String { format!("{}.{:010}", h / 10_000_000_000, h % 10_000_000_000) };
+
+    Json(serde_json::json!({
+        "token": hone_types::NATIVE_TOKEN,
+
+        // 42,000,000 HONE, decomposed. These six add to the cap, always.
+        "cap_hunits": cap,
+        "cap_hone": hone(cap),
+        "ledger": {
+            "circulating_hunits": circulating,
+            "staked_hunits": staked,
+            "recycle_fund_hunits": recycle,
+            "treasury_hunits": treasury,
+            "testnet_fund_hunits": testnet,
+            "unissued_hunits": unissued,
+            "sums_to_cap": circulating
+                .saturating_add(staked).saturating_add(reserves)
+                .saturating_add(unissued) == cap,
+        },
+
+        "issued_hunits": issued,
+        "issued_hone": hone(issued),
+        "unissued_hunits": unissued,
+        "unissued_hone": hone(unissued),
+        "circulating_hunits": circulating,
+        "circulating_hone": hone(circulating),
+        "staked_hunits": staked,
+        "staked_hone": hone(staked),
+        "reserves": {
+            "recycle_fund_hunits": recycle,
+            "treasury_hunits": treasury,
+            "testnet_fund_hunits": testnet,
+            "total_hunits": reserves,
+        },
+
+        // The real invariant.
+        "conservation": {
+            "issued_from_ledger_hunits": issued,
+            "scheduled_from_emission_hunits": scheduled,
+            "delta_hunits": delta_abs,
+            "delta_sign": delta_sign,
+            "conserved": conserved,
+            "through_epoch": cur.highest,
+            "from_epoch": cur.floor,
+            "uncredited_epochs_in_span": cur.missing.len(),
+            "uncredited_hunits": missing_total,
+            "genesis_gap_credited": gap_credited,
+            "explain": "issued (balances+stakes) must equal what the schedule defined as \
+                        emittable over the epochs actually accounted for: the genesis-gap \
+                        credit covers 1..from_epoch-1 and this node's applied work covers \
+                        from_epoch..through_epoch. delta_sign -1 means under-issued (budget \
+                        neither paid nor recycled), +1 means minted outside the budget",
+        },
+
+        // Reward-driver progress. Surfaced because a stalled driver is indistinguishable
+        // from a reward bug without it: rewards simply stop, and `first_gap` is the epoch
+        // the contiguous walk is waiting on. A non-null first_gap that does not move is
+        // the signature of an epoch that can never be finalized.
+        "reward_driver": {
+            "last_rewarded_epoch": cur.contiguous,
+            "reward_floor_epoch": cur.floor,
+            "highest_applied_epoch": cur.highest,
+            "epochs_applied": cur.applied,
+            "first_gap_epoch": cur.first_gap,
+            "epochs_behind_head": s.chain.current_epoch().saturating_sub(cur.contiguous),
+            // A cold-start floor is not a stall — only a hole above the frontier is.
+            "stalled": cur.stalled(),
+        },
+
+        "recycled_cumulative_hunits": recycled_cumulative,
+        "recycled_cumulative_hone": hone(recycled_cumulative),
+        "headroom_to_cap_hunits": cap.saturating_sub(issued),
+        "over_cap": over_cap,
+        "accounting_ok": conserved && !over_cap,
+        "epoch": s.chain.current_epoch(),
+        "note": "issued = balances + stakes. recycled_cumulative is lifetime-monotonic and \
+                 counts what the chain defined as emittable but nobody earned; \
+                 recycle_fund_hunits is the CURRENT balance, which also holds inference \
+                 escrow and falls once RECYCLE_ERA draws from it, so the two differ by design",
+    }))
+}
+
 async fn get_sync_snapshot(State(s): State<AppState>) -> Json<serde_json::Value> {
     let epoch = s.chain.store.latest_epoch().unwrap_or(0);
     let ids = s.chain.store.scan_account_ids();
@@ -4046,6 +4238,17 @@ struct SensorCommitBody {
 }
 
 #[derive(Debug, Deserialize)]
+struct SensorKeyRegisterBody {
+    sensor_id: String,
+    owner: String,
+    /// Empty revokes the enrollment and restores owner-posting-key fallback.
+    #[serde(default)]
+    device_pubkey: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct GatewayHeartbeatBody {
     gateway_id: String,
     owner: String,
@@ -4071,6 +4274,24 @@ async fn post_sensor_register(
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/sensor/key-register
+/// Body: { sensor_id, owner, device_pubkey, signature }
+/// Signed once by the owner's posting key. An empty device_pubkey revokes the
+/// device enrollment and returns commits to the owner-posting-key path.
+async fn post_sensor_key_register(
+    State(s): State<AppState>,
+    Json(body): Json<SensorKeyRegisterBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::SensorKeyRegister {
+        sensor_id: body.sensor_id,
+        owner: body.owner.clone(),
+        device_pubkey: body.device_pubkey,
+        epoch: s.chain.current_epoch(),
+        signed_by: body.owner,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
 }
 
 /// POST /api/sensor/commit
@@ -4120,24 +4341,8 @@ async fn post_sensor_commit(
         }
         if !nets.contains(&submitter_net) {
             nets.push(submitter_net.clone());
-            let _ = s.chain.store.state_set(
-                &net_key,
-                &serde_json::to_vec(&nets).unwrap_or_default(),
-            );
         }
     }
-    let reading_rec = serde_json::json!({
-        "sensor_id": body.sensor_id,
-        "owner": body.owner,
-        "epoch": epoch,
-        "value": body.value,
-        "batch_hash": body.batch_hash,
-        "submitter_net": submitter_net,
-    });
-    let _ = s.chain.store.state_set(
-        &reading_key,
-        &serde_json::to_vec(&reading_rec).unwrap_or_default(),
-    );
 
     // ── Apply ledger entry first ──────────────────────────────────────────────
     let entry = LedgerEntry::SensorDataCommit {
@@ -4152,6 +4357,31 @@ async fn post_sensor_commit(
     };
     let sig = non_empty(&body.signature);
     let result = apply_and_broadcast(&s, entry, sig);
+    if result.0["accepted"].as_bool() != Some(true) {
+        // Authentication or admission failed. Never let rejected input alter
+        // cross-validation, diversity, strike, or reward-driving side state.
+        return (StatusCode::BAD_REQUEST, result);
+    }
+
+    // Only authenticated, accepted commits may affect sensor consensus state.
+    if !already_submitted {
+        let _ = s.chain.store.state_set(
+            &net_key,
+            &serde_json::to_vec(&nets).unwrap_or_default(),
+        );
+    }
+    let reading_rec = serde_json::json!({
+        "sensor_id": body.sensor_id,
+        "owner": body.owner,
+        "epoch": epoch,
+        "value": body.value,
+        "batch_hash": body.batch_hash,
+        "submitter_net": submitter_net,
+    });
+    let _ = s.chain.store.state_set(
+        &reading_key,
+        &serde_json::to_vec(&reading_rec).unwrap_or_default(),
+    );
 
     // ── Phase 2: 2-of-N consensus ─────────────────────────────────────────────
     let status = sensor_cross_validate(&s, &body.sensor_id, epoch, &body.owner);
@@ -7862,7 +8092,7 @@ async fn post_v1_chat_completions(
             None => {
                 return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
                     "error": {
-                        "message": "Authorization required. Set Authorization: Bearer <hone_account>. Get an account via @honebot on Telegram or POST /api/faucet/claim.",
+                        "message": "Authorization required. Set Authorization: Bearer <hone_account>. Get an account via @btcpcbot on Telegram or POST /api/faucet/claim.",
                         "type": "authentication_error"
                     }
                 }))).into_response();
@@ -7870,7 +8100,7 @@ async fn post_v1_chat_completions(
             Some(a) if a.is_empty() => {
                 return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
                     "error": {
-                        "message": "Authorization required. Set Authorization: Bearer <hone_account>. Get an account via @honebot on Telegram or POST /api/faucet/claim.",
+                        "message": "Authorization required. Set Authorization: Bearer <hone_account>. Get an account via @btcpcbot on Telegram or POST /api/faucet/claim.",
                         "type": "authentication_error"
                     }
                 }))).into_response();
@@ -7888,7 +8118,7 @@ async fn post_v1_chat_completions(
                 _ => {
                     return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
                         "error": {
-                            "message": "Invalid API key. Generate one with `hone wallet api-key-gen` or create an account via @honebot.",
+                            "message": "Invalid API key. Generate one with `hone wallet api-key-gen` or create an account via @btcpcbot.",
                             "type": "authentication_error"
                         }
                     }))).into_response();
@@ -7901,7 +8131,7 @@ async fn post_v1_chat_completions(
                 return (StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({
                     "error": {
                         "message": format!(
-                            "Insufficient balance. Need at least {} hunits, have {}. Get tokens via @honebot or POST /api/faucet/claim.",
+                            "Insufficient balance. Need at least {} hunits, have {}. Get tokens via @btcpcbot or POST /api/faucet/claim.",
                             MIN_INFERENCE_FEE_HUNITS, balance
                         ),
                         "type": "insufficient_quota"
@@ -10797,6 +11027,41 @@ mod partition_tests {
         let resp2 = apply_and_broadcast(&h.state, entry, Some(&sig));
         assert_eq!(resp2.0["accepted"], serde_json::json!(true),
             "a connected node must accept a valid user submission");
+    }
+
+    #[tokio::test]
+    async fn rejected_sensor_signature_does_not_mutate_consensus_side_state() {
+        let h = build_harness("sensor-auth");
+        let _owner = fund(&h.state.chain, "josh", 1_000 * 10_000_000_000, b'j');
+        h.set_peers(3);
+
+        let wrong = SigningKey::from_bytes(&[b'X'; 32]);
+        let entry = LedgerEntry::SensorDataCommit {
+            sensor_id: "phone-gnss".into(), owner: "josh".into(),
+            batch_hash: "abc123".into(), reading_count: 1,
+            sensor_type: "continuous".into(), epoch: 0,
+            signed_by: "josh".into(), gateway_account: None,
+        };
+        let msg = crate::tx::canonical_signing_message(&entry, "hone-testnet").unwrap();
+        let bad_sig = hex::encode(wrong.sign(msg.as_bytes()).to_bytes());
+
+        let (status, response) = post_sensor_commit(
+            State(h.state.clone()),
+            HeaderMap::new(),
+            ConnectInfo("127.0.0.1:4040".parse().unwrap()),
+            Json(SensorCommitBody {
+                sensor_id: "phone-gnss".into(), owner: "josh".into(),
+                batch_hash: "abc123".into(), reading_count: 1,
+                sensor_type: "continuous".into(), value: Some(42.0),
+                signature: bad_sig,
+            }),
+        ).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(response.0["accepted"], serde_json::json!(false));
+        assert!(h.state.chain.store.state_get("sensor_net:phone-gnss:0").is_none());
+        assert!(h.state.chain.store.state_get("sensor_readings:0:phone-gnss:josh").is_none());
+        assert!(h.state.chain.store.state_get("sensor_strikes:phone-gnss").is_none());
     }
 
     /// Same hardline, exercised through the §0 contract-replay handlers

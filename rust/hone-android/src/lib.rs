@@ -270,3 +270,47 @@ pub extern "C" fn Java_network_hone_app_NativeSensorService_nativeSubmitReading(
 
     JNI_TRUE
 }
+
+// ── Logging: tracing -> Android logcat (tag "hone") ─────────────────────────
+#[cfg(target_os = "android")]
+mod logcat {
+    use std::ffi::CString;
+    #[link(name = "log")]
+    extern "C" {
+        fn __android_log_write(prio: i32, tag: *const std::os::raw::c_char, text: *const std::os::raw::c_char) -> i32;
+    }
+    pub struct Writer;
+    impl std::io::Write for Writer {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let text = String::from_utf8_lossy(buf).trim_end().replace('\0', "");
+            if let (Ok(tag), Ok(msg)) = (CString::new("hone"), CString::new(text)) {
+                // 4 = ANDROID_LOG_INFO
+                unsafe { __android_log_write(4, tag.as_ptr(), msg.as_ptr()); }
+            }
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+}
+
+/// Route `tracing` output to logcat once per process (no-op off Android).
+pub(crate) fn init_logcat() {
+    #[cfg(target_os = "android")]
+    {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            use tracing_subscriber::prelude::*;
+            // HONE_LOG_DEBUG_GOSSIP=1 (or a hone-node/debug_gossip file) adds gossipsub debug
+            let targets = tracing_subscriber::filter::Targets::new()
+                .with_default(tracing::Level::INFO)
+                .with_target("libp2p_gossipsub", tracing::Level::DEBUG);
+            let _ = tracing_subscriber::registry()
+                .with(tracing_subscriber::fmt::layer()
+                    .with_writer(|| logcat::Writer)
+                    .with_ansi(false)
+                    .without_time())
+                .with(targets)
+                .try_init();
+        });
+    }
+}
