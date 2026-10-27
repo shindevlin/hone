@@ -2,7 +2,7 @@
 
 **Mine by doing useful work.** GPU, Raspberry Pi, phone, spare drive, or AI agent. Every token earned by a machine doing something real.
 
-> **v0.4.0 — Testnet.** The chain is live and earning real rewards on testnet. Protocol hardening is in progress before mainnet (v1.0.0). See the [Roadmap](docs/ROADMAP.md) for what's being built and what's open.
+> **node v2.0.0 — live testnet.** The chain is live and earning real rewards on testnet. Protocol hardening is in progress before mainnet (v1.0.0). See the [Roadmap](docs/ROADMAP.md) for what's being built and what's open.
 
 ---
 
@@ -292,4 +292,6 @@ HONE nodes are built for non-technical operators: every failure path recovers au
 
 ## License
 
-MIT
+HONE is released under [The Usufruct License (UFL) 3.8](LICENSE), Operational Scope: **Decentralized** (`LicenseRef-UFL-3.8-D`). Native token: HONE.
+
+Release statement: UFL 3.8, Operational Scope: Decentralized (LicenseRef-UFL-3.8-D)

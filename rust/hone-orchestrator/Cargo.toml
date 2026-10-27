@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["HONE contributors"]
 description = "Rust-native HONE runtime and agent orchestration model"
-license = "LicenseRef-UFL-1.1"
+license = "LicenseRef-UFL-3.8-D"
 
 [lib]
 name = "hone_orchestrator"
