@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "hone_version": "1.2.2",
+  "hone_version": "2.0.0",
   "chain_id": "hone",
-  "surface_hash": "2166440ecb19a9418694c7cc12ff3b242228374927fbb234a1de145a17dc758e",
+  "surface_hash": "e335ba1b3cdede4786063bee1d4684efae30e80e62607b5bd68486840be398a5",
   "entries": {
     "AccountApiKeySet": {
       "name": "AccountApiKeySet",
@@ -1111,7 +1111,7 @@
       "name": "ContractCall",
       "fields": [
         {
-          "name": "caller",
+          "name": "signer",
           "ty": "AccountId"
         },
         {
@@ -1123,23 +1123,39 @@
           "ty": "String"
         },
         {
+          "name": "args",
+          "ty": "serde_json::Value"
+        },
+        {
+          "name": "deposit",
+          "ty": "u64"
+        },
+        {
+          "name": "gas",
+          "ty": "u64"
+        },
+        {
           "name": "epoch",
           "ty": "Epoch"
         },
         {
-          "name": "gas_used",
+          "name": "nonce",
           "ty": "u64"
-        },
-        {
-          "name": "success",
-          "ty": "bool"
-        },
-        {
-          "name": "result_hash",
-          "ty": "Option<String>"
         }
       ],
-      "system_only": true,
+      "signing_type": "CONTRACT_CALL",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "signer",
+        "contract_id",
+        "method",
+        "args",
+        "deposit",
+        "gas",
+        "nonce"
+      ],
+      "system_only": false,
       "stability": "stable"
     },
     "ContractDeploy": {
@@ -1154,19 +1170,42 @@
           "ty": "String"
         },
         {
-          "name": "wasm_hash",
+          "name": "wasm_b64",
           "ty": "String"
+        },
+        {
+          "name": "init_method",
+          "ty": "Option<String>"
+        },
+        {
+          "name": "init_args",
+          "ty": "Option<serde_json::Value>"
+        },
+        {
+          "name": "gas",
+          "ty": "u64"
         },
         {
           "name": "epoch",
           "ty": "Epoch"
         },
         {
-          "name": "gas_used",
+          "name": "nonce",
           "ty": "u64"
         }
       ],
-      "system_only": true,
+      "signing_type": "CONTRACT_DEPLOY",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "deployer",
+        "wasm_b64",
+        "init_method",
+        "init_args",
+        "gas",
+        "nonce"
+      ],
+      "system_only": false,
       "stability": "stable"
     },
     "CoverageReport": {
@@ -1793,6 +1832,62 @@
       "system_only": true,
       "stability": "stable"
     },
+    "ExternalSignerTransfer": {
+      "name": "ExternalSignerTransfer",
+      "summary": "A transfer authorized by a granted external signer (see",
+      "fields": [
+        {
+          "name": "account",
+          "ty": "AccountId"
+        },
+        {
+          "name": "external_chain",
+          "ty": "String"
+        },
+        {
+          "name": "to",
+          "ty": "AccountId"
+        },
+        {
+          "name": "amount",
+          "ty": "Hunits"
+        },
+        {
+          "name": "memo",
+          "ty": "Option<String>"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "ton_domain",
+          "ty": "String"
+        },
+        {
+          "name": "ton_timestamp",
+          "ty": "u64"
+        },
+        {
+          "name": "ton_payload_kind",
+          "ty": "String"
+        },
+        {
+          "name": "ton_payload",
+          "ty": "String"
+        },
+        {
+          "name": "ton_signature",
+          "ty": "String"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        }
+      ],
+      "system_only": true,
+      "stability": "stable"
+    },
     "FineTuneJobComplete": {
       "name": "FineTuneJobComplete",
       "summary": "Fine-tune job completed by a worker node.",
@@ -2231,6 +2326,55 @@
       "system_only": false,
       "stability": "stable"
     },
+    "GrantExternalSigner": {
+      "name": "GrantExternalSigner",
+      "summary": "Grant an external-chain wallet (e.g. a TON Connect wallet) direct,",
+      "fields": [
+        {
+          "name": "account",
+          "ty": "AccountId"
+        },
+        {
+          "name": "external_chain",
+          "ty": "String"
+        },
+        {
+          "name": "external_pubkey",
+          "ty": "String"
+        },
+        {
+          "name": "external_address",
+          "ty": "String"
+        },
+        {
+          "name": "label",
+          "ty": "Option<String>"
+        },
+        {
+          "name": "caps",
+          "ty": "ExternalSignerCaps"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signature",
+          "ty": "String"
+        }
+      ],
+      "signed_by_bound_to": "account",
+      "system_only": false,
+      "stability": "stable"
+    },
     "HardwareClaim": {
       "name": "HardwareClaim",
       "summary": "Bind a hardware fingerprint to an account.",
@@ -2403,6 +2547,432 @@
           "name": "signature",
           "ty": "Option<String>"
         }
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftAccept": {
+      "name": "IdentityNftAccept",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "to",
+          "ty": "AccountId"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_ACCEPT",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "to",
+        "nonce"
+      ],
+      "signed_by_bound_to": "to",
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftLock": {
+      "name": "IdentityNftLock",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_LOCK",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "nonce"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftMint": {
+      "name": "IdentityNftMint",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "to",
+          "ty": "AccountId"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_MINT",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "to",
+        "nonce"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftRecover": {
+      "name": "IdentityNftRecover",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "seq",
+          "ty": "u64"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        },
+        {
+          "name": "cosignatures",
+          "ty": "Vec<(AccountId, String)>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_RECOVER",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "seq"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftReject": {
+      "name": "IdentityNftReject",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_REJECT",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "signed_by",
+        "nonce"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftSetBackstop": {
+      "name": "IdentityNftSetBackstop",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "enabled",
+          "ty": "bool"
+        },
+        {
+          "name": "seq",
+          "ty": "u64"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        },
+        {
+          "name": "cosignatures",
+          "ty": "Vec<(AccountId, String)>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_SET_BACKSTOP",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "enabled",
+        "seq"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftSetPrimary": {
+      "name": "IdentityNftSetPrimary",
+      "fields": [
+        {
+          "name": "account",
+          "ty": "AccountId"
+        },
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_SET_PRIMARY",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "account",
+        "name",
+        "nonce"
+      ],
+      "signed_by_bound_to": "account",
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftSetRecovery": {
+      "name": "IdentityNftSetRecovery",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "guardians",
+          "ty": "Vec<AccountId>"
+        },
+        {
+          "name": "threshold",
+          "ty": "u8"
+        },
+        {
+          "name": "destination",
+          "ty": "AccountId"
+        },
+        {
+          "name": "founder_backstop",
+          "ty": "bool"
+        },
+        {
+          "name": "seq",
+          "ty": "u64"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        },
+        {
+          "name": "cosignatures",
+          "ty": "Vec<(AccountId, String)>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_SET_RECOVERY",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "guardians",
+        "threshold",
+        "destination",
+        "founder_backstop",
+        "seq"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftTransfer": {
+      "name": "IdentityNftTransfer",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "from",
+          "ty": "AccountId"
+        },
+        {
+          "name": "to",
+          "ty": "AccountId"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_TRANSFER",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "from",
+        "to",
+        "nonce"
+      ],
+      "signed_by_bound_to": "from",
+      "system_only": false,
+      "stability": "stable"
+    },
+    "IdentityNftUnlock": {
+      "name": "IdentityNftUnlock",
+      "fields": [
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "seq",
+          "ty": "u64"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        },
+        {
+          "name": "cosignatures",
+          "ty": "Vec<(AccountId, String)>"
+        }
+      ],
+      "signing_type": "IDENTITY_NFT_UNLOCK",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "name",
+        "seq"
       ],
       "system_only": false,
       "stability": "stable"
@@ -4804,6 +5374,47 @@
       "system_only": false,
       "stability": "stable"
     },
+    "RevokeExternalSigner": {
+      "name": "RevokeExternalSigner",
+      "summary": "Revoke a previously granted external signer. Only the account's `active`",
+      "fields": [
+        {
+          "name": "account",
+          "ty": "AccountId"
+        },
+        {
+          "name": "external_chain",
+          "ty": "String"
+        },
+        {
+          "name": "external_pubkey",
+          "ty": "String"
+        },
+        {
+          "name": "external_address",
+          "ty": "Option<String>"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signature",
+          "ty": "String"
+        }
+      ],
+      "signed_by_bound_to": "account",
+      "system_only": false,
+      "stability": "stable"
+    },
     "RuntimeAttest": {
       "name": "RuntimeAttest",
       "summary": "Publish signed execution attestation for runtime work.",
@@ -5755,6 +6366,162 @@
           "name": "signature",
           "ty": "Option<String>"
         }
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "SoulboundAccept": {
+      "name": "SoulboundAccept",
+      "fields": [
+        {
+          "name": "token_id",
+          "ty": "String"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "SOULBOUND_ACCEPT",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "token_id",
+        "nonce"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "SoulboundIssue": {
+      "name": "SoulboundIssue",
+      "fields": [
+        {
+          "name": "token_id",
+          "ty": "String"
+        },
+        {
+          "name": "name",
+          "ty": "String"
+        },
+        {
+          "name": "class",
+          "ty": "String"
+        },
+        {
+          "name": "wallet_bound",
+          "ty": "bool"
+        },
+        {
+          "name": "data",
+          "ty": "String"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "SOULBOUND_ISSUE",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "token_id",
+        "name",
+        "class",
+        "wallet_bound",
+        "data",
+        "nonce"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "SoulboundReject": {
+      "name": "SoulboundReject",
+      "fields": [
+        {
+          "name": "token_id",
+          "ty": "String"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "SOULBOUND_REJECT",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "token_id",
+        "nonce"
+      ],
+      "system_only": false,
+      "stability": "stable"
+    },
+    "SoulboundRevoke": {
+      "name": "SoulboundRevoke",
+      "fields": [
+        {
+          "name": "token_id",
+          "ty": "String"
+        },
+        {
+          "name": "epoch",
+          "ty": "Epoch"
+        },
+        {
+          "name": "nonce",
+          "ty": "u64"
+        },
+        {
+          "name": "signed_by",
+          "ty": "AccountId"
+        },
+        {
+          "name": "signature",
+          "ty": "Option<String>"
+        }
+      ],
+      "signing_type": "SOULBOUND_REVOKE",
+      "signing_fields": [
+        "chain_id",
+        "type",
+        "token_id",
+        "nonce"
       ],
       "system_only": false,
       "stability": "stable"
@@ -6958,6 +7725,7 @@
         "token",
         "nonce"
       ],
+      "signed_by_bound_to": "from",
       "system_only": false,
       "stability": "stable"
     },
@@ -6995,6 +7763,21 @@
       ],
       "signed_by_bound_to": "account",
       "system_only": false,
+      "stability": "stable"
+    },
+    "Usd": {
+      "name": "Usd",
+      "fields": [
+        {
+          "name": "cents",
+          "ty": "u64"
+        },
+        {
+          "name": "max_staleness_s",
+          "ty": "u64"
+        }
+      ],
+      "system_only": true,
       "stability": "stable"
     },
     "VerifierReward": {
