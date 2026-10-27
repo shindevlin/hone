@@ -11,7 +11,9 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hone]
+    # self-hosted runner on grouchly: never run code from a fork there
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - uses: actions/checkout@v4
@@ -39,10 +41,16 @@ jobs:
           key: ${{ runner.os }}-android-cargo-${{ hashFiles('rust/hone-android/Cargo.lock') }}
 
       - name: Install native build deps
-        run: sudo apt-get install -y libonig-dev
+        run: sudo apt-get update -q && sudo apt-get install -y -q build-essential pkg-config libssl-dev libonig-dev unzip
 
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
+
+      - name: Set up JDK (sdkmanager needs it)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
       - name: Set up JDK + Android SDK + NDK
         uses: android-actions/setup-android@v3

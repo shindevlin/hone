@@ -8,7 +8,9 @@ on:
 
 jobs:
   rust-check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hone]
+    # self-hosted runner on grouchly: never run code from a fork there
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 20
 
     steps:
@@ -33,7 +35,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install RocksDB deps
-        run: sudo apt-get install -y librocksdb-dev clang libclang-dev
+        run: sudo apt-get update -q && sudo apt-get install -y -q build-essential pkg-config libssl-dev librocksdb-dev clang libclang-dev
 
       # Default features only (matrix off) — this is what nodes ship and what
       # builds on 1.90. A PR that doesn't compile fails here and cannot merge.

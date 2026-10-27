@@ -11,7 +11,9 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hone]
+    # self-hosted runner on grouchly: never run code from a fork there
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +30,7 @@ jobs:
       - name: Install cross-compilation tools
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y -q build-essential pkg-config libssl-dev clang libclang-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Cache cargo
         uses: actions/cache@v4

@@ -20,7 +20,9 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hone]
+    # self-hosted runner on grouchly: never run code from a fork there
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +33,7 @@ jobs:
 
       - name: Sync website/ into gh-pages
         run: |
+          command -v rsync >/dev/null || (sudo apt-get update -q && sudo apt-get install -y -q rsync)
           rsync -a --delete --exclude .git --exclude CNAME website/ _site/
           cd _site
           git add -A
