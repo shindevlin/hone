@@ -4,23 +4,33 @@ on:
   push:
     tags:
       - 'node-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hone]
+    # self-hosted runner on grouchly: never run code from a fork there
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # rust/rust-toolchain.toml pins 1.90.0 — the target must go on that toolchain
       - name: Add aarch64 target
-        run: rustup target add aarch64-unknown-linux-gnu
+        working-directory: rust
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-unknown-linux-gnu
 
       - name: Install cross-compilation tools
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q gcc-aarch64-linux-gnu
+          sudo apt-get install -y -q build-essential pkg-config libssl-dev clang libclang-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -32,6 +42,8 @@ jobs:
           key: ${{ runner.os }}-cargo-node-${{ hashFiles('rust/Cargo.lock') }}
 
       - name: Build node binaries
+        env:
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu: --sysroot=/usr/aarch64-linux-gnu
         run: |
           cd rust
           cargo build --release -p hone-node
@@ -40,16 +52,18 @@ jobs:
           cp target/release/hone-node                              ../hone-node-x86_64-linux
           cp target/aarch64-unknown-linux-gnu/release/hone-node    ../hone-node-aarch64-linux
 
+      # hone-cli is a standalone crate (own [workspace]), binary name is `hone`
       - name: Build CLI binaries
         run: |
-          cd rust
-          cargo build --release -p hone-cli
+          cd rust/hone-cli
+          cargo build --release
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-            cargo build --release -p hone-cli --target aarch64-unknown-linux-gnu
-          cp target/release/hone-cli                              ../hone-x86_64-linux
-          cp target/aarch64-unknown-linux-gnu/release/hone-cli    ../hone-aarch64-linux
+            cargo build --release --target aarch64-unknown-linux-gnu
+          cp target/release/hone                              ../../hone-x86_64-linux
+          cp target/aarch64-unknown-linux-gnu/release/hone    ../../hone-aarch64-linux
 
       - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |

@@ -1,5 +1,9 @@
 # ── Stage 1: build Rust binaries ─────────────────────────────────────────────
-FROM rust:1.80-bookworm AS builder
+FROM rust:1.90-bookworm AS builder
+
+# librocksdb-sys runs bindgen, which needs libclang
+RUN apt-get update && apt-get install -y --no-install-recommends clang libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
@@ -27,7 +31,8 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY --from=builder /build/rust/hone-node/target/release/hone-node /usr/local/bin/hone-node
+# hone-node is a member of the rust/ workspace, so it builds into rust/target
+COPY --from=builder /build/rust/target/release/hone-node /usr/local/bin/hone-node
 COPY --from=builder /build/rust/hone-cli/target/release/hone      /usr/local/bin/hone
 
 COPY rust/hone-node/genesis.json         /app/genesis.json
