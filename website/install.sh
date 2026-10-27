@@ -77,7 +77,11 @@ Summary (the license text governs):
     frivolous or in bad faith.
   * Liability cap: each party's total liability to the other for all claims
     is limited, to the extent the law allows, to one US dollar in value,
-    paid in money or in HONE at the paying party's choice.
+    paid in money or in HONE at the paying party's choice. HONE is valued at
+    its 24-hour volume-weighted price on its busiest exchange, or at one US
+    dollar per HONE while no exchange lists it.
+  * No one consents to any court's jurisdiction by using HONE, and no use is
+    Paid Use (Sections 8 and 10 to 13 do not apply).
   * Forks and bypassers are at their own risk: running HONE with this step
     bypassed, removed, or forged breaches the license and makes that copy a
     modified version, and the Licensor then owes you nothing. A modified

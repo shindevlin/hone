@@ -54,7 +54,11 @@ public final class LicenseGate {
             "    frivolous or in bad faith.\n" +
             "  * Liability cap: each party's total liability to the other for all claims\n" +
             "    is limited, to the extent the law allows, to one US dollar in value,\n" +
-            "    paid in money or in HONE at the paying party's choice.\n" +
+            "    paid in money or in HONE at the paying party's choice. HONE is valued at\n" +
+            "    its 24-hour volume-weighted price on its busiest exchange, or at one US\n" +
+            "    dollar per HONE while no exchange lists it.\n" +
+            "  * No one consents to any court's jurisdiction by using HONE, and no use is\n" +
+            "    Paid Use (Sections 8 and 10 to 13 do not apply).\n" +
             "  * Forks and bypassers are at their own risk: running HONE with this step\n" +
             "    bypassed, removed, or forged breaches the license and makes that copy a\n" +
             "    modified version, and the Licensor then owes you nothing. A modified\n" +

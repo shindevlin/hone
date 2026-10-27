@@ -1450,11 +1450,25 @@ dependencies = [
  "egui_tiles",
  "glow",
  "hex",
+ "hone-license-egui",
  "hone-sdk",
  "reqwest",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
+
+[[package]]
+name = "hone-license-egui"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "hone-license",
 ]
 
 [[package]]
@@ -1470,6 +1484,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hmac",
+ "hone-license",
  "k256",
  "rand",
  "reqwest",
