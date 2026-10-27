@@ -21,7 +21,7 @@ base64 = "0.22"
 urlencoding = "2"
 anyhow = "1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand = "0.8"
+rand = "0.10"
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.11.0"

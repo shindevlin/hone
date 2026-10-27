@@ -49,7 +49,7 @@ tokio-cron-scheduler = "0.13"
 
 # Ed25519 signing for HONE transactions
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand = "0.8"
+rand = "0.10"
 hex = "0.4"
 base64 = "0.22"
 
