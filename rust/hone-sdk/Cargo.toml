@@ -19,7 +19,9 @@ name = "hone-keycheck"
 path = "src/bin/keycheck.rs"
 
 [dependencies]
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+# rustls, not OpenSSL: cross-compiling to aarch64 (release-node.yml) has no target OpenSSL.
+# Same choice as hone-node. charset/http2 kept from reqwest's defaults.
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls", "charset", "http2"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

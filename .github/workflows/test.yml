@@ -11,7 +11,8 @@ jobs:
     runs-on: [self-hosted, hone]
     # self-hosted runner on grouchly: never run code from a fork there
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    timeout-minutes: 20
+    # a cold build on the self-hosted runner (rocksdb from source) takes ~20 min
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
