@@ -36,12 +36,12 @@ Environment="HONE_MODEL=llama2-uncensored.gguf"
 Environment="HONE_ACCOUNT=local-render"
 Environment="HONE_LOG_LEVEL=hone_node=info"
 
-# License gate: HONE will not start until its license (UFL 3.4, Operational
+# License gate: HONE will not start until its license (UFL 3.8, Operational
 # Scope: Decentralized) is accepted, and exits with status 3 until then.
 # Either run `hone-license accept` once as this service's user with the same
 # HONE_DATA_DIR, or uncomment the next line. Uncommenting it is the act of
 # accepting the license. See docs/LICENSE_ACCEPTANCE.md.
-# Environment="HONE_ACCEPT_LICENSE=UFL-3.4-D"
+# Environment="HONE_ACCEPT_LICENSE=UFL-3.8-D"
 RestartPreventExitStatus=3
 Restart=on-failure
 RestartSec=5

@@ -152,7 +152,7 @@ async fn main() -> Result<()> {
 
     let cfg = Config::from_env();
 
-    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // UFL 3.8 Decentralized acceptance gate (UFL Section 9): nothing runs
     // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
     hone_license::require_acceptance_or_exit(&cfg.data_dir);
 

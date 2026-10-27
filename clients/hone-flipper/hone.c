@@ -199,7 +199,7 @@ void hone_pub_to_hex(const uint8_t pk[HONE_PK_LEN], char out[HONE_PK_LEN * 2 + 1
 int32_t hone_app(void* p) {
     UNUSED(p);
 
-    /* UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    /* UFL 3.8 Decentralized acceptance gate (UFL Section 9): nothing runs
      * until HONE's license is accepted. See docs/LICENSE_ACCEPTANCE.md. */
     if(!hone_license_gate("hone")) return 0;
 

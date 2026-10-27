@@ -1,5 +1,5 @@
 /*
- * UFL 3.4 Decentralized acceptance gate (UFL Section 9) for HONE Flipper apps.
+ * UFL 3.8 Decentralized acceptance gate (UFL Section 9) for HONE Flipper apps.
  * Identical copies live in every HONE Flipper app directory; keep them in sync.
  */
 #include "hone_license_gate.h"
@@ -23,7 +23,7 @@ typedef struct {
 /* The screen fits about three short lines per page. Full text: LICENSE in the
  * HONE repository, as page 2 says. */
 static const HoneLicensePage pages[] = {
-    {"HONE license 1/4", "UFL 3.4, Operational\nScope: Decentralized.\nFree to use.", "Next"},
+    {"HONE license 1/4", "UFL 3.8, Operational\nScope: Decentralized.\nFree to use.", "Next"},
     {"HONE license 2/4", "Full text: LICENSE at\ngithub.com/shindevlin/\nhone", "Next"},
     {"HONE license 3/4", "Disputes: online ICC\narbitration, California\nseat, individual only.", "Next"},
     {"Accept license? 4/4", "Liability cap: US$1 in\nvalue (money or HONE).\nForks/bypass: own risk.", "Accept"},
@@ -36,7 +36,7 @@ static bool hone_license_record_matches(Storage* storage) {
         char buf[256];
         size_t n = storage_file_read(file, buf, sizeof(buf) - 1);
         buf[n] = '\0';
-        ok = strstr(buf, "\"license\": \"UFL\"") && strstr(buf, "\"version\": \"3.4\"") &&
+        ok = strstr(buf, "\"license\": \"UFL\"") && strstr(buf, "\"version\": \"3.8\"") &&
              strstr(buf, "\"scope\": \"Decentralized\"");
     }
     storage_file_close(file);
@@ -53,7 +53,7 @@ static void hone_license_record_write(Storage* storage, const char* app_name) {
     int len = snprintf(
         buf,
         sizeof(buf),
-        "{\n  \"license\": \"UFL\",\n  \"version\": \"3.4\",\n  \"scope\": \"Decentralized\",\n"
+        "{\n  \"license\": \"UFL\",\n  \"version\": \"3.8\",\n  \"scope\": \"Decentralized\",\n"
         "  \"accepted_at\": \"%04u-%02u-%02uT%02u:%02u:%02u\",\n  \"binary\": \"%s\"\n}\n",
         (unsigned)dt.year,
         (unsigned)dt.month,

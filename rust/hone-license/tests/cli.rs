@@ -33,14 +33,14 @@ fn non_tty_without_env_exits_nonzero() {
     let o = run(&d, None, &["accept"]);
     assert_eq!(o.status.code(), Some(hone_license::EXIT_NOT_ACCEPTED));
     let err = String::from_utf8_lossy(&o.stderr);
-    assert!(err.contains("HONE_ACCEPT_LICENSE=UFL-3.4-D"), "{err}");
+    assert!(err.contains("HONE_ACCEPT_LICENSE=UFL-3.8-D"), "{err}");
     assert!(!d.join(hone_license::RECORD_FILE).exists());
 }
 
 #[test]
 fn env_accepts_then_record_alone_suffices() {
     let d = tmpdir("env");
-    let o = run(&d, Some("UFL-3.4-D"), &["accept"]);
+    let o = run(&d, Some("UFL-3.8-D"), &["accept"]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     assert!(d.join(hone_license::RECORD_FILE).exists());
     let o = run(&d, None, &["accept"]);
@@ -59,9 +59,9 @@ fn wrong_env_exits_nonzero() {
 #[test]
 fn flag_accepts_and_is_stripped() {
     let d = tmpdir("flag");
-    let o = run(&d, None, &["accept", "--accept-ufl", "3.4"]);
+    let o = run(&d, None, &["accept", "--accept-ufl", "3.8"]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     // The flag never reaches the command parser.
-    let o = run(&d, None, &["--accept-ufl=3.4", "statement"]);
-    assert!(String::from_utf8_lossy(&o.stdout).contains("UFL 3.4, Operational Scope: Decentralized"));
+    let o = run(&d, None, &["--accept-ufl=3.8", "statement"]);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("UFL 3.8, Operational Scope: Decentralized"));
 }

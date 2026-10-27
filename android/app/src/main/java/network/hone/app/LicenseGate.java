@@ -16,7 +16,7 @@ import java.util.Locale;
 import java.util.TimeZone;
 
 /**
- * UFL 3.4 Decentralized acceptance gate (UFL Section 9) for the Android app.
+ * UFL 3.8 Decentralized acceptance gate (UFL Section 9) for the Android app.
  *
  * Mirrors rust/hone-license: the app shows the terms in {@link LicenseActivity}
  * and does nothing else until the user taps "I accept". The record holds only
@@ -26,10 +26,10 @@ import java.util.TimeZone;
  */
 public final class LicenseGate {
 
-    public static final String VERSION = "3.4";
+    public static final String VERSION = "3.8";
     public static final String SCOPE = "Decentralized";
-    public static final String SPDX = "LicenseRef-UFL-3.4-D";
-    public static final String RULING = "UFL 3.4, Operational Scope: Decentralized";
+    public static final String SPDX = "LicenseRef-UFL-3.8-D";
+    public static final String RULING = "UFL 3.8, Operational Scope: Decentralized";
     static final String RECORD_FILE = "license-acceptance.json";
     static final String LICENSE_ASSET = "LICENSE.txt";
     static final String APP_NAME = "hone-android";
@@ -39,7 +39,7 @@ public final class LicenseGate {
      * checks that every line matches).
      */
     public static final String SUMMARY =
-            "HONE is licensed under the Usufruct License (UFL) 3.4, Operational Scope: Decentralized (LicenseRef-UFL-3.4-D).\n" +
+            "HONE is licensed under the Usufruct License (UFL) 3.8, Operational Scope: Decentralized (LicenseRef-UFL-3.8-D).\n" +
             "Full text: https://github.com/shindevlin/hone/blob/main/LICENSE\n" +
             "\n" +
             "Summary (the license text governs):\n" +
@@ -69,7 +69,7 @@ public final class LicenseGate {
 
     private LicenseGate() {}
 
-    /** True if this install has accepted UFL 3.4, Decentralized. */
+    /** True if this install has accepted UFL 3.8, Decentralized. */
     public static boolean isAccepted(Context ctx) {
         if (acceptedThisProcess) return true;
         File f = new File(ctx.getFilesDir(), RECORD_FILE);

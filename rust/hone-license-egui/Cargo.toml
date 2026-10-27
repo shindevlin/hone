@@ -3,8 +3,8 @@ name = "hone-license-egui"
 version = "0.1.0"
 edition = "2021"
 authors = ["Shin Devlin <shindevlin@proton.me>"]
-license = "LicenseRef-UFL-3.4-D"
-description = "First-run UFL 3.4 Decentralized license screen for HONE's egui apps"
+license = "LicenseRef-UFL-3.8-D"
+description = "First-run UFL 3.8 Decentralized license screen for HONE's egui apps"
 publish = false
 
 # Standalone like the GUI crates that use it: eframe needs a newer rustc than

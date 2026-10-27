@@ -1,6 +1,6 @@
-//! UFL 3.4 Decentralized acceptance gate (UFL Section 9).
+//! UFL 3.8 Decentralized acceptance gate (UFL Section 9).
 //!
-//! HONE is licensed under the Usufruct License (UFL) 3.4, Operational Scope:
+//! HONE is licensed under the Usufruct License (UFL) 3.8, Operational Scope:
 //! Decentralized. That scope's dispute process, liability limit, and own-risk
 //! terms take effect only through an affirmative acceptance step that the
 //! Software presents before first use, and the Software must not run until it
@@ -10,7 +10,7 @@
 //!
 //! Behavior:
 //! - `{data_dir}/license-acceptance.json` naming this version and scope: run.
-//! - `--accept-ufl 3.4` or `HONE_ACCEPT_LICENSE=UFL-3.4-D`: accept, record, run.
+//! - `--accept-ufl 3.8` or `HONE_ACCEPT_LICENSE=UFL-3.8-D`: accept, record, run.
 //!   Any other value of either is rejected.
 //! - Interactive terminal: show the terms, require the typed phrase
 //!   `I accept`. Anything else exits without starting.
@@ -32,21 +32,21 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// UFL version HONE is released under.
-pub const UFL_VERSION: &str = "3.4";
+pub const UFL_VERSION: &str = "3.8";
 /// Operational Scope HONE adopts.
 pub const SCOPE: &str = "Decentralized";
 /// SPDX identifier (UFL is not SPDX-registered, hence `LicenseRef-`).
-pub const SPDX: &str = "LicenseRef-UFL-3.4-D";
+pub const SPDX: &str = "LicenseRef-UFL-3.8-D";
 /// UFL Section 1C Ruling License statement for HONE releases.
-pub const RULING_LICENSE: &str = "UFL 3.4, Operational Scope: Decentralized";
+pub const RULING_LICENSE: &str = "UFL 3.8, Operational Scope: Decentralized";
 /// Environment variable for non-interactive acceptance.
 pub const ENV_VAR: &str = "HONE_ACCEPT_LICENSE";
 /// The only value of [`ENV_VAR`] that counts as acceptance.
-pub const ENV_VALUE: &str = "UFL-3.4-D";
+pub const ENV_VALUE: &str = "UFL-3.8-D";
 /// Command-line flag for non-interactive acceptance.
 pub const FLAG: &str = "--accept-ufl";
 /// The only value of [`FLAG`] that counts as acceptance.
-pub const FLAG_VALUE: &str = "3.4";
+pub const FLAG_VALUE: &str = "3.8";
 /// Phrase the user must type at the interactive prompt.
 pub const ACCEPT_PHRASE: &str = "I accept";
 /// Record file name inside the data directory.
@@ -76,9 +76,9 @@ pub enum Mode {
 pub enum Via {
     /// A matching record from an earlier acceptance.
     Record,
-    /// `HONE_ACCEPT_LICENSE=UFL-3.4-D`.
+    /// `HONE_ACCEPT_LICENSE=UFL-3.8-D`.
     Env,
-    /// `--accept-ufl 3.4`.
+    /// `--accept-ufl 3.8`.
     Flag,
     /// The user typed the acceptance phrase.
     Prompt,
@@ -111,9 +111,9 @@ pub enum GateError {
     Declined,
     /// No terminal to ask on, and no explicit acceptance given.
     NotAccepted { record: RecordState },
-    /// `HONE_ACCEPT_LICENSE` is set to something other than `UFL-3.4-D`.
+    /// `HONE_ACCEPT_LICENSE` is set to something other than `UFL-3.8-D`.
     InvalidEnv(String),
-    /// `--accept-ufl` was given without `3.4`.
+    /// `--accept-ufl` was given without `3.8`.
     InvalidFlag(String),
     Io(io::Error),
 }
@@ -179,7 +179,11 @@ Summary (the license text governs):
     frivolous or in bad faith.
   * Liability cap: each party's total liability to the other for all claims
     is limited, to the extent the law allows, to one US dollar in value,
-    paid in money or in HONE at the paying party's choice.
+    paid in money or in HONE at the paying party's choice. HONE is valued at
+    its 24-hour volume-weighted price on its busiest exchange, or at one US
+    dollar per HONE while no exchange lists it.
+  * No one consents to any court's jurisdiction by using HONE, and no use is
+    Paid Use (Sections 8 and 10 to 13 do not apply).
   * Forks and bypassers are at their own risk: running HONE with this step
     bypassed, removed, or forged breaches the license and makes that copy a
     modified version, and the Licensor then owes you nothing. A modified
@@ -542,7 +546,7 @@ mod tests {
     #[test]
     fn matching_record_runs_without_prompt() {
         let d = tmpdir("match");
-        write_raw(&d, "3.4", "Decentralized");
+        write_raw(&d, "3.8", "Decentralized");
         let (r, out) = gate(&d, Mode::Auto, &inputs(None, None, false), "");
         assert_eq!(r.unwrap().via, Via::Record);
         assert!(out.is_empty());
@@ -562,8 +566,8 @@ mod tests {
     #[test]
     fn refusal_message_names_variable_flag_and_terms() {
         let msg = GateError::NotAccepted { record: RecordState::Missing }.to_string();
-        assert!(msg.contains("HONE_ACCEPT_LICENSE=UFL-3.4-D"));
-        assert!(msg.contains("--accept-ufl 3.4"));
+        assert!(msg.contains("HONE_ACCEPT_LICENSE=UFL-3.8-D"));
+        assert!(msg.contains("--accept-ufl 3.8"));
         assert!(msg.contains("one US dollar"));
         assert!(msg.contains("ICC"));
     }
@@ -582,7 +586,7 @@ mod tests {
     #[test]
     fn wrong_scope_record_does_not_match() {
         let d = tmpdir("scope");
-        write_raw(&d, "3.4", "Unconditional");
+        write_raw(&d, "3.8", "Unconditional");
         assert!(matches!(read_record(&record_path(&d)), RecordState::Other { .. }));
     }
 
@@ -599,12 +603,12 @@ mod tests {
     #[test]
     fn env_accepts_and_records() {
         let d = tmpdir("env");
-        let (r, _) = gate(&d, Mode::Auto, &inputs(Some("UFL-3.4-D"), None, false), "");
+        let (r, _) = gate(&d, Mode::Auto, &inputs(Some("UFL-3.8-D"), None, false), "");
         let a = r.unwrap();
         assert_eq!(a.via, Via::Env);
         assert!(a.recorded);
         let text = fs::read_to_string(record_path(&d)).unwrap();
-        assert_eq!(json_str(&text, "version").as_deref(), Some("3.4"));
+        assert_eq!(json_str(&text, "version").as_deref(), Some("3.8"));
         assert_eq!(json_str(&text, "scope").as_deref(), Some("Decentralized"));
         assert_eq!(json_str(&text, "accepted_at").as_deref(), Some("2026-10-05T12:00:00Z"));
         assert_eq!(json_str(&text, "binary").as_deref(), Some("hone-test"));
@@ -614,7 +618,7 @@ mod tests {
 
     #[test]
     fn wrong_env_rejected_even_on_tty() {
-        for bad in ["1", "yes", "true", "UFL-3.3-D", "ufl-3.4-d", "UFL-3.4"] {
+        for bad in ["1", "yes", "true", "UFL-3.4-D", "ufl-3.8-d", "UFL-3.8"] {
             let d = tmpdir("badenv");
             let (r, _) = gate(&d, Mode::Auto, &inputs(Some(bad), None, true), "I accept\n");
             assert!(matches!(r, Err(GateError::InvalidEnv(_))), "{bad} must be rejected");
@@ -632,7 +636,7 @@ mod tests {
     #[test]
     fn flag_accepts_and_wrong_flag_rejected() {
         let d = tmpdir("flag");
-        let (r, _) = gate(&d, Mode::Headless, &inputs(None, Some("3.4"), false), "");
+        let (r, _) = gate(&d, Mode::Headless, &inputs(None, Some("3.8"), false), "");
         assert_eq!(r.unwrap().via, Via::Flag);
         let d = tmpdir("badflag");
         let (r, _) = gate(&d, Mode::Headless, &inputs(None, Some("3.3"), false), "");
@@ -656,7 +660,7 @@ mod tests {
             assert_eq!(r.is_ok(), ok, "typed {typed:?}");
             assert_eq!(record_path(&d).exists(), ok);
             assert!(out.contains("one US dollar") && out.contains("ICC") && out.contains("own risk"));
-            assert!(out.contains("UFL) 3.4, Operational Scope: Decentralized"));
+            assert!(out.contains("UFL) 3.8, Operational Scope: Decentralized"));
         }
     }
 
@@ -665,7 +669,7 @@ mod tests {
         let d = tmpdir("show");
         let (r, out) = gate(&d, Mode::Auto, &inputs(None, None, true), "show\nI accept\n");
         assert!(r.is_ok());
-        assert!(out.contains("The Usufruct License (UFL) — Version 3.4"));
+        assert!(out.contains("The Usufruct License (UFL) — Version 3.8"));
     }
 
     #[test]
@@ -690,7 +694,7 @@ mod tests {
         let blocker = d.join("file");
         fs::write(&blocker, "x").unwrap();
         // data_dir is a regular file, so the record cannot be created.
-        let (r, out) = gate(&blocker, Mode::Auto, &inputs(Some("UFL-3.4-D"), None, false), "");
+        let (r, out) = gate(&blocker, Mode::Auto, &inputs(Some("UFL-3.8-D"), None, false), "");
         let a = r.unwrap();
         assert!(!a.recorded);
         assert!(out.contains("asked again"));
@@ -699,14 +703,14 @@ mod tests {
     #[test]
     fn flag_parsing_and_stripping() {
         let a = |v: &[&str]| v.iter().map(OsString::from).collect::<Vec<_>>();
-        assert_eq!(flag_value(a(&["bin", "--accept-ufl", "3.4", "run"])).as_deref(), Some("3.4"));
-        assert_eq!(flag_value(a(&["bin", "--accept-ufl=3.4"])).as_deref(), Some("3.4"));
+        assert_eq!(flag_value(a(&["bin", "--accept-ufl", "3.8", "run"])).as_deref(), Some("3.8"));
+        assert_eq!(flag_value(a(&["bin", "--accept-ufl=3.8"])).as_deref(), Some("3.8"));
         assert_eq!(flag_value(a(&["bin", "--accept-ufl"])).as_deref(), Some(""));
         assert_eq!(flag_value(a(&["bin", "status"])), None);
         // argv[0] is never read as the flag.
         assert_eq!(flag_value(a(&["--accept-ufl", "x"])), None);
-        assert_eq!(strip_flag(a(&["bin", "--accept-ufl", "3.4", "run", "-v"])), a(&["bin", "run", "-v"]));
-        assert_eq!(strip_flag(a(&["bin", "run", "--accept-ufl=3.4"])), a(&["bin", "run"]));
+        assert_eq!(strip_flag(a(&["bin", "--accept-ufl", "3.8", "run", "-v"])), a(&["bin", "run", "-v"]));
+        assert_eq!(strip_flag(a(&["bin", "run", "--accept-ufl=3.8"])), a(&["bin", "run"]));
     }
 
     #[test]
@@ -718,9 +722,9 @@ mod tests {
 
     #[test]
     fn embedded_license_is_ufl_3_4_decentralized() {
-        assert!(LICENSE_TEXT.starts_with("The Usufruct License (UFL) — Version 3.4"));
+        assert!(LICENSE_TEXT.starts_with("The Usufruct License (UFL) — Version 3.8"));
         assert!(LICENSE_TEXT.contains("Operational Scope: Decentralized"));
         assert!(LICENSE_TEXT.contains("Native\ntoken of the Software: HONE") || LICENSE_TEXT.contains("token of the Software: HONE"));
-        assert!(LICENSE_TEXT.contains("LicenseRef-UFL-3.4"));
+        assert!(LICENSE_TEXT.contains("LicenseRef-UFL-3.8"));
     }
 }

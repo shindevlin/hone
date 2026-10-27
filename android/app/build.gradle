@@ -37,7 +37,7 @@ android {
     }
 }
 
-// UFL 3.4 Decentralized: ship the repo's LICENSE in the APK so the first-run
+// UFL 3.8 Decentralized: ship the repo's LICENSE in the APK so the first-run
 // license screen (LicenseActivity) can show the full text offline.
 def licenseAssetsDir = layout.buildDirectory.dir('generated/license-assets').get().asFile
 task copyLicenseAsset(type: Copy) {

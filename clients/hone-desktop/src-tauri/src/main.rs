@@ -9,7 +9,7 @@ use tauri::Manager;
 mod hardware;
 mod installer;
 
-// ── UFL 3.4 Decentralized acceptance gate (UFL Section 9) ─────────────────
+// ── UFL 3.8 Decentralized acceptance gate (UFL Section 9) ─────────────────
 // Nothing that installs or runs HONE works until the user has accepted the
 // license on the first-run screen. The record is the same file the Rust node
 // reads (~/.hone/license-acceptance.json, or $HONE_DATA_DIR).

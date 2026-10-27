@@ -8,7 +8,7 @@ fn main() {
         ..Default::default()
     };
 
-    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): a first-run
+    // UFL 3.8 Decentralized acceptance gate (UFL Section 9): a first-run
     // license screen; the app is not built until the license is accepted.
     // See docs/LICENSE_ACCEPTANCE.md.
     hone_license_egui::run_native("HONE Wallet Create", options, |ctx| {

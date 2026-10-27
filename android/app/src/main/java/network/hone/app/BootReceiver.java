@@ -19,7 +19,7 @@ public class BootReceiver extends BroadcastReceiver {
             return;
         }
 
-        // UFL 3.4 Decentralized acceptance gate: no services before acceptance.
+        // UFL 3.8 Decentralized acceptance gate: no services before acceptance.
         if (!LicenseGate.isAccepted(context)) {
             Log.i(TAG, "Startup trigger: " + action + " — license not accepted; not starting HONE services");
             return;

@@ -1,10 +1,10 @@
-//! First-run UFL 3.4 Decentralized license screen for HONE's egui apps.
+//! First-run UFL 3.8 Decentralized license screen for HONE's egui apps.
 //!
 //! GUI apps are usually started from a launcher, with no terminal to prompt
 //! on, so they use this screen instead of the terminal prompt in
 //! `hone-license`. The rules are the same:
 //!
-//! - A matching record, `--accept-ufl 3.4`, or `HONE_ACCEPT_LICENSE=UFL-3.4-D`:
+//! - A matching record, `--accept-ufl 3.8`, or `HONE_ACCEPT_LICENSE=UFL-3.8-D`:
 //!   the app starts directly.
 //! - Otherwise the window shows the license summary (version, scope, ICC
 //!   arbitration, the US$1 limit, own-risk terms) with the full text one

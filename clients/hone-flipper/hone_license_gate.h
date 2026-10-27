@@ -1,5 +1,5 @@
 /*
- * UFL 3.4 Decentralized acceptance gate (UFL Section 9) for HONE Flipper apps.
+ * UFL 3.8 Decentralized acceptance gate (UFL Section 9) for HONE Flipper apps.
  *
  * Identical copies live in every HONE Flipper app directory
  * (clients/hone-flipper, flipper/hone_sensor, flipper/hone_relay,
@@ -10,7 +10,7 @@
 #include <stdbool.h>
 
 /*
- * Call first in the app's entry point. Returns true if HONE's license (UFL 3.4,
+ * Call first in the app's entry point. Returns true if HONE's license (UFL 3.8,
  * Operational Scope: Decentralized) was accepted, now or earlier, on this
  * Flipper. Returns false if the user declined: the app must exit without doing
  * anything else.

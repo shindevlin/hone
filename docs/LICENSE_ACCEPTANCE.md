@@ -1,7 +1,7 @@
 # License acceptance gate
 
-HONE is licensed under the Usufruct License (UFL) 3.4, Operational Scope:
-Decentralized (`LicenseRef-UFL-3.4-D`). The full text is in [`LICENSE`](../LICENSE);
+HONE is licensed under the Usufruct License (UFL) 3.8, Operational Scope:
+Decentralized (`LicenseRef-UFL-3.8-D`). The full text is in [`LICENSE`](../LICENSE);
 third-party code that keeps its own license is listed in [`NOTICE`](../NOTICE).
 
 Under the Decentralized scope, use is free and nothing is paid. The scope's
@@ -17,10 +17,10 @@ binary calls it before doing any work.
 
 ## What happens at startup
 
-1. **Record.** If `{data_dir}/license-acceptance.json` names UFL 3.4,
+1. **Record.** If `{data_dir}/license-acceptance.json` names UFL 3.8,
    Decentralized, the binary starts.
-2. **Explicit acceptance.** Otherwise, if `--accept-ufl 3.4` is on the command
-   line or `HONE_ACCEPT_LICENSE=UFL-3.4-D` is set, that is acceptance: the
+2. **Explicit acceptance.** Otherwise, if `--accept-ufl 3.8` is on the command
+   line or `HONE_ACCEPT_LICENSE=UFL-3.8-D` is set, that is acceptance: the
    record is written and the binary starts. Any other value of either is
    refused and the binary exits; a typo never falls through to "run anyway".
    An empty variable counts as unset.
@@ -45,10 +45,10 @@ license**. Read [`LICENSE`](../LICENSE) first.
 
 | Where | How |
 |---|---|
-| Shell | `HONE_ACCEPT_LICENSE=UFL-3.4-D hone-node` or `hone-node --accept-ufl 3.4` |
-| systemd | Run `hone-license accept` once as the service user with the same `HONE_DATA_DIR`, or uncomment `Environment="HONE_ACCEPT_LICENSE=UFL-3.4-D"` in the unit. Units carry `RestartPreventExitStatus=3` so an unaccepted service does not restart-loop. |
-| Docker Compose | Put `HONE_ACCEPT_LICENSE=UFL-3.4-D` in your shell or `.env`. Compose passes it through; no value is set in the compose files. |
-| Docker | `docker run -e HONE_ACCEPT_LICENSE=UFL-3.4-D ...` The image does not bake acceptance in. |
+| Shell | `HONE_ACCEPT_LICENSE=UFL-3.8-D hone-node` or `hone-node --accept-ufl 3.8` |
+| systemd | Run `hone-license accept` once as the service user with the same `HONE_DATA_DIR`, or uncomment `Environment="HONE_ACCEPT_LICENSE=UFL-3.8-D"` in the unit. Units carry `RestartPreventExitStatus=3` so an unaccepted service does not restart-loop. |
+| Docker Compose | Put `HONE_ACCEPT_LICENSE=UFL-3.8-D` in your shell or `.env`. Compose passes it through; no value is set in the compose files. |
+| Docker | `docker run -e HONE_ACCEPT_LICENSE=UFL-3.8-D ...` The image does not bake acceptance in. |
 
 After one successful acceptance the record lets later runs start without the
 variable, as long as they use the same data directory.
@@ -72,7 +72,7 @@ same rule):
 ```json
 {
   "license": "UFL",
-  "version": "3.4",
+  "version": "3.8",
   "scope": "Decentralized",
   "accepted_at": "2026-10-05T23:59:59Z",
   "binary": "hone-node"
@@ -158,11 +158,11 @@ stdin is a protocol pipe.
 Each HONE Release states its Ruling License where users get it:
 
 ```
-UFL 3.4, Operational Scope: Decentralized
+UFL 3.8, Operational Scope: Decentralized
 ```
 
 `.github/workflows/release-node.yml` writes this line (with
-`LicenseRef-UFL-3.4-D`) into every release body and attaches `LICENSE` and
+`LicenseRef-UFL-3.8-D`) into every release body and attaches `LICENSE` and
 `NOTICE`. The UFL repository's generator prints the line:
 `sh generate.sh -r -s decentralized -k HONE`. When HONE moves to a later UFL
 version or scope, update `LICENSE`, the constants in `rust/hone-license`, and

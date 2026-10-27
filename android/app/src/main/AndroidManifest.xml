@@ -40,7 +40,7 @@
 
         </activity>
 
-        <!-- First-run license screen (UFL 3.4 Decentralized, Section 9) -->
+        <!-- First-run license screen (UFL 3.8 Decentralized, Section 9) -->
         <activity
             android:name=".LicenseActivity"
             android:label="HONE license"

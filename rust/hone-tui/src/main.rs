@@ -15,7 +15,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
 fn main() -> Result<()> {
-    // UFL 3.4 Decentralized acceptance gate (UFL Section 9): nothing runs
+    // UFL 3.8 Decentralized acceptance gate (UFL Section 9): nothing runs
     // until the license is accepted. See docs/LICENSE_ACCEPTANCE.md.
     hone_license::require_acceptance_or_exit(&hone_license::default_data_dir());
 

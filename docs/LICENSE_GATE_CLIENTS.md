@@ -1,12 +1,12 @@
 # License gate across clients
 
-The Rust binaries enforce the UFL 3.4 Decentralized acceptance step through
+The Rust binaries enforce the UFL 3.8 Decentralized acceptance step through
 `rust/hone-license` (see [LICENSE_ACCEPTANCE.md](LICENSE_ACCEPTANCE.md)). Clients
 that do not run a Rust `main()` have their own first-run step, built to the
 same rules:
 
 - Shown before first use, before any node, miner, or wallet code runs.
-- Names the license: UFL 3.4, Operational Scope: Decentralized.
+- Names the license: UFL 3.8, Operational Scope: Decentralized.
 - Shows the dispute process (exclusive online ICC arbitration seated in
   California, individual claims only), the US$1-in-value mutual liability
   limit (money or HONE at the payer's choice), and the own-risk terms for
@@ -25,12 +25,12 @@ drifts, and checks that the records they write are accepted by the Rust gate.
 
 | Surface | Step | Record | Verified |
 |---|---|---|---|
-| Rust CLIs, daemons, bots | terminal prompt, or `--accept-ufl 3.4` / `HONE_ACCEPT_LICENSE=UFL-3.4-D` | `$HONE_DATA_DIR` or `~/.hone` | unit + process tests; live `hone-node` |
+| Rust CLIs, daemons, bots | terminal prompt, or `--accept-ufl 3.8` / `HONE_ACCEPT_LICENSE=UFL-3.8-D` | `$HONE_DATA_DIR` or `~/.hone` | unit + process tests; live `hone-node` |
 | `hone-gui`, `hone-wallet-create` (egui) | first-run window (`rust/hone-license-egui`); the real app is built only after "I accept" | same | rendered under Xvfb; accept and decline clicked through |
 | Desktop (`clients/hone-desktop`, Tauri) | first-run screen in `index.html`; `install_hone` and `start_node` refuse until accepted | same (`~/.hone`) | `cargo check` |
 | Android (`android/`) | `LicenseActivity` before `MainActivity`; `BootReceiver` starts nothing and services stop themselves until accepted | app `filesDir` | `assembleDebug`; APK carries `assets/LICENSE.txt` |
 | Flipper (`clients/hone-flipper`, `flipper/hone_sensor`, `hone_relay`, `hone_ble_relay`) | four dialog pages ending Decline/Accept | `/ext/apps_data/hone/license-acceptance.json`, shared by all HONE apps | `ufbt` build of all four |
-| Installers (`website/install.sh`, `scripts/install.sh`) | summary, then typed "I accept" from the terminal, or `HONE_ACCEPT_LICENSE=UFL-3.4-D`; nothing is installed otherwise | `~/.hone`, or `/var/lib/hone` and `/var/lib/hone-testnet` | shell tests of each path |
+| Installers (`website/install.sh`, `scripts/install.sh`) | summary, then typed "I accept" from the terminal, or `HONE_ACCEPT_LICENSE=UFL-3.8-D`; nothing is installed otherwise | `~/.hone`, or `/var/lib/hone` and `/var/lib/hone-testnet` | shell tests of each path |
 
 Notes:
 

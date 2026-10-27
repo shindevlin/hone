@@ -37,9 +37,9 @@ fn records_from_other_surfaces_are_accepted() {
     // Shapes written by the installers, the Android app (JSONObject.toString(2)),
     // and the Flipper apps (device-clock time, no Z).
     for body in [
-        "{\n  \"license\": \"UFL\",\n  \"version\": \"3.4\",\n  \"scope\": \"Decentralized\",\n  \"accepted_at\": \"2026-10-06T14:00:00Z\",\n  \"binary\": \"hone-installer\"\n}\n",
-        "{\n  \"license\": \"UFL\",\n  \"version\": \"3.4\",\n  \"scope\": \"Decentralized\",\n  \"accepted_at\": \"2026-10-06T14:00:00Z\",\n  \"binary\": \"hone-android\"\n}\n",
-        "{\n  \"license\": \"UFL\",\n  \"version\": \"3.4\",\n  \"scope\": \"Decentralized\",\n  \"accepted_at\": \"2026-10-06T08:00:00\",\n  \"binary\": \"hone_sensor\"\n}\n",
+        "{\n  \"license\": \"UFL\",\n  \"version\": \"3.8\",\n  \"scope\": \"Decentralized\",\n  \"accepted_at\": \"2026-10-06T14:00:00Z\",\n  \"binary\": \"hone-installer\"\n}\n",
+        "{\n  \"license\": \"UFL\",\n  \"version\": \"3.8\",\n  \"scope\": \"Decentralized\",\n  \"accepted_at\": \"2026-10-06T14:00:00Z\",\n  \"binary\": \"hone-android\"\n}\n",
+        "{\n  \"license\": \"UFL\",\n  \"version\": \"3.8\",\n  \"scope\": \"Decentralized\",\n  \"accepted_at\": \"2026-10-06T08:00:00\",\n  \"binary\": \"hone_sensor\"\n}\n",
     ] {
         std::fs::write(&path, body).unwrap();
         assert_eq!(hone_license::read_record(&path), hone_license::RecordState::Matching, "{body}");

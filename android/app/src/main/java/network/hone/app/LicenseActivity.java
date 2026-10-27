@@ -17,7 +17,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import java.io.IOException;
 
 /**
- * First-run license screen (UFL 3.4 Decentralized, UFL Section 9).
+ * First-run license screen (UFL 3.8 Decentralized, UFL Section 9).
  *
  * MainActivity sends the user here, with its original intent, until the license
  * is accepted. Nothing else in the app runs first. "I accept" records acceptance

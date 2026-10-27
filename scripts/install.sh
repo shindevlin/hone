@@ -22,14 +22,14 @@ RELEASE_BASE="https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}
 SCRIPTS_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/stable/scripts"
 RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/stable"
 
-# ── License: UFL 3.4, Operational Scope: Decentralized ─────────────────────
+# ── License: UFL 3.8, Operational Scope: Decentralized ─────────────────────
 # HONE does not run until its license is accepted (UFL Section 9), so ask
-# before installing anything. Typing "I accept" (or HONE_ACCEPT_LICENSE=UFL-3.4-D
+# before installing anything. Typing "I accept" (or HONE_ACCEPT_LICENSE=UFL-3.8-D
 # for unattended installs) is the act of acceptance. Declining installs nothing.
 # Keep the summary in step with hone_license::summary() (a Rust test checks it).
 hone_license_summary() {
 cat <<'HONE_LICENSE_SUMMARY'
-HONE is licensed under the Usufruct License (UFL) 3.4, Operational Scope: Decentralized (LicenseRef-UFL-3.4-D).
+HONE is licensed under the Usufruct License (UFL) 3.8, Operational Scope: Decentralized (LicenseRef-UFL-3.8-D).
 Full text: https://github.com/shindevlin/hone/blob/main/LICENSE
 
 Summary (the license text governs):
@@ -57,14 +57,14 @@ HONE_LICENSE_SUMMARY
 }
 hone_license_accepted_in() { # DATA_DIR
   grep -q '"license": "UFL"' "$1/license-acceptance.json" 2>/dev/null &&
-  grep -q '"version": "3.4"' "$1/license-acceptance.json" 2>/dev/null &&
+  grep -q '"version": "3.8"' "$1/license-acceptance.json" 2>/dev/null &&
   grep -q '"scope": "Decentralized"' "$1/license-acceptance.json" 2>/dev/null
 }
 hone_license_record() { # DATA_DIR — license, version, scope, UTC time, installer name; local only
   mkdir -p "$1" && cat > "$1/license-acceptance.json" <<HONE_LICENSE_RECORD
 {
   "license": "UFL",
-  "version": "3.4",
+  "version": "3.8",
   "scope": "Decentralized",
   "accepted_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "binary": "hone-installer"
@@ -74,11 +74,11 @@ HONE_LICENSE_RECORD
 hone_license_gate() { # DATA_DIR — returns 0 if accepted (now or before)
   if hone_license_accepted_in "$1"; then return 0; fi
   if [ -n "${HONE_ACCEPT_LICENSE:-}" ]; then
-    if [ "$HONE_ACCEPT_LICENSE" = "UFL-3.4-D" ]; then
-      echo "Accepted UFL 3.4, Operational Scope: Decentralized via HONE_ACCEPT_LICENSE=UFL-3.4-D."
+    if [ "$HONE_ACCEPT_LICENSE" = "UFL-3.8-D" ]; then
+      echo "Accepted UFL 3.8, Operational Scope: Decentralized via HONE_ACCEPT_LICENSE=UFL-3.8-D."
       return 0
     fi
-    echo "HONE_ACCEPT_LICENSE is set to \"$HONE_ACCEPT_LICENSE\". The only value that accepts HONE's license is UFL-3.4-D. Nothing was installed." >&2
+    echo "HONE_ACCEPT_LICENSE is set to \"$HONE_ACCEPT_LICENSE\". The only value that accepts HONE's license is UFL-3.8-D. Nothing was installed." >&2
     return 1
   fi
   echo ""
@@ -92,7 +92,7 @@ hone_license_gate() { # DATA_DIR — returns 0 if accepted (now or before)
     return 1
   fi
   echo "No terminal to ask on. To accept the license above and install, run again with"
-  echo "HONE_ACCEPT_LICENSE=UFL-3.4-D set. Setting it is the act of acceptance. Nothing was installed."
+  echo "HONE_ACCEPT_LICENSE=UFL-3.8-D set. Setting it is the act of acceptance. Nothing was installed."
   return 1
 }
 if ! hone_license_gate /var/lib/hone; then
