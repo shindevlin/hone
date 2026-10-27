@@ -1,6 +1,6 @@
 # HONE Desktop
 
-One-click mining for [Bitcoin Proof of Compute](https://hone.net). Native desktop app built with Tauri (Rust + HTML).
+One-click mining for [HONE — Proof of Useful Compute](https://hone.net). Native desktop app built with Tauri (Rust + HTML).
 
 ## What it does
 

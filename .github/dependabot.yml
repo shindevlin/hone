@@ -1,0 +1,32 @@
+# Dependabot config for HONE: security updates only (version-update PRs off).
+# Lists the real Cargo workspace roots. Auto-detection treated workspace members
+# (rust/hone-node, rust/hone-contract-runtime, rust/hone-market) as projects,
+# failed to resolve them, and the grouped job for every directory failed.
+# One entry per lockfile, so one broken directory cannot block the others.
+version: 2
+updates:
+- {package-ecosystem: cargo, directory: "/rust", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/betchu-bot", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/chain-core", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-android", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-api-catalog", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-ble-tracker", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-bot", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-cli", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-contract-sdk", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-gnss-capture", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-gui", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-hivefs-adapter", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-orchestrator", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-sdk", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-tui", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/rust/hone-wallet-create", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/android/rust/hone-miner", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/clients/hone-desktop/src-tauri", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/ludicrous", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: cargo, directory: "/ludicrous/rio-window", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: npm, directory: "/", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: npm, directory: "/bots/honebot", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: npm, directory: "/bots/honewalletbot", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: npm, directory: "/clients/hone-android", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
+- {package-ecosystem: pip, directory: "/clients/hone-mcp", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}

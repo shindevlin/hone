@@ -45,7 +45,7 @@
     ],
     "category": "Utility",
     "shortDescription": "Mine HONE with one click",
-    "longDescription": "HONE Desktop runs a Bitcoin Proof of Compute node on your computer. Mining means useful AI inference — every token earned by real compute. No terminal, no setup, just click and mine."
+    "longDescription": "HONE Desktop runs a HONE node on your computer. Mining means useful AI inference — every token earned by real compute. No terminal, no setup, just click and mine."
   },
   "plugins": {
     "shell": {

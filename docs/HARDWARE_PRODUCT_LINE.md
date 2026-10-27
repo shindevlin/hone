@@ -1,5 +1,5 @@
 # HONE Hardware Product Line
-**Bitcoin Proof of Compute — Physical Network Nodes**
+**HONE — Physical Network Nodes**
 *Shin Devlin — April 2026*
 
 ---

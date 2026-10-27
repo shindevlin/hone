@@ -3,7 +3,7 @@
 ## General
 
 ### What is HONE?
-Bitcoin Proof of Compute — a sovereign blockchain where miners earn tokens by providing useful AI inference instead of solving abstract hash puzzles.
+HONE (Proof of Useful Compute) — a sovereign blockchain where miners earn tokens by providing useful AI inference instead of solving abstract hash puzzles.
 
 ### Is it a Bitcoin fork?
 No. HONE is its own blockchain with its own genesis block, P2P network, consensus mechanism, and token. It's inspired by Bitcoin's principles but built from scratch.

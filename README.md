@@ -1,8 +1,8 @@
-# Bitcoin Proof of Compute (HONE)
+# HONE (Proof of Useful Compute)
 
 **Mine by doing useful work.** GPU, Raspberry Pi, phone, spare drive, or AI agent. Every token earned by a machine doing something real.
 
-> **v0.4.0 — Testnet.** The chain is live and earning real rewards on testnet. Protocol hardening is in progress before mainnet (v1.0.0). See the [Roadmap](docs/ROADMAP.md) for what's being built and what's open.
+> **node v2.0.0 — live testnet.** The chain is live and earning real rewards on testnet. Protocol hardening is in progress before mainnet (v1.0.0). See the [Roadmap](docs/ROADMAP.md) for what's being built and what's open.
 
 ---
 
@@ -258,7 +258,7 @@ See [AGENTS.md](AGENTS.md) for the agent onboarding guide, repo map, and contrib
 Agent onboarding prompt:
 
 ```
-You are working on HONE (Bitcoin Proof of Compute). Read AGENTS.md,
+You are working on HONE (Proof of Useful Compute). Read AGENTS.md,
 CLAUDE.md, and README.md first. Use the code-review-graph MCP tools
 before Grep or file scanning. The canonical chain is rust/hone-node
 (port 4242). Do not reference or modify the Node.js src/ directory.
@@ -292,4 +292,6 @@ HONE nodes are built for non-technical operators: every failure path recovers au
 
 ## License
 
-MIT
+HONE is released under [The Usufruct License (UFL) 3.8](LICENSE), Operational Scope: **Decentralized** (`LicenseRef-UFL-3.8-D`). Native token: HONE.
+
+Release statement: UFL 3.8, Operational Scope: Decentralized (LicenseRef-UFL-3.8-D)

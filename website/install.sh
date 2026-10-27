@@ -25,7 +25,7 @@ cat <<'BANNER'
   ██████╔╝   ██║   ╚██████╗██║     ╚██████╗
   ╚═════╝    ╚═╝    ╚═════╝╚═╝      ╚═════╝
 
-  Bitcoin Proof of Compute — Free to run, free forever.
+  HONE — Free to run, free forever.
 
 BANNER
 

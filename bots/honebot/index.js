@@ -113,7 +113,7 @@ async function showWelcome(chatId) {
   clearState(chatId);
   setState(chatId, 'WELCOME');
   await bot.sendMessage(chatId,
-    '🟠 *Welcome to HONE!*\nBitcoin Proof of Compute — every token earned.\n\nDo you already have a HONE wallet?',
+    '🟠 *Welcome to HONE!*\nProof of Useful Compute — every token earned.\n\nDo you already have a HONE wallet?',
     { parse_mode: 'Markdown', ...kb([
       [
         { text: 'Yes, I have one', callback_data: 'HAS_WALLET' },

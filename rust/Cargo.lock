@@ -2653,7 +2653,7 @@ dependencies = [
 
 [[package]]
 name = "hone-market"
-version = "1.2.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2680,7 +2680,7 @@ dependencies = [
 
 [[package]]
 name = "hone-node"
-version = "1.2.2"
+version = "2.0.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2735,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "hone-p2p"
-version = "1.2.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "hone-types"
-version = "1.2.2"
+version = "2.0.0"
 dependencies = [
  "borsh",
  "hex",

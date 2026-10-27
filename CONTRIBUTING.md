@@ -1,6 +1,6 @@
 # Contributing to HONE
 
-Bitcoin Proof of Compute — every token earned, every machine welcome.
+Proof of Useful Compute — every token earned, every machine welcome.
 
 ## Quick start
 

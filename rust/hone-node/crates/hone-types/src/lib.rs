@@ -2,6 +2,7 @@ pub mod account;
 pub mod block;
 pub mod emission;
 pub mod entry;
+pub mod capabilities;
 
 pub use account::*;
 pub use block::*;
@@ -68,3 +69,20 @@ pub const LIVENESS_DECAY_DELAY_EPOCHS: u64 = 2 * 1_051_920;
 /// Half-life in epochs.  Tokens halve every 2 years once decay starts.
 /// Applied at each finalization boundary (every 100 epochs).
 pub const LIVENESS_HALF_LIFE_EPOCHS: u64 = 2 * 1_051_920;
+
+
+// â”€â”€ Identity NFT (names as transferable assets) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/// Identity-NFT entries (IdentityNft*) are rejected before this epoch. Consensus-
+/// critical: every node MUST use this exact value and be upgraded before it.
+/// PLACEHOLDER â€” confirm against the upgrade rollout before activation.
+pub const IDENTITY_NFT_ACTIVATION_EPOCH: u64 = 400_000;
+
+/// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
+/// PLACEHOLDER â€” confirm the exact three founder accounts.
+pub const IDENTITY_FOUNDER_ACCOUNTS: &[&str] = &["shindevlin", "josh", "natoshisakamoto"];
+
+/// Distinct founder signatures required to lift a permalock.
+pub const IDENTITY_FOUNDER_THRESHOLD: usize = 2;
+
+/// Registrations after which free open-mint ends and new names must go to auction.
+pub const IDENTITY_OPEN_PHASE_LIMIT: u64 = 1_000;

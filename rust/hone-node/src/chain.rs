@@ -3631,6 +3631,73 @@ impl Chain {
                 self.ensure_account(account, *epoch)?;
                 crate::amber_pill::apply_mint(self, account, pill_id, *epoch)?;
             }
+            // â”€â”€ Identity NFTs (names as transferable assets) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            LedgerEntry::IdentityNftMint { name, to, epoch, signed_by, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                self.ensure_account(signed_by, *epoch)?;
+                self.ensure_account(to, *epoch)?;
+                crate::identity_nft::apply_mint(self, name, to, signed_by, *epoch)?;
+            }
+            LedgerEntry::IdentityNftTransfer { name, from, to, epoch, .. } => {
+                self.touch_alive(from, *epoch);
+                self.ensure_account(from, *epoch)?;
+                self.ensure_account(to, *epoch)?;
+                crate::identity_nft::apply_transfer(self, name, from, to, *epoch)?;
+            }
+            LedgerEntry::IdentityNftAccept { name, to, epoch, .. } => {
+                self.touch_alive(to, *epoch);
+                self.ensure_account(to, *epoch)?;
+                crate::identity_nft::apply_accept(self, name, to, *epoch)?;
+            }
+            LedgerEntry::IdentityNftReject { name, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_reject(self, name, signed_by)?;
+            }
+            LedgerEntry::IdentityNftSetRecovery { name, signed_by, guardians, threshold, destination, founder_backstop, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                self.ensure_account(destination, *epoch)?;
+                crate::identity_nft::apply_set_recovery(self, name, signed_by, guardians.clone(), *threshold, destination, *founder_backstop)?;
+            }
+            LedgerEntry::IdentityNftLock { name, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_lock(self, name, signed_by)?;
+            }
+            LedgerEntry::IdentityNftUnlock { name, seq, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_unlock(self, name, *seq)?;
+            }
+            LedgerEntry::IdentityNftRecover { name, seq, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_recover(self, name, *seq)?;
+            }
+            LedgerEntry::IdentityNftSetBackstop { name, enabled, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::identity_nft::apply_set_backstop(self, name, signed_by, *enabled)?;
+            }
+            LedgerEntry::IdentityNftSetPrimary { account, name, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::identity_nft::apply_set_primary(self, account, name)?;
+            }
+            // â”€â”€ Soulbound credential tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            LedgerEntry::SoulboundIssue { token_id, name, class, wallet_bound, data, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                self.ensure_account(signed_by, *epoch)?;
+                crate::soulbound::apply_issue(self, token_id, name, signed_by, class, *wallet_bound, data, *epoch)?;
+            }
+            LedgerEntry::SoulboundAccept { token_id, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::soulbound::apply_accept(self, token_id, signed_by)?;
+            }
+            LedgerEntry::SoulboundReject { token_id, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::soulbound::apply_reject(self, token_id, signed_by)?;
+            }
+            LedgerEntry::SoulboundRevoke { token_id, signed_by, epoch, .. } => {
+                self.touch_alive(signed_by, *epoch);
+                crate::soulbound::apply_revoke(self, token_id, signed_by)?;
+            }
+
 
             // ── Phone storage ─────────────────────────────────────────────────
             LedgerEntry::PhoneStorageProof { account, device_id, proof_hash, bytes_proven, epoch, .. } => {

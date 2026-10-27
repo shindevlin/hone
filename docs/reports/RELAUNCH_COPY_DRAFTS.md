@@ -53,7 +53,7 @@ The README should explain the relaunch in plain language:
 
 ### Suggested replacement for the top-level description
 
-> Bitcoin Proof of Compute is a sovereign blockchain for real work. HONE relaunched from a clean genesis after fixing its replay and issuance accounting. The new chain starts from zero balances, unearned value remains retired on the old ledger, and the chain now begins at a verifiable epoch zero.
+> HONE is a sovereign blockchain for real work. HONE relaunched from a clean genesis after fixing its replay and issuance accounting. The new chain starts from zero balances, unearned value remains retired on the old ledger, and the chain now begins at a verifiable epoch zero.
 
 ### Suggested replacement for the “How it works” bullets
 
@@ -71,7 +71,7 @@ The public website should stop sounding like a pre-launch countdown and instead 
 
 Headline:
 
-> Bitcoin Proof of Compute
+> Proof of Useful Compute
 
 Subheadline:
 

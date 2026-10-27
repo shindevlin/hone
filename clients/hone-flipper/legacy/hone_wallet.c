@@ -1588,7 +1588,7 @@ static void hone_menu_callback(void* context, uint32_t index) {
         popup_set_header(app->popup, "HONE v0.2.0", 64, 10, AlignCenter, AlignTop);
         popup_set_text(
             app->popup,
-            "Bitcoin Proof of Compute\nHardware Wallet + Sensors\n\nhonemesh.net",
+            "Proof of Useful Compute\nHardware Wallet + Sensors\n\nhonemesh.net",
             64, 30, AlignCenter, AlignTop);
         popup_disable_timeout(app->popup);
         view_dispatcher_switch_to_view(app->view_dispatcher, HONEViewPopup);

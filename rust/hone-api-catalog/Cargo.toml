@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["HONE contributors"]
 description = "HONE public API catalog parser, snapshotter, and link verifier"
-license = "LicenseRef-UFL-1.1"
+license = "LicenseRef-UFL-3.8-D"
 
 [lib]
 name = "hone_api_catalog"

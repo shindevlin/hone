@@ -12,7 +12,7 @@ resolver = "2"
 version = "1.0.0"
 edition = "2021"
 authors = ["Shin Devlin <shindevlin@proton.me>"]
-license = "LicenseRef-UFL-1.1"
+license = "LicenseRef-UFL-3.8-D"
 repository = "https://github.com/hone-network/hone-contract-sdk"
 
 [workspace.dependencies]
