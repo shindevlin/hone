@@ -203,7 +203,8 @@ private fun HoneDeviceCard(d: HoneDevice) {
             )
             Text(
                 "${d.batteryPct}%${if (d.extPower) " ⚡" else ""}${if (d.paused) " · paused" else ""} · " +
-                    "${d.caps.joinToString(" ")} · reading #${d.newestReading} · ${d.rssi} dBm · ${ago}s ago",
+                    "${d.caps.joinToString(" ")} · reading #${d.newestReading} · ${d.rssi} dBm · ${ago}s ago" +
+                    " · relayed ${d.relayed}${if (d.queued > 0) " (${d.queued} queued)" else ""}",
                 style = MaterialTheme.typography.labelSmall, color = HoneTextDim,
             )
         }

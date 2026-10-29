@@ -39,6 +39,8 @@ data class HoneDevice(
     val newestReading: Long,
     val rssi: Int,
     val lastSeenMs: Long,
+    val relayed: Int = 0,          // batch commits this phone submitted to the chain
+    val queued: Int = 0,           // heard but not yet accepted (no node reachable, etc.)
 )
 
 /**
@@ -72,16 +74,19 @@ object HoneAnnounceScanner {
     @Synchronized
     fun start(ctx: Context) {
         if (running || !hasPermission(ctx)) return
+        if (appCtx == null) loadPending(ctx)
         val scanner = ctx.getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner
         if (scanner == null) { Log.w(TAG, "no BLE scanner (Bluetooth off?)"); return }
-        val filter = ScanFilter.Builder()
-            .setManufacturerData(COMPANY, byteArrayOf('H'.code.toByte(), 'A'.code.toByte()),
+        // 'HA' = announce, 'HC' = signed batch commit. One exact 2-byte filter each:
+        // a 1-byte prefix filter is silently never matched on some phones (moto g).
+        fun f(k: Char) = ScanFilter.Builder()
+            .setManufacturerData(COMPANY, byteArrayOf('H'.code.toByte(), k.code.toByte()),
                 byteArrayOf(0xFF.toByte(), 0xFF.toByte()))
             .build()
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
-        runCatching { scanner.startScan(listOf(filter), settings, callback) }
+        runCatching { scanner.startScan(listOf(f('A'), f('C')), settings, callback) }
             .onSuccess { running = true; Log.i(TAG, "scanning for HONE announces") }
             .onFailure { Log.e(TAG, "startScan failed", it) }
     }
@@ -89,7 +94,9 @@ object HoneAnnounceScanner {
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val md = result.scanRecord?.getManufacturerSpecificData(COMPANY) ?: return
-            if (md.size < 5 || md[0] != 'H'.code.toByte() || md[1] != 'A'.code.toByte()) return
+            if (md.size < 5 || md[0] != 'H'.code.toByte()) return
+            if (md[1] == 'C'.code.toByte()) { onCommitFragment(result, md); return }
+            if (md[1] != 'A'.code.toByte()) return
             val seq = md[2].toInt() and 0xFF
             val idx = (md[3].toInt() and 0xFF) shr 4
             val total = md[3].toInt() and 0x0F
@@ -116,6 +123,147 @@ object HoneAnnounceScanner {
     }
 
     private val addrToId = HashMap<String, String>()
+
+    // ── Batch commits ('HC'): the Flipper signs the chain's SENSOR_DATA_COMMIT
+    // message itself; this phone only carries it to a node, so it can do that from
+    // anywhere with a connection. Queue survives restarts (relay_queue.json).
+    private val GROUPS = listOf("subghz", "wifi", "tags", "ir")
+    private val GROUP_TYPE = listOf("continuous", "continuous", "event", "event")
+    private val commitFrags = HashMap<String, HashMap<Int, ByteArray>>()
+    private val commitDone = LinkedHashSet<String>()
+    private val seenBatches = LinkedHashSet<String>()       // batch hashes handled
+    private val pending = ArrayList<JSONObject>()            // signed commits awaiting a node
+    private val relayedBy = HashMap<String, Int>()
+    @Volatile private var appCtx: Context? = null
+    @Volatile private var account: String = ""
+
+    private fun onCommitFragment(result: ScanResult, md: ByteArray) {
+        val seq = md[2].toInt() and 0xFF
+        val idx = (md[3].toInt() and 0xFF) shr 4
+        val total = md[3].toInt() and 0x0F
+        if (total == 0 || idx >= total) return
+        val key = "${result.device.address}/$seq"
+        val data: ByteArray
+        synchronized(this) {
+            if (key in commitDone) return
+            val m = commitFrags.getOrPut(key) { HashMap() }
+            m[idx] = md.copyOfRange(4, md.size)
+            if (m.size < total) return
+            commitDone.add(key); commitFrags.remove(key)
+            while (commitDone.size > 512) commitDone.remove(commitDone.first())
+            if (commitFrags.size > 256) commitFrags.clear()
+            data = (0 until total).fold(ByteArray(0)) { acc, i -> acc + m.getValue(i) }
+        }
+        if (data.size != 107) return
+        val devId = data.copyOfRange(0, 8).hex()
+        val group = data[8].toInt() and 0xFF
+        val count = (data[9].toInt() and 0xFF) or ((data[10].toInt() and 0xFF) shl 8)
+        val hash = data.copyOfRange(11, 43).hex()
+        val sig = data.copyOfRange(43, 107)
+        if (group >= GROUPS.size) return
+        synchronized(this) { if (hash in seenBatches) return }
+        val heard = _devices.value[devId]?.takeIf { it.signatureOk && it.owner.isNotEmpty() }
+        if (heard == null) {
+            // Announce not caught yet: take the device key + owner from the chain instead.
+            scope.launch {
+                val known = chainKey(devId) ?: return@launch
+                verifyAndQueue(devId, group, count, hash, sig, known.first, known.second)
+            }
+            return
+        }
+        verifyAndQueue(devId, group, count, hash, sig, heard.pubkey, heard.owner)
+    }
+
+    private val chainKeys = HashMap<String, Pair<String, String>>() // devId -> (pubkey, owner)
+
+    private fun chainKey(devId: String): Pair<String, String>? {
+        chainKeys[devId]?.let { return it }
+        val (code, body) = ChainHttp.getWithCode("/api/sensor/flipper-$devId-subghz") ?: return null
+        if (code != 200 || body == null) return null
+        val j = runCatching { JSONObject(body) }.getOrNull() ?: return null
+        val pk = j.optString("device_pubkey", "")
+        val owner = j.optString("owner", "")
+        if (pk.length != 64 || !pk.startsWith(devId) || owner.isEmpty()) return null
+        return (pk to owner).also { chainKeys[devId] = it }
+    }
+
+    private fun verifyAndQueue(
+        devId: String, group: Int, count: Int, hash: String, sig: ByteArray,
+        pubkey: String, owner: String,
+    ) {
+        val sensorId = "flipper-$devId-${GROUPS[group]}"
+        val msg = "{\"chain_id\":\"hone\",\"type\":\"SENSOR_DATA_COMMIT\"," +
+            "\"sensor_id\":\"$sensorId\",\"owner\":\"${owner}\",\"batch_hash\":\"$hash\"," +
+            "\"reading_count\":$count,\"sensor_type\":\"${GROUP_TYPE[group]}\",\"signed_by\":\"${owner}\"}"
+        val ok = runCatching {
+            Ed25519Signer().run {
+                init(false, Ed25519PublicKeyParameters(pubkey.unhex(), 0))
+                val b = msg.toByteArray()
+                update(b, 0, b.size)
+                verifySignature(sig)
+            }
+        }.getOrDefault(false)
+        if (!ok) { Log.w(TAG, "commit from $devId: bad signature, dropped"); return }
+        val body = JSONObject()
+            .put("sensor_id", sensorId).put("owner", owner).put("batch_hash", hash)
+            .put("reading_count", count).put("sensor_type", GROUP_TYPE[group])
+            .put("signature", sig.hex())
+        if (account.isNotEmpty()) body.put("gateway_account", account)
+        synchronized(this) {
+            if (!seenBatches.add(hash)) return
+            while (seenBatches.size > 4096) seenBatches.remove(seenBatches.first())
+            pending.add(body)
+            savePending()
+        }
+        Log.i(TAG, "commit $sensorId x$count heard, queued")
+        updateCounts(devId)
+        scope.launch { flush() }
+    }
+
+    /** Submit queued commits. 400 = rejected for good (e.g. already committed): drop it. */
+    private fun flush() {
+        val batch = synchronized(this) { ArrayList(pending) }
+        for (b in batch) {
+            val res = ChainHttp.postJson("/api/sensor/commit", b.toString()) ?: break // offline
+            val devId = b.optString("sensor_id").split("-").getOrNull(1) ?: ""
+            if (res.first in 200..299 || res.first in 400..499) {
+                synchronized(this) { pending.removeAll { it.optString("batch_hash") == b.optString("batch_hash") }; savePending() }
+                if (res.first in 200..299) relayedBy[devId] = (relayedBy[devId] ?: 0) + 1
+                else Log.w(TAG, "commit ${b.optString("sensor_id")} refused ${res.first}: ${res.second.take(160)}")
+                updateCounts(devId)
+            }
+        }
+    }
+
+    private fun updateCounts(devId: String) {
+        val q = synchronized(this) { pending.count { it.optString("sensor_id").contains(devId) } }
+        _devices.value[devId]?.let {
+            _devices.value = _devices.value + (devId to it.copy(relayed = relayedBy[devId] ?: 0, queued = q))
+        }
+    }
+
+    private fun queueFile() = appCtx?.filesDir?.resolve("hone-node/relay_queue.json")
+
+    private fun savePending() {
+        runCatching { queueFile()?.writeText(org.json.JSONArray(pending).toString()) }
+    }
+
+    private fun loadPending(ctx: Context) {
+        appCtx = ctx.applicationContext
+        account = runCatching { ctx.filesDir.resolve("hone-node/witness_account").readText().trim() }.getOrDefault("")
+        runCatching {
+            val arr = org.json.JSONArray(queueFile()?.readText() ?: return)
+            synchronized(this) {
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    pending.add(o); seenBatches.add(o.optString("batch_hash"))
+                }
+            }
+        }
+        scope.launch {
+            while (true) { flush(); kotlinx.coroutines.delay(60_000) }
+        }
+    }
 
     /** Refresh rssi / last-seen on every repeat fragment of an already-verified announce. */
     private fun touch(r: ScanResult) {
@@ -159,7 +307,9 @@ object HoneAnnounceScanner {
         )
     }
 
-    private fun publish(d: HoneDevice) {
+    private fun publish(d0: HoneDevice) {
+        val prev = _devices.value[d0.deviceId]
+        val d = d0.copy(relayed = relayedBy[d0.deviceId] ?: 0, queued = prev?.queued ?: 0)
         _devices.value = _devices.value + (d.deviceId to d)
         Log.i(TAG, "announce ${d.deviceId} owner=${d.owner} sig=${d.signatureOk} batt=${d.batteryPct}%")
         val last = chainChecked[d.deviceId]
@@ -193,4 +343,5 @@ object HoneAnnounceScanner {
     }
 
     private fun ByteArray.hex(): String = joinToString("") { "%02x".format(it) }
+    private fun String.unhex(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 }
