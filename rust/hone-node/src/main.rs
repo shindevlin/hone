@@ -314,18 +314,36 @@ async fn main() -> Result<()> {
                     .expect("fallback secret store open")
             })
     );
+    // Startup HardwareClaim. Previously this was pushed into the LOCAL pending pool only
+    // and never gossiped, and the clock self-seals ("single clock, isolated") before any
+    // peer connects — so every restart committed this node's claim (and its fee, and a
+    // touch_alive) on this node alone. Every restart forked the ledger by one entry.
+    // Mainnet 2026-10-29: nebra and grouchly diverged by exactly this within 30 s of a
+    // state-copy resync (josh -20000 on nebra, natoshisakamoto -20000 on grouchly).
+    //
+    // Now: if the chain already records this fingerprint for this account there is
+    // nothing to claim (a re-claim only burns a fee). A genuinely new claim is held
+    // back and sent through the normal gossip path once peers are connected, so it
+    // lands in every node's pending pool, not just ours.
+    let mut deferred_hw_claim: Option<LedgerEntry> = None;
     if !hw.fingerprint.is_empty() {
-        let hw_entry = LedgerEntry::HardwareClaim {
-            account:     cfg.account.clone(),
-            fingerprint: hw.fingerprint.clone(),
-            hw_info:     hw.summary.clone(),
-            epoch:       chain.current_epoch(),
-            signed_by:   cfg.account.clone(),
-        };
-        // Queue for epoch-ordered application — do NOT apply directly.
-        chain.push_pending(hw_entry.clone(), None);
-        info!("[hardware] fingerprint {} queued for epoch commit ({})",
-            &hw.fingerprint[..hw.fingerprint.len().min(16)], hw.summary);
+        let fp_short = &hw.fingerprint[..hw.fingerprint.len().min(16)];
+        let existing = chain.store.state_get(&format!("hw_claim:{}", hw.fingerprint))
+            .map(|b| String::from_utf8_lossy(&b).into_owned());
+        if existing.as_deref() == Some(cfg.account.as_str()) {
+            info!("[hardware] fingerprint {} already claimed by '{}' on chain — no re-claim ({})",
+                fp_short, cfg.account, hw.summary);
+        } else {
+            deferred_hw_claim = Some(LedgerEntry::HardwareClaim {
+                account:     cfg.account.clone(),
+                fingerprint: hw.fingerprint.clone(),
+                hw_info:     hw.summary.clone(),
+                epoch:       chain.current_epoch(),
+                signed_by:   cfg.account.clone(),
+            });
+            info!("[hardware] fingerprint {} will be claimed once peers are connected ({})",
+                fp_short, hw.summary);
+        }
     } else {
         info!("[hardware] no identifiable hardware found — skipping hw claim");
     }
@@ -1392,6 +1410,29 @@ async fn main() -> Result<()> {
 
     // Shared peer count: updated by the net event loop, read by the API.
     let shared_peer_count = Arc::new(AtomicUsize::new(0));
+
+    // Deferred HardwareClaim (see startup): wait for a peer, give gossipsub time to
+    // exchange topic subscriptions, then queue it locally AND gossip it, exactly like
+    // any other entry. Never committed while this node is alone.
+    if let Some(hw_entry) = deferred_hw_claim.take() {
+        let chain_c = chain.clone();
+        let peers_c = shared_peer_count.clone();
+        let txb = tx_broadcast.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                if peers_c.load(Ordering::Relaxed) > 0 { break; }
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(45)).await;
+            if peers_c.load(Ordering::Relaxed) == 0 {
+                warn!("[hardware] lost peers before claim could be sent — not claiming this run");
+                return;
+            }
+            chain_c.push_pending(hw_entry.clone(), None);
+            let _ = txb.send((hw_entry, None));
+            info!("[hardware] claim queued and gossiped");
+        });
+    }
 
     // Shared relay counter: incremented each time a gossip entry is accepted into
     // the pending pool.  Consumed by the mempool heartbeat daemon each epoch.
