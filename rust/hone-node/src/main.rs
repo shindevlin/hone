@@ -782,7 +782,20 @@ async fn main() -> Result<()> {
                         // All nodes sort by sha256(entry_bytes) — same gossip set = same order.
                         // This is the commit boundary: entries are "on-chain" from here.
                         let sealed_epoch = sealed.epoch;
-                        let pending = chain_ref.drain_pending_sorted();
+                        // A solo self-seal (quorum 1: this clock alone, no peer agreed) still
+                        // advances time, but it must not COMMIT anything: entries committed by
+                        // one node alone exist nowhere else — a fork (beastly, 2026-10-29,
+                        // committed its own HardwareClaim while its gossip was down). Pending
+                        // entries wait for the next seal that at least 2 clocks agreed on.
+                        let pending = if sealed.quorum >= 2 {
+                            chain_ref.drain_pending_sorted()
+                        } else {
+                            if chain_ref.pending_count() > 0 {
+                                info!("[epoch {}] solo seal — {} pending entries held for a quorum seal",
+                                    sealed_epoch, chain_ref.pending_count());
+                            }
+                            Vec::new()
+                        };
                         if !pending.is_empty() {
                             let total = pending.len();
                             let mut applied = 0usize;
