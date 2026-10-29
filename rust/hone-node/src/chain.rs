@@ -577,7 +577,21 @@ pub struct Chain {
     /// SHA-256 fingerprints of entries already admitted this epoch. Cleared on drain.
     /// Prevents replayed gossip messages from inserting the same entry twice.
     seen_entries: Arc<Mutex<HashSet<[u8; 32]>>>,
+    /// Local, non-consensus record of what happened to recently submitted entries at
+    /// seal (committed / rejected + reason), so the API can answer "did my entry land?"
+    /// now that submissions are no longer applied on the spot. Bounded; never hashed.
+    entry_results: Arc<Mutex<(std::collections::HashMap<String, serde_json::Value>,
+                              std::collections::VecDeque<String>)>>,
+    /// Entries this node originated, re-gossiped every epoch for OUTBOX_EPOCHS so a peer
+    /// that missed the first gossip still gets them (exactly-once is enforced at apply).
+    pub outbox: Arc<Mutex<Vec<(LedgerEntry, Option<String>, u64)>>>,
 }
+
+const ENTRY_RESULTS_MAX: usize = 20_000;
+
+/// How many epochs a submitted entry keeps being re-gossiped. Matches the stale window
+/// in tx.rs: after that every peer rejects it as stale anyway.
+pub const OUTBOX_EPOCHS: u64 = 5;
 
 impl Chain {
     pub fn new(store: Store, node_id: String, chain_id: String) -> Self {
@@ -595,7 +609,39 @@ impl Chain {
             write_lock: Mutex::new(()),
             pending: Arc::new(Mutex::new(Vec::new())),
             seen_entries: Arc::new(Mutex::new(HashSet::new())),
+            entry_results: Arc::new(Mutex::new(Default::default())),
+            outbox: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Record the seal-time outcome of a submitted entry (local bookkeeping only).
+    pub fn record_entry_result(&self, hash: &str, epoch: u64, error: Option<String>) {
+        let mut g = self.entry_results.lock();
+        let (map, order) = &mut *g;
+        let v = serde_json::json!({
+            "hash": hash,
+            "status": if error.is_none() { "committed" } else { "rejected" },
+            "epoch": epoch,
+            "error": error,
+        });
+        if map.insert(hash.to_owned(), v).is_none() {
+            order.push_back(hash.to_owned());
+            while order.len() > ENTRY_RESULTS_MAX {
+                if let Some(old) = order.pop_front() { map.remove(&old); }
+            }
+        }
+    }
+
+    /// Outcome of a submitted entry: committed / rejected at seal, pending, or unknown.
+    pub fn entry_status(&self, hash: &str) -> serde_json::Value {
+        if let Some(v) = self.entry_results.lock().0.get(hash) {
+            return v.clone();
+        }
+        let pending = self.pending.lock().iter().any(|(e, _)| e.hash() == hash);
+        serde_json::json!({
+            "hash": hash,
+            "status": if pending { "pending" } else { "unknown" },
+        })
     }
 
     /// Queue a user entry for application at the next epoch seal.

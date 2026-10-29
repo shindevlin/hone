@@ -53,6 +53,9 @@ pub enum NetworkEvent {
     ClockHello { hello: serde_json::Value },
     /// A reward consensus proposal received from a peer clock node.
     ConsensusProposal { epoch: u64, rewards_hash: String, node_id: String },
+    /// Signed batch of catch-up reward votes for past unfinalized epochs
+    /// (`{"type":"catchup","node_id","votes":[[epoch,hash],..],"sig"}` on hone/consensus).
+    CatchupVotes { node_id: String, votes: Vec<(u64, String)>, sig: String },
     /// A new peer connection was established.
     PeerConnected { peer_id: String },
     /// An existing peer connection was closed.
@@ -645,6 +648,20 @@ impl Network {
             TOPIC_CLOCK_HELLO => {
                 debug!("Received clock-hello from {}", source);
                 self.emit(NetworkEvent::ClockHello { hello: json });
+            }
+
+            TOPIC_CONSENSUS if json.get("type").and_then(|v| v.as_str()) == Some("catchup") => {
+                let node_id = json.get("node_id").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+                let sig = json.get("sig").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+                let votes: Vec<(u64, String)> = json.get("votes")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                if node_id.is_empty() || sig.is_empty() || votes.is_empty() {
+                    warn!("hone/consensus: malformed catchup from {}", source);
+                    return;
+                }
+                debug!("Received {} catch-up votes from {} ({})", votes.len(), node_id, source);
+                self.emit(NetworkEvent::CatchupVotes { node_id, votes, sig });
             }
 
             TOPIC_CONSENSUS => {

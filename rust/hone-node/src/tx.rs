@@ -70,6 +70,60 @@ fn has_delegation(chain: &Chain, from: &str, delegate: &str, capability: &str, c
     false
 }
 
+/// Cheap, side-effect-free check run when an entry is SUBMITTED (it is validated for
+/// real, and committed, only at the next seal on every node). Catches the common
+/// rejection — a bad or missing signature — so the caller gets an immediate error
+/// instead of "pending" followed by a silent rejection.
+///
+/// Deliberately permissive where it cannot be exact: it accepts a signature that
+/// verifies against ANY of the signer's registered keys, and lets anything with a
+/// delegation through. The seal-time check is authoritative.
+pub fn precheck_submission(chain: &Chain, entry: &LedgerEntry, sig_hex: Option<&str>) -> Result<()> {
+    match entry {
+        LedgerEntry::SensorDataCommit { sensor_id, owner, .. } =>
+            return check_sensor_signature(chain, sensor_id, owner, entry, sig_hex),
+        // Authorised by an external-chain signature inside the entry, not an account key.
+        LedgerEntry::VerifyChainLink { .. } => return Ok(()),
+        _ => {}
+    }
+    let signer = match serde_json::to_value(entry).ok()
+        .and_then(|v| v["signed_by"].as_str().map(str::to_owned))
+    {
+        Some(s) if !s.is_empty() => s,
+        _ => return Ok(()),
+    };
+    let keys: Vec<String> = match chain.store.get_account(&signer)? {
+        Some(state) => state.get("keys").and_then(|k| k.as_object())
+            .map(|m| m.values().filter_map(|v| v.as_str())
+                .filter(|k| !k.is_empty()).map(str::to_owned).collect())
+            .unwrap_or_default(),
+        None => return Ok(()), // account may be created in the same seal
+    };
+    if keys.is_empty() {
+        return Ok(());
+    }
+    if chain.store.state_scan_prefix(&format!("delegation:{}:", signer)).first().is_some() {
+        return Ok(());
+    }
+    let sig_str = sig_hex.filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("signature required for account '{}'", signer))?;
+    let sig_bytes: [u8; 64] = hex::decode(sig_str)
+        .map_err(|_| anyhow::anyhow!("signature is not valid hex"))?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("signature must be 64 bytes"))?;
+    let signature = Signature::from_bytes(&sig_bytes);
+    let message = canonical_signing_message(entry, &chain.chain_id)?;
+    let ok = keys.iter().any(|k| {
+        hex::decode(k).ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .and_then(|a| VerifyingKey::from_bytes(&a).ok())
+            .map(|vk| vk.verify_strict(message.as_bytes(), &signature).is_ok())
+            .unwrap_or(false)
+    });
+    anyhow::ensure!(ok, "signature verification failed for '{}'", signer);
+    Ok(())
+}
+
 /// Returned by HTTP handlers after a submission attempt.
 pub struct SubmitResult {
     pub entry_hash: String,
@@ -118,6 +172,15 @@ pub fn validate_and_apply(
     sig_hex: Option<&str>,
 ) -> Result<String> {
     let hash = entry.hash();
+
+    // Exactly-once: a user entry that already committed is never applied again. This is
+    // what makes re-gossip safe — a submitter re-sends its entries for a few epochs so
+    // a peer that missed the one-shot gossip still gets them, and a peer that already
+    // has one rejects the repeat here instead of applying it twice.
+    let applied_key = format!("entry_applied:{}", hash);
+    if !is_system_entry(entry) && chain.store.state_get(&applied_key).is_some() {
+        bail!("entry {} already committed", &hash[..hash.len().min(16)]);
+    }
 
     // Stale-entry guard: reject any user entry whose embedded epoch is more than
     // STALE_WINDOW epochs behind the current tip. EpochSeal has its own tighter check.
@@ -1578,7 +1641,24 @@ pub fn validate_and_apply(
         LedgerEntry::TrackerCoverageReward { .. } => {
             bail!("TrackerCoverageReward is system-only and cannot be submitted externally");
         }
-        LedgerEntry::HardwareClaim { .. } => {
+        // A hardware claim moves a fee and binds a machine to an account, so the account
+        // must sign it. Unsigned, anyone could gossip a claim naming any account and charge
+        // that account the fee. The chain decides: claims commit at seal in hash order and
+        // the first valid claim per fingerprint wins (chain.rs apply).
+        LedgerEntry::HardwareClaim { account, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == account, "HardwareClaim signed_by must equal account");
+            // Idempotent: a claim the chain already holds for this account is a no-op and
+            // must not charge again (a replayed signed claim would otherwise drain fees).
+            if let LedgerEntry::HardwareClaim { fingerprint, .. } = entry {
+                if chain.store.state_get(&format!("hw_claim:{}", fingerprint)).as_deref()
+                    == Some(account.as_bytes())
+                {
+                    anyhow::bail!("hardware fingerprint already claimed by '{}'", account);
+                }
+            }
+            require_key(chain, account)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
 
@@ -2222,6 +2302,10 @@ pub fn validate_and_apply(
                     .and_then(|_| chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, total_fee));
             }
         }
+    }
+
+    if !is_system_entry(entry) {
+        let _ = chain.store.state_set(&applied_key, &chain.current_epoch().to_le_bytes());
     }
 
     Ok(hash)

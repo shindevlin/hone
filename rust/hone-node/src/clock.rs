@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -212,6 +212,8 @@ struct RewardState {
 struct Inner {
     epoch_states: HashMap<u64, EpochState>,
     reward_states: HashMap<u64, RewardState>,
+    /// Catch-up reward votes for past epochs that never finalized: epoch → node → hash.
+    catchup_votes: HashMap<u64, HashMap<String, String>>,
     clock_scores: HashMap<String, ClockScore>,
     external_peer_count: usize,
     last_external_peer_epoch: u64,
@@ -252,11 +254,14 @@ pub struct ClockConsensus {
 impl ClockConsensus {
     pub fn new() -> Self {
         let (sealed_tx, _)    = broadcast::channel(64);
-        let (finalized_tx, _) = broadcast::channel(64);
+        // Catch-up can finalize hundreds of past epochs per batch; a 64-slot channel
+        // would drop them (the batch is re-voted, but there is no reason to lag).
+        let (finalized_tx, _) = broadcast::channel(4096);
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 epoch_states: HashMap::new(),
                 reward_states: HashMap::new(),
+                catchup_votes: HashMap::new(),
                 clock_scores: HashMap::new(),
                 external_peer_count: 0,
                 last_external_peer_epoch: 0,
@@ -307,16 +312,20 @@ impl ClockConsensus {
                 state.proposals.push(proposal);
             }
 
-            // Filter proposals to registered nodes when the set is known.
-            // Unregistered nodes cannot influence reward finalization.
+            // Filter proposals to registered REWARD VOTERS when the set is known.
+            // Unregistered nodes cannot influence reward finalization. Device clock seats
+            // ("owner@pubkey", e.g. a phone) seal time and get paid for it, but they never
+            // compute or gossip a rewards_hash — counting them in the denominator only made
+            // quorum unreachable (4 registered with one phone → 3 of 3 servers had to agree).
+            let voters = reward_voters(&reg);
             let valid_proposals: Vec<&RewardProposal> = if reg.is_empty() {
                 state.proposals.iter().collect()
             } else {
-                state.proposals.iter().filter(|p| reg.contains(&p.node_id)).collect()
+                state.proposals.iter().filter(|p| voters.contains(&p.node_id)).collect()
             };
 
-            // Denominator is the registered set size when known; else observed proposals.
-            let denominator = if reg.is_empty() { state.proposals.len() } else { reg.len() };
+            // Denominator is the voter set size when known; else observed proposals.
+            let denominator = if reg.is_empty() { state.proposals.len() } else { voters.len() };
             // Rewards require REAL quorum (Shin ruling a2d7f6c9: ">=2 for reward is fine").
             // The earlier bootstrap solo-reward bypass (let a lone clock finalize its own
             // rewards during grace) is REMOVED, not grace-scoped — a grace counter is the
@@ -337,7 +346,9 @@ impl ClockConsensus {
                 let votes: Vec<(String, String)> = valid_proposals.iter()
                     .map(|p| (p.node_id.clone(), p.rewards_hash.clone()))
                     .collect();
-                match weighted_winner(&votes, &reg, &clock_weights, quorum()) {
+                match weighted_winner(&votes, &reg, &clock_weights, quorum())
+                    .filter(|(h, _, _)| operators_agree(&valid_proposals, h))
+                {
                     Some((best_hash, count, weight)) => {
                         info!(
                             "[clock] epoch {} reward: WEIGHTED finalize — winner weight {} / {} registered ({} signers)",
@@ -365,7 +376,7 @@ impl ClockConsensus {
                 }
 
                 if let Some((best_hash, &count)) = hash_counts.iter().max_by_key(|(_, c)| *c) {
-                    if count >= quorum_needed {
+                    if count >= quorum_needed && operators_agree(&valid_proposals, best_hash) {
                         state.finalized = true;
                         Some(FinalizedEpoch {
                             epoch,
@@ -381,6 +392,86 @@ impl ClockConsensus {
             info!("[clock] epoch {} reward consensus: quorum={} hash={}", event.epoch, event.quorum, event.rewards_hash);
             let _ = self.finalized_tx.send(event);
         }
+    }
+
+    /// Catch-up consensus for PAST epochs that sealed (or were empty) but never got a
+    /// quorum EpochFinalize — e.g. while the nodes' ledgers were split, or while the
+    /// network was down. The live path only votes at seal time, so such an epoch could
+    /// never finalize afterwards and the strictly-contiguous reward driver blocked on it
+    /// forever (mainnet: stuck at 74,476 since July).
+    ///
+    /// Same rule as live reward finalization, decided by the chain, not one node:
+    /// voters are the epoch's own registered full-node clocks (its `epoch_validators`
+    /// snapshot; the current set for an epoch with no snapshot), >51% and >= quorum()
+    /// of them must sign the same rewards_hash, from >= min_reward_operators() distinct
+    /// operators. Votes arrive signed (verified by the caller). `voters_for(e)` and
+    /// `is_finalized(e)` read committed chain state, so every node tallies identically.
+    /// Returns how many epochs reached quorum in this call.
+    pub fn receive_catchup_votes<V, F>(
+        &self,
+        node_id: &str,
+        votes: &[(u64, String)],
+        voters_for: V,
+        is_finalized: F,
+    ) -> usize
+    where
+        V: Fn(u64) -> Vec<String>,
+        F: Fn(u64) -> bool,
+    {
+        let mut events = Vec::new();
+        {
+            let mut inner = self.inner.lock().unwrap();
+            for (epoch, hash) in votes {
+                let epoch = *epoch;
+                if is_finalized(epoch) {
+                    inner.catchup_votes.remove(&epoch);
+                    continue;
+                }
+                let voters = voters_for(epoch);
+                if !voters.iter().any(|v| v == node_id) {
+                    continue;
+                }
+                let tally = inner.catchup_votes.entry(epoch).or_default();
+                tally.insert(node_id.to_owned(), hash.clone());
+
+                let mut counts: HashMap<&str, Vec<&str>> = HashMap::new();
+                for (n, h) in tally.iter() {
+                    if voters.contains(n) {
+                        counts.entry(h.as_str()).or_default().push(n.as_str());
+                    }
+                }
+                let needed = ((voters.len() as f64 * MIN_QUORUM_FRACTION).ceil() as usize)
+                    .max(quorum());
+                let winner = counts.iter()
+                    .filter(|(_, ns)| ns.len() >= needed)
+                    .filter(|(_, ns)| {
+                        ns.iter().map(|n| clock_operator(n)).collect::<HashSet<_>>().len()
+                            >= min_reward_operators()
+                    })
+                    // Deterministic pick if two hashes both qualify (cannot happen with
+                    // >51%, but never let HashMap order decide).
+                    .max_by(|a, b| a.1.len().cmp(&b.1.len()).then(b.0.cmp(a.0)))
+                    .map(|(h, ns)| (h.to_string(), ns.len()));
+                if let Some((rewards_hash, count)) = winner {
+                    inner.catchup_votes.remove(&epoch);
+                    events.push(FinalizedEpoch { epoch, rewards_hash, quorum: count });
+                }
+            }
+            // Bound memory: votes for epochs nobody else is voting on stay small, but
+            // never let the map grow without limit.
+            if inner.catchup_votes.len() > 200_000 {
+                let mut keys: Vec<u64> = inner.catchup_votes.keys().copied().collect();
+                keys.sort_unstable();
+                for k in keys.into_iter().skip(100_000) {
+                    inner.catchup_votes.remove(&k);
+                }
+            }
+        }
+        let n = events.len();
+        for ev in events {
+            let _ = self.finalized_tx.send(ev);
+        }
+        n
     }
 
     /// Ingest a raw JSON seal message from gossip.
@@ -910,6 +1001,38 @@ impl Default for ClockConsensus {
 /// the LITERAL key that becomes the winning EpochFinalize's `sealed_by` (main.rs read).
 /// So the vote input and the application input are the same bytes: nodes agree per-epoch,
 /// and agreement is over exactly the data that determines rewards.
+/// Operator of a clock id: the account before '@' for a device seat ("josh@<pk>" → "josh"),
+/// else the id itself.
+pub fn clock_operator(id: &str) -> &str {
+    id.split_once('@').map(|(o, _)| o).unwrap_or(id)
+}
+
+/// Registered clocks that vote on rewards: full nodes only. Device seats seal time but
+/// never compute a rewards_hash, so they are not in the reward quorum.
+pub fn reward_voters(reg: &[String]) -> Vec<String> {
+    reg.iter().filter(|n| hone_types::parse_device_clock_id(n).is_none()).cloned().collect()
+}
+
+/// Minimum distinct operators that must agree before rewards finalize. No single
+/// operator can pay itself: a thousand "josh" nodes still need a natoshisakamoto or
+/// shindevlin node to agree. HONE_MIN_REWARD_OPERATORS overrides (isolated test rigs
+/// only — must be identical on every node or it is a fork vector).
+pub fn min_reward_operators() -> usize {
+    std::env::var("HONE_MIN_REWARD_OPERATORS").ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2)
+}
+
+/// True when the proposals backing `hash` come from at least `min_reward_operators()`
+/// distinct operators.
+fn operators_agree(proposals: &[&RewardProposal], hash: &str) -> bool {
+    let ops: HashSet<&str> = proposals.iter()
+        .filter(|p| p.rewards_hash == hash)
+        .map(|p| clock_operator(&p.node_id))
+        .collect();
+    ops.len() >= min_reward_operators()
+}
+
 pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"epoch:");
@@ -1594,5 +1717,92 @@ mod device_clock_tests {
         let inner = c.inner.lock().unwrap();
         assert!(!inner.epoch_states.contains_key(&100), "21 behind: abandoned");
         assert!(inner.epoch_states.contains_key(&121));
+    }
+}
+
+#[cfg(test)]
+mod reward_quorum_tests {
+    use super::*;
+
+    const PHONE: &str = "josh@8848e0d2db7804aa1c15e500f7655cffcd84ff1635214ab55c0e2d46f66d4f25";
+
+    fn reg() -> Vec<String> {
+        vec!["josh".into(), PHONE.into(), "natoshisakamoto".into(), "shindevlin".into()]
+    }
+
+    fn propose(c: &ClockConsensus, epoch: u64, node: &str, hash: &str) {
+        c.receive_reward_proposal(RewardProposal {
+            epoch, node_id: node.into(), rewards_hash: hash.into(),
+        });
+    }
+
+    #[test]
+    fn device_seats_do_not_vote_on_rewards() {
+        assert_eq!(reward_voters(&reg()), vec!["josh", "natoshisakamoto", "shindevlin"]);
+        assert_eq!(clock_operator(PHONE), "josh");
+    }
+
+    #[test]
+    fn two_servers_of_two_operators_finalize_with_phone_registered() {
+        let c = ClockConsensus::new();
+        c.set_registered_clocks(reg());
+        let mut rx = c.subscribe_finalized();
+        propose(&c, 5, "josh", "h");
+        assert!(rx.try_recv().is_err(), "one vote is not quorum");
+        propose(&c, 5, "natoshisakamoto", "h");
+        assert_eq!(rx.try_recv().unwrap().epoch, 5, "2 of 3 voters, 2 operators");
+    }
+
+    #[test]
+    fn devices_never_count_toward_reward_quorum() {
+        let c = ClockConsensus::new();
+        c.set_registered_clocks(reg());
+        let mut rx = c.subscribe_finalized();
+        propose(&c, 6, "josh", "h");
+        propose(&c, 6, PHONE, "h"); // a device seat is not a reward voter
+        assert!(rx.try_recv().is_err());
+        propose(&c, 6, "shindevlin", "h");
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn catchup_finalizes_past_epoch_on_quorum_of_its_own_voters() {
+        let c = ClockConsensus::new();
+        let mut rx = c.subscribe_finalized();
+        let voters = |_e: u64| vec!["josh".to_string(), "natoshisakamoto".to_string()];
+        let not_final = |_e: u64| false;
+        let n = c.receive_catchup_votes("josh", &[(74477, "h".into())], voters, not_final);
+        assert_eq!(n, 0);
+        let n = c.receive_catchup_votes("mallory", &[(74477, "h".into())], voters, not_final);
+        assert_eq!(n, 0, "non-voter ignored");
+        let n = c.receive_catchup_votes("natoshisakamoto", &[(74477, "x".into())], voters, not_final);
+        assert_eq!(n, 0, "disagreeing hash is not quorum");
+        let n = c.receive_catchup_votes("natoshisakamoto", &[(74477, "h".into())], voters, not_final);
+        assert_eq!(n, 1);
+        let ev = rx.try_recv().unwrap();
+        assert_eq!((ev.epoch, ev.rewards_hash.as_str(), ev.quorum), (74477, "h", 2));
+    }
+
+    #[test]
+    fn catchup_needs_two_operators() {
+        let c = ClockConsensus::new();
+        let voters = |_e: u64| vec!["josh".to_string(), "josh2".to_string()];
+        // Two distinct non-device ids are two operators by id; the operator rule is
+        // about device seats folding into their owner.
+        assert_eq!(c.receive_catchup_votes("josh", &[(1, "h".into())], voters, |_| false), 0);
+        assert_eq!(c.receive_catchup_votes("josh2", &[(1, "h".into())], voters, |_| false), 1);
+        let dev_voters = |_e: u64| vec!["josh".to_string(), PHONE.to_string()];
+        let c2 = ClockConsensus::new();
+        assert_eq!(c2.receive_catchup_votes("josh", &[(1, "h".into())], dev_voters, |_| false), 0);
+        assert_eq!(c2.receive_catchup_votes(PHONE, &[(1, "h".into())], dev_voters, |_| false), 0,
+            "same operator twice is not enough");
+    }
+
+    #[test]
+    fn catchup_skips_already_finalized() {
+        let c = ClockConsensus::new();
+        let voters = |_e: u64| vec!["a".to_string(), "b".to_string()];
+        c.receive_catchup_votes("a", &[(9, "h".into())], voters, |_| true);
+        assert_eq!(c.receive_catchup_votes("b", &[(9, "h".into())], voters, |_| true), 0);
     }
 }

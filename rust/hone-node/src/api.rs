@@ -136,6 +136,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/latest", get(get_latest))
         .route("/api/sync/snapshot", get(get_sync_snapshot))
         .route("/api/sync/blocks", get(get_sync_blocks))
+        .route("/api/entry/:hash/status", get(get_entry_status))
         .route("/api/stake/:account", get(get_stake))
         .route("/api/epoch/:epoch", get(get_epoch))
         .route("/health", get(health))
@@ -784,15 +785,20 @@ async fn post_verify_chain(
         signed_by:      body.account.clone(),
     };
 
-    s.chain.apply_entry(&entry).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    // Check the proof now so the caller gets an immediate answer, but commit through
+    // the network like every other entry (chain.rs re-verifies at seal on every node).
+    crate::chain::recover_chain_address_public(&body.sig_type, &signed_message, &body.signature)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("signature recovery failed: {}", e)))?;
+    let hash = submit_entry(&s, entry, None)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     // Remove the used challenge.
     s.chain_challenges.lock().remove(&key);
 
-    let _ = s.tx_broadcast.send((entry, None));
-
     Ok(Json(serde_json::json!({
         "ok":      true,
+        "status":  "pending",
+        "hash":    hash,
         "account": body.account,
         "chain":   body.chain,
         "mode":    "hard",
@@ -844,10 +850,8 @@ async fn post_set_key_policy(
     };
 
     let sig_ref = body.signature.as_deref();
-    crate::tx::validate_and_apply(&s.chain, &entry, sig_ref)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-
-    let _ = s.tx_broadcast.send((entry, None));
+    let hash = submit_entry(&s, entry, sig_ref)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     let action = match &body.twofactor_chain {
         Some(c) => format!("2FA enabled for slot '{}' via '{}'", body.role, c),
@@ -856,6 +860,8 @@ async fn post_set_key_policy(
 
     Ok(Json(serde_json::json!({
         "ok":      true,
+        "status":  "pending",
+        "hash":    hash,
         "account": body.account,
         "role":    body.role,
         "message": action,
@@ -886,14 +892,15 @@ async fn post_liveness_proof(
         signature: body.signature.clone(),
     };
     let sig_ref = body.signature.as_deref();
-    crate::tx::validate_and_apply(&s.chain, &entry, sig_ref)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let _ = s.tx_broadcast.send((entry, None));
+    let hash = submit_entry(&s, entry, sig_ref)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({
         "ok":      true,
+        "status":  "pending",
+        "hash":    hash,
         "account": body.account,
         "epoch":   epoch,
-        "message": "liveness clock reset",
+        "message": "liveness clock reset at next seal",
     })))
 }
 
@@ -2217,33 +2224,67 @@ fn apply_and_broadcast(
     entry: LedgerEntry,
     sig_hex: Option<&str>,
 ) -> Json<serde_json::Value> {
+    match submit_entry(s, entry, sig_hex) {
+        Ok(hash) => Json(serde_json::json!({
+            "hash": hash,
+            "accepted": true,
+            "status": "pending",
+            "status_url": format!("/api/entry/{}/status", hash),
+            "error": null,
+        })),
+        Err(e) => Json(serde_json::json!({
+            "hash": null,
+            "accepted": false,
+            "error": e,
+        })),
+    }
+}
+
+/// Submit a user entry to the network. The chain decides, not this node:
+/// the entry goes into this node's pending pool AND out over gossip into every peer's
+/// pending pool, and it is validated and committed at the next quorum seal on every
+/// node in the same order. Nothing is applied here.
+///
+/// Previously the receiving node applied it on the spot and peers applied it at seal —
+/// different moments, different order, and if the one-shot gossip missed a peer, that
+/// peer never got it at all. That was a standing source of ledger forks.
+///
+/// Result of the commit is available at GET /api/entry/:hash/status.
+pub(crate) fn submit_entry(
+    s: &AppState,
+    entry: LedgerEntry,
+    sig_hex: Option<&str>,
+) -> Result<String, String> {
     // HARDLINE: zero peers = silent fork. A disconnected node that applies entries locally
     // produces chain state the network has never seen and cannot reconcile. Do not remove,
     // soften, or add an offline bypass to this check. No exceptions for any entry type.
     if s.peer_count.load(std::sync::atomic::Ordering::Relaxed) == 0 {
-        return Json(serde_json::json!({
-            "hash": null,
-            "accepted": false,
-            "error": "not connected to network — entry rejected to prevent local fork",
-        }));
+        return Err("not connected to network — entry rejected to prevent local fork".into());
     }
-    match tx::validate_and_apply(&s.chain, &entry, sig_hex) {
-        Ok(hash) => {
-            // Carry the signature alongside the entry so gossip peers can re-verify.
-            let _ = s.tx_broadcast.send((entry, sig_hex.map(str::to_owned)));
-            Json(serde_json::json!({
-                "hash": hash,
-                "accepted": true,
-                "error": null,
-            }))
-        }
-        Err(e) => Json(serde_json::json!({
-            "hash": null,
-            "accepted": false,
-            "error": e.to_string(),
-        })),
+    if tx::is_system_entry(&entry) {
+        return Err("system entries cannot be submitted".into());
     }
+    tx::precheck_submission(&s.chain, &entry, sig_hex).map_err(|e| e.to_string())?;
+    let hash = entry.hash();
+    let sig = sig_hex.filter(|x| !x.is_empty()).map(str::to_owned);
+    if !s.chain.push_pending(entry.clone(), sig.clone()) {
+        // Already queued this epoch — idempotent resubmit.
+        return Ok(hash);
+    }
+    s.chain.outbox.lock().push((entry.clone(), sig.clone(), s.chain.current_epoch()));
+    // Carry the signature alongside the entry so gossip peers can re-verify.
+    let _ = s.tx_broadcast.send((entry, sig));
+    Ok(hash)
 }
+
+/// GET /api/entry/:hash/status — committed / rejected (with reason) / pending / unknown.
+async fn get_entry_status(
+    State(s): State<AppState>,
+    axum::extract::Path(hash): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    Json(s.chain.entry_status(&hash))
+}
+
 
 // ── Contract endpoints ────────────────────────────────────────────────────────
 
@@ -2538,7 +2579,7 @@ async fn post_inference_job(
         },
     };
     let sig = non_empty(&body.signature);
-    match tx::validate_and_apply(&s.chain, &entry, sig) {
+    match submit_entry(&s, entry, sig) {
         Ok(hash) => {
             // Store actual input text so verifiers can assess quality.
             if !body.input_text.is_empty() {
@@ -2547,10 +2588,9 @@ async fn post_inference_job(
                     body.input_text.as_bytes(),
                 );
             }
-            let _ = s.tx_broadcast.send((entry, sig.map(str::to_owned)));
-            Json(serde_json::json!({ "hash": hash, "job_id": job_id, "accepted": true, "error": null }))
+            Json(serde_json::json!({ "hash": hash, "job_id": job_id, "accepted": true, "status": "pending", "error": null }))
         }
-        Err(e) => Json(serde_json::json!({ "hash": null, "job_id": null, "accepted": false, "error": e.to_string() })),
+        Err(e) => Json(serde_json::json!({ "hash": null, "job_id": null, "accepted": false, "error": e })),
     }
 }
 
@@ -6679,9 +6719,9 @@ async fn post_node_role_opt_in(
         signed_by: b.signed_by,
     };
     let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
-    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
-        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    match submit_entry(&s, entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "status": "pending", "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))),
     }
 }
 
@@ -6698,9 +6738,9 @@ async fn post_node_role_opt_out(
         signed_by: b.signed_by,
     };
     let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
-    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
-        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    match submit_entry(&s, entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "status": "pending", "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))),
     }
 }
 
@@ -6743,9 +6783,9 @@ async fn post_testnet_register(
         signed_by: b.signed_by,
     };
     let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
-    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
-        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    match submit_entry(&s, entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "status": "pending", "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))),
     }
 }
 
@@ -6761,9 +6801,9 @@ async fn post_testnet_deregister(
         signed_by: b.signed_by,
     };
     let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
-    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
-        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    match submit_entry(&s, entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "status": "pending", "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))),
     }
 }
 
@@ -6825,11 +6865,11 @@ async fn post_testnet_toggle(
         }))),
     };
 
-    match crate::tx::validate_and_apply(&s.chain, &entry, Some(sig_hex.as_str())) {
+    match submit_entry(&s, entry, Some(sig_hex.as_str())) {
         Ok(hash) => (StatusCode::OK, Json(serde_json::json!({
-            "ok": true, "hash": hash, "enabled": enabled, "account": account
+            "ok": true, "status": "pending", "hash": hash, "enabled": enabled, "account": account
         }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))),
     }
 }
 

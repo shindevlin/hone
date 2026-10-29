@@ -722,7 +722,13 @@ async fn main() -> Result<()> {
                             }
                         }
                         // Entropy decay bleeds dormant balances — same finalized, ordered path.
-                        finalize::apply_entropy_decay(&chain_ref, e);
+                        // Its rate is per 100-epoch finalization interval (finalize.rs), so it
+                        // runs on interval boundaries only. Calling it every epoch bled dormant
+                        // balances 100x faster than the 2-year half-life it is built for —
+                        // which the catch-up of ~262k frozen epochs would have made real.
+                        if e % 100 == 0 {
+                            finalize::apply_entropy_decay(&chain_ref, e);
+                        }
                         let _ = chain_ref.store.state_set(&done_key, b"1");
                         last_rewarded = e; // contiguous through e
                     }
@@ -778,30 +784,51 @@ async fn main() -> Result<()> {
                         let sealed_epoch = sealed.epoch;
                         let pending = chain_ref.drain_pending_sorted();
                         if !pending.is_empty() {
+                            let total = pending.len();
                             let mut applied = 0usize;
-                            for (e, sig) in &pending {
-                                match tx::validate_and_apply(&chain_ref, e, sig.as_deref()) {
-                                    Ok(_) => {
-                                        applied += 1;
-                                        // Forward accepted non-system entry hashes to LoRaWAN
-                                        // devices on the next downlink window.
-                                        if !tx::is_system_entry(e) {
-                                            if let Some(ref lh) = lorawan_for_seal {
-                                                if let Ok(hash_bytes) = hex::decode(e.hash()) {
-                                                    if let Ok(arr) = hash_bytes.try_into() {
-                                                        lh.queue_hash(arr);
+                            // Hash order first, then retry what failed until a pass makes no
+                            // progress. Hash order alone can put nonce N+1 ahead of N from the
+                            // same account; the submitting node used to apply them in arrival
+                            // order while every peer rejected N+1 here — a fork. Passes are a
+                            // pure function of the pending set, so every node with the same
+                            // set ends in the same state.
+                            let mut remaining: Vec<(LedgerEntry, Option<String>, String)> = pending
+                                .iter().map(|(e, s)| (e.clone(), s.clone(), String::new())).collect();
+                            loop {
+                                let mut next = Vec::new();
+                                let mut progress = false;
+                                for (e, sig, _) in remaining {
+                                    match tx::validate_and_apply(&chain_ref, &e, sig.as_deref()) {
+                                        Ok(_) => {
+                                            applied += 1;
+                                            progress = true;
+                                            chain_ref.record_entry_result(&e.hash(), sealed_epoch, None);
+                                            // Forward accepted non-system entry hashes to LoRaWAN
+                                            // devices on the next downlink window.
+                                            if !tx::is_system_entry(&e) {
+                                                if let Some(ref lh) = lorawan_for_seal {
+                                                    if let Ok(hash_bytes) = hex::decode(e.hash()) {
+                                                        if let Ok(arr) = hash_bytes.try_into() {
+                                                            lh.queue_hash(arr);
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
+                                        Err(err) => next.push((e, sig, err.to_string())),
                                     }
-                                    Err(err) => tracing::debug!(
-                                        "[epoch {}] pending entry rejected: {}", sealed_epoch, err
-                                    ),
                                 }
+                                if next.is_empty() || !progress {
+                                    for (e, _, err) in &next {
+                                        tracing::debug!("[epoch {}] pending entry rejected: {}", sealed_epoch, err);
+                                        chain_ref.record_entry_result(&e.hash(), sealed_epoch, Some(err.clone()));
+                                    }
+                                    break;
+                                }
+                                remaining = next;
                             }
                             info!("[epoch {}] committed {}/{} pending entries",
-                                sealed_epoch, applied, pending.len());
+                                sealed_epoch, applied, total);
                         }
 
                         // Hardware conflict check: if our fingerprint is now claimed by
@@ -1000,7 +1027,15 @@ async fn main() -> Result<()> {
                         if let Err(e) = chain_ref.apply_entry(&entry) {
                             warn!("EpochFinalize apply failed (epoch {}): {}", fin.epoch, e);
                         }
+                        // Catch-up finalizes (epochs far behind the tip) are tallied by every
+                        // node from the signed votes themselves; gossiping hundreds of
+                        // thousands of them would only flood the mesh.
+                        let is_catchup = fin.epoch.saturating_add(hone_types::NEGATIVE_ATTESTATION_WINDOW + 36)
+                            < chain_ref.current_epoch();
                         let envelope = serde_json::json!({"entry": entry});
+                        if is_catchup {
+                            continue;
+                        }
                         if let Ok(data) = serde_json::to_vec(&envelope) {
                             let _ = cmd_tx_fin.send(NetCmd::Broadcast {
                                 topic: "hone/entries",
@@ -1014,6 +1049,110 @@ async fn main() -> Result<()> {
                         warn!("finalized_rx lagged by {} events", n);
                     }
                     Err(_) => break,
+                }
+            }
+        });
+    }
+
+    // ── Outbox re-gossip ──────────────────────────────────────────────────────
+    // Gossip is fire-and-forget: an entry published before the mesh formed, or while a
+    // peer was reconnecting, simply never reaches that peer, and nothing ever re-sent it
+    // (the beastly HardwareClaim on 2026-10-29 was lost exactly this way). Re-send what
+    // this node originated once per epoch for OUTBOX_EPOCHS; peers that already
+    // committed it reject the repeat (tx.rs exactly-once), peers that missed it commit it.
+    {
+        let chain_c = chain.clone();
+        let cmd_tx_c = net_handle.cmd_tx.clone();
+        tokio::spawn(async move {
+            let mut last_epoch = 0u64;
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                let cur = chain_c.current_epoch();
+                if cur == last_epoch { continue; }
+                last_epoch = cur;
+                let items: Vec<(LedgerEntry, Option<String>, u64)> = {
+                    let mut ob = chain_c.outbox.lock();
+                    ob.retain(|(_, _, first)| cur <= first.saturating_add(chain::OUTBOX_EPOCHS));
+                    ob.clone()
+                };
+                for (entry, sig, _) in items {
+                    let Ok(entry_val) = serde_json::to_value(&entry) else { continue };
+                    // "resend" varies the bytes so gossipsub does not drop it as a duplicate.
+                    let envelope = serde_json::json!({"entry": entry_val, "sig": sig, "resend": cur});
+                    if let Ok(data) = serde_json::to_vec(&envelope) {
+                        let _ = cmd_tx_c.send(NetCmd::Broadcast { topic: "hone/entries", data }).await;
+                    }
+                }
+            }
+        });
+    }
+
+    // ── Catch-up reward consensus (sender) ────────────────────────────────────
+    // Past epochs that never finalized block the contiguous reward driver forever. Every
+    // clock re-votes them here, signed, in batches; each node tallies the votes with the
+    // same rule as live finalization (clock.rs receive_catchup_votes) and emits the
+    // EpochFinalize itself. Only epochs older than the live window are touched — recent
+    // ones belong to the live seal-time consensus.
+    if cfg.is_clock && signing_key.is_some() {
+        let chain_c = chain.clone();
+        let clock_c = clock.clone();
+        let cmd_tx_c = net_handle.cmd_tx.clone();
+        let node_id_c = cfg.node_id.clone();
+        let sk_c = Arc::clone(&signing_key);
+        tokio::spawn(async move {
+            const BATCH: usize = 512;
+            const LIVE_WINDOW: u64 = hone_types::NEGATIVE_ATTESTATION_WINDOW + 36;
+            let mut cursor: u64 = 0;
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            // Lowest epoch the reward driver still has to pay. reward_cursor() scans every
+            // done key, so take it once and then advance with point reads.
+            let mut floor = chain_c.store.reward_cursor().contiguous.saturating_add(1);
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                let cur = chain_c.current_epoch();
+                let upper = cur.saturating_sub(LIVE_WINDOW);
+                while chain_c.store.state_get(&format!("epoch_finalized_done:{}", floor)).is_some() {
+                    floor += 1;
+                }
+                if floor > upper { cursor = 0; continue; }
+                if cursor < floor || cursor > upper { cursor = floor; }
+                let mut votes: Vec<(u64, String)> = Vec::with_capacity(BATCH);
+                let mut e = cursor;
+                while e <= upper && votes.len() < BATCH {
+                    if !epoch_is_finalized(&chain_c, e) {
+                        votes.push((e, clock::compute_rewards_hash(e, &chain_c.store)));
+                    }
+                    e += 1;
+                }
+                // Wrap to the floor next round so anything a peer missed is re-voted.
+                cursor = if e > upper { floor } else { e };
+                if votes.is_empty() { continue; }
+                // Only clocks that are reward voters for these epochs count; others'
+                // votes are ignored by every tally, so don't spam them.
+                let Some(sk) = sk_c.as_ref().as_ref() else { continue };
+                let msg = catchup_message(&chain_c.chain_id, &node_id_c, &votes);
+                let sig = {
+                    use ed25519_dalek::Signer;
+                    hex::encode(sk.sign(msg.as_bytes()).to_bytes())
+                };
+                // Self-ingest, then gossip. "nonce" keeps re-sent batches from being
+                // dropped as gossipsub duplicates.
+                let n = clock_c.receive_catchup_votes(
+                    &node_id_c, &votes,
+                    |x| catchup_voters(&chain_c, x),
+                    |x| epoch_is_finalized(&chain_c, x),
+                );
+                if n > 0 {
+                    info!("[catchup] {} past epoch(s) reached reward quorum (own votes)", n);
+                }
+                if let Ok(data) = serde_json::to_vec(&serde_json::json!({
+                    "type": "catchup",
+                    "node_id": node_id_c,
+                    "votes": votes,
+                    "sig": sig,
+                    "nonce": now_ms(),
+                })) {
+                    let _ = cmd_tx_c.send(NetCmd::Broadcast { topic: "hone/consensus", data }).await;
                 }
             }
         });
@@ -1418,6 +1557,7 @@ async fn main() -> Result<()> {
         let chain_c = chain.clone();
         let peers_c = shared_peer_count.clone();
         let txb = tx_broadcast.clone();
+        let sk_c = Arc::clone(&signing_key);
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -1428,9 +1568,30 @@ async fn main() -> Result<()> {
                 warn!("[hardware] lost peers before claim could be sent — not claiming this run");
                 return;
             }
-            chain_c.push_pending(hw_entry.clone(), None);
-            let _ = txb.send((hw_entry, None));
-            info!("[hardware] claim queued and gossiped");
+            // Re-stamp with the current epoch (stale-entry guard) and sign with the
+            // account's posting key: every node verifies the claim before it can commit.
+            let hw_entry = match hw_entry {
+                LedgerEntry::HardwareClaim { account, fingerprint, hw_info, signed_by, .. } =>
+                    LedgerEntry::HardwareClaim {
+                        account, fingerprint, hw_info, signed_by,
+                        epoch: chain_c.current_epoch(),
+                    },
+                other => other,
+            };
+            let sig = sk_c.as_ref().as_ref().and_then(|sk| {
+                crate::tx::canonical_signing_message(&hw_entry, &chain_c.chain_id).ok().map(|msg| {
+                    use ed25519_dalek::Signer;
+                    hex::encode(sk.sign(msg.as_bytes()).to_bytes())
+                })
+            });
+            if sig.is_none() {
+                warn!("[hardware] no signing key — hardware claim not sent");
+                return;
+            }
+            chain_c.push_pending(hw_entry.clone(), sig.clone());
+            chain_c.outbox.lock().push((hw_entry.clone(), sig.clone(), chain_c.current_epoch()));
+            let _ = txb.send((hw_entry, sig));
+            info!("[hardware] signed claim queued and gossiped");
         });
     }
 
@@ -1589,6 +1750,23 @@ async fn main() -> Result<()> {
                         clock_ref.receive_reward_proposal(clock::RewardProposal {
                             epoch, rewards_hash, node_id,
                         });
+                    }
+                    Ok(NetworkEvent::CatchupVotes { node_id, votes, sig }) => {
+                        // Signed by the voter's on-chain posting key, or ignored.
+                        let msg = catchup_message(&chain_ref.chain_id, &node_id, &votes);
+                        match tx::check_sig_raw(&chain_ref, &node_id, msg.as_bytes(), Some(&sig)) {
+                            Ok(()) => {
+                                let n = clock_ref.receive_catchup_votes(
+                                    &node_id, &votes,
+                                    |e| catchup_voters(&chain_ref, e),
+                                    |e| epoch_is_finalized(&chain_ref, e),
+                                );
+                                if n > 0 {
+                                    info!("[catchup] {} past epoch(s) reached reward quorum (votes from {})", n, node_id);
+                                }
+                            }
+                            Err(err) => warn!("[catchup] rejected votes from '{}': {}", node_id, err),
+                        }
                     }
                     Ok(NetworkEvent::GitRefAvailable { repo_id, owner, repo_name, commit_hash, peer_http }) => {
                         let _ = sync_tx.try_send(storage_sync::RefAvailable {
@@ -1998,6 +2176,35 @@ async fn run_inference_verifier(
 ///
 /// Floor-relative resume keeps the guarantee that matters — a restart can never outrun an
 /// unresolved gap — while not mistaking "started above epoch 1" for "has done nothing".
+/// Message a catch-up vote batch is signed over. Deterministic: votes re-serialize
+/// identically from the parsed form on every node.
+fn catchup_message(chain_id: &str, node_id: &str, votes: &[(u64, String)]) -> String {
+    use sha2::Digest;
+    let body = serde_json::to_string(votes).unwrap_or_default();
+    let digest = hex::encode(sha2::Sha256::digest(body.as_bytes()));
+    format!("hone-catchup:{}:{}:{}", chain_id, node_id, digest)
+}
+
+/// Who votes on a past epoch's rewards: that epoch's registered full-node clocks
+/// (its epoch_validators snapshot). An epoch with no snapshot (nothing sealed it — the
+/// network was down) is voted on by the current reward voters.
+fn catchup_voters(chain: &Chain, epoch: u64) -> Vec<String> {
+    let snap = chain.store
+        .state_get(&format!("epoch_validators:{}", epoch))
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok());
+    match snap {
+        Some(v) => clock::reward_voters(&v),
+        None => clock::reward_voters(
+            &clock::registered_clock_nodes(&chain.store, chain.current_epoch())),
+    }
+}
+
+fn epoch_is_finalized(chain: &Chain, epoch: u64) -> bool {
+    chain.store.get_epoch_meta(epoch).ok().flatten()
+        .map(|m| m["finalized"].as_bool().unwrap_or(false))
+        .unwrap_or(false)
+}
+
 fn highest_contiguous_rewarded(chain: &Chain) -> u64 {
     chain.store.reward_cursor().contiguous
 }
