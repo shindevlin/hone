@@ -1114,8 +1114,14 @@ async fn main() -> Result<()> {
                 while chain_c.store.state_get(&format!("epoch_finalized_done:{}", floor)).is_some() {
                     floor += 1;
                 }
-                if floor > upper { cursor = 0; continue; }
-                if cursor < floor || cursor > upper { cursor = floor; }
+                if floor > upper { continue; }
+                // Always start from the LOWEST unfinalized epoch: that is the one the
+                // reward driver is blocked on, so it is re-voted every round until it
+                // finalizes (a vote a peer missed costs one round, not a full sweep).
+                if cursor < floor { cursor = floor; }
+                while cursor <= upper && epoch_is_finalized(&chain_c, cursor) {
+                    cursor += 1;
+                }
                 let mut votes: Vec<(u64, String)> = Vec::with_capacity(BATCH);
                 let mut e = cursor;
                 while e <= upper && votes.len() < BATCH {
@@ -1124,8 +1130,6 @@ async fn main() -> Result<()> {
                     }
                     e += 1;
                 }
-                // Wrap to the floor next round so anything a peer missed is re-voted.
-                cursor = if e > upper { floor } else { e };
                 if votes.is_empty() { continue; }
                 // Only clocks that are reward voters for these epochs count; others'
                 // votes are ignored by every tally, so don't spam them.
@@ -1614,6 +1618,9 @@ async fn main() -> Result<()> {
         let relay_counter_ref = mempool_relay_counter.clone();
         let mut events = net_events;
         let gossip_genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
+        let echo_node_id = cfg.node_id.clone();
+        let echo_sk = if cfg.is_clock { Arc::clone(&signing_key) } else { Arc::new(None) };
+        let echo_cmd_tx = net_handle.cmd_tx.clone();
         tokio::spawn(async move {
             loop {
                 match events.recv().await {
@@ -1751,11 +1758,40 @@ async fn main() -> Result<()> {
                             epoch, rewards_hash, node_id,
                         });
                     }
-                    Ok(NetworkEvent::CatchupVotes { node_id, votes, sig }) => {
-                        // Signed by the voter's on-chain posting key, or ignored.
+                    Ok(NetworkEvent::CatchupVotes { node_id, votes, sig, echo }) => {
+                        // Signed by the voter's registered clock key, or ignored.
                         let msg = catchup_message(&chain_ref.chain_id, &node_id, &votes);
                         match verify_clock_signature(&chain_ref, &node_id, msg.as_bytes(), &sig) {
                             Ok(()) => {
+                                // A peer is voting on epochs this node already finalized: it
+                                // is missing votes (ours among them), and having finalized we
+                                // no longer send them on our own. Echo our finalized hashes
+                                // for those epochs once. Never echo an echo (no ping-pong).
+                                if !echo {
+                                    if let Some(sk) = echo_sk.as_ref().as_ref() {
+                                        let mine: Vec<(u64, String)> = votes.iter()
+                                            .filter_map(|(e, _)| chain_ref.store.get_epoch_meta(*e).ok().flatten()
+                                                .filter(|m| m["finalized"].as_bool().unwrap_or(false))
+                                                .and_then(|m| m["rewards_hash"].as_str().map(|h| (*e, h.to_owned()))))
+                                            .collect();
+                                        if !mine.is_empty() && node_id != echo_node_id {
+                                            let m = catchup_message(&chain_ref.chain_id, &echo_node_id, &mine);
+                                            let esig = {
+                                                use ed25519_dalek::Signer;
+                                                hex::encode(sk.sign(m.as_bytes()).to_bytes())
+                                            };
+                                            if let Ok(data) = serde_json::to_vec(&serde_json::json!({
+                                                "type": "catchup", "echo": true,
+                                                "node_id": echo_node_id, "votes": mine,
+                                                "sig": esig, "nonce": now_ms(),
+                                            })) {
+                                                let _ = echo_cmd_tx.send(NetCmd::Broadcast {
+                                                    topic: "hone/consensus", data,
+                                                }).await;
+                                            }
+                                        }
+                                    }
+                                }
                                 let n = clock_ref.receive_catchup_votes(
                                     &node_id, &votes,
                                     |e| catchup_voters(&chain_ref, e),

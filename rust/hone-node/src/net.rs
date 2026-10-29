@@ -55,7 +55,7 @@ pub enum NetworkEvent {
     ConsensusProposal { epoch: u64, rewards_hash: String, node_id: String },
     /// Signed batch of catch-up reward votes for past unfinalized epochs
     /// (`{"type":"catchup","node_id","votes":[[epoch,hash],..],"sig"}` on hone/consensus).
-    CatchupVotes { node_id: String, votes: Vec<(u64, String)>, sig: String },
+    CatchupVotes { node_id: String, votes: Vec<(u64, String)>, sig: String, echo: bool },
     /// A new peer connection was established.
     PeerConnected { peer_id: String },
     /// An existing peer connection was closed.
@@ -661,7 +661,8 @@ impl Network {
                     return;
                 }
                 debug!("Received {} catch-up votes from {} ({})", votes.len(), node_id, source);
-                self.emit(NetworkEvent::CatchupVotes { node_id, votes, sig });
+                let echo = json.get("echo").and_then(|v| v.as_bool()).unwrap_or(false);
+                self.emit(NetworkEvent::CatchupVotes { node_id, votes, sig, echo });
             }
 
             TOPIC_CONSENSUS => {
