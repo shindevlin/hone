@@ -124,6 +124,21 @@ pub fn precheck_submission(chain: &Chain, entry: &LedgerEntry, sig_hex: Option<&
     Ok(())
 }
 
+/// True when `sig_hex` is a valid signature over the entry's canonical message by the
+/// pubkey in `clock_reg:{account}` — the node key the account registered as its clock.
+fn clock_key_signed(chain: &Chain, account: &str, entry: &LedgerEntry, sig_hex: Option<&str>) -> bool {
+    let Some(pk) = chain.store.state_get(&format!("clock_reg:{}", account))
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v["pubkey"].as_str().map(str::to_owned)) else { return false };
+    let (Some(sig), Ok(msg)) = (sig_hex, canonical_signing_message(entry, &chain.chain_id)) else { return false };
+    let Ok(sig) = hex::decode(sig).ok().and_then(|b| <[u8; 64]>::try_from(b).ok()).ok_or(()) else { return false };
+    hex::decode(&pk).ok()
+        .and_then(|b| <[u8; 32]>::try_from(b).ok())
+        .and_then(|a| VerifyingKey::from_bytes(&a).ok())
+        .map(|vk| vk.verify_strict(msg.as_bytes(), &Signature::from_bytes(&sig)).is_ok())
+        .unwrap_or(false)
+}
+
 /// Returned by HTTP handlers after a submission attempt.
 pub struct SubmitResult {
     pub entry_hash: String,
@@ -1657,8 +1672,14 @@ pub fn validate_and_apply(
                     anyhow::bail!("hardware fingerprint already claimed by '{}'", account);
                 }
             }
-            require_key(chain, account)?;
-            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            // Signed by the node's own key — the pubkey in this account's clock
+            // registration — or by the account's posting key. Same model as devices:
+            // the node keeps its own key, bound to the owner on chain; the posting key
+            // never has to leave the owner's host.
+            if !clock_key_signed(chain, account, entry, sig_hex) {
+                require_key(chain, account)?;
+                check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            }
             chain.apply_entry(entry)?;
         }
 
