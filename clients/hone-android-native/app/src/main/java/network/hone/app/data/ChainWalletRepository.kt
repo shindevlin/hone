@@ -46,6 +46,24 @@ object ChainHttp {
         return null
     }
 
+    /** Like [get] but also returns 4xx answers (e.g. 404 = "not on chain"). Null when no node answers. */
+    fun getWithCode(path: String): Pair<Int, String?>? {
+        for (i in NODES.indices) {
+            val idx = (preferred + i) % NODES.size
+            val res = runCatching {
+                val c = URL(NODES[idx] + path).openConnection() as HttpURLConnection
+                c.connectTimeout = 3_000
+                c.readTimeout = 8_000
+                try {
+                    val code = c.responseCode
+                    code to (if (code in 200..299) c.inputStream.bufferedReader().use { it.readText() } else null)
+                } finally { c.disconnect() }
+            }.getOrNull()
+            if (res != null && res.first < 500) { preferred = idx; return res }
+        }
+        return null
+    }
+
     fun balanceHunits(account: String): ULong? =
         get("/api/balance/$account")?.let { runCatching { JSONObject(it).getLong("hunits").toULong() }.getOrNull() }
 

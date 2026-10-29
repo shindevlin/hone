@@ -73,6 +73,8 @@ class NodeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat(buildNotification("Starting sensor node…"))
         capture.start()
+        // Keep listening for HONE device announces while the node runs in the background.
+        network.hone.app.data.HoneAnnounceScanner.start(applicationContext)
         if (loop?.isActive != true) loop = scope.launch { runLoop() }
         return START_STICKY
     }

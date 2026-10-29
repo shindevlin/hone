@@ -19,6 +19,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import network.hone.app.data.HoneAnnounceScanner
+import network.hone.app.data.HoneDevice
 import network.hone.app.data.SensorCapture
 import network.hone.app.data.SensorChannel
 import network.hone.app.service.NodeService
@@ -90,7 +92,42 @@ fun SensorsScreen() {
         }
         Spacer(Modifier.height(16.dp))
 
+        val devices by HoneAnnounceScanner.devices.collectAsStateWithLifecycle()
+        var bleAllowed by remember { mutableStateOf(HoneAnnounceScanner.hasPermission(ctx)) }
+        val blePerm = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted -> bleAllowed = granted; if (granted) HoneAnnounceScanner.start(ctx) }
+        LaunchedEffect(bleAllowed) { if (bleAllowed) HoneAnnounceScanner.start(ctx) }
+
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item(key = "nearby-title") {
+                Text("Nearby HONE devices", style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold)
+            }
+            if (!bleAllowed) {
+                item(key = "nearby-perm") {
+                    OutlinedButton(onClick = {
+                        blePerm.launch(
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
+                                Manifest.permission.BLUETOOTH_SCAN
+                            else Manifest.permission.ACCESS_FINE_LOCATION
+                        )
+                    }) { Text("Allow Bluetooth to hear devices") }
+                }
+            } else if (devices.isEmpty()) {
+                item(key = "nearby-none") {
+                    Text("Listening… none heard yet", style = MaterialTheme.typography.labelSmall,
+                        color = HoneTextFaint)
+                }
+            }
+            items(devices.values.sortedByDescending { it.lastSeenMs }, key = { "dev-" + it.deviceId }) {
+                HoneDeviceCard(it)
+            }
+            item(key = "sensors-title") {
+                Spacer(Modifier.height(4.dp))
+                Text("This phone", style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold)
+            }
             items(channels, key = { it.id }) { SensorCard(it) }
         }
     }
@@ -133,6 +170,42 @@ private fun SensorCard(ch: SensorChannel) {
         }
         if (ch.available && ch.samples > 0) {
             Text("${ch.samples}", style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
+        }
+    }
+}
+
+@Composable
+private fun HoneDeviceCard(d: HoneDevice) {
+    val ago = ((System.currentTimeMillis() - d.lastSeenMs) / 1000).coerceAtLeast(0)
+    val verified = d.signatureOk && d.chainOwnerOk == true
+    Row(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Bluetooth, contentDescription = null,
+            tint = if (verified) HoneGreen else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Flipper ${d.deviceId.take(8)} · @${d.owner.ifEmpty { "?" }}",
+                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+            Text(
+                when {
+                    !d.signatureOk -> "signature BAD — ignored"
+                    d.chainOwnerOk == true -> "signed ✓ · owner verified on chain"
+                    d.chainOwnerOk == false -> "signed ✓ · owner NOT enrolled on chain"
+                    else -> "signed ✓ · checking chain…"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (verified) HoneGreen else HoneTextFaint,
+            )
+            Text(
+                "${d.batteryPct}%${if (d.extPower) " ⚡" else ""}${if (d.paused) " · paused" else ""} · " +
+                    "${d.caps.joinToString(" ")} · reading #${d.newestReading} · ${d.rssi} dBm · ${ago}s ago",
+                style = MaterialTheme.typography.labelSmall, color = HoneTextDim,
+            )
         }
     }
 }

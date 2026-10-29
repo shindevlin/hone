@@ -70,6 +70,8 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     // uniffi runtime dep for the generated bindings (JNA), added in Phase 0b:
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+    // Ed25519 verify of HONE BLE announces (lightweight API only, no JCA provider).
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
