@@ -1,11 +1,12 @@
 package network.hone.app.ui.screens
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import network.hone.app.data.MockWalletRepository
+import network.hone.app.data.ChainWalletRepository
 import network.hone.app.data.SendResult
 import network.hone.app.data.WalletRepository
 
@@ -21,9 +22,10 @@ data class SendUiState(
     val amountValid: Boolean get() = amount.toDoubleOrNull()?.let { it > 0 } == true
 }
 
-class WalletViewModel(
-    val repo: WalletRepository = MockWalletRepository(),
-) : ViewModel() {
+/** Live chain wallet (balance, stake and history of this phone's account). */
+class WalletViewModel(application: Application) : AndroidViewModel(application) {
+
+    val repo: WalletRepository = ChainWalletRepository(application)
 
     val identity = repo.identity
     val history = repo.history

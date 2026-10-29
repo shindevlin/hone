@@ -52,6 +52,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 
 # Crypto
 sha2 = "0.10"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry"] }
 hex = "0.4"
 rand = "0.8"
 ed25519-dalek = { version = "2", features = ["rand_core"] }

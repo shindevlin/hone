@@ -42,6 +42,8 @@ pub struct EpochSeal {
     pub timestamp:    u64,
     pub seal_hash:    String,
     pub signature:    Option<String>,
+    #[serde(default)]
+    pub pubkey:       Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +190,10 @@ pub struct ClockConfig {
     pub genesis_ts: u64,
     pub is_clock:   bool,
     pub quorum:     usize,
+    /// Witness clock: sign + publish seals only. No local reward emission,
+    /// no reward proposals, no EpochFinalize.
+    pub witness:    bool,
+    pub signing_key: Option<ed25519_dalek::SigningKey>,
 }
 
 /// Runs the clock tick loop and seal emitter.
@@ -200,7 +206,8 @@ pub async fn run(
     mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) {
     // Wire sealed events → chain epoch advancement + reward emission + consensus proposal
-    {
+    // (legacy full mode only; a witness never computes or gossips rewards)
+    if !cfg.witness {
         let mut sealed_rx = clock.subscribe();
         let chain_ref = chain.clone();
         let clock_ref2 = clock.clone();
@@ -259,8 +266,35 @@ pub async fn run(
         });
     }
 
-    // Wire finalized events → emit EpochFinalize entry
-    {
+    if cfg.witness {
+        let mut sealed_rx = clock.subscribe();
+        let chain_ref = chain.clone();
+        tokio::spawn(async move {
+            loop {
+                match sealed_rx.recv().await {
+                    Ok(s) if s.sealed => {
+                        if let Some(w) = s.winner.as_ref() {
+                            let entry = LedgerEntry::EpochSeal {
+                                node_id: w.node_id.clone(),
+                                epoch: s.epoch,
+                                timestamp: w.timestamp,
+                                seal_hash: w.seal_hash.clone(),
+                                signature: None,
+                                node_version: None,
+                            };
+                            let _ = chain_ref.apply_entry(&entry);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    // Wire finalized events → emit EpochFinalize entry (legacy full mode only)
+    if !cfg.witness {
         let mut finalized_rx = clock.subscribe_finalized();
         let chain_ref = chain.clone();
         let node_id = cfg.node_id.clone();
@@ -312,7 +346,7 @@ pub async fn run(
     loop {
         tokio::select! {
             _ = shutdown.recv() => break,
-            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+            _ = tokio::time::sleep(Duration::from_millis(500)) => {}
         }
 
         let now = now_ms();
@@ -326,12 +360,24 @@ pub async fn run(
             h.update(epoch.to_le_bytes());
             hex::encode(h.finalize())
         };
+        // Same signed message and JSON shape as hone-node (main.rs seal emitter,
+        // verified by clock.rs verify_clock_seal_sig).
+        let (sig_hex, pubkey_hex) = match cfg.signing_key.as_ref() {
+            Some(sk) => {
+                use ed25519_dalek::Signer;
+                let msg = format!("seal:{}:{}:{}:{}", epoch, seal_hash, node_id, now);
+                (Some(hex::encode(sk.sign(msg.as_bytes()).to_bytes())),
+                 Some(hex::encode(sk.verifying_key().to_bytes())))
+            }
+            None => (None, None),
+        };
         let seal = serde_json::json!({
             "epoch_number": epoch,
             "node_id":      node_id,
             "timestamp":    now,
             "seal_hash":    seal_hash,
-            "signature":    null,
+            "signature":    sig_hex,
+            "pubkey":       pubkey_hex,
         });
 
         // Self-ingest (counts toward our own quorum).

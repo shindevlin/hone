@@ -68,6 +68,10 @@ pub struct NodeStatus {
     pub peers: u32,
     /// True when running as a listen-only observer (no account/key).
     pub read_only: bool,
+    /// True when running as a witness clock (signed seals only).
+    pub witness: bool,
+    /// Hex ed25519 public key the seals are signed with (empty for observers).
+    pub pubkey: String,
 }
 
 /// Typed errors surfaced to Kotlin as a sealed `NodeException`.
@@ -104,6 +108,7 @@ impl HoneNode {
     /// Create an idle node handle. Cheap; does no work until `start`.
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
+        crate::init_logcat();
         Arc::new(Self { inner: PLMutex::new(None) })
     }
 
@@ -185,6 +190,8 @@ impl HoneNode {
                     .get_balance(&r.handle.chain.node_id, hone_types::NATIVE_TOKEN),
                 peers: r.handle.peers.load(std::sync::atomic::Ordering::Relaxed),
                 read_only: r.handle.read_only,
+                witness: r.handle.witness,
+                pubkey: r.handle.pubkey.clone(),
             },
             None => NodeStatus {
                 running: false,
@@ -193,6 +200,8 @@ impl HoneNode {
                 balance_hunits: 0,
                 peers: 0,
                 read_only: false,
+                witness: false,
+                pubkey: String::new(),
             },
         }
     }

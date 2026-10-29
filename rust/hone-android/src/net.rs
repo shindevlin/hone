@@ -53,6 +53,9 @@ pub struct SwarmConfig {
     pub bootstrap_peers: Vec<String>,
     /// Observer mode: drop every outbound publish (listen-only).
     pub read_only:       bool,
+    /// Witness clock: publish ONLY on hone/seals. Every other topic is dropped,
+    /// so the phone can never gossip rewards, finalize or ledger entries.
+    pub seals_only:      bool,
     /// Shared live peer count for the UI.
     pub peers:           std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
@@ -91,8 +94,11 @@ pub async fn run_swarm(
     ).expect("gossipsub");
 
     // Subscribe to all chain topics.
+    // On-wire topic = "{chain_id}/{key}", exactly like hone-node (net.rs: t_seals etc.).
+    // Without the chain prefix the phone joined topics no desktop node uses, so it
+    // never received a message and its publishes failed with NoPeersSubscribedToTopic.
     for topic_str in &["hone/entries", "hone/seals", "hone/blocks", "hone/consensus"] {
-        let topic = gossipsub::IdentTopic::new(*topic_str);
+        let topic = gossipsub::IdentTopic::new(format!("{}/{}", cfg.chain_id, topic_str));
         gossipsub.subscribe(&topic).ok();
     }
 
@@ -164,13 +170,14 @@ pub async fn run_swarm(
             // Outbound commands from other subsystems.
             Some(cmd) = cmd_rx.recv() => {
                 let NetCmd::Broadcast { topic, data } = cmd;
-                if cfg.read_only {
-                    tracing::debug!("net: read-only, dropped publish on {} ({} bytes)", topic, data.len());
+                if cfg.read_only || (cfg.seals_only && topic != "hone/seals") {
+                    tracing::debug!("net: publish not allowed in this mode, dropped {} ({} bytes)", topic, data.len());
                     continue;
                 }
-                let t = gossipsub::IdentTopic::new(topic);
-                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(t, data) {
-                    warn!("net: publish error on {}: {}", topic, e);
+                let t = gossipsub::IdentTopic::new(format!("{}/{}", cfg.chain_id, topic));
+                match swarm.behaviour_mut().gossipsub.publish(t, data) {
+                    Ok(_) => info!("net: published on {}", topic),
+                    Err(e) => warn!("net: publish error on {}: {}", topic, e),
                 }
             }
 

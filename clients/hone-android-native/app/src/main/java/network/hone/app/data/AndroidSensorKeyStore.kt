@@ -5,8 +5,10 @@ import android.security.keystore.KeyProperties
 import androidx.annotation.RequiresApi
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.Signature
+import java.security.spec.ECGenParameterSpec
 
 data class DeviceSensorIdentity(
     val publicKeyHex: String,
@@ -34,10 +36,21 @@ class AndroidSensorKeyStore(
 ) {
     fun getOrCreate(sensorId: String): DeviceSensorIdentity {
         val alias = aliasFor(sensorId)
+        // An earlier build generated these aliases with KeyPairGenerator("Ed25519"),
+        // which AndroidKeyStore silently turned into a P-256 key. Drop any alias whose
+        // public key is not Ed25519 so it is regenerated correctly below.
+        if (keyStore.containsAlias(alias)) {
+            val enc = keyStore.getCertificate(alias)?.publicKey?.encoded
+            val isEd25519 = enc != null && enc.size == ED25519_X509_PREFIX.size + 32 &&
+                enc.copyOfRange(0, ED25519_X509_PREFIX.size).contentEquals(ED25519_X509_PREFIX)
+            if (!isEd25519) keyStore.deleteEntry(alias)
+        }
         if (!keyStore.containsAlias(alias)) {
-            KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_ED25519, KEYSTORE).run {
+            // AndroidKeyStore exposes Ed25519 (API 33+) as an EC key on the "ed25519" curve.
+            KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, KEYSTORE).run {
                 initialize(
                     KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
+                        .setAlgorithmParameterSpec(ECGenParameterSpec("ed25519"))
                         .setDigests(KeyProperties.DIGEST_NONE)
                         .build(),
                 )
@@ -45,7 +58,7 @@ class AndroidSensorKeyStore(
             }
         }
 
-        val privateKey = requireNotNull(keyStore.getKey(alias, null)) {
+        val privateKey = requireNotNull(keyStore.getKey(alias, null) as? PrivateKey) {
             "AndroidKeyStore did not return the sensor signing key"
         }
         val publicKey = requireNotNull(keyStore.getCertificate(alias)?.publicKey) {
@@ -54,7 +67,7 @@ class AndroidSensorKeyStore(
         return DeviceSensorIdentity(
             publicKeyHex = rawEd25519PublicKey(publicKey).toHex(),
             signer = SensorSigner { message ->
-                Signature.getInstance(KeyProperties.KEY_ALGORITHM_ED25519).run {
+                Signature.getInstance(ED25519).run {
                     initSign(privateKey)
                     update(message)
                     sign()
@@ -65,6 +78,12 @@ class AndroidSensorKeyStore(
 
     companion object {
         private const val KEYSTORE = "AndroidKeyStore"
+        // KeyProperties has no Ed25519 constant in the compileSdk 36 stubs; use the
+        // JCA algorithm name. NOTE: hardware-backed Ed25519 generation is still the
+        // unverified proposal from 08f56602 — not exercised by the observer build.
+        private const val ED25519 = "Ed25519"
+
+        private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
         private const val ALIAS_PREFIX = "hone.sensor.ed25519."
         private val ED25519_X509_PREFIX = byteArrayOf(
             0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
