@@ -92,13 +92,20 @@ pub fn precheck_submission(chain: &Chain, entry: &LedgerEntry, sig_hex: Option<&
         Some(s) if !s.is_empty() => s,
         _ => return Ok(()),
     };
-    let keys: Vec<String> = match chain.store.get_account(&signer)? {
+    let mut keys: Vec<String> = match chain.store.get_account(&signer)? {
         Some(state) => state.get("keys").and_then(|k| k.as_object())
             .map(|m| m.values().filter_map(|v| v.as_str())
                 .filter(|k| !k.is_empty()).map(str::to_owned).collect())
             .unwrap_or_default(),
         None => return Ok(()), // account may be created in the same seal
     };
+    // The signer's node key (its clock registration) also speaks for the account.
+    if let Some(pk) = chain.store.state_get(&format!("clock_reg:{}", signer))
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v["pubkey"].as_str().map(str::to_owned))
+    {
+        keys.push(pk);
+    }
     if keys.is_empty() {
         return Ok(());
     }
@@ -1345,7 +1352,17 @@ pub fn validate_and_apply(
             }
             require_key(chain, signed_by)?;
             check_nonce(chain, staker, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            // Self-stake on the account's OWN node may be signed by that node's registered
+            // clock key (the node identity model: the node keeps its own key, the owner's
+            // active key stays home). It only locks the account's funds into its own
+            // node's roles; withdrawing (NodeRoleUnstake) still needs the active key.
+            let own_node = node == staker
+                || hone_types::parse_device_clock_id(node).map(|(o, _)| o == staker.as_str()).unwrap_or(false);
+            let node_signed = signed_by == staker && own_node
+                && clock_key_signed(chain, staker, entry, sig_hex);
+            if !node_signed {
+                check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            }
             // Non-self staking: blocked only if node has explicitly opted out.
             // Nodes that haven't configured opt-in are treated as open by default (20 backers, 10% share).
             if staker != node {

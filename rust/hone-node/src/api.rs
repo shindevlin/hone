@@ -203,6 +203,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/node/testnet/status/:account", get(get_testnet_status))
         .route("/api/node/testnet/toggle", post(post_testnet_toggle))
         .route("/api/node/role/stake", post(post_node_role_stake))
+        .route("/api/node/role/self-stake", post(post_node_role_self_stake))
         .route("/api/node/role/unstake", post(post_node_role_unstake))
         .route("/api/entry/:hash", get(get_entry_by_hash))
         .route("/api/node/role/stakes/:node", get(get_node_role_stakes))
@@ -6871,6 +6872,49 @@ async fn post_testnet_toggle(
         }))),
         Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))),
     }
+}
+
+/// POST /api/node/role/self-stake — stake this node's own account into roles on this
+/// node, signed by the node's own key (its clock registration key).
+/// Body: {"stakes":[{"role":"storage","amount":20000000000}, ...]}
+/// Loopback only: it spends the node account's balance into locked stake. Nonces are
+/// assigned in order from the account's current nonce; all entries commit at the
+/// next quorum seal (submit_entry).
+async fn post_node_role_self_stake(
+    State(s): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(b): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if !addr.ip().is_loopback() {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "loopback only"})));
+    }
+    let Some(sk) = s.signing_key.as_ref().as_ref() else {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "node has no signing key"})));
+    };
+    let account = s.node_account.as_ref().clone();
+    let epoch = s.chain.current_epoch();
+    let mut nonce = s.chain.store.get_account(&account).ok().flatten()
+        .and_then(|a| a["nonce"].as_u64()).unwrap_or(0);
+    let mut results = Vec::new();
+    for item in b["stakes"].as_array().cloned().unwrap_or_default() {
+        let role = item["role"].as_str().unwrap_or("").to_owned();
+        let amount = item["amount"].as_u64().unwrap_or(0);
+        if role.is_empty() || amount == 0 { continue; }
+        nonce += 1;
+        let entry = hone_types::LedgerEntry::NodeRoleStake {
+            node: account.clone(), role: role.clone(), staker: account.clone(),
+            amount, epoch, nonce, signed_by: account.clone(),
+        };
+        let sig = match crate::tx::canonical_signing_message(&entry, &s.chain.chain_id) {
+            Ok(msg) => { use ed25519_dalek::Signer; hex::encode(sk.sign(msg.as_bytes()).to_bytes()) }
+            Err(e) => { results.push(serde_json::json!({"role": role, "error": e.to_string()})); continue; }
+        };
+        match submit_entry(&s, entry, Some(sig.as_str())) {
+            Ok(hash) => results.push(serde_json::json!({"role": role, "amount": amount, "nonce": nonce, "hash": hash, "status": "pending"})),
+            Err(e) => { nonce -= 1; results.push(serde_json::json!({"role": role, "error": e})); }
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({"account": account, "results": results})))
 }
 
 /// POST /api/node/role/stake — back a node's role and earn yield.
