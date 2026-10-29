@@ -616,6 +616,7 @@ impl Chain {
 
     /// Record the seal-time outcome of a submitted entry (local bookkeeping only).
     pub fn record_entry_result(&self, hash: &str, epoch: u64, error: Option<String>) {
+        let is_err = error.is_some();
         let mut g = self.entry_results.lock();
         let (map, order) = &mut *g;
         let v = serde_json::json!({
@@ -624,6 +625,12 @@ impl Chain {
             "epoch": epoch,
             "error": error,
         });
+        // A re-gossiped copy rejected as "already committed" must not hide the commit.
+        if is_err
+            && map.get(hash).map(|o| o["status"] == "committed").unwrap_or(false)
+        {
+            return;
+        }
         if map.insert(hash.to_owned(), v).is_none() {
             order.push_back(hash.to_owned());
             while order.len() > ENTRY_RESULTS_MAX {
@@ -636,6 +643,9 @@ impl Chain {
     pub fn entry_status(&self, hash: &str) -> serde_json::Value {
         if let Some(v) = self.entry_results.lock().0.get(hash) {
             return v.clone();
+        }
+        if self.store.state_get(&format!("entry_applied:{}", hash)).is_some() {
+            return serde_json::json!({ "hash": hash, "status": "committed" });
         }
         let pending = self.pending.lock().iter().any(|(e, _)| e.hash() == hash);
         serde_json::json!({
