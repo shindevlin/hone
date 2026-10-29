@@ -1754,7 +1754,7 @@ async fn main() -> Result<()> {
                     Ok(NetworkEvent::CatchupVotes { node_id, votes, sig }) => {
                         // Signed by the voter's on-chain posting key, or ignored.
                         let msg = catchup_message(&chain_ref.chain_id, &node_id, &votes);
-                        match tx::check_sig_raw(&chain_ref, &node_id, msg.as_bytes(), Some(&sig)) {
+                        match verify_clock_signature(&chain_ref, &node_id, msg.as_bytes(), &sig) {
                             Ok(()) => {
                                 let n = clock_ref.receive_catchup_votes(
                                     &node_id, &votes,
@@ -2197,6 +2197,37 @@ fn catchup_voters(chain: &Chain, epoch: u64) -> Vec<String> {
         None => clock::reward_voters(
             &clock::registered_clock_nodes(&chain.store, chain.current_epoch())),
     }
+}
+
+/// Verify a clock's signature against the keys the chain binds to that clock: the
+/// pubkey in its on-chain clock registration (the key its seals are signed with), then
+/// the account's posting and active keys.
+fn verify_clock_signature(chain: &Chain, node_id: &str, msg: &[u8], sig_hex: &str) -> anyhow::Result<()> {
+    use ed25519_dalek::{Signature, VerifyingKey};
+    let mut keys: Vec<String> = Vec::new();
+    if let Some(pk) = chain.store.state_get(&format!("clock_reg:{}", node_id))
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v["pubkey"].as_str().map(str::to_owned))
+    {
+        keys.push(pk);
+    }
+    if let Ok(Some(acct)) = chain.store.get_account(node_id) {
+        for role in ["posting", "active"] {
+            if let Some(k) = acct["keys"][role].as_str() { keys.push(k.to_owned()); }
+        }
+    }
+    let sig: [u8; 64] = hex::decode(sig_hex)?.try_into()
+        .map_err(|_| anyhow::anyhow!("signature must be 64 bytes"))?;
+    let sig = Signature::from_bytes(&sig);
+    let ok = keys.iter().any(|k| {
+        hex::decode(k).ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .and_then(|a| VerifyingKey::from_bytes(&a).ok())
+            .map(|vk| vk.verify_strict(msg, &sig).is_ok())
+            .unwrap_or(false)
+    });
+    anyhow::ensure!(ok, "signature does not match clock '{}' registration or account keys", node_id);
+    Ok(())
 }
 
 fn epoch_is_finalized(chain: &Chain, epoch: u64) -> bool {
