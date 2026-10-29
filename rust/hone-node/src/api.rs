@@ -4276,6 +4276,10 @@ struct SensorCommitBody {
     value: Option<f64>,
     #[serde(default)]
     signature: String,
+    /// Account that relayed this commit (e.g. the phone that heard a Flipper over BLE).
+    /// Not signed by the device; it only routes the gateway share of the reward.
+    #[serde(default)]
+    gateway_account: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4394,7 +4398,7 @@ async fn post_sensor_commit(
         sensor_type: body.sensor_type.clone(),
         epoch,
         signed_by: body.owner.clone(),
-        gateway_account: None,
+        gateway_account: body.gateway_account.clone().filter(|g| !g.is_empty()),
     };
     let sig = non_empty(&body.signature);
     let result = apply_and_broadcast(&s, entry, sig);
@@ -4635,7 +4639,17 @@ async fn get_sensor(
     let key = format!("sensor:{}", id);
     match s.chain.store.get_meta(&key) {
         Some(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
-            Ok(data) => Ok(Json(data)),
+            Ok(mut data) => {
+                // The enrolled device key, so a receiver can check a device's own
+                // signature (e.g. a Flipper's BLE announce) against the chain.
+                if let Some(pk) = s.chain.store.state_get(&format!("sensor_devkey:{}", id))
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .and_then(|v| v["device_pubkey"].as_str().map(str::to_owned))
+                {
+                    data["device_pubkey"] = serde_json::json!(pk);
+                }
+                Ok(Json(data))
+            }
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
         },
         None => Err(StatusCode::NOT_FOUND),
@@ -11138,6 +11152,7 @@ mod partition_tests {
                 batch_hash: "abc123".into(), reading_count: 1,
                 sensor_type: "continuous".into(), value: Some(42.0),
                 signature: bad_sig,
+                gateway_account: None,
             }),
         ).await;
 

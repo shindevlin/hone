@@ -1694,12 +1694,32 @@ impl Chain {
                         }
                     }
                 }
+                // One batch, one commit: a signed batch relayed by several gateways (or
+                // re-broadcast by the device) counts once.
+                if let LedgerEntry::SensorDataCommit { batch_hash, .. } = entry {
+                    let bkey = format!("sensor_batch:{}:{}", sensor_id, batch_hash);
+                    anyhow::ensure!(self.store.state_get(&bkey).is_none(),
+                        "batch {} of sensor '{}' already committed", batch_hash, sensor_id);
+                    self.store.state_set(&bkey, &epoch.to_le_bytes())?;
+                }
                 let key = format!("sensor_commit:{}:{}", epoch, sensor_id);
-                let _ = self.store.state_set(&key,
-                    &serde_json::to_vec(&serde_json::json!({
-                        "sensor_id": sensor_id, "owner": owner, "epoch": epoch,
-                        "reading_count": reading_count, "sensor_type": sensor_type,
-                    })).unwrap_or_default());
+                // Several batches of one sensor can land in the same epoch: add them up
+                // (capped) instead of the last one overwriting the others.
+                let prev_count = self.store.state_get(&key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .and_then(|v| v["reading_count"].as_u64())
+                    .unwrap_or(0);
+                let total = prev_count.saturating_add(*reading_count).min(MAX_READINGS_PER_EPOCH);
+                let gateway = match entry {
+                    LedgerEntry::SensorDataCommit { gateway_account, .. } => gateway_account.clone(),
+                    _ => None,
+                };
+                let mut rec = serde_json::json!({
+                    "sensor_id": sensor_id, "owner": owner, "epoch": epoch,
+                    "reading_count": total, "sensor_type": sensor_type,
+                });
+                if let Some(gw) = gateway { rec["gateway_account"] = serde_json::json!(gw); }
+                let _ = self.store.state_set(&key, &serde_json::to_vec(&rec).unwrap_or_default());
             }
 
             // Decentralized runtime — state guards + full economics.
