@@ -146,6 +146,15 @@ fn clock_key_signed(chain: &Chain, account: &str, entry: &LedgerEntry, sig_hex: 
         .unwrap_or(false)
 }
 
+/// Node-originated entries: the account's registered clock (node) key may sign them from
+/// NODE_ENTRY_CLOCK_SIG_EPOCH on; otherwise the account's posting key as before.
+fn check_node_signature(chain: &Chain, account: &str, entry: &LedgerEntry, sig_hex: Option<&str>) -> Result<()> {
+    if entry.epoch() >= hone_types::NODE_ENTRY_CLOCK_SIG_EPOCH && clock_key_signed(chain, account, entry, sig_hex) {
+        return Ok(());
+    }
+    check_signature(chain, account, entry, sig_hex, "posting")
+}
+
 /// Returned by HTTP handlers after a submission attempt.
 pub struct SubmitResult {
     pub entry_hash: String,
@@ -585,8 +594,11 @@ pub fn validate_and_apply(
             check_sensor_signature(chain, sensor_id, owner, entry, sig_hex)?;
             chain.apply_entry(entry)?;
         }
-        LedgerEntry::SensorRegister { signed_by, .. }
-        | LedgerEntry::GatewayHeartbeat { signed_by, .. } => {
+        LedgerEntry::SensorRegister { signed_by, .. } => {
+            check_node_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::GatewayHeartbeat { signed_by, .. } => {
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
@@ -658,7 +670,7 @@ pub fn validate_and_apply(
         // StorageReward). (Also gated by verify_storage_proof, but bind anyway.)
         LedgerEntry::StorageHeartbeat { node_id, signed_by, .. } => {
             if signed_by != node_id { bail!("StorageHeartbeat: signed_by must equal node_id"); }
-            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            check_node_signature(chain, signed_by, entry, sig_hex)?;
             chain.apply_entry(entry)?;
         }
         // Commerce: seller owns the store/product.
@@ -829,7 +841,7 @@ pub fn validate_and_apply(
             }
             require_key(chain, bidder)?;
             check_nonce(chain, bidder, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            check_node_signature(chain, signed_by, entry, sig_hex)?;
             chain.apply_entry(entry)?;
             bump_nonce(chain, bidder)?;
         }
@@ -839,7 +851,7 @@ pub fn validate_and_apply(
                 bail!("signed_by must equal worker");
             }
             require_key(chain, worker)?;
-            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            check_node_signature(chain, signed_by, entry, sig_hex)?;
             chain.apply_entry(entry)?;
         }
 
@@ -896,6 +908,17 @@ pub fn validate_and_apply(
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
             bump_nonce(chain, cancelled_by)?;
+        }
+
+        // A Mine produced by the miner's own node, signed with that node's registered
+        // clock key, goes through consensus like any node entry (it used to be applied
+        // only on the mining node, which alone then paid it).
+        LedgerEntry::Mine { miner, .. }
+            if entry.epoch() >= hone_types::NODE_ENTRY_CLOCK_SIG_EPOCH
+                && clock_key_signed(chain, miner, entry, sig_hex) =>
+        {
+            let _guard = chain.write_lock.lock();
+            chain.apply_entry(entry)?;
         }
 
         // ── Privileged types: never accepted from external callers ────────────
@@ -1054,7 +1077,7 @@ pub fn validate_and_apply(
                 bail!("signed_by must match node_id");
             }
             require_key(chain, node_id)?;
-            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            check_node_signature(chain, signed_by, entry, sig_hex)?;
             chain.apply_entry(entry)?;
         }
 
@@ -1209,7 +1232,7 @@ pub fn validate_and_apply(
                 bail!("signed_by must match operator");
             }
             require_key(chain, operator)?;
-            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            check_node_signature(chain, signed_by, entry, sig_hex)?;
             chain.apply_entry(entry)?;
         }
 
@@ -3815,6 +3838,43 @@ mod tests {
         validate_and_apply(&chain, &acc, Some(&sg(&shin_active, &acc))).unwrap();
         assert!(crate::identity_nft::controller(&chain, "a", NACT).is_none(), "self-held: own keys");
         set_nact(None);
+    }
+
+    // ── Node-originated entries signed by the clock key (NODE_ENTRY_CLOCK_SIG_EPOCH) ──
+
+    #[test]
+    fn node_heartbeat_signed_by_clock_key_applies_from_activation() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "nodeop", 1_000_000_000_000);
+        let clock = SigningKey::from_bytes(&[0x77; 32]);
+        chain.store.state_set("clock_reg:nodeop",
+            &serde_json::to_vec(&serde_json::json!({ "pubkey": pk(&clock) })).unwrap()).unwrap();
+        let act = hone_types::NODE_ENTRY_CLOCK_SIG_EPOCH;
+        chain.apply_entry(&LedgerEntry::EpochSeal {
+            node_id: "test-node".into(), epoch: act, timestamp: 0, seal_hash: "h".into(),
+            signature: None, node_version: None,
+        }).unwrap();
+        let beat = |epoch: u64| LedgerEntry::StorageHeartbeat {
+            node_id: "nodeop".into(), epoch, bytes_proven: 1 << 30, query_count: 0,
+            challenge_response: None, tier: Some(1), signed_by: "nodeop".into(),
+        };
+        // Before activation the clock key does not speak for the account.
+        let early = beat(act - 1);
+        assert!(validate_and_apply(&chain, &early, Some(&sg(&clock, &early))).is_err());
+        // From activation it does — on every node, so storage_beat rows agree.
+        let b = beat(act);
+        validate_and_apply(&chain, &b, Some(&sg(&clock, &b))).unwrap();
+        assert!(chain.store.state_get(&format!("storage_beat:{}:nodeop", act)).is_some());
+        // A random key still does not.
+        let b2 = beat(act + 1);
+        assert!(validate_and_apply(&chain, &b2, Some(&sg(&SigningKey::from_bytes(&[3; 32]), &b2))).is_err());
+        // Mine: privileged unless signed by the miner's own clock key after activation.
+        let mine = LedgerEntry::Mine {
+            miner: "nodeop".into(), epoch: act, model: "m".into(), input_tokens: 1, output_tokens: 1,
+            tool_calls: 0, hw_tier: 1, output_hash: "00".into(), job_id: None, node_version: None,
+            software_hash: None, model_hash: None,
+        };
+        assert!(validate_and_apply(&chain, &mine, None).is_err());
     }
 
     // ── Memory service signing (MEMORY_SIGNING_ACTIVATION_EPOCH) ─────────────

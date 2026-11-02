@@ -120,6 +120,13 @@ pub const LIVENESS_HALF_LIFE_EPOCHS: u64 = 2 * 1_051_920;
 /// with this value before it is reached.
 pub const MEMORY_SIGNING_ACTIVATION_EPOCH: u64 = 349_100;
 
+/// From this entry epoch on, node-originated entries (StorageHeartbeat, ServiceHeartbeat,
+/// MempoolHeartbeat, SensorRegister, InferenceJobBid, InferenceJobComplete, Mine) are also
+/// valid when signed by the account's registered clock (node) key. Nodes hold their clock
+/// key, not the owner's posting key, and these entries now go through consensus instead of
+/// being applied locally. Consensus-critical: all nodes upgraded before this epoch.
+pub const NODE_ENTRY_CLOCK_SIG_EPOCH: u64 = 349_100;
+
 // ── Identity NFT (names as transferable assets) ─────────────────────────────────
 /// Identity-NFT entries (IdentityNft*) are rejected before this epoch. Consensus-
 /// critical: every node MUST use this exact value and be upgraded before it.
