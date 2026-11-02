@@ -41,6 +41,7 @@ mod api;
 mod chain;
 mod clock;
 mod config;
+mod mem_profile;
 mod contracts;
 mod discovery;
 mod finalize;
@@ -144,8 +145,25 @@ use contracts::ContractEngine;
 use net::{NetCmd, NetworkEvent};
 use store::Store;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    // Allocator caps must be set before the runtime spawns its worker threads.
+    mem_profile::tune_allocator();
+    let prof = mem_profile::get();
+    mem_profile::spawn_trimmer();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async_main(prof))
+}
+
+async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
+    eprintln!(
+        "hone-node: memory profile {} (rocks cache {} MB, write buffer {} MB, catch-up {} per {} s, ram {:?} MB)",
+        if prof.light { "LIGHT" } else { "full" },
+        prof.rocks_cache_bytes >> 20, prof.rocks_write_buffer_bytes >> 20,
+        prof.catchup_batch, prof.catchup_interval_secs,
+        mem_profile::total_ram_bytes().map(|b| b >> 20),
+    );
     // Install ring as the rustls 0.23 crypto provider before any TLS code runs.
     // Required when multiple providers (ring + aws-lc-rs) are in the dep tree.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -1110,7 +1128,8 @@ async fn main() -> Result<()> {
         let node_id_c = cfg.node_id.clone();
         let sk_c = Arc::clone(&signing_key);
         tokio::spawn(async move {
-            const BATCH: usize = 512;
+            let batch: usize = mem_profile::get().catchup_batch;
+            let interval = mem_profile::get().catchup_interval_secs;
             const LIVE_WINDOW: u64 = hone_types::NEGATIVE_ATTESTATION_WINDOW + 36;
             let mut cursor: u64 = 0;
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
@@ -1118,7 +1137,7 @@ async fn main() -> Result<()> {
             // done key, so take it once and then advance with point reads.
             let mut floor = chain_c.store.reward_cursor().contiguous.saturating_add(1);
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
                 let cur = chain_c.current_epoch();
                 let upper = cur.saturating_sub(LIVE_WINDOW);
                 while chain_c.store.state_get(&format!("epoch_finalized_done:{}", floor)).is_some() {
@@ -1132,9 +1151,9 @@ async fn main() -> Result<()> {
                 while cursor <= upper && epoch_is_finalized(&chain_c, cursor) {
                     cursor += 1;
                 }
-                let mut votes: Vec<(u64, String)> = Vec::with_capacity(BATCH);
+                let mut votes: Vec<(u64, String)> = Vec::with_capacity(batch);
                 let mut e = cursor;
-                while e <= upper && votes.len() < BATCH {
+                while e <= upper && votes.len() < batch {
                     if !epoch_is_finalized(&chain_c, e) {
                         // Catch-up votes "earned nothing" — never the local snapshot hash.
                         // The snapshot exists only where THIS node sealed the epoch (a solo
@@ -1407,10 +1426,11 @@ async fn main() -> Result<()> {
             Err(_) => detected,
         }
     }
-    let enable_storage = env_or_probe("HONE_STORAGE", capabilities.disk_gb >= 10);
+    // Light (small-RAM) nodes default storage/worker off; an explicit env var still wins.
+    let enable_storage = env_or_probe("HONE_STORAGE", prof.role_default(capabilities.disk_gb >= 10));
     let enable_service = env_or_probe("HONE_SERVICE", false);
     let enable_sensor  = env_or_probe("HONE_SENSOR",  capabilities.has_gnss);
-    let enable_worker  = env_or_probe("HONE_WORKER",  capabilities.has_ollama);
+    let enable_worker  = env_or_probe("HONE_WORKER",  prof.role_default(capabilities.has_ollama));
     let enable_mempool = env_or_probe("HONE_MEMPOOL", false);
     info!(
         "roles — miner={} clock={} storage={} service={} sensor={} worker={} mempool={}",

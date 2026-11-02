@@ -61,18 +61,43 @@ impl RewardCursor {
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         std::fs::create_dir_all(path)?;
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
+        let opts = Self::db_options(crate::mem_profile::get());
 
+        // Every CF shares the DB's cache + memtable caps. Options::default() per CF gave
+        // each its own 32 MB block cache and 2 × 64 MB memtables (9 CFs incl. default).
         let cfs = [CF_BLOCKS, CF_FINALITY, CF_ACCOUNTS, CF_BALANCES, CF_STAKES, CF_EPOCHS, CF_META, CF_GIT_OBJECTS]
-            .iter().map(|name| ColumnFamilyDescriptor::new(*name, Options::default()))
+            .iter().map(|name| ColumnFamilyDescriptor::new(*name, opts.clone()))
             .collect::<Vec<_>>();
 
         let db = DB::open_cf_descriptors(&opts, path, cfs)
             .with_context(|| format!("opening RocksDB at {:?}", path))?;
 
         Ok(Self { db: Arc::new(db) })
+    }
+
+    /// RocksDB options bounded by the memory profile. Affects only caching and flush
+    /// timing — never what is stored, so state_root is unchanged.
+    pub fn db_options(p: &crate::mem_profile::MemProfile) -> Options {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
+        let cache = rocksdb::Cache::new_lru_cache(p.rocks_cache_bytes);
+        let mut bbo = rocksdb::BlockBasedOptions::default();
+        bbo.set_block_cache(&cache);
+        // Index/filter blocks live in (and are bounded by) the shared cache instead of
+        // being held per open table outside any limit.
+        bbo.set_cache_index_and_filter_blocks(true);
+        bbo.set_pin_l0_filter_and_index_blocks_in_cache(true);
+        opts.set_block_based_table_factory(&bbo);
+        opts.set_write_buffer_size(p.rocks_write_buffer_bytes);
+        opts.set_max_write_buffer_number(2);
+        opts.set_db_write_buffer_size(p.rocks_db_write_buffer_bytes);
+        opts.set_max_open_files(p.rocks_max_open_files);
+        if p.light {
+            opts.increase_parallelism(1);
+            opts.set_max_background_jobs(1);
+        }
+        opts
     }
 
     // ── Blocks ───────────────────────────────────────────────────────────────
@@ -710,5 +735,27 @@ impl Store {
             }
         }
         shas
+    }
+}
+
+#[cfg(test)]
+mod mem_profile_tests {
+    use super::*;
+
+    /// The light options open a real DB with all CFs and round-trip data unchanged.
+    #[test]
+    fn light_db_options_open_and_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let opts = Store::db_options(&crate::mem_profile::MemProfile::light());
+        let cfs = [CF_BLOCKS, CF_META]
+            .iter().map(|n| ColumnFamilyDescriptor::new(*n, opts.clone()))
+            .collect::<Vec<_>>();
+        let db = DB::open_cf_descriptors(&opts, dir.path(), cfs).unwrap();
+        let cf = db.cf_handle(CF_BLOCKS).unwrap();
+        for e in 0u64..2_000 {
+            db.put_cf(&cf, e.to_be_bytes(), vec![7u8; 2048]).unwrap();
+        }
+        db.flush_cf(&cf).unwrap();
+        assert_eq!(db.get_cf(&cf, 1999u64.to_be_bytes()).unwrap().unwrap().len(), 2048);
     }
 }

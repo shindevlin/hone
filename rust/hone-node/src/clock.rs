@@ -209,6 +209,14 @@ struct RewardState {
     deadline: Instant,
 }
 
+/// How many epochs behind the newest resolved one a live reward state is kept.
+/// LIVE_WINDOW for catch-up is NEGATIVE_ATTESTATION_WINDOW + 36 = 100; keep well past it.
+const REWARD_STATE_KEEP_EPOCHS: u64 = 1_000;
+
+fn prune_reward_states(states: &mut HashMap<u64, RewardState>, newest: u64) {
+    states.retain(|e, _| e.saturating_add(REWARD_STATE_KEEP_EPOCHS) >= newest);
+}
+
 struct Inner {
     epoch_states: HashMap<u64, EpochState>,
     reward_states: HashMap<u64, RewardState>,
@@ -299,6 +307,10 @@ impl ClockConsensus {
                 .cloned()
                 .unwrap_or((false, HashMap::new()));
 
+            // Live reward consensus only covers recent epochs; older ones belong to the
+            // catch-up path (receive_catchup_votes), which reads finality from disk. Without
+            // this, reward_states grew by one entry per epoch forever.
+            if epoch.saturating_add(REWARD_STATE_KEEP_EPOCHS) < inner.current_epoch { return; }
             let state = inner.reward_states.entry(epoch).or_insert_with(|| RewardState {
                 proposals: Vec::new(),
                 finalized: false,
@@ -459,10 +471,16 @@ impl ClockConsensus {
             }
             // Bound memory: votes for epochs nobody else is voting on stay small, but
             // never let the map grow without limit.
-            if inner.catchup_votes.len() > 200_000 {
+            // The cap comes from the memory profile (light nodes hold far fewer). Keep the
+            // LOWEST epochs: those are the ones the reward driver is blocked on, and senders
+            // re-vote from their lowest unfinalized epoch every round, so dropped votes for
+            // higher epochs are simply re-sent later. Tallies depend only on votes, never on
+            // this cap, so it cannot change which hash finalizes.
+            let cap = crate::mem_profile::get().catchup_votes_max;
+            if inner.catchup_votes.len() > cap {
                 let mut keys: Vec<u64> = inner.catchup_votes.keys().copied().collect();
                 keys.sort_unstable();
-                for k in keys.into_iter().skip(100_000) {
+                for k in keys.into_iter().skip(cap / 2) {
                     inner.catchup_votes.remove(&k);
                 }
             }
@@ -961,6 +979,7 @@ impl ClockConsensus {
         {
             let mut inner = self.inner.lock().unwrap();
             inner.epoch_states.retain(|e, _| *e + 20 >= epoch);
+            prune_reward_states(&mut inner.reward_states, epoch);
         }
 
         if let Some(event) = result {
@@ -1800,6 +1819,25 @@ mod reward_quorum_tests {
         assert_eq!(n, 1);
         let ev = rx.try_recv().unwrap();
         assert_eq!((ev.epoch, ev.rewards_hash.as_str(), ev.quorum), (74477, "h", 2));
+    }
+
+    #[test]
+    fn reward_states_are_pruned_and_ancient_proposals_ignored() {
+        let mut m: HashMap<u64, RewardState> = HashMap::new();
+        for e in [1u64, 500, 1_500, 2_000] {
+            m.insert(e, RewardState { proposals: vec![], finalized: false, deadline: Instant::now() });
+        }
+        prune_reward_states(&mut m, 2_000);
+        let mut left: Vec<u64> = m.keys().copied().collect();
+        left.sort();
+        assert_eq!(left, vec![1_500, 2_000]);
+
+        let c = ClockConsensus::new();
+        c.inner.lock().unwrap().current_epoch = 5_000;
+        c.receive_reward_proposal(RewardProposal { epoch: 10, node_id: "a".into(), rewards_hash: "h".into() });
+        assert!(c.inner.lock().unwrap().reward_states.is_empty());
+        c.receive_reward_proposal(RewardProposal { epoch: 4_990, node_id: "a".into(), rewards_hash: "h".into() });
+        assert_eq!(c.inner.lock().unwrap().reward_states.len(), 1);
     }
 
     #[test]

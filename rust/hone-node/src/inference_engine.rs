@@ -75,6 +75,14 @@ fn backend() -> &'static Backend {
             tracing::info!("inference-engine: external backend at {base}");
             return Backend::Http { base };
         }
+        // A light (small-RAM) node never loads a GGUF on its own: a ~400 MB model would
+        // OOM a 1 GB Pi. HONE_INFERENCE=true opts back in.
+        if crate::mem_profile::get().light
+            && !matches!(std::env::var("HONE_INFERENCE").as_deref(), Ok("true") | Ok("1"))
+        {
+            tracing::info!("inference-engine: disabled on light memory profile (HONE_INFERENCE=true to enable)");
+            return Backend::None;
+        }
         #[cfg(feature = "inference-embedded")]
         {
             tracing::info!("inference-engine: embedded candle GGUF backend");
