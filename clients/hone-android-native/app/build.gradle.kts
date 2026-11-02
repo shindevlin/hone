@@ -74,6 +74,8 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
     // H3 cells for the coverage map (ships an android-arm64 JNI build).
     implementation("com.uber:h3:4.5.1")
+    // Play services fused location (high accuracy) when GMS is present; LocationManager otherwise.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

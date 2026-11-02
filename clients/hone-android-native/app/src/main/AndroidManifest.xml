@@ -7,8 +7,9 @@
     <!-- BLE: hear HONE device announces (e.g. the Flipper). Not used for location. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" tools:targetApi="s" />
+    <!-- BLE scans ARE used for location now (sightings and crowd counts are location-stamped),
+         so no neverForLocation: with it Android also filters beacon results out of scans. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <!-- Rotating-id advert (spec 1a): the phone broadcasts its own rid. -->
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <!-- Wi-Fi coverage sensing (spec 2a). BSSIDs are hashed with a RAM-only day key. -->

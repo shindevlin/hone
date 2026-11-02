@@ -69,6 +69,29 @@ object ChainHttp {
         return null
     }
 
+    /** DELETE with a JSON body (MemoryDelete) to the first node that answers. */
+    fun deleteJson(path: String, json: String): Pair<Int, String>? {
+        for (i in NODES.indices) {
+            val idx = (preferred + i) % NODES.size
+            val res = runCatching {
+                val c = URL(NODES[idx] + path).openConnection() as HttpURLConnection
+                c.connectTimeout = 3_000
+                c.readTimeout = 10_000
+                c.requestMethod = "DELETE"
+                c.doOutput = true
+                c.setRequestProperty("content-type", "application/json")
+                try {
+                    c.outputStream.use { it.write(json.toByteArray()) }
+                    val code = c.responseCode
+                    val stream = if (code in 200..299) c.inputStream else c.errorStream
+                    code to (stream?.bufferedReader()?.use { it.readText() } ?: "")
+                } finally { c.disconnect() }
+            }.getOrNull()
+            if (res != null && res.first < 500) { preferred = idx; return res }
+        }
+        return null
+    }
+
     /** Like [get] but also returns 4xx answers (e.g. 404 = "not on chain"). Null when no node answers. */
     fun getWithCode(path: String): Pair<Int, String?>? {
         for (i in NODES.indices) {
