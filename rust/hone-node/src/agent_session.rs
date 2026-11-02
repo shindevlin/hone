@@ -220,3 +220,46 @@ pub fn sweep_expired(chain: &Chain, epoch: u64) {
         warn!("[agent-session] '{}' expired at epoch {}", session.session_id, epoch);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chain() -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        (Chain::new(crate::store::Store::open(dir.path()).unwrap(), "n".into(), "t".into()), dir)
+    }
+
+    fn open(chain: &Chain, id: &str) {
+        chain.store.set_balance("alice", NATIVE_TOKEN, 10_000).unwrap();
+        apply_open(chain, &LedgerEntry::AgentSessionOpen {
+            session_id: id.into(), client: "alice".into(), client_pubkey: "pk".into(), model: "m".into(),
+            fee_escrow: 3_000, epoch: 10, nonce: 1, signed_by: "alice".into(), system_prompt: None, signature: None,
+        }, "srv").unwrap();
+    }
+
+    /// Turns run on whichever node served them, so turn_count differs per node. Close and
+    /// expiry must refund the same amount everywhere: the full consensus-held escrow.
+    #[test]
+    fn close_and_expiry_refund_identically_whatever_turns_this_node_served() {
+        let (a, _da) = chain();
+        let (b, _db) = chain();
+        for c in [&a, &b] { open(c, "s1"); open(c, "s2"); }
+        // Node b served two turns locally (what execute_turn records).
+        for id in ["s1", "s2"] {
+            let mut s: AgentSession = serde_json::from_slice(&b.store.state_get(&session_key(id)).unwrap()).unwrap();
+            s.turn_count = 2;
+            b.store.state_set(&session_key(id), &serde_json::to_vec(&s).unwrap()).unwrap();
+        }
+        let close = LedgerEntry::AgentSessionClose {
+            session_id: "s1".into(), client: "alice".into(), epoch: 11, nonce: 2, signed_by: "alice".into(), signature: None,
+        };
+        for c in [&a, &b] {
+            apply_close(c, &close).unwrap();
+            sweep_expired(c, 10 + SESSION_EXPIRY_EPOCHS + 1);
+        }
+        // open s1 / s2 each reset alice to 10_000 and escrow 3_000; both 3_000s come back.
+        assert_eq!(a.store.get_balance("alice", NATIVE_TOKEN), 13_000);
+        assert_eq!(a.store.balance_merkle_root(), b.store.balance_merkle_root());
+    }
+}
