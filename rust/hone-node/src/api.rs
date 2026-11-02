@@ -136,6 +136,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/latest", get(get_latest))
         .route("/api/sync/snapshot", get(get_sync_snapshot))
         .route("/api/sync/blocks", get(get_sync_blocks))
+        .route("/api/chain/healer", get(get_healer_status))
+        .route("/api/sync/checkpoint/:epoch/:cursor", get(get_sync_checkpoint))
         .route("/api/entry/:hash/status", get(get_entry_status))
         .route("/api/stake/:account", get(get_stake))
         .route("/api/epoch/:epoch", get(get_epoch))
@@ -2187,6 +2189,27 @@ async fn get_sync_snapshot(State(s): State<AppState>) -> Json<serde_json::Value>
     }))
 }
 
+/// GET /api/chain/healer — state checkpoints, attestations and the healer's verdict.
+async fn get_healer_status() -> Json<serde_json::Value> {
+    match crate::state_healer::GLOBAL.get() {
+        Some(h) => Json(h.status()),
+        None => Json(serde_json::json!({ "error": "healer not running" })),
+    }
+}
+
+/// GET /api/sync/checkpoint/:epoch/:cursor — this node's balance snapshot for a checkpoint.
+/// Verify it yourself: recompute the merkle root from `rows`.
+async fn get_sync_checkpoint(
+    axum::extract::Path((epoch, cursor)): axum::extract::Path<(u64, u64)>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let snap = crate::state_healer::DATA_DIR.get()
+        .and_then(|d| crate::state_healer::load(d, epoch, cursor));
+    match snap {
+        Some(s) => (StatusCode::OK, Json(serde_json::to_value(s).unwrap_or_default())),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "no such checkpoint" }))),
+    }
+}
+
 // GET /api/sync/blocks?from=N&limit=L — bulk sealed-block fetch for catch-up sync.
 // Returns up to 1000 blocks starting from epoch `from`. A node that missed entries
 // can call this repeatedly against a healthy peer to fill gaps without replaying gossip.
@@ -2217,6 +2240,19 @@ async fn get_sync_blocks(
         "count":  blocks.len(),
         "blocks": blocks,
     }))
+}
+
+/// Usage fees for node-served inference. They used to debit the caller and credit the
+/// node in balances directly — a mutation only this node made, so every paid call forked
+/// state_root. Until a client-signed payment entry exists they are recorded here, in a
+/// local non-consensus ledger (`fee_owed:{payer}:{payee}` in meta, never in balances).
+pub(crate) fn record_fee_owed(chain: &crate::chain::Chain, payer: &str, payee: &str, amount: u64) {
+    let key = format!("fee_owed:{}:{}", payer, payee);
+    let prev = chain.store.get_meta(&key)
+        .and_then(|b| <[u8; 8]>::try_from(b.as_slice()).ok())
+        .map(u64::from_le_bytes)
+        .unwrap_or(0);
+    let _ = chain.store.set_meta(&key, &prev.saturating_add(amount).to_le_bytes());
 }
 
 /// Validate, apply, broadcast, and return the standard JSON response.
@@ -2261,6 +2297,9 @@ pub(crate) fn submit_entry(
     // soften, or add an offline bypass to this check. No exceptions for any entry type.
     if s.peer_count.load(std::sync::atomic::Ordering::Relaxed) == 0 {
         return Err("not connected to network — entry rejected to prevent local fork".into());
+    }
+    if crate::state_healer::halted() {
+        return Err("node is rebasing diverged state (state healer) — retry shortly".into());
     }
     if tx::is_system_entry(&entry) {
         return Err("system entries cannot be submitted".into());
@@ -2944,12 +2983,13 @@ async fn post_faucet_claim(
         })));
     }
 
-    // Debit faucet, credit recipient
-    let result = (|| -> anyhow::Result<()> {
-        s.chain.store.debit(FAUCET_ACCOUNT, NATIVE_TOKEN, amount)?;
-        s.chain.store.credit(&account, NATIVE_TOKEN, amount)?;
-        Ok(())
-    })();
+    // The faucet used to debit/credit balances right here, on this node only — a
+    // state_root fork for every claim. There is no consensus entry a node can sign for
+    // the faucet account, so the payout is disabled until one exists.
+    let _ = amount;
+    let result: anyhow::Result<()> = Err(anyhow::anyhow!(
+        "faucet payouts are paused: they were applied on one node only (state fork) and \
+         need a consensus entry before they can resume"));
 
     match result {
         Ok(_) => (StatusCode::OK, Json(serde_json::json!({
@@ -7988,7 +8028,11 @@ async fn git_upload_pack(
                             requester_hash: hash,
                             epoch,
                         };
-                        if let Ok(()) = s.chain.apply_entry(&entry) {
+                        // Queued for seal on every node (was applied here only; it feeds
+                        // the LinkGit serve-reward pool, so a local apply forked balances).
+                        if s.peer_count.load(std::sync::atomic::Ordering::Relaxed) > 0
+                            && s.chain.push_pending(entry.clone(), None)
+                        {
                             let _ = s.tx_broadcast.send((entry, None));
                         }
                     }
@@ -8309,8 +8353,7 @@ async fn post_v1_chat_completions(
             let balance = s_stream.chain.store.get_balance(&caller_stream, hone_types::NATIVE_TOKEN);
             let actual_fee = fee.min(balance);
             if actual_fee > 0 {
-                let _ = s_stream.chain.store.debit(&caller_stream, hone_types::NATIVE_TOKEN, actual_fee);
-                let _ = s_stream.chain.store.credit(s_stream.node_account.as_str(), hone_types::NATIVE_TOKEN, actual_fee);
+                crate::api::record_fee_owed(&s_stream.chain, &caller_stream, s_stream.node_account.as_str(), actual_fee);
             }
             let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
         });
@@ -8344,8 +8387,7 @@ async fn post_v1_chat_completions(
                 let balance = s.chain.store.get_balance(&caller, hone_types::NATIVE_TOKEN);
                 let actual_fee = fee.min(balance);
                 if actual_fee > 0 {
-                    let _ = s.chain.store.debit(&caller, hone_types::NATIVE_TOKEN, actual_fee);
-                    let _ = s.chain.store.credit(s.node_account.as_str(), hone_types::NATIVE_TOKEN, actual_fee);
+                    record_fee_owed(&s.chain, &caller, s.node_account.as_str(), actual_fee);
                 }
                 let completion = serde_json::json!({
                     "id": chat_id,
@@ -8569,8 +8611,7 @@ async fn post_inference_stream(
             .keep_alive(KeepAlive::default())
             .into_response();
     }
-    let _ = s.chain.store.debit(&account, NATIVE_TOKEN, fee);
-    let _ = s.chain.store.credit("treasury", NATIVE_TOKEN, fee);
+    record_fee_owed(&s.chain, &account, "treasury", fee);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(32);
     let prompt = body.prompt.clone();

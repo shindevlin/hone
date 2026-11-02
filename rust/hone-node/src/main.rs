@@ -42,6 +42,8 @@ mod chain;
 mod clock;
 mod config;
 mod mem_profile;
+mod local_submit;
+mod state_healer;
 mod contracts;
 mod discovery;
 mod finalize;
@@ -259,6 +261,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
     let signing_key: Arc<Option<ed25519_dalek::SigningKey>> = Arc::new(
         load_signing_key(&wallet_keys.hone_private_key)
     );
+    if let Some(sk) = signing_key.as_ref().as_ref() {
+        local_submit::set_signer(sk);
+    }
     let signing_pubkey_hex: Arc<Option<String>> = Arc::new(
         signing_key.as_ref().as_ref().map(|sk| hex::encode(sk.verifying_key().to_bytes()))
     );
@@ -398,6 +403,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
 
     // ── Clock consensus ───────────────────────────────────────────────────────
     let clock = Arc::new(clock::ClockConsensus::new());
+    let healer = Arc::new(state_healer::Healer::default());
+    let _ = state_healer::GLOBAL.set(healer.clone());
+    let _ = state_healer::DATA_DIR.set(cfg.data_dir.clone());
     // Populate registered_clocks immediately from store so quorum is correct from epoch 1.
     {
         let epoch_now = chain.current_epoch();
@@ -433,6 +441,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
             // exactly where we left off, and an unresolved gap stays the resume point
             // instead of ageing out of the window.
             let mut last_rewarded: u64 = highest_contiguous_rewarded(&chain_ref);
+            state_healer::driver_enter();
+            state_healer::driver_exit(last_rewarded);
             // One-time cold-start alignment guard: a fresh node (last_rewarded==0) with a
             // past genesis aligns its reward start to the tracking window on the first tick,
             // so it doesn't block forever on ancient never-finalized epochs. A restart with
@@ -584,6 +594,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                     // finalized it sooner applies it → state_root fork, the exact bug this
                     // driver exists to prevent. So we break at the first not-ready epoch
                     // and only commit last_rewarded up to the last CONTIGUOUS processed one.
+                    // Seqlock for state checkpoints: balances may change from here until exit.
+                    state_healer::driver_enter();
                     for e in start..=stop {
                         let done_key = format!("epoch_finalized_done:{}", e);
                         if chain_ref.store.state_get(&done_key).is_some() {
@@ -750,6 +762,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         let _ = chain_ref.store.state_set(&done_key, b"1");
                         last_rewarded = e; // contiguous through e
                     }
+                    state_healer::driver_exit(last_rewarded);
                 }
             }
         });
@@ -768,6 +781,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         let clock_ref = clock.clone();
         let node_id_c = cfg.node_id.clone();
         let cmd_tx_for_seal = net_handle.cmd_tx.clone();
+        let healer_s = healer.clone();
+        let ckpt_sk = if cfg.is_clock { Arc::clone(&signing_key) } else { Arc::new(None) };
+        let ckpt_dir = cfg.data_dir.clone();
         // Hardware conflict check: after each epoch seal we verify our fingerprint is still ours.
         let hw_fp  = hw_fingerprint_for_seal;
         let hw_acc = hw_account_for_seal;
@@ -887,6 +903,18 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
 
                         // Release matured unbonding tokens, apply timelocked param changes,
                         // and finalize any governance proposals whose voting window closed.
+                        // Inference awards/expiries/payments, derived from the state as of
+                        // this seal on every node (moved from a free-running timer).
+                        // Same for the expiry sweepers (ensemble / session market / agent
+                        // sessions / VRF): they refund or forfeit escrow, so they must see the
+                        // same state at the same epoch on every node, not a wall-clock tick.
+                        if sealed.quorum >= 2 {
+                            inference_daemon::process_epoch(&chain_ref, sealed_epoch);
+                            ensemble::sweep_expired(&chain_ref, sealed_epoch);
+                            session_market::sweep_expired(&chain_ref, sealed_epoch);
+                            agent_session::sweep_expired(&chain_ref, sealed_epoch);
+                            vrf::sweep_epoch(&chain_ref, sealed_epoch);
+                        }
                         chain_ref.drain_unbonding(sealed_epoch);
                         chain_ref.drain_pending_params(sealed_epoch);
                         chain_ref.drain_governance_proposals(sealed_epoch);
@@ -991,6 +1019,53 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // Persist the sealed block — written after rewards so all entries are indexed.
                         chain_ref.write_sealed_block(sealed_epoch, seal_hash.as_str(), ts);
 
+                        // State checkpoint (state_healer): after every seal-time mutation of
+                        // this epoch, sign (E, reward cursor, balance root) and gossip it.
+                        if sealed.quorum >= 2
+                            && state_healer::checkpoint_due(sealed_epoch)
+                            && state_healer::mode() != state_healer::Mode::Off
+                        {
+                            if let Some(sk) = ckpt_sk.as_ref().as_ref() {
+                                match state_healer::take(&chain_ref, sealed_epoch) {
+                                    Some(snap) => {
+                                        if let Err(e) = state_healer::save(&ckpt_dir, &snap) {
+                                            warn!("[healer] saving checkpoint {} failed: {}", sealed_epoch, e);
+                                        }
+                                        healer_s.own.lock().insert((snap.epoch, snap.cursor), snap.root.clone());
+                                        let msg = state_healer::message(&chain_ref.chain_id, &node_id_c,
+                                            snap.epoch, snap.cursor, &snap.root);
+                                        let sig = {
+                                            use ed25519_dalek::Signer;
+                                            hex::encode(sk.sign(msg.as_bytes()).to_bytes())
+                                        };
+                                        let voters = catchup_voters(&chain_ref, snap.epoch);
+                                        let v = healer_s.observe(snap.epoch, snap.cursor, &node_id_c, &snap.root, &node_id_c, &voters);
+                                        // Peers' attestations may have arrived first.
+                                        if let Some(state_healer::Verdict::Diverged { canonical, .. }) = v.clone() {
+                                            if state_healer::on_verdict(v.as_ref().unwrap(), state_healer::mode())
+                                                && state_healer::rate_ok(&healer_s.requested, (snap.epoch, snap.cursor))
+                                            {
+                                                if let Ok(data) = serde_json::to_vec(&serde_json::json!({
+                                                    "type": "checkpoint_req", "node_id": node_id_c,
+                                                    "epoch": snap.epoch, "cursor": snap.cursor, "root": canonical,
+                                                })) {
+                                                    let _ = cmd_tx_for_seal.send(NetCmd::Broadcast { topic: "hone/consensus", data }).await;
+                                                }
+                                            }
+                                        }
+                                        info!("[healer] checkpoint epoch {} cursor {} root {}", snap.epoch, snap.cursor, snap.root);
+                                        if let Ok(data) = serde_json::to_vec(&serde_json::json!({
+                                            "type": "checkpoint", "node_id": node_id_c, "epoch": snap.epoch,
+                                            "cursor": snap.cursor, "root": snap.root, "sig": sig,
+                                        })) {
+                                            let _ = cmd_tx_for_seal.send(NetCmd::Broadcast { topic: "hone/consensus", data }).await;
+                                        }
+                                    }
+                                    None => info!("[healer] checkpoint {} skipped (reward driver mid-walk)", sealed_epoch),
+                                }
+                            }
+                        }
+
                         // Compute reward hash and broadcast consensus proposal.
                         let rewards_hash = clock::compute_rewards_hash(sealed_epoch, &chain_ref.store);
                         let proposal = clock::RewardProposal {
@@ -999,6 +1074,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             rewards_hash: rewards_hash.clone(),
                         };
                         clock_ref.receive_reward_proposal(proposal);
+                        if state_healer::halted() { continue; }
                         if let Ok(data) = serde_json::to_vec(&serde_json::json!({
                             "epoch": sealed_epoch,
                             "node_id": node_id_c,
@@ -1169,7 +1245,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                     }
                     e += 1;
                 }
-                if votes.is_empty() { continue; }
+                if votes.is_empty() || state_healer::halted() { continue; }
                 // Only clocks that are reward voters for these epochs count; others'
                 // votes are ignored by every tally, so don't spam them.
                 let Some(sk) = sk_c.as_ref().as_ref() else { continue };
@@ -1357,6 +1433,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         "signature": sig_hex,
                         "pubkey": *signing_pubkey_c,
                     });
+                    // Healer halt: a node rebasing diverged state does not seal.
+                    if state_healer::halted() { continue; }
                     // Self-ingest so we count toward quorum on single-node networks.
                     clock_ref.receive_seal(seal.clone());
                     if let Ok(data) = serde_json::to_vec(&seal) {
@@ -1396,12 +1474,10 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
     }
 
     // ── Inference marketplace daemon ──────────────────────────────────────────
-    {
-        let chain_ref = chain.clone();
-        tokio::spawn(async move {
-            inference_daemon::run(chain_ref).await;
-        });
-    }
+    // No longer a free-running loop: it ran at a wall-clock moment inside each epoch, so
+    // whether that epoch's sealed bids/completions were applied yet differed per node, and
+    // awards/payments (balance moves) differed with it. It now runs in the seal handler,
+    // right after the sealed epoch's entries are applied — the same point on every node.
 
     // Compute binary SHA-256 once at startup for software attestation in Mine entries.
     let software_hash = {
@@ -1661,17 +1737,21 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         let echo_node_id = cfg.node_id.clone();
         let echo_sk = if cfg.is_clock { Arc::clone(&signing_key) } else { Arc::new(None) };
         let echo_cmd_tx = net_handle.cmd_tx.clone();
+        let healer_n = healer.clone();
+        let healer_dir = cfg.data_dir.clone();
         tokio::spawn(async move {
             loop {
                 match events.recv().await {
                     Ok(NetworkEvent::PeerConnected { .. }) => {
                         let n = peer_count_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                        local_submit::PEER_COUNT.store(n, Ordering::Relaxed);
                         clock_ref.update_peers(n);
                     }
                     Ok(NetworkEvent::PeerDisconnected { .. }) => {
                         let prev = peer_count_ref.load(Ordering::Relaxed);
                         let n = prev.saturating_sub(1);
                         peer_count_ref.store(n, Ordering::Relaxed);
+                        local_submit::PEER_COUNT.store(n, Ordering::Relaxed);
                         clock_ref.update_peers(n);
                     }
                     Ok(NetworkEvent::Entry { entry }) => {
@@ -1797,6 +1877,61 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         clock_ref.receive_reward_proposal(clock::RewardProposal {
                             epoch, rewards_hash, node_id,
                         });
+                    }
+                    Ok(NetworkEvent::StateCheckpoint { msg }) => {
+                        let e = msg["epoch"].as_u64().unwrap_or(0);
+                        let r = msg["cursor"].as_u64().unwrap_or(0);
+                        let root = msg["root"].as_str().unwrap_or("").to_owned();
+                        let voters = catchup_voters(&chain_ref, e);
+                        match msg["type"].as_str().unwrap_or("") {
+                            "checkpoint" => {
+                                let node = msg["node_id"].as_str().unwrap_or("").to_owned();
+                                let sig = msg["sig"].as_str().unwrap_or("");
+                                let m = state_healer::message(&chain_ref.chain_id, &node, e, r, &root);
+                                if let Err(err) = verify_clock_signature(&chain_ref, &node, m.as_bytes(), sig) {
+                                    warn!("[healer] rejected checkpoint from '{}': {}", node, err);
+                                    continue;
+                                }
+                                let v = healer_n.observe(e, r, &node, &root, &echo_node_id, &voters);
+                                if let Some(state_healer::Verdict::Diverged { canonical, .. }) = v.clone() {
+                                    if state_healer::on_verdict(v.as_ref().unwrap(), state_healer::mode())
+                                        && state_healer::rate_ok(&healer_n.requested, (e, r))
+                                    {
+                                        error!("[healer] requesting canonical snapshot {}/{} root {}", e, r, canonical);
+                                        if let Ok(data) = serde_json::to_vec(&serde_json::json!({
+                                            "type": "checkpoint_req", "node_id": echo_node_id,
+                                            "epoch": e, "cursor": r, "root": canonical,
+                                        })) {
+                                            let _ = echo_cmd_tx.send(NetCmd::Broadcast { topic: "hone/consensus", data }).await;
+                                        }
+                                    }
+                                }
+                            }
+                            "checkpoint_req" => {
+                                // Serve only a snapshot whose root is the one asked for.
+                                if let Some(snap) = state_healer::load(&healer_dir, e, r) {
+                                    if snap.root == root && state_healer::rate_ok(&healer_n.served, (e, r)) {
+                                        if let Ok(data) = serde_json::to_vec(&serde_json::json!({
+                                            "type": "checkpoint_snap", "epoch": e, "cursor": r,
+                                            "root": root, "snapshot": snap,
+                                        })) {
+                                            info!("[healer] serving checkpoint {}/{} ({} rows)", e, r, snap.rows.len());
+                                            let _ = echo_cmd_tx.send(NetCmd::Broadcast { topic: "hone/consensus", data }).await;
+                                        }
+                                    }
+                                }
+                            }
+                            "checkpoint_snap" if state_healer::mode() == state_healer::Mode::Heal => {
+                                let Some(canonical) = healer_n.diverged_from(e, r, &voters) else { continue };
+                                let Ok(snap) = serde_json::from_value::<state_healer::Snapshot>(msg["snapshot"].clone()) else { continue };
+                                if snap.epoch != e || snap.cursor != r { continue; }
+                                match state_healer::heal(&chain_ref, &healer_dir, &canonical, &snap) {
+                                    Ok(_) => { healer_n.own.lock().insert((e, r), canonical); }
+                                    Err(err) => error!("[healer] snapshot {}/{} not applied: {}", e, r, err),
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                     Ok(NetworkEvent::CatchupVotes { node_id, votes, sig, echo }) => {
                         // Signed by the voter's registered clock key, or ignored.
@@ -1967,20 +2102,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         });
     }
 
-    // ── Periodic sweepers (ensemble, session market, agent sessions, VRF) ───────
-    {
-        let chain_ref = chain.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                let epoch = chain_ref.current_epoch();
-                ensemble::sweep_expired(&chain_ref, epoch);
-                session_market::sweep_expired(&chain_ref, epoch);
-                agent_session::sweep_expired(&chain_ref, epoch);
-                vrf::sweep_epoch(&chain_ref, epoch);
-            }
-        });
-    }
+    // ── Expiry sweepers (ensemble, session market, agent sessions, VRF) ─────────
+    // Run in the seal handler at the sealed epoch (was a free-running 30 s timer whose
+    // view of the state differed per node).
 
     // ── Model healer: REMOVED ───────────────────────────────────────────────────
     // The old healer polled an external Ollama daemon (pull/generate/tags) to keep

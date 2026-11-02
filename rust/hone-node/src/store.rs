@@ -528,6 +528,16 @@ fn balance_key(account: &str, token: &str) -> Vec<u8> {
 // ── Merkle tree helpers ───────────────────────────────────────────────────────
 
 /// Leaf hash: sha256("leaf:" || key || "=" || value_bytes)
+/// Root over already-sorted (key, value) balance rows — same as `balance_merkle_root`.
+pub fn merkle_root_of(sorted: &[(String, Vec<u8>)]) -> String {
+    if sorted.is_empty() {
+        return "0".repeat(64);
+    }
+    let leaves: Vec<[u8; 32]> = sorted.iter().map(|(k, v)| merkle_leaf(k.as_bytes(), v)).collect();
+    let levels = build_merkle_tree(&leaves);
+    hex::encode(levels.last().unwrap()[0])
+}
+
 pub fn merkle_leaf(key: &[u8], val: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"leaf:");
@@ -679,7 +689,7 @@ impl Store {
 
     /// All balance entries sorted lexicographically by "account\0token" key.
     /// Value is 8 LE bytes (u64 hunits).
-    fn sorted_balance_entries(&self) -> Vec<(String, Vec<u8>)> {
+    pub fn sorted_balance_entries(&self) -> Vec<(String, Vec<u8>)> {
         let Some(cf) = self.db.cf_handle(CF_BALANCES) else { return vec![] };
         let mut entries: Vec<(Vec<u8>, Vec<u8>)> = self.db
             .iterator_cf(&cf, IteratorMode::Start)
@@ -692,6 +702,18 @@ impl Store {
                 Some((key_str, v))
             })
             .collect()
+    }
+
+    /// Overwrite the given balance keys ("account\0token" → amount) in ONE atomic
+    /// write. Used only by the state healer to rebase onto a verified checkpoint.
+    pub fn write_balances_atomic(&self, rows: &[(String, u64)]) -> Result<()> {
+        let cf = self.db.cf_handle(CF_BALANCES).context("balances CF")?;
+        let mut batch = WriteBatch::default();
+        for (k, v) in rows {
+            batch.put_cf(&cf, k.as_bytes(), v.to_le_bytes());
+        }
+        self.db.write(batch)?;
+        Ok(())
     }
 
     // ── Git object storage ────────────────────────────────────────────────────

@@ -56,6 +56,10 @@ pub enum NetworkEvent {
     /// Signed batch of catch-up reward votes for past unfinalized epochs
     /// (`{"type":"catchup","node_id","votes":[[epoch,hash],..],"sig"}` on hone/consensus).
     CatchupVotes { node_id: String, votes: Vec<(u64, String)>, sig: String, echo: bool },
+    /// State-healer traffic on hone/consensus: a signed checkpoint attestation
+    /// (`type: checkpoint`), a snapshot request (`checkpoint_req`) or a snapshot reply
+    /// (`checkpoint_snap`). See state_healer.rs.
+    StateCheckpoint { msg: serde_json::Value },
     /// A new peer connection was established.
     PeerConnected { peer_id: String },
     /// An existing peer connection was closed.
@@ -648,6 +652,11 @@ impl Network {
             TOPIC_CLOCK_HELLO => {
                 debug!("Received clock-hello from {}", source);
                 self.emit(NetworkEvent::ClockHello { hello: json });
+            }
+
+            TOPIC_CONSENSUS if matches!(json.get("type").and_then(|v| v.as_str()),
+                Some("checkpoint") | Some("checkpoint_req") | Some("checkpoint_snap")) => {
+                self.emit(NetworkEvent::StateCheckpoint { msg: json });
             }
 
             TOPIC_CONSENSUS if json.get("type").and_then(|v| v.as_str()) == Some("catchup") => {

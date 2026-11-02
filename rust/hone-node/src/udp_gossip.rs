@@ -146,6 +146,8 @@ impl UdpGossip {
         let payload = match serde_json::to_vec(&serde_json::json!({
             "chain_id": &self.chain_id,
             "entry":    entry,
+            // Our own bids carry our signature so a receiver can queue them for seal.
+            "sig":      crate::local_submit::sign(entry, &self.chain_id),
         })) {
             Ok(b) => b,
             Err(e) => { warn!("udp-gossip: serialize error: {}", e); return; }
@@ -190,14 +192,15 @@ impl UdpGossip {
             return;
         }
 
-        // Canonical validation path — same as every other transport.
-        match self.chain.apply_entry(&entry) {
+        let sig = json.get("sig").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_owned);
+        // Queued for the next seal like any gossip — never applied on receipt (that made
+        // LAN-only nodes hold bids the rest of the network never saw).
+        match crate::local_submit::queue_relayed(&self.chain, entry.clone(), sig.clone()).then_some(()).ok_or(()) {
             Ok(_) => {
-                debug!("udp-gossip: applied entry via LAN multicast");
+                debug!("udp-gossip: queued entry from LAN multicast");
 
                 // Re-broadcast to libp2p so the entry propagates beyond LAN.
-                let envelope = serde_json::json!({ "entry": &entry });
-                if let Ok(bytes) = serde_json::to_vec(&envelope) {
+                if let Some(bytes) = crate::local_submit::envelope(&entry, sig.as_deref()) {
                     let _ = self.p2p_tx.send(NetCmd::Broadcast {
                         topic: "hone/entries",
                         data: bytes,

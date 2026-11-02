@@ -9,6 +9,7 @@ use hone_types::{LedgerEntry, CLOCK_REWARD_HUNITS, epoch_duration_ms};
 use crate::chain::Chain;
 use crate::inference::{self, JobStatus};
 
+#[allow(dead_code)]
 pub async fn run(chain: Arc<Chain>) {
     let mut last_processed_epoch: u64 = 0;
 
@@ -27,7 +28,7 @@ pub async fn run(chain: Arc<Chain>) {
 /// Grace period (epochs) before a completed-but-unverified job auto-settles.
 const VERIFICATION_GRACE_EPOCHS: u64 = 20;
 
-fn process_epoch(chain: &Chain, current_epoch: u64) {
+pub fn process_epoch(chain: &Chain, current_epoch: u64) {
     award_pending_jobs(chain, current_epoch);
     expire_stale_claims(chain, current_epoch);
     expire_stale_jobs(chain, current_epoch);

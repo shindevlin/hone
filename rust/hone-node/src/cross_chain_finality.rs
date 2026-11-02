@@ -122,6 +122,8 @@ impl CrossChainFinalityModule {
             epoch,
             signed_by: node_account.to_owned(),
         };
+        // Not submittable through consensus (tx.rs rejects it there); it records this node's
+        // announcement only and moves no balance, so state_root is unaffected.
         if let Err(e) = self.chain.apply_entry(&entry) {
             warn!("[cross-chain] on-chain inscribe failed: {}", e);
         }

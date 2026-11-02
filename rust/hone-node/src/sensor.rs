@@ -18,21 +18,6 @@ pub async fn run_sensor_node(
 
     // Register sensor on first run.
     let sensor_id = format!("{}/system", account);
-    {
-        let reg_entry = LedgerEntry::SensorRegister {
-            sensor_id:   sensor_id.clone(),
-            owner:       account.clone(),
-            sensor_type: "sampled".to_owned(),
-            location:    None,
-            metadata:    Some(serde_json::json!({
-                "hardware": "linux-system",
-                "sensors": ["cpu_temp_mC", "uptime_s"],
-            })),
-            epoch:       0,
-            signed_by:   account.clone(),
-        };
-        let _ = chain.apply_entry(&reg_entry);
-    }
 
     let elapsed = now_ms().saturating_sub(genesis_ts);
     let mut last_epoch = elapsed / EPOCH_MS;
@@ -44,6 +29,25 @@ pub async fn run_sensor_node(
         let epoch = elapsed / EPOCH_MS;
         if epoch <= last_epoch { continue; }
         last_epoch = epoch;
+
+        // Register the system sensor through consensus (was a local-only apply).
+        if chain.store.get_meta(&format!("sensor:{}", sensor_id)).is_none() {
+            let reg_entry = LedgerEntry::SensorRegister {
+                sensor_id:   sensor_id.clone(),
+                owner:       account.clone(),
+                sensor_type: "sampled".to_owned(),
+                location:    None,
+                metadata:    Some(serde_json::json!({
+                    "hardware": "linux-system",
+                    "sensors": ["cpu_temp_mC", "uptime_s"],
+                })),
+                epoch,
+                signed_by:   account.clone(),
+            };
+            if let Err(e) = crate::local_submit::submit_own(&chain, &cmd_tx, &reg_entry).await {
+                warn!("sensor: register not submitted: {}", e);
+            }
+        }
 
         let cpu_temp_mc = read_cpu_temp_milli_celsius();
         let uptime_s    = read_uptime_secs();
@@ -68,17 +72,9 @@ pub async fn run_sensor_node(
             gateway_account: None,
         };
 
-        if let Err(e) = chain.apply_entry(&entry) {
-            warn!("sensor: commit failed epoch {}: {}", epoch, e);
+        if let Err(e) = crate::local_submit::submit_own(&chain, &cmd_tx, &entry).await {
+            warn!("sensor: commit not submitted epoch {}: {}", epoch, e);
             continue;
-        }
-
-        let envelope = serde_json::json!({"entry": entry});
-        if let Ok(data) = serde_json::to_vec(&envelope) {
-            let _ = cmd_tx.send(NetCmd::Broadcast {
-                topic: "hone/entries",
-                data,
-            }).await;
         }
 
         info!("sensor: commit epoch {} cpu_temp={}mC uptime={}s hash={}", epoch, cpu_temp_mc, uptime_s, &batch_hash[..12]);

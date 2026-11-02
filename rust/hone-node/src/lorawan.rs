@@ -361,9 +361,9 @@ async fn apply_and_broadcast(
     cmd_tx: &mpsc::Sender<NetCmd>,
     entry: &LedgerEntry,
 ) {
-    match chain.apply_entry(entry) {
+    match crate::local_submit::queue_relayed(chain, entry.clone(), None).then_some(()).ok_or(()) {
         Ok(_) => {
-            debug!("lorawan: applied entry via LoRaWAN, re-broadcasting to libp2p");
+            debug!("lorawan: queued entry from LoRaWAN, re-broadcasting to libp2p");
             let envelope = serde_json::json!({ "entry": entry });
             if let Ok(bytes) = serde_json::to_vec(&envelope) {
                 let _ = cmd_tx.send(NetCmd::Broadcast {

@@ -48,17 +48,11 @@ pub async fn run_storage_node(
             signed_by:          account.clone(),
         };
 
-        if let Err(e) = chain.apply_entry(&entry) {
-            warn!("storage: heartbeat failed epoch {}: {}", epoch, e);
+        // Signed and queued for consensus — NOT applied locally. A local apply put the
+        // storage_beat row on this node only, so each node paid the storage pool to itself.
+        if let Err(e) = crate::local_submit::submit_own(&chain, &cmd_tx, &entry).await {
+            warn!("storage: heartbeat not submitted epoch {}: {}", epoch, e);
             continue;
-        }
-
-        let envelope = serde_json::json!({"entry": entry});
-        if let Ok(data) = serde_json::to_vec(&envelope) {
-            let _ = cmd_tx.send(NetCmd::Broadcast {
-                topic: "hone/entries",
-                data,
-            }).await;
         }
 
         info!("storage: heartbeat epoch {} bytes={} git_queries={}", epoch, bytes_proven, git_queries);

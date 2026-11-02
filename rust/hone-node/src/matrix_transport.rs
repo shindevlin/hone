@@ -312,7 +312,7 @@ async fn handle_message(
     };
 
     // Canonical validation path — same as every other transport.
-    match chain.apply_entry(&entry) {
+    match crate::local_submit::queue_relayed(&chain, entry.clone(), None).then_some(()).ok_or(()) {
         Ok(_) => {
             debug!("matrix: applied entry received from room");
 

@@ -263,7 +263,7 @@ async fn handle_datagram(
     };
 
     // Canonical validation path — same as every other transport.
-    match chain.apply_entry(&entry) {
+    match crate::local_submit::queue_relayed(&chain, entry.clone(), None).then_some(()).ok_or(()) {
         Ok(_) => {
             debug!("i2p: applied entry received via I2P datagram");
 

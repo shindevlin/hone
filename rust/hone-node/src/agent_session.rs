@@ -14,7 +14,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use hone_types::{LedgerEntry, NATIVE_TOKEN, RECYCLE_FUND_ACCOUNT};
+use hone_types::{LedgerEntry, NATIVE_TOKEN};
 use crate::chain::Chain;
 
 const MAX_HISTORY_TURNS: usize = 50;
@@ -108,15 +108,13 @@ pub fn apply_close(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     anyhow::ensure!(&session.client == client, "only the session owner can close it");
     anyhow::ensure!(session.status == SessionStatus::Open, "session is not open");
 
-    // Calculate fees for turns used, refund remainder.
-    let fees_used = (session.turn_count as u64).saturating_mul(SESSION_FEE_PER_TURN_HUNITS);
-    let refund = session.fee_escrow.saturating_sub(fees_used);
+    // Turns run on whichever node served them (execute_turn is a local API call), so
+    // turn_count differs per node. Charging from it forked balances; the close refunds
+    // the consensus-held escrow in full and per-turn usage is recorded off-balance
+    // (fee_owed) by the serving node until a client-signed usage entry exists.
+    let refund = session.fee_escrow;
     if refund > 0 {
         chain.store.credit(client, NATIVE_TOKEN, refund)?;
-    }
-    let protocol_fee = fees_used.min(session.fee_escrow);
-    if protocol_fee > 0 {
-        chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, protocol_fee)?;
     }
 
     session.status = SessionStatus::Closed;
@@ -139,7 +137,7 @@ pub async fn execute_turn(
 
     anyhow::ensure!(session.status == SessionStatus::Open, "session is not open");
     anyhow::ensure!(
-        session.fee_escrow >= SESSION_FEE_PER_TURN_HUNITS,
+        session.fee_escrow >= (session.turn_count as u64 + 1).saturating_mul(SESSION_FEE_PER_TURN_HUNITS),
         "insufficient fee escrow for another turn"
     );
 
@@ -199,7 +197,8 @@ pub async fn execute_turn(
     }
 
     // Deduct fee.
-    session.fee_escrow = session.fee_escrow.saturating_sub(SESSION_FEE_PER_TURN_HUNITS);
+    // Never touch fee_escrow here (consensus-held); usage is owed off-balance.
+    crate::api::record_fee_owed(chain, &session.client, "treasury", SESSION_FEE_PER_TURN_HUNITS);
 
     chain.store.state_set(&session_key(session_id), &serde_json::to_vec(&session)?)?;
     Ok(assistant_content)

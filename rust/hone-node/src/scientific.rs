@@ -295,9 +295,10 @@ impl ScientificEngine {
         for node_id in &job.contributing_nodes {
             let payout = compute_node_payout(&job, node_id);
             if payout > 0 {
-                if let Err(e) = self.chain.store.credit(node_id, NATIVE_TOKEN, payout) {
-                    warn!("[science] payout failed for node '{}': {}", node_id, e);
-                }
+                // Was a direct credit on the node serving this API call only: new HONE
+                // that existed on one node (balance fork). Recorded as owed, off-balance,
+                // until a consensus payout entry exists.
+                crate::api::record_fee_owed(&self.chain, &format!("science:{}", job.job_id), node_id, payout);
             }
         }
 

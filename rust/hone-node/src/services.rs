@@ -61,17 +61,10 @@ pub async fn run_service_node(
             signed_by:       account.clone(),
         };
 
-        if let Err(e) = chain.apply_entry(&entry) {
-            warn!("service: heartbeat failed epoch {}: {}", epoch, e);
+        // Signed and queued for consensus, never applied locally (see local_submit).
+        if let Err(e) = crate::local_submit::submit_own(&chain, &cmd_tx, &entry).await {
+            warn!("service: heartbeat not submitted epoch {}: {}", epoch, e);
             continue;
-        }
-
-        let envelope = serde_json::json!({"entry": entry});
-        if let Ok(data) = serde_json::to_vec(&envelope) {
-            let _ = cmd_tx.send(NetCmd::Broadcast {
-                topic: "hone/entries",
-                data,
-            }).await;
         }
 
         info!("service: heartbeat epoch {} hours={}", epoch, container_hours);
@@ -107,9 +100,11 @@ async fn process_hosting_requests(
             }
             Err(e) => {
                 warn!("[hosting] failed to provision for '{}': {}", buyer, e);
-                let _ = chain.store.credit(&buyer, NATIVE_TOKEN, HOSTING_PRICE_HUNITS);
-                let _ = chain.store.debit(service_account, NATIVE_TOKEN, HOSTING_PRICE_HUNITS);
-                req["status"] = serde_json::json!("refunded");
+                // No local balance move: a refund credited here existed on this node only
+                // (state fork). The operator refunds with a signed Transfer.
+                warn!("[hosting] refund of {} hunits to '{}' is due — needs a signed transfer from '{}'",
+                    HOSTING_PRICE_HUNITS, buyer, service_account);
+                req["status"] = serde_json::json!("refund_due");
                 req["error"] = serde_json::json!(e.to_string());
                 let _ = chain.store.state_set(&key, &serde_json::to_vec(&req).unwrap_or_default());
             }

@@ -301,7 +301,7 @@ async fn run_receive_loop(
         };
 
         // Canonical validation path — identical to every other transport.
-        match chain.apply_entry(&entry) {
+        match crate::local_submit::queue_relayed(&chain, entry.clone(), None).then_some(()).ok_or(()) {
             Ok(_) => {
                 debug!("nostr: applied entry from relay (event {})", event.id);
 

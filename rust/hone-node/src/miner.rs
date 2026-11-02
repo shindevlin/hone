@@ -104,10 +104,11 @@ pub async fn run_miner(
                 epoch:       submit_epoch,
                 signed_by:   account.clone(),
             };
-            if let Err(e) = chain.apply_entry(&complete) {
-                warn!("miner: InferenceJobComplete failed for job '{}': {}", jid, e);
+            // Signed and queued for seal on every node; a local apply put the completion
+            // (and the job payment it unlocks) on this node only.
+            if let Err(e) = crate::local_submit::submit_own(&chain, &cmd_tx, &complete).await {
+                warn!("miner: InferenceJobComplete not submitted for job '{}': {}", jid, e);
             } else {
-                broadcast(&cmd_tx, &complete).await;
                 info!("miner: submitted InferenceJobComplete for job '{}' (epoch {})", jid, submit_epoch);
             }
         }
@@ -127,10 +128,10 @@ pub async fn run_miner(
             software_hash: if software_hash.is_empty() { None } else { Some(software_hash.clone()) },
             model_hash,
         };
-        if let Err(e) = chain.apply_entry(&entry) {
-            warn!("miner: apply Mine failed (epoch {}): {}", submit_epoch, e);
-        } else {
-            broadcast(&cmd_tx, &entry).await;
+        // Signed and queued for seal: a local apply wrote this node's `mine:` row here only,
+        // so the reward driver on this node alone paid it (balance fork).
+        if let Err(e) = crate::local_submit::submit_own(&chain, &cmd_tx, &entry).await {
+            warn!("miner: Mine not submitted (epoch {}): {}", submit_epoch, e);
         }
 
         {
@@ -253,6 +254,7 @@ fn wait_for_next_epoch(next_epoch: u64, genesis_ts: u64) -> Duration {
     }
 }
 
+#[allow(dead_code)]
 async fn broadcast(cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>, entry: &LedgerEntry) {
     let envelope = serde_json::json!({"entry": entry});
     if let Ok(data) = serde_json::to_vec(&envelope) {

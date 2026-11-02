@@ -95,9 +95,8 @@ async fn bid_on_posted_jobs(
             signed_by:  account.to_owned(),
         };
 
-        match chain.apply_entry(&entry) {
+        match crate::local_submit::submit_own(chain, cmd_tx, &entry).await {
             Ok(_) => {
-                broadcast(&entry, cmd_tx).await;
                 udp.send_if_light(entry);
                 info!("worker: bid on job {} fee={} model={}", job.job_id, bid_fee, job.model);
             }
@@ -165,9 +164,8 @@ async fn execute_awarded_jobs(
             signed_by:   account.to_owned(),
         };
 
-        match chain.apply_entry(&entry) {
+        match crate::local_submit::submit_own(chain, cmd_tx, &entry).await {
             Ok(_) => {
-                broadcast(&entry, cmd_tx).await;
                 completed.insert(job.job_id.clone());
                 info!("worker: job {} complete — {}ms result={}", job.job_id, latency_ms, &result_hash[..8]);
             }
@@ -205,6 +203,7 @@ async fn run_inference(model: &str, prompt: &str) -> (String, String, u64) {
     (String::new(), String::new(), latency_ms)
 }
 
+#[allow(dead_code)]
 async fn broadcast(entry: &LedgerEntry, cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>) {
     let envelope = serde_json::json!({ "entry": entry });
     if let Ok(data) = serde_json::to_vec(&envelope) {

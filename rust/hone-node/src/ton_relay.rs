@@ -279,6 +279,9 @@ async fn handle_activation(
         relay:          config.account.clone(),
     };
 
+    // A system entry (not externally submittable), so it cannot go through consensus. It
+    // only writes this relay's own `ton_activation_intent` record — no balance moves, so it
+    // never touches state_root. Kept as a local record.
     if let Err(e) = chain.apply_entry(&entry) {
         error!("ton_relay: failed to apply TonWalletActivated: {}", e);
     }
