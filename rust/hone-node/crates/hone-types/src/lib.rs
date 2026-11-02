@@ -112,6 +112,14 @@ pub const LIVENESS_DECAY_DELAY_EPOCHS: u64 = 2 * 1_051_920;
 pub const LIVENESS_HALF_LIFE_EPOCHS: u64 = 2 * 1_051_920;
 
 
+// ── Memory service signing ──────────────────────────────────────────────────────
+/// From this entry epoch on, MemorySet / MemoryDelete are signed over an explicit
+/// client-reproducible message (account, chain_id, key, nonce, type[, value]) instead of
+/// the generic full-entry JSON (which contained the server-set epoch and the signature
+/// itself, so no client could sign it). Consensus-critical: every node must run a binary
+/// with this value before it is reached.
+pub const MEMORY_SIGNING_ACTIVATION_EPOCH: u64 = 349_100;
+
 // ── Identity NFT (names as transferable assets) ─────────────────────────────────
 /// Identity-NFT entries (IdentityNft*) are rejected before this epoch. Consensus-
 /// critical: every node MUST use this exact value and be upgraded before it.

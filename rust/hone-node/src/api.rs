@@ -8872,8 +8872,10 @@ async fn post_ensemble_job(
         input_hash: body.input_hash, max_fee: body.max_fee, n_workers: body.n_workers,
         epoch, nonce, signed_by: body.requester.clone(), signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "job_id": job_id, "epoch": epoch })))
 }
 
@@ -8898,8 +8900,10 @@ async fn post_ensemble_vote(
         output_hash: body.output_hash, epoch, nonce,
         signed_by: body.worker.clone(), signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -8949,8 +8953,10 @@ async fn post_slash_validator(
         accused: body.accused, violation: body.violation, evidence: body.evidence,
         epoch, nonce, signed_by: body.reporter.clone(), signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "slash_id": slash_id, "epoch": epoch })))
 }
 
@@ -8975,8 +8981,10 @@ async fn post_slash_appeal(
         overturn: body.overturn, epoch, nonce,
         signed_by: body.panelist.clone(), signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9049,8 +9057,10 @@ async fn post_bridge_fund(
         chain: body.chain, epoch, nonce,
         signed_by: body.custodian.clone(), signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9076,8 +9086,10 @@ async fn post_bridge_wrap(
         external_address: body.external_address, chain: body.chain,
         epoch, nonce, signed_by: body.account.clone(), signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9103,8 +9115,10 @@ async fn post_bridge_unwrap(
         recipient_external: body.recipient_external, chain: body.chain,
         epoch, nonce, signed_by: body.account.clone(), signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9129,8 +9143,10 @@ async fn post_bridge_unlock(
         external_tx_hash: body.external_tx_hash, epoch, nonce,
         signed_by: body.custodian.clone(), signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9315,8 +9331,10 @@ async fn post_memory_set(
         signed_by: account.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9341,8 +9359,10 @@ async fn delete_memory_key(
         signed_by: account.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true })))
 }
 
@@ -9389,8 +9409,10 @@ async fn post_amber_pill_mint(
         signed_by: body.account.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9431,8 +9453,10 @@ async fn post_phone_storage_proof(
         signed_by: body.account.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9466,8 +9490,10 @@ async fn post_finetune_job(
         signed_by: body.requester.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9495,8 +9521,10 @@ async fn post_finetune_complete(
         signed_by: body.worker.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9541,8 +9569,10 @@ async fn post_computer_use_job(
         signed_by: body.requester.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9570,8 +9600,10 @@ async fn post_computer_use_complete(
         signed_by: body.worker.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9618,8 +9650,10 @@ async fn post_blob_serve_proof(
         signed_by: body.node_id.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9675,8 +9709,10 @@ async fn post_hive_replica_commit(
         signed_by: body.node_id.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9724,8 +9760,10 @@ async fn post_hive_replica_verify(
         signed_by: body.verifier.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9815,8 +9853,10 @@ async fn post_snapshot_save(
         signed_by: account.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9918,8 +9958,10 @@ async fn post_name_auction_open(
         signed_by: body.opener.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "auction_id": auction_id, "epoch": epoch })))
 }
 
@@ -9947,8 +9989,10 @@ async fn post_name_auction_bid(
         signed_by: body.bidder.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -9974,8 +10018,10 @@ async fn post_name_auction_settle(
         signed_by: body.settler.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10001,8 +10047,10 @@ async fn post_name_auction_cancel(
         signed_by: body.opener.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10056,8 +10104,10 @@ async fn post_freeport_auction_open(
         signed_by: body.seller.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "auction_id": auction_id, "epoch": epoch })))
 }
 
@@ -10076,8 +10126,10 @@ async fn post_freeport_auction_bid(
         signed_by: body.bidder.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10095,8 +10147,10 @@ async fn post_freeport_auction_settle(
         signed_by: body.settler.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10128,8 +10182,10 @@ async fn post_private_auth_enroll(
         signed_by: body.member.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10157,8 +10213,10 @@ async fn post_private_auth_approve(
         signed_by: body.approver.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10202,8 +10260,10 @@ async fn post_oracle_create(
         signed_by: body.creator.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "feed_id": feed_id, "epoch": epoch })))
 }
 
@@ -10231,8 +10291,10 @@ async fn post_oracle_report(
         signed_by: body.reporter.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10260,8 +10322,10 @@ async fn post_oracle_finalize(
         signed_by: body.finalizer.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10343,8 +10407,10 @@ async fn post_session_list(
         signed_by: body.seller.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "listing_id": listing_id, "epoch": epoch })))
 }
 
@@ -10370,8 +10436,10 @@ async fn post_session_buy(
         signed_by: body.buyer.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10397,8 +10465,10 @@ async fn post_session_cancel(
         signed_by: body.seller.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10455,8 +10525,10 @@ async fn post_agent_session_open(
         signed_by: body.client.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "session_id": session_id, "epoch": epoch })))
 }
 
@@ -10482,8 +10554,10 @@ async fn post_agent_session_close(
         signed_by: body.client.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
@@ -10581,8 +10655,10 @@ async fn post_vrf_commit(
         signed_by: body.committer.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": body.epoch })))
 }
 
@@ -10608,8 +10684,10 @@ async fn post_vrf_reveal(
         signed_by: body.committer.clone(),
         signature: body.signature.clone(),
     };
-    s.chain.push_pending(entry.clone(), body.signature.clone());
-    let _ = s.tx_broadcast.send((entry, body.signature));
+    // Standard submission path: zero-peer hardline, signature precheck, outbox re-gossip.
+    if let Err(e) = submit_entry(&s, entry, body.signature.as_deref()) {
+        return Ok(Json(serde_json::json!({ "accepted": false, "error": e })));
+    }
     Ok(Json(serde_json::json!({ "accepted": true, "epoch": body.epoch })))
 }
 

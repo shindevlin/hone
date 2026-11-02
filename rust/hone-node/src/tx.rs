@@ -3442,6 +3442,31 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
             serde_json::json!({ "chain_id": chain_id, "type": "SOULBOUND_REVOKE", "token_id": token_id, "nonce": nonce }),
 
 
+        // Memory service. Keys are written in SORTED order on purpose: serde_json's
+        // preserve_order is on in this build, so this object serialises exactly as written,
+        // and the clients (hone-cli sign_entry, tools/hone_locshare.py, Android) sign
+        // json.dumps(sort_keys=True, separators=(",",":")). Before the activation epoch the
+        // generic arm below still applies, so historic entries replay unchanged.
+        LedgerEntry::MemorySet { account, key, value, nonce, epoch, .. }
+            if *epoch >= hone_types::MEMORY_SIGNING_ACTIVATION_EPOCH =>
+            serde_json::json!({
+                "account": account,
+                "chain_id": chain_id,
+                "key": key,
+                "nonce": nonce,
+                "type": "MEMORY_SET",
+                "value": value,
+            }),
+        LedgerEntry::MemoryDelete { account, key, nonce, epoch, .. }
+            if *epoch >= hone_types::MEMORY_SIGNING_ACTIVATION_EPOCH =>
+            serde_json::json!({
+                "account": account,
+                "chain_id": chain_id,
+                "key": key,
+                "nonce": nonce,
+                "type": "MEMORY_DELETE",
+            }),
+
         // All other user-submitted entry types: include chain_id + full entry JSON so
         // testnet signatures cannot replay on mainnet (D3 — clean cutover).
         other => serde_json::json!({
@@ -3536,6 +3561,61 @@ mod tests {
         assert!(!is_system_entry(&LedgerEntry::Stake {
             account: "a".into(), amount: 1, nonce: 1, epoch: 1, signed_by: "a".into(),
         }));
+    }
+
+    // ── Memory service signing (MEMORY_SIGNING_ACTIVATION_EPOCH) ─────────────
+
+    fn mem_set(nonce: u64, epoch: u64, value: &str) -> LedgerEntry {
+        LedgerEntry::MemorySet {
+            account: "alice".into(), key: "ls1-00ff".into(), value: value.into(),
+            epoch, nonce, signed_by: "alice".into(), signature: None,
+        }
+    }
+
+    /// Byte-for-byte what tools/hone_locshare.py / hone-cli sign:
+    /// json.dumps(dict(fields, chain_id=.., type=..), sort_keys=True, separators=(",",":")).
+    #[test]
+    fn memory_signing_message_matches_clients() {
+        let act = hone_types::MEMORY_SIGNING_ACTIVATION_EPOCH;
+        assert_eq!(canonical_signing_message(&mem_set(7, act, "djE="), "hone").unwrap(),
+            r#"{"account":"alice","chain_id":"hone","key":"ls1-00ff","nonce":7,"type":"MEMORY_SET","value":"djE="}"#);
+        let del = LedgerEntry::MemoryDelete {
+            account: "alice".into(), key: "ls1-00ff".into(), epoch: act + 5, nonce: 8,
+            signed_by: "alice".into(), signature: Some("ab".into()),
+        };
+        assert_eq!(canonical_signing_message(&del, "hone").unwrap(),
+            r#"{"account":"alice","chain_id":"hone","key":"ls1-00ff","nonce":8,"type":"MEMORY_DELETE"}"#);
+        // The server-set epoch and the signature field never enter the message.
+        let mut a = mem_set(7, act, "v"); let mut b = mem_set(7, act + 99, "v");
+        if let LedgerEntry::MemorySet { signature, .. } = &mut b { *signature = Some("ff".into()); }
+        assert_eq!(canonical_signing_message(&a, "hone").unwrap(), canonical_signing_message(&b, "hone").unwrap());
+        // Before activation the old (generic) message is kept, so history replays unchanged.
+        if let LedgerEntry::MemorySet { epoch, .. } = &mut a { *epoch = act - 1; }
+        assert!(canonical_signing_message(&a, "hone").unwrap().contains(r#""entry":"#));
+    }
+
+    #[test]
+    fn memory_grant_signed_by_active_key_applies_and_revokes() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 0);
+        let active = register_key(&chain, "alice", "active", 0x42);
+        let act = hone_types::MEMORY_SIGNING_ACTIVATION_EPOCH;
+        let set = mem_set(1, act, "Z3JhbnQ=");
+        let sig = hex::encode(active.sign(canonical_signing_message(&set, "hone-testnet").unwrap().as_bytes()).to_bytes());
+        // Posting key's signature is not the active key's.
+        let posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let bad = hex::encode(posting.sign(canonical_signing_message(&set, "hone-testnet").unwrap().as_bytes()).to_bytes());
+        assert!(validate_and_apply(&chain, &set, Some(&bad)).is_err());
+        validate_and_apply(&chain, &set, Some(&sig)).unwrap();
+        assert_eq!(crate::memory_service::get(&chain, "alice", "ls1-00ff").as_deref(), Some("Z3JhbnQ="));
+
+        let del = LedgerEntry::MemoryDelete {
+            account: "alice".into(), key: "ls1-00ff".into(), epoch: act + 1, nonce: 2,
+            signed_by: "alice".into(), signature: None,
+        };
+        let sig = hex::encode(active.sign(canonical_signing_message(&del, "hone-testnet").unwrap().as_bytes()).to_bytes());
+        validate_and_apply(&chain, &del, Some(&sig)).unwrap();
+        assert!(crate::memory_service::get(&chain, "alice", "ls1-00ff").is_none());
     }
 
     // ── Signed-authorisation fix (SIGNED_AUTH_ACTIVATION_EPOCH) ──────────────
