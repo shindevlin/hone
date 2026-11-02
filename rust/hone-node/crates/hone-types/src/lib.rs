@@ -138,9 +138,9 @@ pub const IDENTITY_NFT_ACTIVATION_EPOCH: u64 = 333_333;
 /// still controlled ONLY by shindevlin's genesis posting key becomes a NameNft held by
 /// shindevlin and is bound to it: from then on the account is controlled by whoever holds
 /// the NFT, with value roles (owner/active) never falling back to a posting key.
-/// INERT (u64::MAX) until Josh confirms an epoch — proposed 352,000. Consensus-critical:
-/// every node must run the same value before it is reached.
-pub const NAME_NFT_MIGRATION_EPOCH: u64 = u64::MAX;
+/// 352,000 confirmed by Josh on 2026-11-02 (about 2026-11-03 18:20 CST at 30 s epochs).
+/// Consensus-critical: every node must run this same value before it is reached.
+pub const NAME_NFT_MIGRATION_EPOCH: u64 = 352_000;
 
 /// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
 /// PLACEHOLDER — confirm the exact three founder accounts.
