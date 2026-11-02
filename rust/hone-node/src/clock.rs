@@ -1034,18 +1034,37 @@ fn operators_agree(proposals: &[&RewardProposal], hash: &str) -> bool {
 }
 
 pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
+    let snap = store.state_get(&format!("epoch_validators:{}", epoch));
+    rewards_hash_over(epoch, snap.as_deref().unwrap_or(&[]))
+}
+
+fn rewards_hash_over(epoch: u64, snapshot: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"epoch:");
     hasher.update(epoch.to_le_bytes());
     hasher.update(b"|validators:");
     // Hash the raw stored snapshot bytes directly — deterministic across nodes because
-    // the Vec<String> was sorted+deduped before serialization. Absent snapshot (shouldn't
-    // happen: written earlier in the same seal handler) hashes as empty, still identical
-    // on every node for the same epoch, so agreement holds even in that degenerate case.
-    if let Some(bytes) = store.state_get(&format!("epoch_validators:{}", epoch)) {
-        hasher.update(&bytes);
-    }
+    // the Vec<String> was sorted+deduped before serialization. Absent snapshot hashes as
+    // empty (see `no_reward_hash`).
+    hasher.update(snapshot);
     format!("{:x}", hasher.finalize())
+}
+
+/// The canonical "this epoch earned nothing" rewards_hash: the hash over NO validator
+/// snapshot. It is a pure function of the epoch number, so every node computes the same
+/// bytes whatever its local store holds. A real snapshot is a JSON array (at least "[]"),
+/// so no live seal-time hash can ever collide with it.
+///
+/// Catch-up consensus votes this hash (main.rs, catch-up sender; the only exception is
+/// co-signing a peer's echoed live finalize over our own snapshot, adoptable_echoes). The
+/// `epoch_validators:{e}` snapshot is written by the LOCAL seal handler, including on a
+/// solo self-seal, so for an epoch the network never sealed with quorum one node holds a
+/// snapshot and another does not. Voting `compute_rewards_hash` there made the two nodes'
+/// votes differ forever (mainnet 2026-10-31..11-02: 8,490 epochs from 339222 stuck, the
+/// reward driver blocked on 339222). An epoch that missed live reward consensus earns
+/// nothing; its block reward recycles, identically on every node.
+pub fn no_reward_hash(epoch: u64) -> String {
+    rewards_hash_over(epoch, &[])
 }
 
 // ── Registered clock nodes ────────────────────────────────────────────────────

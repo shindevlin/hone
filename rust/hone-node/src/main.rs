@@ -1022,10 +1022,7 @@ async fn main() -> Result<()> {
                         // identical mutation as a consequence of applying the identical
                         // winning entry, instead of each node recomputing off local state
                         // at its own quorum-cross moment (the double-credit race).
-                        let sealers: Vec<String> = chain_ref.store
-                            .state_get(&format!("epoch_validators:{}", fin.epoch))
-                            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
-                            .unwrap_or_default();
+                        let sealers = finalize_sealers(&chain_ref.store, fin.epoch, &fin.rewards_hash);
 
                         let state_root = chain_ref.store.balance_merkle_root();
                         let entry = LedgerEntry::EpochFinalize {
@@ -1139,7 +1136,17 @@ async fn main() -> Result<()> {
                 let mut e = cursor;
                 while e <= upper && votes.len() < BATCH {
                     if !epoch_is_finalized(&chain_c, e) {
-                        votes.push((e, clock::compute_rewards_hash(e, &chain_c.store)));
+                        // Catch-up votes "earned nothing" — never the local snapshot hash.
+                        // The snapshot exists only where THIS node sealed the epoch (a solo
+                        // seal writes one too), so after a partition the nodes' snapshot
+                        // hashes differ and never reach quorum: the whole sweep then sticks
+                        // on its first batch. The canonical hash is the same bytes on every
+                        // node and finalizes with sealed_by=[] (finalize_sealers), so the
+                        // epoch's reward recycles identically everywhere. See
+                        // clock::no_reward_hash. The one exception, an epoch a peer already
+                        // finalized live on our own snapshot hash, is co-signed from that
+                        // peer's echo (adoptable_echoes).
+                        votes.push((e, clock::no_reward_hash(e)));
                     }
                     e += 1;
                 }
@@ -1805,6 +1812,42 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                 }
+                                // The converse: a peer echoes a hash it already FINALIZED for an
+                                // epoch we have not. Our catch-up vote there is the no-reward
+                                // hash, but if the echoed hash is exactly the rewards_hash over
+                                // our own validator snapshot, the peer's finalize is the live
+                                // seal-time quorum we took part in and missed applying (its
+                                // EpochFinalize gossip was lost). Co-sign that hash instead of
+                                // stalling on it forever. Only the snapshot hash is adopted,
+                                // never an arbitrary one, and only from a reward voter.
+                                if echo && node_id != echo_node_id {
+                                    if let Some(sk) = echo_sk.as_ref().as_ref() {
+                                        let adopt = adoptable_echoes(&chain_ref, &node_id, &votes);
+                                        if !adopt.is_empty() {
+                                            let n = clock_ref.receive_catchup_votes(
+                                                &echo_node_id, &adopt,
+                                                |e| catchup_voters(&chain_ref, e),
+                                                |e| epoch_is_finalized(&chain_ref, e),
+                                            );
+                                            info!("[catchup] co-signing {} epoch(s) {} finalized on our own \
+                                                validator snapshot ({} reached quorum)", adopt.len(), node_id, n);
+                                            let m = catchup_message(&chain_ref.chain_id, &echo_node_id, &adopt);
+                                            let asig = {
+                                                use ed25519_dalek::Signer;
+                                                hex::encode(sk.sign(m.as_bytes()).to_bytes())
+                                            };
+                                            if let Ok(data) = serde_json::to_vec(&serde_json::json!({
+                                                "type": "catchup", "echo": true,
+                                                "node_id": echo_node_id, "votes": adopt,
+                                                "sig": asig, "nonce": now_ms(),
+                                            })) {
+                                                let _ = echo_cmd_tx.send(NetCmd::Broadcast {
+                                                    topic: "hone/consensus", data,
+                                                }).await;
+                                            }
+                                        }
+                                    }
+                                }
                                 let n = clock_ref.receive_catchup_votes(
                                     &node_id, &votes,
                                     |e| catchup_voters(&chain_ref, e),
@@ -2277,6 +2320,36 @@ fn verify_clock_signature(chain: &Chain, node_id: &str, msg: &[u8], sig_hex: &st
     });
     anyhow::ensure!(ok, "signature does not match clock '{}' registration or account keys", node_id);
     Ok(())
+}
+
+/// `sealed_by` for the EpochFinalize this node writes once `epoch` reaches reward quorum
+/// on `rewards_hash`. The canonical no-reward hash pays nobody, whatever local snapshot
+/// this node holds — otherwise a node that solo-sealed the epoch would pay its snapshot
+/// while a node without one recycles, and state_root forks.
+fn finalize_sealers(store: &Store, epoch: u64, rewards_hash: &str) -> Vec<String> {
+    if rewards_hash == clock::no_reward_hash(epoch) {
+        return Vec::new();
+    }
+    store.state_get(&format!("epoch_validators:{}", epoch))
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .unwrap_or_default()
+}
+
+/// From a peer's echo of its finalized hashes, the (epoch, hash) pairs this node co-signs:
+/// epochs not finalized here, echoed by a reward voter of that epoch, whose hash is the
+/// rewards_hash over THIS node's own validator snapshot (never the no-reward hash, which
+/// needs no adopting).
+fn adoptable_echoes(chain: &Chain, from: &str, votes: &[(u64, String)]) -> Vec<(u64, String)> {
+    votes.iter()
+        .filter(|(e, h)| {
+            !epoch_is_finalized(chain, *e)
+                && *h != clock::no_reward_hash(*e)
+                && chain.store.state_get(&format!("epoch_validators:{}", e)).is_some()
+                && *h == clock::compute_rewards_hash(*e, &chain.store)
+                && catchup_voters(chain, *e).iter().any(|v| v == from)
+        })
+        .cloned()
+        .collect()
 }
 
 fn epoch_is_finalized(chain: &Chain, epoch: u64) -> bool {
@@ -3789,6 +3862,75 @@ mod reward_driver_tests {
         let c = chain.store.reward_cursor();
         assert!(c.missing.is_empty());
         assert_eq!((c.contiguous, c.highest), (203, 203));
+    }
+
+    /// Mainnet 2026-11-02: during a partition grouchly solo-sealed epoch 339222 (writing
+    /// an epoch_validators snapshot) and beastly did not. Catch-up votes must still be
+    /// identical on both, reach quorum from two operators, and pay nobody on either node.
+    #[test]
+    fn catchup_no_reward_vote_is_node_independent_and_pays_nobody() {
+        let e = 339_222u64;
+        let (with_snap, _d1) = make_chain("catchup-snap");
+        let (no_snap, _d2) = make_chain("catchup-nosnap");
+        let set = vec!["josh".to_string(), "natoshisakamoto".to_string(), "shindevlin".to_string()];
+        with_snap.store.state_set(&format!("epoch_validators:{e}"),
+            &serde_json::to_vec(&set).unwrap()).unwrap();
+
+        // The old vote (local snapshot hash) differs between the two — the stall.
+        assert_ne!(clock::compute_rewards_hash(e, &with_snap.store),
+                   clock::compute_rewards_hash(e, &no_snap.store));
+        // The catch-up vote does not depend on the store at all.
+        let h = clock::no_reward_hash(e);
+        assert_eq!(h, clock::compute_rewards_hash(e, &no_snap.store));
+        assert_ne!(h, clock::no_reward_hash(e + 1));
+        // A real snapshot, even an empty one, never hashes to the no-reward hash.
+        no_snap.store.state_set(&format!("epoch_validators:{}", e + 1), b"[]").unwrap();
+        assert_ne!(clock::compute_rewards_hash(e + 1, &no_snap.store), clock::no_reward_hash(e + 1));
+
+        // Both nodes tally the same votes to the same result.
+        for chain in [&with_snap, &no_snap] {
+            let c = clock::ClockConsensus::new();
+            let mut fin = c.subscribe_finalized();
+            let voters = |_: u64| set.clone();
+            assert_eq!(c.receive_catchup_votes("natoshisakamoto", &[(e, h.clone())], voters, |_| false), 0);
+            assert_eq!(c.receive_catchup_votes("shindevlin", &[(e, h.clone())], voters, |_| false), 1);
+            let ev = fin.try_recv().unwrap();
+            assert_eq!(ev.rewards_hash, h);
+            // ...and write the same (empty) sealed_by, snapshot or not.
+            assert!(finalize_sealers(&chain.store, e, &ev.rewards_hash).is_empty());
+        }
+        // A live quorum hash still pays the snapshot.
+        let live = clock::compute_rewards_hash(e, &with_snap.store);
+        assert_eq!(finalize_sealers(&with_snap.store, e, &live), set);
+    }
+
+    /// A peer's echo of a live finalize is co-signed only when it is the hash over our own
+    /// snapshot, comes from a reward voter, and is not the no-reward hash.
+    #[test]
+    fn catchup_adopts_only_echoes_of_our_own_snapshot_hash() {
+        let e = 340_063u64;
+        let (chain, _d) = make_chain("catchup-adopt");
+        let set = vec!["josh".to_string(), "natoshisakamoto".to_string(), "shindevlin".to_string()];
+        chain.store.state_set(&format!("epoch_validators:{e}"),
+            &serde_json::to_vec(&set).unwrap()).unwrap();
+        let x = clock::compute_rewards_hash(e, &chain.store);
+        assert_eq!(adoptable_echoes(&chain, "natoshisakamoto", &[(e, x.clone())]), vec![(e, x.clone())]);
+        assert!(adoptable_echoes(&chain, "mallory", &[(e, x.clone())]).is_empty());
+        assert!(adoptable_echoes(&chain, "natoshisakamoto", &[(e, "ff".into())]).is_empty());
+        // No snapshot here: nothing to co-sign, the no-reward vote stands.
+        let n = clock::no_reward_hash(e + 1);
+        assert!(adoptable_echoes(&chain, "natoshisakamoto", &[(e + 1, n)]).is_empty());
+    }
+
+    /// One operator alone (several "josh" ids) never finalizes a catch-up epoch.
+    #[test]
+    fn catchup_no_reward_vote_still_needs_two_operators() {
+        let e = 400_000u64;
+        let h = clock::no_reward_hash(e);
+        let c = clock::ClockConsensus::new();
+        let voters = |_: u64| vec!["josh".to_string(), "josh@aa".to_string(), "natoshisakamoto".to_string()];
+        assert_eq!(c.receive_catchup_votes("josh", &[(e, h.clone())], voters, |_| false), 0);
+        assert_eq!(c.receive_catchup_votes("josh@aa", &[(e, h.clone())], voters, |_| false), 0);
     }
 
 
