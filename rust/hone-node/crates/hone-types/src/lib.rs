@@ -126,6 +126,15 @@ pub const MEMORY_SIGNING_ACTIVATION_EPOCH: u64 = 349_100;
 /// PLACEHOLDER — confirm against the upgrade rollout before activation.
 pub const IDENTITY_NFT_ACTIVATION_EPOCH: u64 = 333_333;
 
+/// Reserved-name migration + name/account control rule (identity_nft.rs).
+/// At the first seal (or first entry) at or after this epoch, every reserved-name account
+/// still controlled ONLY by shindevlin's genesis posting key becomes a NameNft held by
+/// shindevlin and is bound to it: from then on the account is controlled by whoever holds
+/// the NFT, with value roles (owner/active) never falling back to a posting key.
+/// INERT (u64::MAX) until Josh confirms an epoch — proposed 352,000. Consensus-critical:
+/// every node must run the same value before it is reached.
+pub const NAME_NFT_MIGRATION_EPOCH: u64 = u64::MAX;
+
 /// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
 /// PLACEHOLDER — confirm the exact three founder accounts.
 pub const IDENTITY_FOUNDER_ACCOUNTS: &[&str] = &["shindevlin", "josh", "natoshisakamoto"];

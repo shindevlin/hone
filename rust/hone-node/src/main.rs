@@ -821,6 +821,16 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // one node alone exist nowhere else — a fork (beastly, 2026-10-29,
                         // committed its own HardwareClaim while its gossip was down). Pending
                         // entries wait for the next seal that at least 2 clocks agreed on.
+                        // Reserved-name migration (inert until NAME_NFT_MIGRATION_EPOCH):
+                        // once, at the first quorum seal at/after activation, before any of
+                        // that epoch's entries.
+                        if sealed.quorum >= 2 {
+                            match identity_nft::migrate_reserved(&chain_ref, sealed_epoch) {
+                                Ok(0) => {}
+                                Ok(n) => info!("[epoch {}] reserved-name migration: {} names", sealed_epoch, n),
+                                Err(e) => error!("[epoch {}] reserved-name migration failed: {}", sealed_epoch, e),
+                            }
+                        }
                         let pending = if sealed.quorum >= 2 {
                             chain_ref.drain_pending_sorted()
                         } else {

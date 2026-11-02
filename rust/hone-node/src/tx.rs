@@ -195,6 +195,10 @@ pub fn validate_and_apply(
 ) -> Result<String> {
     let hash = entry.hash();
 
+    // Reserved-name migration (inert until NAME_NFT_MIGRATION_EPOCH): runs once, before
+    // the first entry at/after activation, the same on every node.
+    crate::identity_nft::migrate_reserved(chain, entry.epoch())?;
+
     // Exactly-once: a user entry that already committed is never applied again. This is
     // what makes re-gossip safe — a submitter re-sends its entries for a few epochs so
     // a peer that missed the one-shot gossip still gets them, and a peer that already
@@ -459,7 +463,12 @@ pub fn validate_and_apply(
             if signed_by != account {
                 bail!("signed_by '{}' must equal account '{}'", signed_by, account);
             }
-            if let Ok(Some(state)) = chain.store.get_account(account) {
+            // A bound name held by another account: only the holder's owner/active key
+            // may set its keys (it has none of its own, so the bootstrap path below must
+            // never apply to it).
+            if crate::identity_nft::controller(chain, account, entry.epoch()).is_some() {
+                check_signature(chain, account, entry, sig_hex, "owner")?;
+            } else if let Ok(Some(state)) = chain.store.get_account(account) {
                 // Prefer owner key for authorization; fall back to posting.
                 let auth_key = state.get("keys")
                     .and_then(|v| v.get("owner"))
@@ -487,6 +496,10 @@ pub fn validate_and_apply(
                 bail!("signed_by '{}' must equal account '{}'", signed_by, account);
             }
             anyhow::ensure!(account != primary, "primary cannot be the same as account");
+            if crate::identity_nft::controller(chain, account, entry.epoch()).is_some() {
+                bail!("'{}' is a name NFT held by another account — it has no primary to set; \
+                    move it with IdentityNftTransfer", account);
+            }
 
             let cur_state = chain.store.get_account(account)?
                 .ok_or_else(|| anyhow::anyhow!("account '{}' not found", account))?;
@@ -525,6 +538,10 @@ pub fn validate_and_apply(
                 bail!("signed_by '{}' must equal account '{}' for AccountTransfer", signed_by, account);
             }
             anyhow::ensure!(!new_keys.is_empty(), "new_keys must not be empty");
+            if crate::identity_nft::controller(chain, account, entry.epoch()).is_some() {
+                bail!("'{}' is controlled by its name NFT — transfer it with IdentityNftTransfer \
+                    (holder's active key) + IdentityNftAccept", account);
+            }
 
             let cur_state = chain.store.get_account(account)?
                 .ok_or_else(|| anyhow::anyhow!("cannot transfer non-existent account '{}'", account))?;
@@ -2071,6 +2088,15 @@ pub fn validate_and_apply(
             // Issuing a reserved name, issuing as the issuer account, or minting into
             // another account is high-value asset creation -> active/owner only (no
             // posting fallback). Ordinary open-phase self-mint stays an Operate action.
+            // After the migration, a name cannot be minted over someone else's existing
+            // same-named account (the NFT would look like it owns that account).
+            if entry.epoch() >= crate::identity_nft::migration_epoch()
+                && to != name
+                && chain.store.get_account(name)?.is_some()
+                && !crate::identity_nft::is_bound(chain, name)
+            {
+                bail!("an account named '{}' already exists; only that account can hold the name", name);
+            }
             let high_value = signed_by == crate::identity_nft::ISSUER_ACCOUNT
                 || to != signed_by
                 || crate::identity_nft::is_reserved(name);
@@ -2521,6 +2547,13 @@ fn require_key(chain: &Chain, account: &str) -> Result<()> {
     if STAKE_EXEMPT_ACCOUNTS.contains(&account) {
         return Ok(());
     }
+    // A bound, NFT-held name has no keys of its own; the holder's keys stand for it.
+    // Checked against the post-migration state (bound markers only exist after it ran).
+    if crate::identity_nft::is_bound(chain, account) {
+        if let Some(nft) = crate::identity_nft::get(chain, account) {
+            if nft.owner != account { return require_key(chain, &nft.owner); }
+        }
+    }
     if let Ok(Some(state)) = chain.store.get_account(account) {
         let has_key = state
             .get("keys")
@@ -2675,6 +2708,10 @@ fn check_signature(
     sig_hex: Option<&str>,
     role: &str,
 ) -> Result<()> {
+    // A bound name held by another account is controlled by the holder's keys.
+    if let Some(holder) = crate::identity_nft::controller(chain, signed_by, entry.epoch()) {
+        return check_held_signature(chain, signed_by, &holder, entry, sig_hex, role);
+    }
     let strict = chain.current_epoch() >= hone_types::SIGNED_AUTH_ACTIVATION_EPOCH;
     let pubkey_hex = match chain.store.get_account(signed_by)? {
         Some(state) if strict => {
@@ -2800,7 +2837,43 @@ fn verify_recovery_authority(
 /// Verify a VALUE-moving entry: the signer must sign with their ACTIVE key (or OWNER,
 /// which outranks active). There is NO posting fallback — a posting key can never move
 /// an asset. Mirrors the capability model (Value in {Owner, Active}).
+/// Signature check for a bound account `account` whose name NFT `holder` holds (see the
+/// control rule in identity_nft.rs). Value roles accept only the holder's owner/active
+/// key; the posting role also accepts the holder's posting key.
+fn check_held_signature(
+    chain: &Chain,
+    account: &str,
+    holder: &str,
+    entry: &LedgerEntry,
+    sig_hex: Option<&str>,
+    role: &str,
+) -> Result<()> {
+    let state = chain.store.get_account(holder)?
+        .ok_or_else(|| anyhow::anyhow!("'{}' is held by unknown account '{}'", account, holder))?;
+    let key = |r: &str| state.get("keys").and_then(|v| v.get(r)).and_then(|v| v.as_str())
+        .filter(|k| !k.is_empty()).map(str::to_owned);
+    let roles: &[&str] = if role == "posting" { &["posting", "active", "owner"] } else { &["active", "owner"] };
+    let candidates: Vec<String> = roles.iter().filter_map(|r| key(r)).collect();
+    if candidates.is_empty() {
+        bail!("'{}' is held by '{}', which has no {} key", account, holder,
+            if role == "posting" { "posting/active/owner" } else { "active or owner" });
+    }
+    let mut last = None;
+    for pk in &candidates {
+        match verify_against_pubkey(chain, pk, entry, sig_hex) {
+            Ok(()) => return Ok(()),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap().context(format!(
+        "'{}' is controlled by its name NFT holder '{}' — sign with the holder's {} key",
+        account, holder, if role == "posting" { "posting/active" } else { "active/owner" })))
+}
+
 fn check_value_signature(chain: &Chain, signed_by: &str, entry: &LedgerEntry, sig_hex: Option<&str>) -> Result<()> {
+    if let Some(holder) = crate::identity_nft::controller(chain, signed_by, entry.epoch()) {
+        return check_held_signature(chain, signed_by, &holder, entry, sig_hex, "active");
+    }
     let state = chain.store.get_account(signed_by)?
         .ok_or_else(|| anyhow::anyhow!("unknown account '{}' cannot sign", signed_by))?;
     let key = |r: &str| state.get("keys").and_then(|v| v.get(r)).and_then(|v| v.as_str())
@@ -3561,6 +3634,187 @@ mod tests {
         assert!(!is_system_entry(&LedgerEntry::Stake {
             account: "a".into(), amount: 1, nonce: 1, epoch: 1, signed_by: "a".into(),
         }));
+    }
+
+    // ── Reserved names -> transferable name NFTs (NAME_NFT_MIGRATION_EPOCH) ──
+
+    const NACT: u64 = 340_000;
+
+    fn set_nact(v: Option<u64>) { crate::identity_nft::TEST_MIGRATION_EPOCH.with(|c| c.set(v)); }
+    fn shin_posting() -> SigningKey { SigningKey::from_bytes(&[0x51; 32]) }
+    fn pk(sk: &SigningKey) -> String { hex::encode(sk.verifying_key().to_bytes()) }
+    fn sg(sk: &SigningKey, e: &LedgerEntry) -> String {
+        hex::encode(sk.sign(canonical_signing_message(e, "hone-testnet").unwrap().as_bytes()).to_bytes())
+    }
+
+    /// Live-like state: shindevlin (posting = the genesis posting key, plus active), the
+    /// reserved accounts a / aa / bob keyed ONLY to that posting key, and josh (also a
+    /// reserved name) with his own keys. Returns (chain, dir, shin_active, josh_posting).
+    fn reserved_world() -> (Chain, TempDir, SigningKey, SigningKey) {
+        let (chain, dir) = make_chain();
+        let sp = pk(&shin_posting());
+        for (name, posting) in [("shindevlin", sp.clone()), ("a", sp.clone()), ("aa", sp.clone()),
+                                ("bob", sp.clone()), ("josh", pk(&SigningKey::from_bytes(&[0x6a; 32])))] {
+            chain.apply_entry(&LedgerEntry::AccountCreate {
+                account: name.into(), keys: [("posting".to_string(), posting)].into_iter().collect(),
+                chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+            }).unwrap();
+            chain.apply_entry(&LedgerEntry::GenesisAlloc {
+                account: name.into(), amount: 1_000_000_000_000_000, token: NATIVE_TOKEN.into(),
+            }).unwrap();
+        }
+        let shin_active = register_key(&chain, "shindevlin", "active", 0x61);
+        register_key(&chain, "josh", "active", 0x6b);
+        chain.apply_entry(&LedgerEntry::EpochSeal {
+            node_id: "test-node".into(), epoch: NACT, timestamp: 0, seal_hash: "h".into(),
+            signature: None, node_version: None,
+        }).unwrap();
+        (chain, dir, shin_active, SigningKey::from_bytes(&[0x6a; 32]))
+    }
+
+    fn name_rows(chain: &Chain) -> Vec<(String, Vec<u8>)> {
+        let mut v = chain.store.state_scan_prefix("name_");
+        for a in ["a", "aa", "bob", "josh", "shindevlin"] {
+            v.push((format!("acct:{a}"), serde_json::to_vec(&chain.store.get_account(a).unwrap()).unwrap()));
+        }
+        v.sort();
+        v
+    }
+
+    fn nft_xfer(from: &str, to: &str, nonce: u64) -> LedgerEntry {
+        LedgerEntry::IdentityNftTransfer {
+            name: "a".into(), from: from.into(), to: to.into(), epoch: NACT, nonce,
+            signed_by: from.into(), signature: None,
+        }
+    }
+
+    #[test]
+    fn name_migration_gate_holds_before_activation() {
+        set_nact(None); // NAME_NFT_MIGRATION_EPOCH = u64::MAX: inert
+        let (chain, _d, shin_active, _) = reserved_world();
+        assert_eq!(crate::identity_nft::migrate_reserved_with(&chain, NACT, &pk(&shin_posting())).unwrap(), 0);
+        assert!(crate::identity_nft::get(&chain, "a").is_none());
+        assert!(crate::identity_nft::controller(&chain, "a", NACT).is_none());
+        // Nothing to transfer yet.
+        let t = nft_xfer("shindevlin", "josh", 1);
+        assert!(validate_and_apply(&chain, &t, Some(&sg(&shin_active, &t))).is_err());
+        // Pre-activation behaviour unchanged: the posting key still speaks for "a".
+        let k = LedgerEntry::AccountUpdateKey {
+            account: "a".into(), role: "owner".into(), new_public_key: pk(&SigningKey::from_bytes(&[9; 32])),
+            epoch: NACT, signed_by: "a".into(),
+        };
+        validate_and_apply(&chain, &k, Some(&sg(&shin_posting(), &k))).unwrap();
+    }
+
+    #[test]
+    fn name_migration_is_identical_on_every_node() {
+        set_nact(Some(NACT));
+        let sp = pk(&shin_posting());
+        let (n1, _d1, _, _) = reserved_world();
+        let (n2, _d2, _, _) = reserved_world();
+        // Different trigger epochs and a repeated run give byte-identical state.
+        assert_eq!(crate::identity_nft::migrate_reserved_with(&n1, NACT, &sp).unwrap(), 3);
+        assert_eq!(crate::identity_nft::migrate_reserved_with(&n1, NACT + 5, &sp).unwrap(), 0);
+        assert_eq!(crate::identity_nft::migrate_reserved_with(&n2, NACT + 77, &sp).unwrap(), 3);
+        assert_eq!(name_rows(&n1), name_rows(&n2));
+        for n in ["a", "aa", "bob"] {
+            let nft = crate::identity_nft::get(&n1, n).unwrap();
+            assert_eq!((nft.owner.as_str(), nft.minted_epoch, nft.transferable), ("shindevlin", NACT, true));
+            assert_eq!(crate::identity_nft::controller(&n1, n, NACT).as_deref(), Some("shindevlin"));
+            assert_eq!(n1.store.get_account(n).unwrap().unwrap()["keys"], serde_json::json!({}));
+        }
+        // josh has his own keys: not migrated, untouched. Non-reserved shindevlin untouched.
+        assert!(crate::identity_nft::get(&n1, "josh").is_none());
+        assert!(crate::identity_nft::get(&n1, "shindevlin").is_none());
+        // Reserved names do not use up open-phase issuance slots.
+        assert_eq!(crate::identity_nft::registered_count(&n1), 0);
+        set_nact(None);
+    }
+
+    #[test]
+    fn posting_key_cannot_move_or_seize_a_migrated_name() {
+        set_nact(Some(NACT));
+        let (chain, _d, shin_active, _) = reserved_world();
+        crate::identity_nft::migrate_reserved_with(&chain, NACT, &pk(&shin_posting())).unwrap();
+        let post = shin_posting();
+        // NFT transfer by posting: refused.
+        let t = nft_xfer("shindevlin", "josh", 1);
+        assert!(validate_and_apply(&chain, &t, Some(&sg(&post, &t))).is_err());
+        // Re-keying the account with the old posting key: refused (it was the seizure path).
+        let k = LedgerEntry::AccountUpdateKey {
+            account: "a".into(), role: "owner".into(), new_public_key: pk(&SigningKey::from_bytes(&[9; 32])),
+            epoch: NACT, signed_by: "a".into(),
+        };
+        assert!(validate_and_apply(&chain, &k, Some(&sg(&post, &k))).is_err());
+        assert!(validate_and_apply(&chain, &k, None).is_err(), "no keyless bootstrap on a held name");
+        // Whole-account handover: refused outright.
+        let at = LedgerEntry::AccountTransfer {
+            account: "a".into(), new_keys: [("posting".to_string(), pk(&post))].into_iter().collect(),
+            epoch: NACT, signed_by: "a".into(), nonce: 1, signature: None,
+        };
+        assert!(validate_and_apply(&chain, &at, Some(&sg(&shin_active, &at))).is_err());
+        // Spending the account's balance: posting refused, holder's active key accepted.
+        let x = LedgerEntry::Transfer {
+            from: "a".into(), to: "bob".into(), amount: 10_000_000_000, token: NATIVE_TOKEN.into(),
+            memo: None, nonce: 1, epoch: NACT, signed_by: "a".into(), twofactor: None,
+        };
+        assert!(validate_and_apply(&chain, &x, Some(&sg(&post, &x))).is_err());
+        validate_and_apply(&chain, &x, Some(&sg(&shin_active, &x))).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "a").unwrap().owner, "shindevlin");
+        set_nact(None);
+    }
+
+    #[test]
+    fn migrated_reserved_name_transfers_shin_to_josh_with_accept() {
+        set_nact(Some(NACT));
+        let (chain, _d, shin_active, josh_posting) = reserved_world();
+        crate::identity_nft::migrate_reserved_with(&chain, NACT, &pk(&shin_posting())).unwrap();
+        let t = nft_xfer("shindevlin", "josh", 1);
+        validate_and_apply(&chain, &t, Some(&sg(&shin_active, &t))).unwrap();
+        // Offer only: shin still controls "a" until josh accepts.
+        assert_eq!(crate::identity_nft::controller(&chain, "a", NACT).as_deref(), Some("shindevlin"));
+        let acc = LedgerEntry::IdentityNftAccept {
+            name: "a".into(), to: "josh".into(), epoch: NACT, nonce: 1, signed_by: "josh".into(), signature: None,
+        };
+        validate_and_apply(&chain, &acc, Some(&sg(&josh_posting, &acc))).unwrap();
+        assert_eq!(crate::identity_nft::get(&chain, "a").unwrap().owner, "josh");
+        assert_eq!(crate::identity_nft::controller(&chain, "a", NACT).as_deref(), Some("josh"));
+
+        // Control followed the NFT: shin's keys no longer speak for "a"; josh's do.
+        let k = |n: u8| LedgerEntry::AccountUpdateKey {
+            account: "a".into(), role: "owner".into(), new_public_key: pk(&SigningKey::from_bytes(&[n; 32])),
+            epoch: NACT, signed_by: "a".into(),
+        };
+        assert!(validate_and_apply(&chain, &k(7), Some(&sg(&shin_active, &k(7)))).is_err());
+        let josh_active = SigningKey::from_bytes(&[0x6b; 32]);
+        validate_and_apply(&chain, &k(8), Some(&sg(&josh_active, &k(8)))).unwrap();
+        // ...and josh's posting key cannot re-key it either (value role, no posting fallback).
+        assert!(validate_and_apply(&chain, &k(9), Some(&sg(&josh_posting, &k(9)))).is_err());
+        set_nact(None);
+    }
+
+    #[test]
+    fn bound_name_cannot_take_itself_without_its_own_value_key() {
+        set_nact(Some(NACT));
+        let (chain, _d, shin_active, _) = reserved_world();
+        crate::identity_nft::migrate_reserved_with(&chain, NACT, &pk(&shin_posting())).unwrap();
+        let t = nft_xfer("shindevlin", "a", 1);
+        validate_and_apply(&chain, &t, Some(&sg(&shin_active, &t))).unwrap();
+        // "a" accepts (still held by shin, so shin signs) — refused: "a" has no keys.
+        let acc = LedgerEntry::IdentityNftAccept {
+            name: "a".into(), to: "a".into(), epoch: NACT, nonce: 1, signed_by: "a".into(), signature: None,
+        };
+        assert!(validate_and_apply(&chain, &acc, Some(&sg(&shin_active, &acc))).is_err());
+        // Give "a" its own owner key first (holder signs), then the release goes through.
+        let a_owner = SigningKey::from_bytes(&[0x33; 32]);
+        let k = LedgerEntry::AccountUpdateKey {
+            account: "a".into(), role: "owner".into(), new_public_key: pk(&a_owner),
+            epoch: NACT, signed_by: "a".into(),
+        };
+        validate_and_apply(&chain, &k, Some(&sg(&shin_active, &k))).unwrap();
+        validate_and_apply(&chain, &acc, Some(&sg(&shin_active, &acc))).unwrap();
+        assert!(crate::identity_nft::controller(&chain, "a", NACT).is_none(), "self-held: own keys");
+        set_nact(None);
     }
 
     // ── Memory service signing (MEMORY_SIGNING_ACTIVATION_EPOCH) ─────────────

@@ -147,6 +147,93 @@ pub fn validate_recovery(guardians: &[String], threshold: u8, destination: &str)
     Ok(())
 }
 
+// ── reserved-name migration + name/account control (NAME_NFT_MIGRATION_EPOCH) ──
+//
+// CONTROL RULE. A name is a NameNft; an account of the same name is controlled by the
+// NFT only when it is BOUND (`name_bound:{name}`, set by the migration). For a bound
+// account N whose NFT is held by H != N:
+//   * N's own key map is ignored. Every signature for N is checked against H's keys:
+//     owner/active roles accept only H's owner or active key (never a posting key);
+//     the posting role accepts H's posting, active or owner key.
+//   * N's balance, nonce and entries are N's; only authority moves with the NFT.
+//   * AccountTransfer on N is refused (move the NFT instead). AccountUpdateKey and
+//     AccountSetPrimary on N need H's owner/active signature.
+//   * IdentityNftTransfer (H's active/owner key) + IdentityNftAccept by the recipient R
+//     moves control of N to R atomically, with no key rotation.
+//   * To make N self-sovereign, H sets N's own keys (AccountUpdateKey, signed by H) and
+//     transfers the NFT to N itself; N's own owner or active key must exist before that
+//     accept applies. Once the NFT is held by N, N's own keys apply as for any account.
+// Unbound accounts are untouched by any of this.
+
+const MIGRATION_DONE_KEY: &str = "name_migration_done";
+fn bound_key(name: &str) -> String { format!("name_bound:{}", name) }
+
+pub fn is_bound(chain: &Chain, name: &str) -> bool {
+    chain.store.state_get(&bound_key(name)).is_some()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Per-test override of NAME_NFT_MIGRATION_EPOCH (tests run on separate threads).
+    pub static TEST_MIGRATION_EPOCH: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The activation epoch for the migration and the control rule.
+pub fn migration_epoch() -> u64 {
+    #[cfg(test)]
+    if let Some(v) = TEST_MIGRATION_EPOCH.with(|c| c.get()) { return v; }
+    hone_types::NAME_NFT_MIGRATION_EPOCH
+}
+
+/// The account that controls `account` under the control rule at `epoch`, if it is a
+/// bound name held by someone else.
+pub fn controller(chain: &Chain, account: &str, epoch: u64) -> Option<String> {
+    if epoch < migration_epoch() || !is_bound(chain, account) { return None; }
+    get(chain, account).map(|n| n.owner).filter(|o| o != account)
+}
+
+/// Run the one-time migration if `epoch` has reached activation. Idempotent: a marker
+/// records completion, and a re-run after a crash skips rows already migrated.
+pub fn migrate_reserved(chain: &Chain, epoch: u64) -> Result<usize> {
+    migrate_reserved_with(chain, epoch, crate::reserved_names::SHINDEVLIN_POSTING_KEY)
+}
+
+/// Deterministic: walks the compiled reserved list in its fixed order and reads only
+/// each account's key map, so every node produces identical rows. A reserved account is
+/// migrated iff its keys are exactly {posting: issuer genesis posting key} and the name
+/// is not already an NFT. It becomes a NameNft owned by shindevlin (minted_epoch = the
+/// activation epoch, not the trigger epoch), is bound, and its own key map is emptied so
+/// the genesis posting key no longer speaks for it. The issuance counter is NOT bumped:
+/// reserved names do not consume open-phase slots.
+pub fn migrate_reserved_with(chain: &Chain, epoch: u64, issuer_posting_key: &str) -> Result<usize> {
+    let act = migration_epoch();
+    if epoch < act || chain.store.state_get(MIGRATION_DONE_KEY).is_some() { return Ok(0); }
+    let mut n = 0usize;
+    for name in crate::reserved_names::all_reserved() {
+        let Some(mut acct) = chain.store.get_account(&name)? else { continue };
+        let keys: std::collections::BTreeMap<String, String> = acct.get("keys")
+            .and_then(|k| k.as_object())
+            .map(|m| m.iter().filter_map(|(r, v)| v.as_str().filter(|s| !s.is_empty())
+                .map(|s| (r.clone(), s.to_owned()))).collect())
+            .unwrap_or_default();
+        if keys.len() != 1 || keys.get("posting").map(String::as_str) != Some(issuer_posting_key) { continue; }
+        if get(chain, &name).is_some() || chain.store.state_get(&owner_key(&name)).is_some() { continue; }
+        put(chain, &NameNft {
+            name: name.clone(), owner: ISSUER_ACCOUNT.to_string(), minted_epoch: act,
+            transferable: true, recovery: None, recovery_seq: 0,
+        })?;
+        chain.store.state_set(&held_key(ISSUER_ACCOUNT, &name), b"1")?;
+        chain.store.state_set(&bound_key(&name), b"1")?;
+        acct["keys"] = serde_json::json!({});
+        chain.store.set_account(&name, &acct)?;
+        n += 1;
+    }
+    chain.store.state_set(MIGRATION_DONE_KEY, n.to_string().as_bytes())?;
+    tracing::info!("identity: reserved-name migration at epoch {}: {} name(s) now NFTs held by {}",
+        epoch, n, ISSUER_ACCOUNT);
+    Ok(n)
+}
+
 // ── apply fns (run after ensure_account + signature/authority + nonce in tx.rs) ──
 
 pub fn apply_mint(chain: &Chain, name: &str, to: &str, minter: &str, epoch: u64) -> Result<()> {
@@ -199,6 +286,16 @@ pub fn apply_accept(chain: &Chain, name: &str, to: &str, epoch: u64) -> Result<(
     if nft.owner != offer.from {
         chain.store.state_delete(&pending_key(name))?;
         bail!("offer for '{}' is stale — owner changed", name);
+    }
+    // A bound account taking its own NFT must already have its own value key, or the
+    // account would end up keyless (and keyless accounts bootstrap unsigned).
+    if to == name && is_bound(chain, name) && epoch >= migration_epoch() {
+        let acct = chain.store.get_account(name)?.unwrap_or_default();
+        let has = |r: &str| acct.get("keys").and_then(|k| k.get(r)).and_then(|v| v.as_str())
+            .map(|v| !v.is_empty()).unwrap_or(false);
+        if !has("owner") && !has("active") {
+            bail!("'{}' must have its own owner or active key before it can hold its own name", name);
+        }
     }
     let from = offer.from.clone();
     chain.store.state_delete(&held_key(&from, name))?;
