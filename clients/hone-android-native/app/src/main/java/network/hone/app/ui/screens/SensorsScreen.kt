@@ -24,6 +24,7 @@ import network.hone.app.data.HoneDevice
 import network.hone.app.data.SensorCapture
 import network.hone.app.data.SensorChannel
 import network.hone.app.service.NodeService
+import network.hone.app.sightings.SightingsEngine
 import network.hone.app.ui.theme.*
 
 /**
@@ -37,17 +38,24 @@ fun SensorsScreen() {
     val ctx = LocalContext.current
     val capture = remember { SensorCapture(ctx) }
     val channels by capture.channels.collectAsStateWithLifecycle()
-    var running by remember { mutableStateOf(false) }
+    var running by remember { mutableStateOf(SightingsEngine.live.value.running) }
+    var showFindMy by remember { mutableStateOf(false) }
+    val coverage by SightingsEngine.live.collectAsStateWithLifecycle()
 
+    // Location, Bluetooth scan/advertise, notifications. The node starts whatever was
+    // granted: a denied permission only switches that sensing off.
     val permLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) { capture.start(); NodeService.start(ctx); running = true } }
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> capture.start(); NodeService.start(ctx); running = true }
 
     // Live preview while the screen is open (the service keeps capturing when it's closed).
     DisposableEffect(Unit) {
         capture.start()
-        onDispose { if (!running) capture.stop() }
+        SightingsEngine.uiVisible = true
+        onDispose { SightingsEngine.uiVisible = false; if (!running) capture.stop() }
     }
+
+    if (showFindMy) { FindMyScreen(onBack = { showFindMy = false }); return }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(top = 24.dp)) {
         Text("Sensors", style = MaterialTheme.typography.headlineMedium,
@@ -80,10 +88,13 @@ fun SensorsScreen() {
             }
             Switch(checked = running, onCheckedChange = { on ->
                 if (on) {
-                    if (capture.hasLocationPermission()) {
+                    val need = nodePermissions().filter {
+                        ctx.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    }
+                    if (need.isEmpty()) {
                         capture.start(); NodeService.start(ctx); running = true
                     } else {
-                        permLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        permLauncher.launch(need.toTypedArray())
                     }
                 } else {
                     NodeService.stop(ctx); running = false
@@ -100,6 +111,7 @@ fun SensorsScreen() {
         LaunchedEffect(bleAllowed) { if (bleAllowed) HoneAnnounceScanner.start(ctx) }
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item(key = "coverage") { CoverageCard(coverage, onFindMy = { showFindMy = true }) }
             item(key = "nearby-title") {
                 Text("Nearby HONE devices", style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold)
@@ -131,6 +143,16 @@ fun SensorsScreen() {
             items(channels, key = { it.id }) { SensorCard(it) }
         }
     }
+}
+
+private fun nodePermissions(): List<String> = buildList {
+    add(Manifest.permission.ACCESS_FINE_LOCATION)
+    add(Manifest.permission.ACCESS_COARSE_LOCATION)
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        add(Manifest.permission.BLUETOOTH_SCAN)
+        add(Manifest.permission.BLUETOOTH_ADVERTISE)
+    }
+    if (android.os.Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
 }
 
 private fun iconFor(id: String): ImageVector = when (id) {
