@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "note": "HONE decision tasks. Each task is an Open-Jev style question: a fixed instruction plus named candidates with descriptions. Add a task by adding an entry here; the Rust registry (src/tasks.rs) and the Python generator read this file.",
+  "tasks": {
+    "sensor_plausibility": {
+      "type": "choice",
+      "question": "Is the latest reading plausible given this sensor's type, its physical limits and its recent readings in this cell?",
+      "candidates": {
+        "yes": "The latest reading is consistent with the sensor's recent history, its type and physical limits.",
+        "no": "The latest reading is physically impossible, a stuck or faulty value, or a jump no real change could explain.",
+        "unsure": "There is too little history, or the change is large but could still be real."
+      }
+    },
+    "reading_novelty": {
+      "type": "choice",
+      "question": "Compared with what the chain already holds for this sensor and cell, does the new reading add information?",
+      "candidates": {
+        "new": "Nothing comparable is on chain yet for this sensor, cell or time window: first information.",
+        "changed": "The chain has comparable readings and this one differs from them by more than normal noise.",
+        "repeat": "The reading matches what the chain already holds within normal noise, or duplicates a reading already submitted."
+      }
+    },
+    "job_routing": {
+      "type": "choice",
+      "question": "Should this node run the job itself or send it to the network?",
+      "candidates": {
+        "local": "This node has the model, memory and time budget to finish the job before its deadline, or the job must not leave the node.",
+        "network": "The job needs a model, memory or speed this node lacks, and capable peers are reachable."
+      }
+    },
+    "peer_behavior": {
+      "type": "choice",
+      "question": "From these peer statistics, how is this peer behaving?",
+      "candidates": {
+        "normal": "Statistics are within normal ranges for a healthy honest node.",
+        "suspicious": "Some statistics are unusual (skew, duplicates, gaps, rate spikes) but not proof of misbehaviour.",
+        "misbehaving": "Clear evidence of misbehaviour: invalid signatures, conflicting proposals, replayed or forged messages."
+      }
+    }
+  }
+}

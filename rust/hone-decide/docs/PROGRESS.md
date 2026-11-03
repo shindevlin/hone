@@ -1,0 +1,89 @@
+# hone-decide progress log
+
+Resume notes for whoever picks this up. Newest state at the top of each section.
+
+## Locations
+- Code: grouchly `~/hone-decide-wt` (worktree of `~/hone-v21`, branch `decide/open-jev-port`
+  from `v2.1-live-identity`). Only `rust/hone-decide` and the workspace member line are ours.
+- beastly WSL: `~/decide/` (venv `~/decide/venv`, crate copy `~/decide/crate`, refset,
+  seed.json, logs). Models/data: `/mnt/x/ferry/hone-data/hone-models/decide/`
+  (`Open-Jev/` clone, `pkg/Open-Jev-{2B,9B}`, `base/{Qwen3.5-2B,Qwen3.5-9B,SmolLM2-*}`,
+  `export/`, `data/`, `teacher/`, `students/`).
+- grouchly: `~/decide/` (CPU venv for the fp32 Python reference, `xfer/` copies of the
+  2B base + package, `export/openjev-2b-f32` for the Rust parity run).
+- File transfer from the agent container: Claude `device_commit_files` into
+  `X:\hone\decide-xfer\` on beastly, then `scp` to grouchly.
+
+## Phase status
+1. Study: done -> `docs/OPEN_JEV_NOTES.md`.
+2. Reference run: see below.
+3. Rust inference: crate builds on grouchly (candle 0.10.2, CPU); `qwen35` + `llama` backbones.
+4. Distillation: scripts in `py/`.
+5. Quantise + nebra: `quantize` command, `deploy/hone-decide.service`.
+
+## Log
+- 2026-11-02: GPU on beastly has ~7.9 GB free (two llama-server instances, deepseek-r1-8b
+  and Qwen3-Coder-30B, hold ~16.6 GB; not ours, not touched). Open-Jev-2B bf16 fits;
+  9B bf16 (~15 GB) does not, so the 9B teacher runs 4-bit NF4 (`JEV_LOAD_4BIT=1`) unless
+  the card frees up.
+- 2026-11-02 18:25: container restart; resumed. Done so far: Open-Jev cloned + studied;
+  HF packages Open-Jev-2B/9B, bases Qwen3.5-2B/9B, SmolLM2-135M/360M downloaded to
+  `decide/base`, `decide/pkg`; task data generated (`~/decide/data`, 8000/1200/2000 rows,
+  copy in `decide/data`); crate builds and its unit tests pass on grouchly; 2B exported
+  (merged fp32) to grouchly `~/decide/export/openjev-2b-f32` (320 tensors, 60 LoRA
+  modules merged); parity runs started on grouchly: Python fp32 CPU
+  (`ref_py_fp32.jsonl`) and Rust (`ref_rust.jsonl`) on `refset.jsonl` (24 rows).
+  beastly venv still installing (first torch cu128 install timed out on pypi.nvidia.com;
+  second step pulls PyPI torch, driver 617 supports CUDA 13).
+- 2026-11-02 18:35: **2B parity PASSED** (grouchly CPU, both fp32): Rust `hone-decide score`
+  vs Open-Jev Python `jev_score.py` (JEV_TORCH_DTYPE=float32) on refset (24 rows -> 27
+  records, 74 probabilities, choice/noul/score + 4 HONE tasks): max |dp| = 3.59e-6,
+  mean 4.7e-7, max |dlogit| 1.9e-5, 0 argmax flips; token ids identical for all 71
+  candidate prompts (pyjson + chat template suffix `<think>\n\n</think>\n\n` confirmed).
+  Timing on 20 cores: Python 415 s, Rust 439 s for the 27 records (max prompt 607 tokens).
+  Files: grouchly `~/decide/ref_py_fp32.jsonl`, `ref_rust.jsonl`, `ref_*tokens/prompts`.
+- aarch64 build OK: `CARGO_TARGET_DIR=~/hone-decide-target-arm` with
+  `CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc` and the matching LINKER env; binary
+  runs on nebra (9.3 MB).
+- Transfer gotcha: `device_commit_files` caches by staged name; use a new file name per transfer.
+- 18:55 released-config reference: Open-Jev-2B bf16 on the 3090 (beastly `~/decide/ref_py_bf16_gpu.jsonl`,
+  27 records in 9.6 s). bf16-vs-fp32 gap is the same for Python and Rust: max |dp| 0.0125,
+  mean 0.0022, 0 argmax flips. So Rust == Python fp32 to 4e-6; both differ from the bf16
+  release only by bf16 rounding.
+- Llama/student path parity (SmolLM2-135M, untrained head): Rust f32 vs HF fp32 max |dp| 6e-6.
+- Quantised matmul fix: candle's CPU q-matmul is per-row vec_dot (12x slower than f32 on
+  x86 for prefill). `Lin::fwd` now dequantises a layer to a transient f32 matrix and uses
+  gemm when the input has >= 4 rows (`HONE_DECIDE_DEQ_ROWS`). 7x faster.
+- nebra first bench (untrained 135M Q8_0, 3 threads, CPUQuota 250%, MemoryMax 250M via
+  systemd-run): 200-token ctx 19.9 s (353 tokens), 500-token ctx 34.3 s (647 tokens), peak RSS
+  187 / 228 MB. ~18 tok/s on the A53s.
+- nebra /tmp is tmpfs (RAM). Never stage files there. Our files live in /home/pi/decide.
+  Someone else's 5 x 68 MB hone-node binaries sit in /tmp (340 MB of 454 MB tmpfs), not touched.
+- beastly background jobs: launch with Start-Process wsl.exe ... bash ~/decide/bg.sh SCRIPT LOG
+  (setsid/nohup jobs die when the launching `wsl -e` exits).
+- Teacher selection on 200 test rows: Open-Jev-2B zero-shot on HONE tasks: acc 0.505, ECE 0.236
+  (novelty 0.44, routing 0.71, plausibility 0.51, peer 0.38). 2B throughput 5.4 records/s.
+- 19:05 Open-Jev-9B bf16 reference (released layout, documented JEV_DEVICE_MAP with
+  embeddings/vision/lm_head on CPU) ran once the card was free (llama-servers had exited,
+  GPU at 0.5 GB): `ref_py_9b_bf16_gpu.jsonl`, 27 records in 22 s. No Rust 9B parity run
+  (merged fp32 9B is ~36 GB, more than grouchly's free RAM); the 9B shares the 2B code path.
+- Teacher choice on test200: Open-Jev-9B NF4 acc 0.701 / ECE 0.169 vs 2B bf16 0.505 / 0.236.
+  Teacher = 9B NF4 (keeps ~7 GB on the shared card instead of ~16 GB). Labeling all 11.2k
+  rows: beastly `~/decide/run_9b2.sh` -> `teacher9b_all.jsonl` (~1.9 records/s).
+- Student export check: Rust f32 == HF fp32 for a trained student (max |dp| 2e-7). Python
+  bf16-autocast eval differed by up to 1.1 logits, so train_student.py now evaluates and
+  fits the temperature in fp32.
+- Prefix is fed in 128-token chunks (`HONE_DECIDE_CHUNK`), bit-identical, lower peak memory.
+- nebra: kernel cmdline has `cgroup_disable=memory`, so MemoryMax is NOT enforced (for
+  hone-node either). Added in-process guards: `--max-rss-mb 240` (exit 1 -> restart) and
+  `--min-free-mb 200` (exit 75 -> stays stopped). Both verified on grouchly.
+- nebra service installed: /usr/local/bin/hone-decide, /opt/hone-decide/model (currently the
+  untrained 135M Q4 placeholder), /etc/systemd/system/hone-decide.service, enabled. RSS 114 MB
+  idle; a peer_behavior call (194 tokens) took 14.9 s. hone-node untouched and active.
+- nebra Q4 bench (untrained 135M): 200 ctx 20.9 s / RSS 136 MB, 500 ctx 35.0 s / RSS 177 MB.
+- 19:35 llama students: candidate suffixes now run as one right-padded batch over the shared
+  prefix KV (`forward_batch`), bit-identical to one-by-one. nebra (untrained 135M Q4, 3 threads):
+  200 ctx 18.5 s / RSS 127 MB; 500 ctx 37.7 s / RSS 143 MB with 128-token prefill chunks
+  (512-token chunks: 33-36 s but RSS 174 MB). Default stays 128 for memory.
+- GPU high tier: Rust CUDA build not attempted (qwen35 delta rule runs on CPU slices);
+  beastly GPU tier = Open-Jev's own Python stack. Rust qwen35 runs on CPU (grouchly).

@@ -1,0 +1,35 @@
+# hone-decide sidecar for small nodes (nebra: Pi CM3+, ~390 MB free next to hone-node).
+# Separate, capped, low-priority process; never touches hone-node's unit or config.
+[Unit]
+Description=HONE decide sidecar (calibrated decisions, localhost only)
+After=network.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+DynamicUser=yes
+# refuse to start unless the host keeps >= 200 MB free after loading (~120 MB student)
+ExecStartPre=/bin/sh -c 'awk "/MemAvailable/ {exit !(\$2/1024 >= 330)}" /proc/meminfo'
+ExecStart=/usr/local/bin/hone-decide serve --model /opt/hone-decide/model --bind 127.0.0.1:4250 --max-length 1024 --min-free-mb 200 --max-rss-mb 240
+Environment=RAYON_NUM_THREADS=3 MALLOC_ARENA_MAX=2
+# NOTE: nebra boots with cgroup_disable=memory, so MemoryMax/MemorySwapMax are not
+# enforced there; --max-rss-mb 240 and --min-free-mb 200 do the capping in-process.
+MemoryMax=250M
+MemorySwapMax=0
+OOMScoreAdjust=800
+Nice=15
+CPUWeight=20
+CPUQuota=250%
+Restart=always
+RestartSec=30
+# exit 75 = host MemAvailable fell under 200 MB: stay stopped, protect the node
+RestartPreventExitStatus=75
+IPAddressDeny=any
+IPAddressAllow=localhost
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
