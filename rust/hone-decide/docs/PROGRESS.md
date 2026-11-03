@@ -87,3 +87,27 @@ Resume notes for whoever picks this up. Newest state at the top of each section.
   (512-token chunks: 33-36 s but RSS 174 MB). Default stays 128 for memory.
 - GPU high tier: Rust CUDA build not attempted (qwen35 delta rule runs on CPU slices);
   beastly GPU tier = Open-Jev's own Python stack. Rust qwen35 runs on CPU (grouchly).
+- 20:20 Teacher (Open-Jev-9B NF4, its own released T=1.897) on the full HONE test split
+  (2000 rows, zero-shot, rule-based ground truth): acc 0.689, ECE 0.190; per task
+  novelty 0.718/0.080, routing 0.646/0.280, plausibility 0.772/0.140, peer 0.620/0.273.
+- Students training on beastly via `run_students3.sh` (waits for >= 6 GB free VRAM, re-splits
+  the teacher labels each time): 135M-kl, 135M-mix (label weight 0.5), 360M-kl, 360M-mix;
+  3 epochs, bs 4, lr 1e-4, head lr 1e-3, AdamW8bit. Outputs in beastly `~/decide/students/`.
+  The GPU is shared with the deepseek llama-server and ComfyUI; ~1.1 s/step for 135M.
+- 21:00 Student smollm2-135m-kl (KL only, 2912 train rows available at start, 3 epochs, T refit
+  on cal = 2.80), full 2000-row test, fp32: agreement with teacher 0.793, acc 0.570 (teacher
+  0.689), ECE 0.065 (teacher 0.190). Per task agree/acc/ECE: novelty 0.81/0.652/0.125,
+  routing 0.856/0.606/0.129, plausibility 0.594/0.470/0.043, peer 0.914/0.550/0.217.
+  Rust f32 vs Python student eval on 500 test rows: max |dp| 2.0e-6, 0 flips.
+- nebra, trained 135M-kl: Q8_0 200 ctx 17.2 s / RSS 177 MB, 500 ctx 35.7 s / RSS 194 MB;
+  Q4 200 ctx 18.4 s / RSS 127 MB, 500 ctx 41.6 s / RSS 143 MB. Deployed: Q4 at
+  /opt/hone-decide/model (Q8 would leave < 200 MB MemAvailable at 500-token contexts).
+- 135M-mix run was stopped at step 400/4410 (1.8 s/step under GPU contention, ~2.2 h);
+  queue is now `run_students4.sh`: 360M-kl (1 epoch) then 135M-mix (2 epochs), starting after
+  the teacher finishes.
+- Quantisation loss, 135M-kl, Rust, first 500 test rows: f32 acc 0.598 / ECE 0.099;
+  Q8_0 acc 0.596 / ECE 0.106 / argmax agreement with f32 0.994 (137 MB GGUF);
+  Q4 (Q4_K where cols%256==0, else Q4_0; embeddings Q8_0) acc 0.590 / ECE 0.104 /
+  agreement 0.982 (86 MB GGUF). Script: grouchly `~/decide/qeval.sh <student>`.
+- 21:24 teacher labels complete (11,200 rows, `teacher9b_all.jsonl`); 360M-kl training started
+  on all 8000 train rows (1 epoch, ~0.8 s/step).
