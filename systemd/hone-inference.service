@@ -11,12 +11,12 @@ User=ubuntclaw
 Environment=HONE_INFERENCE_LISTEN=127.0.0.1:4250
 Environment=HONE_MODEL_DIR=/mnt/nvme-storage/hone-models
 Environment=HONE_MODEL=qwen2.5-0.5b-instruct-q4_k_m.gguf
-Environment=HONE_INFERENCE_MAX_TOKENS=512
+Environment=HONE_INFERENCE_MAX_TOKENS=64
 ExecStart=/mnt/nvme-storage/hone-bin/hone-inference inference-serve
 Restart=always
 RestartSec=5
-MemoryHigh=1536M
-MemoryMax=2G
+MemoryHigh=3G
+MemoryMax=4G
 Nice=5
 
 [Install]
