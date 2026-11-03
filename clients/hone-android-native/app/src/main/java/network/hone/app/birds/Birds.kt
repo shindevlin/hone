@@ -13,7 +13,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 
 /** One heard detection, kept only on this phone. */
-data class Heard(val t: Long, val name: String, val conf: Double, val lat: Double?, val lon: Double?)
+data class Heard(val t: Long, val name: String, val conf: Double, val lat: Double?, val lon: Double?, val rare: Boolean = false)
 
 /** Everything this phone has heard of one species. */
 data class MySpecies(
@@ -24,6 +24,8 @@ data class MySpecies(
     val last: Long,
     val bestConf: Double,
     val history: List<Heard>,
+    /** Not on the local species list: kept only when heard at 85%+. */
+    val rare: Boolean = false,
 )
 
 /** A species picture from Wikimedia Commons, with its own license and credit. */
@@ -55,7 +57,8 @@ object Birds {
             runCatching {
                 val j = JSONObject(l)
                 out += Heard(j.getLong("t"), j.getString("name"), j.getDouble("conf"),
-                    j.optDouble("lat").takeUnless { it.isNaN() }, j.optDouble("lon").takeUnless { it.isNaN() })
+                    j.optDouble("lat").takeUnless { it.isNaN() }, j.optDouble("lon").takeUnless { it.isNaN() },
+                    j.optBoolean("rare"))
             }
         }
         val firstDet = out.minOfOrNull { it.t } ?: Long.MAX_VALUE
@@ -79,9 +82,10 @@ object Birds {
     /** Species heard here. Once the local range is known, species that don't occur here are left out. */
     fun mySpecies(ctx: Context): List<MySpecies> {
         val range = Range.current(ctx)
-        return heard(ctx).filter { range == null || it.name in range }.groupBy { it.name }.map { (latin, hs) ->
+        val keep = heard(ctx).filter { range == null || it.name in range || it.conf >= Range.MIN_RARE * 100 }
+        return keep.groupBy { it.name }.map { (latin, hs) ->
             MySpecies(latin, english(ctx, latin), hs.size, hs.minOf { it.t }, hs.maxOf { it.t },
-                hs.maxOf { it.conf }, hs)
+                hs.maxOf { it.conf }, hs, rare = range != null && latin !in range)
         }.sortedByDescending { it.last }
     }
 

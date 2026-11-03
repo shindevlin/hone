@@ -15,6 +15,8 @@ import java.io.File
 object Range {
     const val MIN_IN_RANGE = 0.30f
     const val MIN_UNKNOWN = 0.60f
+    /** Out-of-range species still count at this confidence: vagrants and early migrants happen. */
+    const val MIN_RARE = 0.85f
     private const val TTL_MS = 30L * 86_400_000L
 
     @Volatile private var cell: String? = null
@@ -24,8 +26,15 @@ object Range {
     /** True when a Perch score for [latin] should count as a detection here. */
     fun allowed(ctx: Context, latin: String, p: Float): Boolean {
         val set = current(ctx)
-        return if (set != null) latin in set && p >= MIN_IN_RANGE else p >= MIN_UNKNOWN
+        return when {
+            set == null -> p >= MIN_UNKNOWN
+            latin in set -> p >= MIN_IN_RANGE
+            else -> p >= MIN_RARE
+        }
     }
+
+    /** True if the local list is known and [latin] isn't on it. */
+    fun isRare(ctx: Context, latin: String): Boolean = current(ctx)?.let { latin !in it } ?: false
 
     /** The species set for the phone's current area, or null if not loaded yet. */
     fun current(ctx: Context): Set<String>? {

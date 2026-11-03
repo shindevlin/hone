@@ -71,7 +71,9 @@ object BirdsSync {
             if (w <= last || w >= current || !j.has("lat")) return@forEachLine
             val cell = publicCell(ctx, j.getDouble("lat"), j.getDouble("lon"), j.optDouble("acc", 50.0).toFloat())
                 ?: return@forEachLine
-            if (Range.current(ctx)?.contains(j.getString("name")) == false) return@forEachLine
+            // Out-of-range species go out only at 85%+ (flagged rare by the indexer).
+            if (Range.current(ctx)?.contains(j.getString("name")) == false &&
+                j.getDouble("conf") < Range.MIN_RARE * 100) return@forEachLine
             val sp = byWin.getOrPut(w) { HashMap() }.getOrPut(cell) { HashMap() }
             val prev = sp[j.getString("name")]
             sp[j.getString("name")] = Pair(maxOf(prev?.first ?: 0.0, j.getDouble("conf")), (prev?.second ?: 0) + 1)

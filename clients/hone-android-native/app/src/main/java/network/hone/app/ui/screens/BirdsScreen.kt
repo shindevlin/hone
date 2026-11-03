@@ -109,8 +109,8 @@ private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Names(s.latin, s.english)
-                    Text("heard ${s.count}× · last ${ago(s.last)} · best ${s.bestConf.toInt()}%",
-                        style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
+                    Text((if (s.rare) "rare here · " else "") + "heard ${s.count}× · last ${ago(s.last)} · best ${s.bestConf.toInt()}%",
+                        style = MaterialTheme.typography.labelSmall, color = if (s.rare) HoneGreen else HoneTextDim)
                 }
             }
         }
@@ -237,7 +237,7 @@ private fun UflDialog(name: String, onCancel: () -> Unit, onAgree: (Long) -> Uni
 
 // ── Everyone ─────────────────────────────────────────────────────────────────
 
-private data class PublicSpecies(val latin: String, val sightings: Int, val cells: Int, val photos: Int, val lastWindow: Long)
+private data class PublicSpecies(val latin: String, val sightings: Int, val cells: Int, val photos: Int, val lastWindow: Long, val rare: Int = 0)
 
 @Composable
 private fun EveryoneList(onOpen: (String) -> Unit) {
@@ -248,7 +248,7 @@ private fun EveryoneList(onOpen: (String) -> Unit) {
                 val a = JSONArray(BirdsSync.getJson("/species"))
                 (0 until a.length()).map { a.getJSONObject(it) }.map {
                     PublicSpecies(it.getString("latin"), it.getInt("sightings"), it.getInt("cells"),
-                        it.optInt("photos"), it.getLong("last_window"))
+                        it.optInt("photos"), it.getLong("last_window"), it.optInt("rare"))
                 }
             }.getOrDefault(emptyList())
         }
@@ -268,7 +268,8 @@ private fun EveryoneList(onOpen: (String) -> Unit) {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Names(s.latin, Birds.english(ctx, s.latin))
-                        Text("${s.sightings} sightings · ${s.cells} places · ${s.photos} photos · last ${ago(s.lastWindow * 900_000L)}",
+                        Text("${s.sightings} sightings · ${s.cells} places · ${s.photos} photos" +
+                            (if (s.rare > 0) " · ${s.rare} rare" else "") + " · last ${ago(s.lastWindow * 900_000L)}",
                             style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
                     }
                 }
@@ -324,7 +325,8 @@ private fun PublicDetail(latin: String, onBack: () -> Unit) {
         item { Text("Sightings: ${sightings?.length() ?: 0}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
         if (sightings != null) items((0 until minOf(sightings.length(), 100)).map { sightings.getJSONObject(it) }) { s ->
             Text("${DateUtils.formatDateTime(ctx, s.getLong("window") * 900_000L, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · " +
-                "${(s.getInt("conf_q8") * 100 / 255)}% · ${s.optString("account").ifEmpty { "anonymous" }} · cell res ${s.getInt("res")}",
+                "${(s.getInt("conf_q8") * 100 / 255)}% · ${s.optString("account").ifEmpty { "hidden name" }} · cell res ${s.getInt("res")}" +
+                    when (s.optString("rare")) { "unconfirmed" -> " · rare, unconfirmed"; "confirmed" -> " · rare, confirmed"; else -> "" },
                 style = MaterialTheme.typography.bodySmall, color = HoneTextDim)
         }
         item { Spacer(Modifier.height(24.dp)) }

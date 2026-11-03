@@ -61,6 +61,7 @@ rate = {}  # ip -> [window_start, count]
 # Perch picks from ~15,000 species worldwide; restricting to species actually recorded near
 # the phone removes most false detections. Data: GBIF.org occurrence facets (counts only).
 RANGE_KM = 250
+RARE_MIN_Q8 = 217  # 85 %
 RANGE_TTL = 30 * 86400
 GBIF_GROUPS = {"classKey": [212, 131, 359], "orderKey": [1458]}  # birds, amphibians, mammals, Orthoptera
 range_locks = {}
@@ -178,12 +179,26 @@ def add_sighting(body):
             continue
         v = verified
         if v and in_range(cell, name) is False:
-            v = 2  # held back: species not recorded in this region (GBIF)
+            # Not recorded in this region (GBIF). Vagrants happen: very confident reports are
+            # published flagged rare (3 = unconfirmed); weaker ones are held back (2).
+            v = 3 if int(s["conf_q8"]) >= RARE_MIN_Q8 else 2
         rows.append((f"{sid}:{i}", int(p["window"]), cell, res, name, int(s["conf_q8"]),
                      int(s.get("frames", 1)), str(p.get("model", ""))[:64],
                      p["account"], pub, int(time.time()), v, 1 if p.get("show_name") else 0))
     with lock:
         db.executemany("INSERT OR IGNORE INTO sightings VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        # A rare report is confirmed (4) when a different account reports the same species
+        # in the same res-3 area within 72 h (288 windows).
+        for r in rows:
+            if r[11] != 3:
+                continue
+            c3 = h3.cell_to_parent(r[2], 3) if r[3] > 3 else r[2]
+            others = [o for o in db.execute(
+                "SELECT sid, cell, res FROM sightings WHERE latin=? AND verified IN (3,4) AND account<>? AND ABS(window-?)<=288",
+                (r[4], r[8], r[1])).fetchall()
+                if (h3.cell_to_parent(o[1], 3) if o[2] > 3 else o[1]) == c3]
+            if others:
+                db.executemany("UPDATE sightings SET verified=4 WHERE sid=?", [(o[0],) for o in others] + [(r[0],)])
         db.commit()
     return {"ok": True, "stored": len(rows)}
 
@@ -223,6 +238,7 @@ def public_sighting(r):
     # never return the signing key of anonymous rows (there is none) or receive times
     out = {k: r[k] for k in ("window", "cell", "res", "latin", "conf_q8", "frames")}
     out["account"] = r["account"] if r["show_name"] else None   # verified either way; name only on opt-in
+    out["rare"] = {3: "unconfirmed", 4: "confirmed"}.get(r["verified"])
     return out
 
 
@@ -286,13 +302,14 @@ class H(BaseHTTPRequestHandler):
         path = u.path
         try:
             if path == "/api/birds/sightings":
-                rows = q("SELECT * FROM sightings WHERE verified=1 AND window>=? ORDER BY window DESC LIMIT ?",
+                rows = q("SELECT * FROM sightings WHERE verified IN (1,3,4) AND window>=? ORDER BY window DESC LIMIT ?",
                          (int(a.get("since", 0)), min(int(a.get("limit", 500)), 2000)))
                 return self._send(200, [public_sighting(r) for r in rows])
             if path == "/api/birds/species":
                 rows = q("""SELECT latin, COUNT(*) sightings, COUNT(DISTINCT cell) cells,
-                            MAX(window) last_window, MIN(window) first_window
-                            FROM sightings WHERE verified=1 GROUP BY latin ORDER BY sightings DESC""")
+                            MAX(window) last_window, MIN(window) first_window,
+                            SUM(verified IN (3,4)) rare
+                            FROM sightings WHERE verified IN (1,3,4) GROUP BY latin ORDER BY sightings DESC""")
                 photos = {r["latin"]: r["n"] for r in q("SELECT latin, COUNT(*) n FROM photos WHERE hidden=0 AND verified=1 GROUP BY latin")}
                 for r in rows:
                     r["photos"] = photos.get(r["latin"], 0)
@@ -300,7 +317,7 @@ class H(BaseHTTPRequestHandler):
             m = re.match(r"^/api/birds/species/(.+)$", path)
             if m:
                 latin = unquote(m.group(1))
-                s = q("SELECT * FROM sightings WHERE verified=1 AND latin=? ORDER BY window DESC LIMIT 500", (latin,))
+                s = q("SELECT * FROM sightings WHERE verified IN (1,3,4) AND latin=? ORDER BY window DESC LIMIT 500", (latin,))
                 p = q("SELECT id, t, license, CASE WHEN show_name=1 THEN account END account FROM photos"
                       " WHERE latin=? AND hidden=0 AND verified=1 ORDER BY t DESC LIMIT 100", (latin,))
                 for r in p:
@@ -310,7 +327,7 @@ class H(BaseHTTPRequestHandler):
                 res = int(a.get("res", 5))
                 if res not in (3, 5, 7, 9):
                     raise ValueError("res must be 3, 5, 7 or 9")
-                sql = "SELECT cell, res, latin FROM sightings WHERE verified=1 AND window>=?"
+                sql = "SELECT cell, res, latin FROM sightings WHERE verified IN (1,3,4) AND window>=?"
                 args = [int(a.get("since", 0))]
                 if a.get("species"):
                     sql += " AND latin=?"; args.append(a["species"])

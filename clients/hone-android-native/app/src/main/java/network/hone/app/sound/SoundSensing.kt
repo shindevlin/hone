@@ -270,6 +270,7 @@ object SoundSensing {
             val sb = StringBuilder()
             for (d in top) {
                 val j = JSONObject().put("t", d.atMs).put("name", d.name).put("conf", round1(d.conf * 100.0))
+                if (network.hone.app.birds.Range.isRare(ctx, d.name)) j.put("rare", true)
                 if (fix != null) j.put("lat", fix.latitude).put("lon", fix.longitude).put("acc", fix.accuracy.toDouble())
                 sb.append(j.toString()).append('\n')
             }
