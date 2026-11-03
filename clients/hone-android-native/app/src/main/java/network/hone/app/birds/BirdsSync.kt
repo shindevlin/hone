@@ -27,6 +27,7 @@ object BirdsSync {
     private const val TAG = "HoneBirds"
     const val BASE = "https://honemesh.net/api/birds"
     private const val WINDOW_MS = 900_000L
+    private const val PUBLISH_MIN_CONF = 50.0   // percent
 
     @Synchronized
     fun syncNow(ctx: Context) {
@@ -70,6 +71,7 @@ object BirdsSync {
             if (w <= last || w >= current || !j.has("lat")) return@forEachLine
             val cell = publicCell(ctx, j.getDouble("lat"), j.getDouble("lon"), j.optDouble("acc", 50.0).toFloat())
                 ?: return@forEachLine
+            if (Range.current(ctx)?.contains(j.getString("name")) == false) return@forEachLine
             val sp = byWin.getOrPut(w) { HashMap() }.getOrPut(cell) { HashMap() }
             val prev = sp[j.getString("name")]
             sp[j.getString("name")] = Pair(maxOf(prev?.first ?: 0.0, j.getDouble("conf")), (prev?.second ?: 0) + 1)
@@ -78,7 +80,10 @@ object BirdsSync {
         if (!canSign(ctx)) return
         val show = prefs(ctx).getBoolean("show_name", false)
         for ((w, cells) in byWin) {
-            for ((cell, sp) in cells) {
+            for ((cell, spAll) in cells) {
+                // Publish only confident or repeated detections; weak one-offs stay private.
+                val sp = spAll.filterValues { (conf, n) -> conf >= PUBLISH_MIN_CONF || n >= 2 }
+                if (sp.isEmpty()) continue
                 val payload = JSONObject().put("v", 1).put("sid", UUID.randomUUID().toString())
                     .put("window", w).put("cell", cell).put("model", Perch.MODEL_ID)
                     .put("species", JSONArray().apply {
@@ -142,9 +147,9 @@ object BirdsSync {
         return JSONObject(text)
     }
 
-    fun getJson(path: String): String =
+    fun getJson(path: String, readTimeoutMs: Int = 20_000): String =
         (URL("$BASE$path").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 10_000; readTimeout = 20_000; setRequestProperty("User-Agent", "HONE-app/1.0")
+            connectTimeout = 10_000; readTimeout = readTimeoutMs; setRequestProperty("User-Agent", "HONE-app/1.0")
         }.inputStream.bufferedReader().use { it.readText() }
 
     fun getBytes(url: String): ByteArray =

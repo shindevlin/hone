@@ -156,10 +156,10 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
                 Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)))
                 img?.let {
-                    Text("Photo: ${it.credit} · ${it.license} · Wikimedia Commons",
+                    Text("Photo: ${it.credit} · ${it.license}" + if (it.pageUrl.contains("wikimedia")) " · Wikimedia Commons" else "",
                         style = MaterialTheme.typography.labelSmall, color = HoneTextFaint,
                         modifier = Modifier.clickable {
-                            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.pageUrl)))
+                            if (it.pageUrl.isNotEmpty()) ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.pageUrl)))
                         })
                 }
             }
@@ -296,7 +296,7 @@ private fun PublicDetail(latin: String, onBack: () -> Unit) {
             if (bmp != null) {
                 Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)))
-                img?.let { Text("Photo: ${it.credit} · ${it.license} · Wikimedia Commons",
+                img?.let { Text("Photo: ${it.credit} · ${it.license}" + if (it.pageUrl.contains("wikimedia")) " · Wikimedia Commons" else "",
                     style = MaterialTheme.typography.labelSmall, color = HoneTextFaint) }
             }
         }

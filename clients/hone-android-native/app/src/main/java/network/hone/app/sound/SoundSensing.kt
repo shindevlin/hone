@@ -197,7 +197,11 @@ object SoundSensing {
         val leq = 10 * log10(sumE / Perch.FRAME + 1e-12)
 
         val now = System.currentTimeMillis()
-        val top = probs.indices.filter { p.isSpecies[it] && probs[it] >= SPECIES_MIN }
+        val ctx = appCtx
+        val top = probs.indices.filter {
+            p.isSpecies[it] && probs[it] >= SPECIES_MIN &&
+                (ctx == null || network.hone.app.birds.Range.allowed(ctx, p.names[it], probs[it]))
+        }
             .sortedByDescending { probs[it] }.take(5)
             .map { Detection(p.names[it], probs[it], now) }
         for (d in top) {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -75,48 +76,88 @@ object Birds {
         return out.sortedByDescending { it.t }
     }
 
-    fun mySpecies(ctx: Context): List<MySpecies> =
-        heard(ctx).groupBy { it.name }.map { (latin, hs) ->
+    /** Species heard here. Once the local range is known, species that don't occur here are left out. */
+    fun mySpecies(ctx: Context): List<MySpecies> {
+        val range = Range.current(ctx)
+        return heard(ctx).filter { range == null || it.name in range }.groupBy { it.name }.map { (latin, hs) ->
             MySpecies(latin, english(ctx, latin), hs.size, hs.minOf { it.t }, hs.maxOf { it.t },
                 hs.maxOf { it.conf }, hs)
         }.sortedByDescending { it.last }
+    }
 
     // ── species images (Wikimedia Commons, attributed) ─────────────────────────
 
-    /** Cached image for a species, fetched once from Wikipedia/Commons. Call off the main thread. */
+    private val imgLock = Any()
+
+    /**
+     * Picture for a species, call off the main thread. Order: the user's own photo, a HONE
+     * community photo (UFL), the Wikipedia lead image, then Wikidata's image (P18), both from
+     * Wikimedia Commons with credit and license. One network fetch at a time.
+     */
     fun image(ctx: Context, latin: String): SpeciesImage? {
+        myPhotos(ctx, latin).firstOrNull()?.let { return SpeciesImage(it.file, "you", "UFL", "") }
         val dir = File(birdDir(ctx), "img").apply { mkdirs() }
         val key = latin.replace(' ', '_')
         val meta = File(dir, "$key.json")
         val img = File(dir, "$key.jpg")
-        if (meta.exists()) {
+        fun cached(): SpeciesImage? {
+            if (!meta.exists()) return null
             val j = JSONObject(meta.readText())
-            return if (j.optBoolean("none") || !img.exists()) null
-            else SpeciesImage(img, j.getString("credit"), j.getString("license"), j.getString("page"))
+            if (j.optBoolean("none")) return if (System.currentTimeMillis() - meta.lastModified() < 86_400_000L) NONE else null
+            return if (img.exists()) SpeciesImage(img, j.getString("credit"), j.getString("license"), j.getString("page")) else null
         }
-        return runCatching {
-            val sum = JSONObject(get("https://en.wikipedia.org/api/rest_v1/page/summary/" + enc(key)))
-            val orig = sum.optJSONObject("originalimage")?.optString("source")
-                ?: return@runCatching none(meta)
-            val fileName = URLDecoder.decode(orig.substringAfterLast('/'), "UTF-8")
-            val info = JSONObject(get(
-                "https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo" +
-                    "&iiprop=url|extmetadata&iiurlwidth=640&titles=" + enc("File:$fileName")
-            )).getJSONObject("query").getJSONObject("pages")
-            val ii = info.getJSONObject(info.keys().next()).getJSONArray("imageinfo").getJSONObject(0)
-            val em = ii.getJSONObject("extmetadata")
-            fun md(k: String) = em.optJSONObject(k)?.optString("value").orEmpty()
-            val license = md("LicenseShortName").ifEmpty { "see source" }
-            val artist = md("Artist").replace(Regex("<[^>]+>"), "").trim().ifEmpty { "Unknown" }
-            val thumb = ii.optString("thumburl").ifEmpty { ii.getString("url") }
-            img.writeBytes(getBytes(thumb))
-            val page = ii.optString("descriptionurl")
-            meta.writeText(JSONObject().put("credit", artist).put("license", license).put("page", page).toString())
-            SpeciesImage(img, artist, license, page)
-        }.getOrNull()
+        cached()?.let { return it.takeUnless { it === NONE } }
+        synchronized(imgLock) {
+            cached()?.let { return it.takeUnless { it === NONE } }
+            val got = runCatching { community(latin, img) }.onFailure { Log.w(TAG, "community img $latin: ${it.message}") }.getOrNull()
+                ?: runCatching { commonsFile(wikipediaFile(key), img) }.onFailure { Log.w(TAG, "wikipedia img $latin: ${it.message}") }.getOrNull()
+                ?: runCatching { commonsFile(wikidataFile(latin), img) }.onFailure { Log.w(TAG, "wikidata img $latin: ${it.message}") }.getOrNull()
+            if (got == null) { meta.writeText("""{"none":true}"""); return null }
+            meta.writeText(JSONObject().put("credit", got.credit).put("license", got.license).put("page", got.pageUrl).toString())
+            return got
+        }
     }
 
-    private fun none(meta: File): SpeciesImage? { meta.writeText("""{"none":true}"""); return null }
+    private val NONE = SpeciesImage(File(""), "", "", "")
+    private const val TAG = "HoneBirds"
+
+    private fun community(latin: String, out: File): SpeciesImage? {
+        val p = JSONObject(BirdsSync.getJson("/species/" + enc(latin))).optJSONArray("photos") ?: return null
+        if (p.length() == 0) return null
+        val first = p.getJSONObject(0)
+        out.writeBytes(BirdsSync.getBytes(first.getString("url")))
+        return SpeciesImage(out, first.optString("account").ifEmpty { "HONE community" }, "UFL", "")
+    }
+
+    private fun wikipediaFile(key: String): String? {
+        val sum = JSONObject(get("https://en.wikipedia.org/api/rest_v1/page/summary/" + enc(key)))
+        val orig = sum.optJSONObject("originalimage")?.optString("source") ?: return null
+        return URLDecoder.decode(orig.substringBefore("?").substringAfterLast("/"), "UTF-8")
+    }
+
+    private fun wikidataFile(latin: String): String? {
+        val q = "SELECT ?img WHERE { ?i wdt:P225 \"$latin\" ; wdt:P18 ?img } LIMIT 1"
+        val r = JSONObject(get("https://query.wikidata.org/sparql?format=json&query=" + enc(q)))
+        val b = r.getJSONObject("results").getJSONArray("bindings")
+        if (b.length() == 0) return null
+        val url = b.getJSONObject(0).getJSONObject("img").getString("value")
+        return URLDecoder.decode(url.substringAfterLast("/"), "UTF-8")
+    }
+
+    private fun commonsFile(fileName: String?, out: File): SpeciesImage? {
+        if (fileName.isNullOrBlank()) return null
+        val info = JSONObject(get(
+            "https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo" +
+                "&iiprop=url|extmetadata&iiurlwidth=640&titles=" + enc("File:$fileName")
+        )).getJSONObject("query").getJSONObject("pages")
+        val ii = info.getJSONObject(info.keys().next()).getJSONArray("imageinfo").getJSONObject(0)
+        val em = ii.getJSONObject("extmetadata")
+        fun md(k: String) = em.optJSONObject(k)?.optString("value").orEmpty()
+        val license = md("LicenseShortName").ifEmpty { "see source" }
+        val artist = md("Artist").replace(Regex("<[^>]+>"), "").trim().ifEmpty { "Unknown" }
+        out.writeBytes(getBytes(ii.optString("thumburl").ifEmpty { ii.getString("url") }))
+        return SpeciesImage(out, artist, license, ii.optString("descriptionurl"))
+    }
 
     fun bitmap(f: File, maxPx: Int = 640): Bitmap? = runCatching {
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }

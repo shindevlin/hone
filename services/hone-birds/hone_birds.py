@@ -21,7 +21,8 @@ API (all JSON):
        payload = {"v":1,"latin","t","license":"UFL","account"?}
   GET  /api/birds/photos/<id>.jpg
 """
-import base64, hashlib, hmac, json, os, re, sqlite3, sys, threading, time
+import base64, hashlib, hmac, json, os, re, sqlite3, sys, threading, time, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -49,8 +50,79 @@ CREATE TABLE IF NOT EXISTS photos(
   ufl_agreed_ms INTEGER);
 CREATE INDEX IF NOT EXISTS p_latin ON photos(latin);
 """)
+db.executescript("""
+CREATE TABLE IF NOT EXISTS ranges(cell TEXT PRIMARY KEY, species TEXT, updated INTEGER);
+CREATE TABLE IF NOT EXISTS gbif_names(key INTEGER PRIMARY KEY, name TEXT);
+""")
 lock = threading.Lock()
 rate = {}  # ip -> [window_start, count]
+
+# ── species range (GBIF occurrences within RANGE_KM of an H3 res-3 cell) ────────────────
+# Perch picks from ~15,000 species worldwide; restricting to species actually recorded near
+# the phone removes most false detections. Data: GBIF.org occurrence facets (counts only).
+RANGE_KM = 250
+RANGE_TTL = 30 * 86400
+GBIF_GROUPS = {"classKey": [212, 131, 359], "orderKey": [1458]}  # birds, amphibians, mammals, Orthoptera
+range_locks = {}
+
+
+def gbif(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "hone-birds/1 (https://honemesh.net)"})
+    return json.load(urllib.request.urlopen(req, timeout=60))
+
+
+def gbif_name(key):
+    with lock:
+        r = db.execute("SELECT name FROM gbif_names WHERE key=?", (key,)).fetchone()
+    if r:
+        return r[0]
+    try:
+        n = gbif(f"https://api.gbif.org/v1/species/{key}").get("canonicalName")
+    except Exception:
+        return None
+    if n:
+        with lock:
+            db.execute("INSERT OR REPLACE INTO gbif_names VALUES(?,?)", (key, n)); db.commit()
+    return n
+
+
+def species_range(cell):
+    """Species names recorded within RANGE_KM of the res-3 cell's centre (cached 30 days)."""
+    if h3.get_resolution(cell) != 3:
+        cell = h3.cell_to_parent(cell, 3)
+    with lock:
+        r = db.execute("SELECT species, updated FROM ranges WHERE cell=?", (cell,)).fetchone()
+    if r and time.time() - r[1] < RANGE_TTL:
+        return cell, json.loads(r[0])
+    lk = range_locks.setdefault(cell, threading.Lock())
+    with lk:
+        with lock:
+            r = db.execute("SELECT species, updated FROM ranges WHERE cell=?", (cell,)).fetchone()
+        if r and time.time() - r[1] < RANGE_TTL:
+            return cell, json.loads(r[0])
+        lat, lng = h3.cell_to_latlng(cell)
+        keys = set()
+        for field, vals in GBIF_GROUPS.items():
+            for v in vals:
+                d = gbif(f"https://api.gbif.org/v1/occurrence/search?geo_distance={lat:.4f},{lng:.4f},{RANGE_KM}km"
+                         f"&{field}={v}&facet=speciesKey&facetLimit=5000&limit=0")
+                for c in d["facets"][0]["counts"] if d.get("facets") else []:
+                    if c["count"] >= 2:
+                        keys.add(int(c["name"]))
+        with ThreadPoolExecutor(8) as ex:
+            names = sorted({n for n in ex.map(gbif_name, keys) if n})
+        with lock:
+            db.execute("INSERT OR REPLACE INTO ranges VALUES(?,?,?)", (cell, json.dumps(names), int(time.time())))
+            db.commit()
+        return cell, names
+
+
+def in_range(cell, latin):
+    """True/False if the range for this cell is cached; None if not known yet."""
+    c3 = h3.cell_to_parent(cell, 3) if h3.get_resolution(cell) > 3 else cell
+    with lock:
+        r = db.execute("SELECT species FROM ranges WHERE cell=?", (c3,)).fetchone()
+    return None if not r else latin in set(json.loads(r[0]))
 
 
 def limited(ip, n=120, per=3600):
@@ -104,9 +176,12 @@ def add_sighting(body):
         name = s["name"]
         if not LATIN.match(name):
             continue
+        v = verified
+        if v and in_range(cell, name) is False:
+            v = 2  # held back: species not recorded in this region (GBIF)
         rows.append((f"{sid}:{i}", int(p["window"]), cell, res, name, int(s["conf_q8"]),
                      int(s.get("frames", 1)), str(p.get("model", ""))[:64],
-                     p["account"], pub, int(time.time()), verified, 1 if p.get("show_name") else 0))
+                     p["account"], pub, int(time.time()), v, 1 if p.get("show_name") else 0))
     with lock:
         db.executemany("INSERT OR IGNORE INTO sightings VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         db.commit()
@@ -254,6 +329,10 @@ class H(BaseHTTPRequestHandler):
                     return self._send(404, {"error": "not found"})
                 with open(f, "rb") as fh:
                     return self._send(200, raw=fh.read(), ctype="image/jpeg")
+            if path == "/api/birds/range":
+                c3, names = species_range(a["cell"])
+                return self._send(200, {"cell": c3, "radius_km": RANGE_KM, "source": "GBIF.org occurrences",
+                                        "species": names})
             if path == "/api/birds/health":
                 return self._send(200, {"ok": True, "sightings": q("SELECT COUNT(*) n FROM sightings")[0]["n"],
                                         "photos": q("SELECT COUNT(*) n FROM photos")[0]["n"]})
