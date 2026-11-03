@@ -85,6 +85,8 @@ dependencies {
 
     // Perch v2 on-device (LiteRT, the TensorFlow Lite runtime).
     implementation("com.google.ai.edge.litert:litert:2.3.2")
+    // Bird maps: MapLibre (BSD-2) with OpenFreeMap tiles (no key).
+    implementation("org.maplibre.gl:android-sdk:11.13.5")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

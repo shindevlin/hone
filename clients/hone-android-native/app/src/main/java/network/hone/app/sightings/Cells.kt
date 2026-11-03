@@ -35,6 +35,10 @@ object Cells {
 
     fun res(cell: String): Int = runCatching { h3?.getResolution(cell) }.getOrNull() ?: -1
 
+    /** Hexagon corners as (lat, lng). */
+    fun boundary(cell: String): List<Pair<Double, Double>>? =
+        runCatching { h3?.cellToBoundary(cell)?.map { it.lat to it.lng } }.getOrNull()
+
     fun center(cell: String): Pair<Double, Double>? =
         runCatching { h3?.cellToLatLng(cell)?.let { it.lat to it.lng } }.getOrNull()
 }

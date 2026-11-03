@@ -33,6 +33,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import network.hone.app.birds.Birds
+import network.hone.app.birds.BirdsSync
+import org.json.JSONArray
+import org.json.JSONObject
 import network.hone.app.birds.MySpecies
 import network.hone.app.birds.SpeciesImage
 import network.hone.app.sound.SoundSensing
@@ -51,9 +54,12 @@ fun BirdsScreen() {
         mine = withContext(Dispatchers.IO) { Birds.mySpecies(ctx) }
     }
 
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { BirdsSync.syncNow(ctx.applicationContext) } }
+
     open?.let { latin ->
         BackHandler { open = null }
-        mine.firstOrNull { it.latin == latin }?.let { SpeciesDetail(it) { open = null } }
+        val m = mine.firstOrNull { it.latin == latin }
+        if (tab == 0 && m != null) SpeciesDetail(m) { open = null } else PublicDetail(latin) { open = null }
         return
     }
 
@@ -62,7 +68,7 @@ fun BirdsScreen() {
         Spacer(Modifier.height(4.dp))
         Text(
             if (mine.isEmpty()) "Nothing heard yet." else
-                "${mine.size} species · heard ${mine.sumOf { it.count }}×",
+                "${mine.size} species · ${mine.sumOf { it.count }} times heard",
             style = MaterialTheme.typography.bodyMedium, color = HoneTextDim,
         )
         Spacer(Modifier.height(12.dp))
@@ -74,7 +80,8 @@ fun BirdsScreen() {
         Spacer(Modifier.height(12.dp))
         when (tab) {
             0 -> MineList(mine, enabled = live.enabled) { open = it }
-            else -> ComingSoon(tab)
+            1 -> EveryoneList { open = it }
+            else -> BirdMap()
         }
     }
 }
@@ -191,33 +198,218 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
     }
 
     confirm?.let { uri ->
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            title = { Text("Share your photo") },
-            text = {
-                Text("You confirm you took this photo of ${s.english ?: s.latin}. It will be published " +
-                    "on HONE under HONE's license (UFL), credited to you. Location and camera data are removed " +
-                    "from the photo before it leaves your phone.", style = MaterialTheme.typography.bodySmall)
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    Birds.addPhoto(ctx, s.latin, uri); photos = Birds.myPhotos(ctx, s.latin); confirm = null
-                }) { Text("Share") }
-            },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
-        )
+        UflDialog(name = s.english ?: s.latin, onCancel = { confirm = null }) { agreedMs ->
+            Birds.addPhoto(ctx, s.latin, uri, agreedMs); photos = Birds.myPhotos(ctx, s.latin); confirm = null
+            Thread { BirdsSync.syncNow(ctx.applicationContext) }.start()
+        }
+    }
+}
+
+const val UFL_URL = "https://github.com/shindevlin/hone/blob/main/LICENSE"
+
+/** Photo submission: the user must tick the UFL box, then press Agree. */
+@Composable
+private fun UflDialog(name: String, onCancel: () -> Unit, onAgree: (Long) -> Unit) {
+    val ctx = LocalContext.current
+    var ticked by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Share your photo") },
+        text = {
+            Column {
+                Text("You confirm you took this photo of $name. It will be published on HONE under HONE's " +
+                    "license (UFL). Location and camera data are removed before it leaves your phone.",
+                    style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(6.dp))
+                Text("Read the UFL", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UFL_URL))) })
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { ticked = !ticked }) {
+                    Checkbox(ticked, { ticked = it })
+                    Text("I agree to publish this photo under the HONE license (UFL).", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = { TextButton(enabled = ticked, onClick = { onAgree(System.currentTimeMillis()) }) { Text("Agree") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
+}
+
+// ── Everyone ─────────────────────────────────────────────────────────────────
+
+private data class PublicSpecies(val latin: String, val sightings: Int, val cells: Int, val photos: Int, val lastWindow: Long)
+
+@Composable
+private fun EveryoneList(onOpen: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val list by produceState<List<PublicSpecies>?>(null) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val a = JSONArray(BirdsSync.getJson("/species"))
+                (0 until a.length()).map { a.getJSONObject(it) }.map {
+                    PublicSpecies(it.getString("latin"), it.getInt("sightings"), it.getInt("cells"),
+                        it.optInt("photos"), it.getLong("last_window"))
+                }
+            }.getOrDefault(emptyList())
+        }
+    }
+    when {
+        list == null -> Text("Loading…", color = HoneTextFaint)
+        list!!.isEmpty() -> Text("No public sightings yet. Yours appear here after each 15-minute window.",
+            style = MaterialTheme.typography.bodyMedium, color = HoneTextFaint)
+        else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(list!!, key = { it.latin }) { s ->
+                Row(
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                        .clickable { onOpen(s.latin) }.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SpeciesThumb(s.latin, 64)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Names(s.latin, Birds.english(ctx, s.latin))
+                        Text("${s.sightings} sightings · ${s.cells} places · ${s.photos} photos · last ${ago(s.lastWindow * 900_000L)}",
+                            style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun ComingSoon(tab: Int) {
-    Text(
-        if (tab == 1) "Everyone's sightings arrive with the HONE indexer: other people's birds, how often each " +
-            "species is heard, anonymous unless they choose to show their name."
-        else "Local, regional and worldwide maps arrive with the HONE indexer.",
-        style = MaterialTheme.typography.bodyMedium, color = HoneTextFaint,
-    )
+private fun PublicDetail(latin: String, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val img by produceState<SpeciesImage?>(null, latin) { value = withContext(Dispatchers.IO) { Birds.image(ctx, latin) } }
+    val bmp = remember(img) { img?.let { Birds.bitmap(it.file, 1080) } }
+    val data by produceState<JSONObject?>(null, latin) {
+        value = withContext(Dispatchers.IO) { runCatching { JSONObject(BirdsSync.getJson("/species/" + Uri.encode(latin))) }.getOrNull() }
+    }
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") }
+                Column { Names(latin, Birds.english(ctx, latin)) }
+            }
+        }
+        item {
+            if (bmp != null) {
+                Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)))
+                img?.let { Text("Photo: ${it.credit} · ${it.license} · Wikimedia Commons",
+                    style = MaterialTheme.typography.labelSmall, color = HoneTextFaint) }
+            }
+        }
+        val photos = data?.optJSONArray("photos")
+        if (photos != null && photos.length() > 0) {
+            item { Text("Community photos (UFL)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items((0 until photos.length()).map { photos.getJSONObject(it) }, key = { it.getString("id") }) { p ->
+                        val b by produceState<android.graphics.Bitmap?>(null, p.getString("id")) {
+                            value = withContext(Dispatchers.IO) {
+                                runCatching { BirdsSync.getBytes(p.getString("url")).let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) } }.getOrNull()
+                            }
+                        }
+                        Column {
+                            b?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(140.dp).clip(RoundedCornerShape(10.dp))) }
+                            Text(p.optString("account").ifEmpty { "anonymous" }, style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+                        }
+                    }
+                }
+            }
+        }
+        val sightings = data?.optJSONArray("sightings")
+        item { Text("Sightings: ${sightings?.length() ?: 0}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        if (sightings != null) items((0 until minOf(sightings.length(), 100)).map { sightings.getJSONObject(it) }) { s ->
+            Text("${DateUtils.formatDateTime(ctx, s.getLong("window") * 900_000L, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · " +
+                "${(s.getInt("conf_q8") * 100 / 255)}% · ${s.optString("account").ifEmpty { "anonymous" }} · cell res ${s.getInt("res")}",
+                style = MaterialTheme.typography.bodySmall, color = HoneTextDim)
+        }
+        item { Spacer(Modifier.height(24.dp)) }
+    }
 }
+
+// ── Map ──────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun BirdMap() {
+    val ctx = LocalContext.current
+    var scale by remember { mutableIntStateOf(0) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    val mapView = remember {
+        org.maplibre.android.MapLibre.getInstance(ctx)
+        org.maplibre.android.maps.MapView(ctx).apply { onCreate(null) }
+    }
+    DisposableEffect(lifecycle) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            when (e) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> mapView.onStart()
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> mapView.onStop()
+                else -> {}
+            }
+        }
+        lifecycle.addObserver(obs); mapView.onStart(); mapView.onResume()
+        onDispose { lifecycle.removeObserver(obs); mapView.onPause(); mapView.onStop(); mapView.onDestroy() }
+    }
+    var info by remember { mutableStateOf("") }
+    LaunchedEffect(scale) {
+        val res = intArrayOf(9, 5, 3)[scale]
+        val fc = withContext(Dispatchers.IO) {
+            runCatching {
+                val a = JSONArray(BirdsSync.getJson("/map?res=$res"))
+                val feats = JSONArray()
+                for (i in 0 until a.length()) {
+                    val c = a.getJSONObject(i)
+                    val ring = network.hone.app.sightings.Cells.boundary(c.getString("cell")) ?: continue
+                    val coords = JSONArray().apply {
+                        ring.forEach { (lat, lng) -> put(JSONArray().put(lng).put(lat)) }
+                        put(JSONArray().put(ring[0].second).put(ring[0].first))
+                    }
+                    feats.put(JSONObject().put("type", "Feature")
+                        .put("properties", JSONObject().put("n", c.getInt("sightings")).put("species", c.getInt("species")))
+                        .put("geometry", JSONObject().put("type", "Polygon").put("coordinates", JSONArray().put(coords))))
+                }
+                info = "${a.length()} areas with sightings"
+                JSONObject().put("type", "FeatureCollection").put("features", feats).toString()
+            }.getOrElse { info = "map data unavailable"; """{"type":"FeatureCollection","features":[]}""" }
+        }
+        val fix = network.hone.app.sightings.SightingsEngine.lastFix()
+        mapView.getMapAsync { map ->
+            map.setStyle(org.maplibre.android.maps.Style.Builder().fromUri(MAP_STYLE)) { style ->
+                style.getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>("birds")?.setGeoJson(fc) ?: run {
+                    style.addSource(org.maplibre.android.style.sources.GeoJsonSource("birds", fc))
+                    style.addLayer(org.maplibre.android.style.layers.FillLayer("birds-fill", "birds").withProperties(
+                        org.maplibre.android.style.layers.PropertyFactory.fillColor("#F28C28"),
+                        org.maplibre.android.style.layers.PropertyFactory.fillOpacity(0.45f),
+                        org.maplibre.android.style.layers.PropertyFactory.fillOutlineColor("#F28C28"),
+                    ))
+                }
+                val zoom = doubleArrayOf(12.0, 7.0, 1.2)[scale]
+                val target = if (fix != null && scale < 2) org.maplibre.android.geometry.LatLng(fix.latitude, fix.longitude)
+                    else org.maplibre.android.geometry.LatLng(13.7, -89.2)
+                map.moveCamera(org.maplibre.android.camera.CameraUpdateFactory.newLatLngZoom(target, zoom))
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Local", "Regional", "World").forEachIndexed { i, t ->
+                FilterChip(selected = scale == i, onClick = { scale = i }, label = { Text(t) })
+            }
+        }
+        Text(info, style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+        Spacer(Modifier.height(6.dp))
+        androidx.compose.ui.viewinterop.AndroidView({ mapView },
+            Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp)))
+        Text("Map: OpenFreeMap · © OpenStreetMap contributors", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+    }
+}
+
+private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
 
 private fun ago(t: Long): String =
     DateUtils.getRelativeTimeSpanString(t, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()

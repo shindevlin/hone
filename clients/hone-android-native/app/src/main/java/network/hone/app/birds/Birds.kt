@@ -98,7 +98,7 @@ object Birds {
             val sum = JSONObject(get("https://en.wikipedia.org/api/rest_v1/page/summary/" + enc(key)))
             val orig = sum.optJSONObject("originalimage")?.optString("source")
                 ?: return@runCatching none(meta)
-            val fileName = URLDecoder.decode(orig.substringBefore("?").substringAfterLast("/"), "UTF-8")
+            val fileName = URLDecoder.decode(orig.substringAfterLast('/'), "UTF-8")
             val info = JSONObject(get(
                 "https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo" +
                     "&iiprop=url|extmetadata&iiurlwidth=640&titles=" + enc("File:$fileName")
@@ -131,7 +131,7 @@ object Birds {
      * Saves a user's photo of [latin]. The image is re-encoded, which drops all EXIF data
      * (GPS position, device, time). Queued for upload to the Hone indexer under UFL.
      */
-    fun addPhoto(ctx: Context, latin: String, uri: Uri): Boolean = runCatching {
+    fun addPhoto(ctx: Context, latin: String, uri: Uri, uflAgreedMs: Long): Boolean = runCatching {
         val src = ctx.contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it) } ?: return false
         val scale = minOf(1f, 2048f / maxOf(src.width, src.height))
         val bmp = if (scale < 1f) Bitmap.createScaledBitmap(src, (src.width * scale).toInt(), (src.height * scale).toInt(), true) else src
@@ -139,7 +139,7 @@ object Birds {
         val t = System.currentTimeMillis()
         File(dir, "$t.jpg").outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
         File(dir, "$t.json").writeText(JSONObject().put("latin", latin).put("t", t)
-            .put("license", "UFL").put("status", "queued").toString())
+            .put("license", "UFL").put("ufl_agreed_ms", uflAgreedMs).put("status", "queued").toString())
         true
     }.getOrDefault(false)
 

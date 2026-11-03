@@ -173,6 +173,9 @@ class NodeService : Service() {
                 }
             }
             writePubkeys(identities)
+            // Public bird sightings + shared photos to the HONE birds indexer (anonymous by default).
+            if (network.hone.app.sound.SoundSensing.isEnabled(applicationContext))
+                runCatching { network.hone.app.birds.BirdsSync.syncNow(applicationContext) }
             updateNotification("$avail sensors · $accepted accepted · $rejected rejected")
         }
     }
