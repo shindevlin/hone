@@ -38,6 +38,22 @@ pub fn run(dir: &str, accounts: &[String]) -> anyhow::Result<()> {
             let _ = writeln!(f, "b,{},{},{}", p[2], p[1], bytes);
         });
     }
+    // STATE_AUDIT_PREFIXES=<file>: per meta-key prefix (text before the first ':' or the
+    // whole key), the row count and a sha256 over the sorted (key, value) rows, excluding
+    // rows whose key embeds an epoch above STATE_AUDIT_MAX_EPOCH is not attempted — the
+    // caller compares copies taken at the same reward cursor.
+    if let Ok(path) = std::env::var("STATE_AUDIT_PREFIXES") {
+        use sha2::Digest;
+        use std::io::Write;
+        let mut by: BTreeMap<String, (u64, sha2::Sha256)> = BTreeMap::new();
+        store.for_each_meta_prefix("", |key, val| {
+            let pre = key.split(':').next().unwrap_or(key).to_owned();
+            let e = by.entry(pre).or_insert_with(|| (0, sha2::Sha256::new()));
+            e.0 += 1; e.1.update(key.as_bytes()); e.1.update([0u8]); e.1.update(val); e.1.update([1u8]);
+        });
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&path)?);
+        for (p, (n, h)) in by { writeln!(f, "{p},{n},{}", hex::encode(h.finalize()))?; }
+    }
     let mut sys = vec![hone_types::RECYCLE_FUND_ACCOUNT.to_string(), hone_types::TREASURY_ACCOUNT.to_string(), hone_types::TESTNET_FUND_ACCOUNT.to_string(), "treasury".into()];
     sys.extend(accounts.iter().cloned());
     let balances: BTreeMap<String, u64> = sys.iter()
