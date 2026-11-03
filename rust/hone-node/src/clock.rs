@@ -1057,6 +1057,15 @@ pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
     rewards_hash_over(epoch, snap.as_deref().unwrap_or(&[]))
 }
 
+/// The validator snapshot bytes for `epoch`, re-derived from the registered clock set, IF
+/// they reproduce `rewards_hash`. A node that missed an epoch's seal (restart, slow Pi) has
+/// no snapshot of its own; since the rewards hash is a hash over exactly these bytes, a
+/// match proves they are the snapshot every voter hashed. No match: None, never a guess.
+pub fn derive_validator_snapshot(store: &Store, epoch: u64, rewards_hash: &str) -> Option<Vec<u8>> {
+    let bytes = serde_json::to_vec(&registered_clock_nodes(store, epoch)).ok()?;
+    (rewards_hash_over(epoch, &bytes) == rewards_hash).then_some(bytes)
+}
+
 fn rewards_hash_over(epoch: u64, snapshot: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"epoch:");

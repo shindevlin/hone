@@ -1137,48 +1137,30 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
             loop {
                 match finalized_rx.recv().await {
                     Ok(fin) => {
-                        // BUG 6 (replay-derivation, Grouchly spec 2e36ca9a): this handler
-                        // NO LONGER mutates balances. It only constructs + broadcasts the
-                        // winning EpochFinalize entry with its `sealed_by` set POPULATED
-                        // (was hardcoded vec![]). The actual reward/recycle/decay mutation
-                        // is replay-derived later, off the applied entry's sealed_by, once
-                        // the epoch is REWARD_FINALITY_DEPTH behind the tip — see the reward
-                        // driver in the clock tick loop. That makes every node perform the
-                        // identical mutation as a consequence of applying the identical
-                        // winning entry, instead of each node recomputing off local state
-                        // at its own quorum-cross moment (the double-credit race).
-                        let sealers = finalize_sealers(&chain_ref.store, fin.epoch, &fin.rewards_hash);
-
-                        let state_root = chain_ref.store.balance_merkle_root();
-                        let entry = LedgerEntry::EpochFinalize {
-                            epoch: fin.epoch,
-                            node_id: node_id_c.clone(),
-                            rewards_hash: fin.rewards_hash,
-                            quorum: fin.quorum as u64,
-                            sealed_by: sealers,
-                            state_root,
-                            timestamp: now_ms(),
-                        };
-                        if let Err(e) = chain_ref.apply_entry(&entry) {
-                            warn!("EpochFinalize apply failed (epoch {}): {}", fin.epoch, e);
-                        }
-                        // Catch-up finalizes (epochs far behind the tip) are tallied by every
-                        // node from the signed votes themselves; gossiping hundreds of
-                        // thousands of them would only flood the mesh.
-                        let is_catchup = fin.epoch.saturating_add(hone_types::NEGATIVE_ATTESTATION_WINDOW + 36)
-                            < chain_ref.current_epoch();
-                        let envelope = serde_json::json!({"entry": entry});
-                        if is_catchup {
+                        // sealed_by comes from this node's epoch_validators:{E} snapshot,
+                        // written by the seal handler. On a slow node (nebra) the peers'
+                        // proposals can complete reward quorum BEFORE that snapshot exists:
+                        // finalizing then wrote sealed_by=[] under a real rewards_hash, and
+                        // the node paid nobody for the epoch while every other node paid
+                        // (the nebra drift). A real hash is only finalized once the snapshot
+                        // is present; we wait for it off the receive loop, and if it never
+                        // appears the epoch stays unfinalized for catch-up/echo adoption.
+                        if needs_validator_snapshot(&chain_ref.store, fin.epoch, &fin.rewards_hash) {
+                            let (c, n, t) = (chain_ref.clone(), node_id_c.clone(), cmd_tx_fin.clone());
+                            tokio::spawn(async move {
+                                for _ in 0..180 {
+                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                    if !needs_validator_snapshot(&c.store, fin.epoch, &fin.rewards_hash) {
+                                        finalize_and_broadcast(&c, &n, &t, fin).await;
+                                        return;
+                                    }
+                                }
+                                warn!("[epoch {}] reward quorum reached but no validator snapshot after 90 s \
+                                    — left unfinalized for catch-up", fin.epoch);
+                            });
                             continue;
                         }
-                        if let Ok(data) = serde_json::to_vec(&envelope) {
-                            let _ = cmd_tx_fin.send(NetCmd::Broadcast {
-                                topic: "hone/entries",
-                                data,
-                            }).await; // tokio mpsc send is a no-op if not awaited (BUG 6):
-                            // this broadcasts the winning EpochFinalize — dropping it meant
-                            // peers never saw finalization, so rewards never applied network-wide.
-                        }
+                        finalize_and_broadcast(&chain_ref, &node_id_c, &cmd_tx_fin, fin).await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         warn!("finalized_rx lagged by {} events", n);
@@ -2497,6 +2479,49 @@ fn verify_clock_signature(chain: &Chain, node_id: &str, msg: &[u8], sig_hex: &st
     Ok(())
 }
 
+/// True when `rewards_hash` pays validators but this node has not yet written its
+/// `epoch_validators:{epoch}` snapshot (see the finalized-epoch handler).
+fn needs_validator_snapshot(store: &Store, epoch: u64, rewards_hash: &str) -> bool {
+    if rewards_hash == clock::no_reward_hash(epoch) { return false; }
+    let key = format!("epoch_validators:{}", epoch);
+    if store.state_get(&key).is_some() { return false; }
+    // Missed the seal: adopt the registered-clock snapshot only if it reproduces the hash.
+    match clock::derive_validator_snapshot(store, epoch, rewards_hash) {
+        Some(bytes) => store.state_set(&key, &bytes).is_err(),
+        None => true,
+    }
+}
+
+/// Write this node's EpochFinalize for `fin` and gossip it (live epochs only).
+async fn finalize_and_broadcast(
+    chain_ref: &Arc<Chain>,
+    node_id_c: &str,
+    cmd_tx_fin: &tokio::sync::mpsc::Sender<NetCmd>,
+    fin: clock::FinalizedEpoch,
+) {
+    let sealers = finalize_sealers(&chain_ref.store, fin.epoch, &fin.rewards_hash);
+    let state_root = chain_ref.store.balance_merkle_root();
+    let entry = LedgerEntry::EpochFinalize {
+        epoch: fin.epoch,
+        node_id: node_id_c.to_owned(),
+        rewards_hash: fin.rewards_hash,
+        quorum: fin.quorum as u64,
+        sealed_by: sealers,
+        state_root,
+        timestamp: now_ms(),
+    };
+    if let Err(e) = chain_ref.apply_entry(&entry) {
+        warn!("EpochFinalize apply failed (epoch {}): {}", fin.epoch, e);
+    }
+    // Catch-up finalizes are tallied by every node from the signed votes; not gossiped.
+    if fin.epoch.saturating_add(hone_types::NEGATIVE_ATTESTATION_WINDOW + 36) < chain_ref.current_epoch() {
+        return;
+    }
+    if let Ok(data) = serde_json::to_vec(&serde_json::json!({"entry": entry})) {
+        let _ = cmd_tx_fin.send(NetCmd::Broadcast { topic: "hone/entries", data }).await;
+    }
+}
+
 /// `sealed_by` for the EpochFinalize this node writes once `epoch` reaches reward quorum
 /// on `rewards_hash`. The canonical no-reward hash pays nobody, whatever local snapshot
 /// this node holds — otherwise a node that solo-sealed the epoch would pay its snapshot
@@ -2519,7 +2544,7 @@ fn adoptable_echoes(chain: &Chain, from: &str, votes: &[(u64, String)]) -> Vec<(
         .filter(|(e, h)| {
             !epoch_is_finalized(chain, *e)
                 && *h != clock::no_reward_hash(*e)
-                && chain.store.state_get(&format!("epoch_validators:{}", e)).is_some()
+                && !needs_validator_snapshot(&chain.store, *e, h)
                 && *h == clock::compute_rewards_hash(*e, &chain.store)
                 && catchup_voters(chain, *e).iter().any(|v| v == from)
         })
@@ -3883,6 +3908,28 @@ mod reward_driver_tests {
 
 
 
+
+    /// nebra 2026-11-03: reward quorum (from peers) arrived before this node wrote its
+    /// epoch_validators snapshot, and it finalized a real hash with sealed_by=[] (paid
+    /// nobody). Now: the snapshot is re-derived from the registered clocks and adopted only
+    /// if it reproduces the quorum hash; a hash it cannot reproduce is never finalized.
+    #[test]
+    fn missing_validator_snapshot_is_derived_only_when_it_matches_the_hash() {
+        let (live, _d1) = make_chain("snap-live");
+        let (late, _d2) = make_chain("snap-late");
+        let e = 351_330u64;
+        let set = clock::registered_clock_nodes(&live.store, e);
+        live.store.state_set(&format!("epoch_validators:{e}"), &serde_json::to_vec(&set).unwrap()).unwrap();
+        let h = clock::compute_rewards_hash(e, &live.store);
+        assert!(late.store.state_get(&format!("epoch_validators:{e}")).is_none());
+        assert!(!needs_validator_snapshot(&late.store, e, &h), "derivable -> adopted");
+        assert_eq!(finalize_sealers(&late.store, e, &h), finalize_sealers(&live.store, e, &h));
+        // A hash over some other validator set is not reproducible: wait, never guess.
+        let (other, _d3) = make_chain("snap-other");
+        assert!(needs_validator_snapshot(&other.store, e + 1, "deadbeef"));
+        assert!(other.store.state_get(&format!("epoch_validators:{}", e + 1)).is_none());
+        assert!(!needs_validator_snapshot(&other.store, e, &clock::no_reward_hash(e)));
+    }
 
     // ── recycled_cumulative repair ───────────────────────────────────────────────
 
