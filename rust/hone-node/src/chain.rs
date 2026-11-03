@@ -3838,6 +3838,9 @@ impl Chain {
                 self.touch_alive(signed_by, *epoch);
                 crate::soulbound::apply_revoke(self, token_id, signed_by)?;
             }
+            LedgerEntry::DecideCommit { .. } | LedgerEntry::DecideChallenge { .. } | LedgerEntry::DecideReveal { .. } => {
+                crate::decide_jury::apply(self, entry)?;
+            }
 
 
             // ── Phone storage ─────────────────────────────────────────────────

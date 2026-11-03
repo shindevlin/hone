@@ -112,6 +112,23 @@ pub const LIVENESS_DECAY_DELAY_EPOCHS: u64 = 2 * 1_051_920;
 pub const LIVENESS_HALF_LIFE_EPOCHS: u64 = 2 * 1_051_920;
 
 
+// ── Decide jury ──────────────────────────────────────────────────────────────────
+/// DecideCommit / DecideChallenge / DecideReveal are accepted from this entry epoch on
+/// (every node must run a binary that knows them first). SHADOW: they only write meta
+/// records; nothing they do changes balances, stakes or any other entry's validity.
+pub const DECIDE_ENTRIES_EPOCH: u64 = 352_400;
+/// Jury outcomes become binding (for one task) from this epoch. UNSET: shadow only.
+pub const DECIDE_JURY_BINDING_EPOCH: u64 = u64::MAX;
+/// The pinned hone-decide model (135M-gen Q4; hone-decide contract v1 model_hash).
+pub const DECIDE_MODEL_HASH: &str = "547d64ae1f95e9086ad0591de7b54a50be40a63ca76f0869dd8d0d458eedd1b5";
+/// Voters per judgment entry, jury size + backups, spot checks per epoch, reveal window.
+pub const DECIDE_K: usize = 7;
+pub const DECIDE_JURY: usize = 5;
+pub const DECIDE_BACKUPS: usize = 3;
+pub const DECIDE_SPOT_CHECKS: usize = 3;
+pub const DECIDE_REVEAL_EPOCHS: u64 = 20;
+pub const DECIDE_CHALLENGE_WINDOW: u64 = 2_880;
+
 // ── Seal lag ─────────────────────────────────────────────────────────────────────
 /// From this seal epoch on, the quorum seal of E commits only pending entries whose own
 /// epoch is <= E - SEAL_LAG_EPOCHS; newer ones wait for a later seal. Before, each node

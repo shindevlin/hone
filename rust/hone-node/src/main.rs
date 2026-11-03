@@ -46,6 +46,7 @@ mod inference_sidecar;
 mod state_audit;
 mod state_correct;
 mod epoch_sync;
+mod decide_jury;
 mod local_submit;
 mod state_healer;
 mod contracts;
@@ -811,6 +812,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         let hw_acc = hw_account_for_seal;
         let lorawan_for_seal = lorawan_handle.clone();
         let sync_peers = epoch_sync::peers(&cfg.bootstrap_peers);
+        let decide_busy = Arc::new(std::sync::atomic::AtomicBool::new(false));
         info!("[epoch-sync] backfill peers: {:?}", sync_peers);
         tokio::spawn(async move {
             loop {
@@ -925,6 +927,17 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // tick for every epoch it backfills.
                         if sealed.quorum >= 2 {
                             epoch_sync::epoch_tick(&chain_ref, sealed_epoch, committed_weight);
+                            // Decide jury, SHADOW: log outcomes (meta only), then vote on this
+                            // epoch's judgment entries off the seal path — a slow or dead
+                            // hone-decide can never block or crash the node.
+                            decide_jury::shadow_tick(&chain_ref, sealed_epoch);
+                            if decide_jury::shadow_enabled() && !decide_busy.swap(true, Ordering::SeqCst) {
+                                let (c, t, me, busy) = (chain_ref.clone(), cmd_tx_for_seal.clone(), node_id_c.clone(), decide_busy.clone());
+                                tokio::spawn(async move {
+                                    decide_jury::vote_epoch(&c, &t, &me, sealed_epoch).await;
+                                    busy.store(false, Ordering::SeqCst);
+                                });
+                            }
                         }
 
                         // Count unique active verifiers over last VERIFIER_ACTIVITY_TRACK_EPOCHS.

@@ -75,6 +75,14 @@ pub enum SignerCap {
 
 /// Compact Merkle range proof used to respond to per-epoch storage challenges (T4-1, D10).
 ///
+/// One step of a decide-jury Merkle proof: the sibling hash and its side ("L" = the
+/// sibling is the left child, so parent = sha256(0x01 || sibling || acc)).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DecideProofStep {
+    pub side: String,
+    pub hash: String,
+}
+
 /// The chain verifies that `challenge_hash` matches what the clock derived from the previous
 /// epoch's seal. Full Merkle path verification is performed by independent storage auditors.
 #[derive(Debug, Clone, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq)]
@@ -2813,6 +2821,51 @@ pub enum LedgerEntry {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
+
+    // ── Decide jury (SHADOW: meta-only records, weight 0, never moves balances) ──
+    /// A decide node's sealed votes for judgment entries committed at `epoch`: the Merkle
+    /// root over its vote leaves (hone-decide jury contract v1). One per (node, epoch).
+    DecideCommit {
+        node: AccountId,
+        epoch: Epoch,
+        root: String,
+        n_votes: u64,
+        model_hash: String,
+        /// Declared throughput, votes per 100 epochs (sizes this node's future samples).
+        capacity_per_100: u32,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    /// Dispute a judgment on `entry_hash` (committed at `vote_epoch`); opens a jury.
+    DecideChallenge {
+        entry_hash: String,
+        vote_epoch: Epoch,
+        task: String,
+        challenger: AccountId,
+        bond: Hunits,
+        epoch: Epoch,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    /// A juror's (or spot-checked node's) opened vote with its salt and Merkle proof
+    /// against its DecideCommit root for `vote_epoch`.
+    DecideReveal {
+        entry_hash: String,
+        vote_epoch: Epoch,
+        juror: AccountId,
+        task: String,
+        option: String,
+        conf_q8: u8,
+        t95_q8: u8,
+        salt: String,
+        proof: Vec<DecideProofStep>,
+        epoch: Epoch,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 }
 
 /// A single chain address within a wallet family.
@@ -3036,6 +3089,9 @@ impl LedgerEntry {
             Self::SoulboundAccept { epoch, .. } => *epoch,
             Self::SoulboundReject { epoch, .. } => *epoch,
             Self::SoulboundRevoke { epoch, .. } => *epoch,
+            Self::DecideCommit { epoch, .. } => *epoch,
+            Self::DecideChallenge { epoch, .. } => *epoch,
+            Self::DecideReveal { epoch, .. } => *epoch,
         }
     }
 
@@ -3303,5 +3359,9 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::SoulboundAccept { .. }
         | LedgerEntry::SoulboundReject { .. }
         | LedgerEntry::SoulboundRevoke { .. } => ENTRY_WEIGHT_STANDARD,
+        // Shadow-mode decide records carry no fee: they must never move a balance.
+        LedgerEntry::DecideCommit { .. }
+        | LedgerEntry::DecideChallenge { .. }
+        | LedgerEntry::DecideReveal { .. } => ENTRY_WEIGHT_SYSTEM,
     }
 }

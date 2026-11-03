@@ -187,6 +187,9 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         | E::IdentityNftSetPrimary { .. }
         | E::SoulboundIssue { .. } | E::SoulboundAccept { .. }
         | E::SoulboundReject { .. } | E::SoulboundRevoke { .. } => Operate,
+        // Decide-jury records (shadow): the node operates them; the tx rule demands an
+        // active/owner or clock-key signature regardless.
+        E::DecideCommit { .. } | E::DecideChallenge { .. } | E::DecideReveal { .. } => Operate,
     }
 }
 

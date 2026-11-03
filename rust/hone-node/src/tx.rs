@@ -2281,6 +2281,19 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
             let _ = bump_nonce(chain, signed_by);
         }
+        // Decide jury (shadow: meta records only, see decide_jury.rs). Active/owner key;
+        // a node's own commits and reveals may also be signed by its clock key.
+        LedgerEntry::DecideCommit { signed_by, .. }
+        | LedgerEntry::DecideReveal { signed_by, .. }
+        | LedgerEntry::DecideChallenge { signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            crate::decide_jury::check(chain, entry)?;
+            let node_entry = !matches!(entry, LedgerEntry::DecideChallenge { .. });
+            if !(node_entry && clock_key_signed(chain, signed_by, entry, sig_hex)) {
+                check_value_signature(chain, signed_by, entry, sig_hex)?;
+            }
+            chain.apply_entry(entry)?;
+        }
         LedgerEntry::SoulboundRevoke { signed_by, nonce, .. } => {
             let _guard = chain.write_lock.lock();
             ensure_identity_active(chain)?;
@@ -2479,6 +2492,7 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
         LedgerEntry::SoulboundAccept { epoch, .. } => Some(*epoch),
         LedgerEntry::SoulboundReject { epoch, .. } => Some(*epoch),
         LedgerEntry::SoulboundRevoke { epoch, .. } => Some(*epoch),
+        LedgerEntry::DecideCommit { epoch, .. } | LedgerEntry::DecideChallenge { epoch, .. } | LedgerEntry::DecideReveal { epoch, .. } => Some(*epoch),
 
         _ => None,
     }
@@ -3574,6 +3588,18 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "nonce": nonce,
                 "type": "MEMORY_DELETE",
             }),
+
+        // Decide jury: fields in written order (preserve_order), client-set epoch included.
+        LedgerEntry::DecideCommit { node, epoch, root, n_votes, model_hash, capacity_per_100, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "DECIDE_COMMIT", "node": node, "epoch": epoch,
+                "root": root, "n_votes": n_votes, "model_hash": model_hash, "capacity_per_100": capacity_per_100 }),
+        LedgerEntry::DecideChallenge { entry_hash, vote_epoch, task, challenger, bond, epoch, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "DECIDE_CHALLENGE", "entry_hash": entry_hash,
+                "vote_epoch": vote_epoch, "task": task, "challenger": challenger, "bond": bond, "epoch": epoch }),
+        LedgerEntry::DecideReveal { entry_hash, vote_epoch, juror, task, option, conf_q8, t95_q8, salt, proof, epoch, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "DECIDE_REVEAL", "entry_hash": entry_hash,
+                "vote_epoch": vote_epoch, "juror": juror, "task": task, "option": option, "conf_q8": conf_q8,
+                "t95_q8": t95_q8, "salt": salt, "proof": proof, "epoch": epoch }),
 
         // All other user-submitted entry types: include chain_id + full entry JSON so
         // testnet signatures cannot replay on mainnet (D3 — clean cutover).
