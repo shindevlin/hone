@@ -78,3 +78,38 @@ to the rule), but real chain data must be checked before trusting the thresholds
 - Label it from a deterministic rule or the chain.
 - Per task, set the abstain threshold at that task's t95 from held-out data.
 - Below threshold: answer `abstain` and fall back to the rule, or to the 9B on beastly.
+
+## HONE decision tasks for the confident zone (round 3)
+
+Each task is a 2–3 option choice over structured fields, with a deterministic label source.
+- The model answers only when confidence reaches the task threshold.
+- Below threshold it abstains, and the caller falls back to the rule or to the 9B.
+
+| task | input (features) | label source | expected volume | cost of a wrong answer | status |
+|---|---|---|---|---|---|
+| **entry_screen** (accept / duplicate / spam) | entry type, submitter, nonce, data hash, payload bytes, clock skew; submitter's last nonce, recent hashes, entries this epoch, epoch cap; derived flags | nonce, hash-seen, cap, skew and empty checks (chain.rs dedup and nonce guards) | every judgment entry; the node routes all judgment types here in v1 | low in shadow mode. A false "accept" on a replay is still caught by the chain's own nonce guard. | **built**: Q4 100% @ 100% coverage |
+| **coverage_usefulness** (new / adds / repeat) | report (reporter, cell, carrier, technology, dBm, dead spot); cell's reporters, distinct count, median dBm, corroborated; derived (already in cell, dB delta, reports this epoch); rules | mirrors chain.rs CoverageReport apply (0.001° grid, 200/epoch cap, 3-reporter corroboration) plus the spec's "pays only for new/changed" | ≤ 200 per reporter per epoch; grows with phones | mis-paid reward (small; first-reporter pays) | **built**: Q4 99% @ 93.9% (test, n=99) / 97.3% (cal) |
+| **sensor_plausibility_v2** (yes / no / unsure) | v1 plus derived median, delta vs median, max recent step, in physical range | physical limits plus jump-vs-rate rule from the generator | one per sensor commit (6 channels × 2 phones / 30 s today) | strikes on an honest sensor (false "no"), or junk paid (false "yes") | **built**: Q4 79% @ 98.7% (v1 was 20% @ 100%) |
+| sighting_novelty (new / changed / repeat) for birds and BLE | species or rid hash, cell, window, last sightings in cell (count, last window, confidence) | spec §3 novelty: first in (cell, window bucket, metric), or a value outside the noise band | Hone Birds plus BLE sightings, per 15-min window | mis-paid reward | proposed; same shape as coverage_usefulness |
+| name_request_wellformed (ok / reserved / malformed) | name length, charset flags, reserved-list hit, popular-list hit | `reserved_names.rs` plus the name grammar (fully deterministic) | low (name NFT mints) | wrong mint (high) | not a model task: the rule is exact and cheap, so the model adds nothing |
+| peer_behavior / job_routing / reading_novelty | as round 1 and 2 | generator rules | per peer per epoch / per job / per reading | peer: wrongful strike (high, so it stays shadow until real data) | existing; peer first to activate |
+
+### Round-3 result (135M-r3 Q4, deployed on nebra 17:35)
+
+Thresholds are `thresholds.json` (97% target on cal). Test-set results:
+
+| task | threshold | coverage | accuracy answered |
+|---|---|---|---|
+| entry_screen | 0.30 | 100% | 100% |
+| coverage_usefulness | 0.63 | 99% | 93.9% (n=99; cal 97.3%) |
+| sensor_plausibility_v2 | 0.87 | 79% | 98.7% |
+| peer_behavior | 0.62 | 73% | 96.9% |
+| reading_novelty | 0.71 | 38% | 98.0% |
+| job_routing | 0.96 | 30% | 100% |
+| sensor_plausibility (v1) | 0.94 | 20% | 100% |
+
+- **Regression:** HONE overall .824 → .820 and MCQ .510 → .509, both within 1 point. Peer by itself fell
+  .910 → .851, but at its threshold it still covers 73% at 96.9%.
+- **nebra over HTTP (live service, 21 jury items):** 0 errors, 21/21 reveals verified, 29.7 s p50 /
+  35.4 s p90 per vote, RSS 140 MB, cgroup peak 169 MB (cap 250 MiB), min free memory 506 MB,
+  hone-node untouched.

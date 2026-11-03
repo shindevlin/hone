@@ -1,0 +1,17 @@
+{
+ "arc_challenge": 1.01,
+ "arc_easy": 0.93,
+ "boolq": 1.01,
+ "commonsense_qa": 0.72,
+ "coverage_usefulness": 0.63,
+ "entry_screen": 0.3,
+ "hellaswag": 1.01,
+ "job_routing": 0.96,
+ "mmlu": 1.01,
+ "openbookqa": 0.82,
+ "peer_behavior": 0.62,
+ "piqa": 1.01,
+ "reading_novelty": 0.71,
+ "sensor_plausibility": 0.94,
+ "sensor_plausibility_v2": 0.87
+}
