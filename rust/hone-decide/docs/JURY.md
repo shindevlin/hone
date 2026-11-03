@@ -21,7 +21,8 @@ Request:
     question and candidates come from the registry (`GET /tasks`). Nothing else reaches the model.
 - **Revoting:** an entry already voted in this epoch returns the stored vote (same leaf). There is no revote.
 - **Epoch guards:** an epoch at or below the highest sealed epoch returns `409`. An epoch more than 2 ahead
-  of the newest epoch seen returns `400`.
+  of the newest epoch seen returns `400`. The allowance grows by 1 per 30 s of wall time since the newest
+  epoch advanced, so a node that was offline can resume.
 - **Errors:** a bad item never fails the call; it goes in `errors[]`. Any non-200 response for the whole call,
   or a timeout, means the node skips voting that epoch.
 
@@ -68,7 +69,9 @@ Returns `{"ms_per_vote_p50", "samples", "epoch_ms": 30000, "budget_fraction", "c
 - `votes_per_epoch = floor(epoch_ms × budget_fraction / p50)`, measured over the last 50 voted items.
 - If nothing has been voted yet, one fixed peer_behavior item is run as a self-benchmark.
 - `HONE_DECIDE_BUDGET` sets the fraction (default 0.5).
-- nebra reports about 1 vote/epoch; grouchly reports about 14.
+- `votes_per_100_epochs` covers nodes slower than one vote per budgeted epoch. nebra measures about
+  22 s per HONE vote, so it reports `votes_per_epoch: 0` and `votes_per_100_epochs: 68`; the node should sample
+  with that rate. grouchly reports about 10–14 votes/epoch.
 
 ## model_hash
 `sha256` over the sorted model-dir files `{config.json, decide.json, head.safetensors,
@@ -91,3 +94,8 @@ generators, with token strings only.
 - **coverage_usefulness:** `{"report": {...}, "cell_this_epoch": {...}, "derived": {...}, "rules": {...}}`
 - **entry_screen:** `{"entry": {...}, "submitter_recent": {...}, "derived": {...}}`
 - **sensor_plausibility_v2:** `{"sensor_id", "kind", "unit", "physical_range", "recent": [...], "latest": {...}, "derived": {...}}`
+
+## Phones (eligibility)
+`serve --eligible-file F` turns voting on only while F contains `1`.
+- The Android juror service writes F from three conditions: charging, unmetered Wi-Fi, and thermal status below SEVERE.
+- While ineligible, `/capacity` reports `votes_per_epoch: 0, eligible: false` and `/vote` returns 503. The node skips the epoch.

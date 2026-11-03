@@ -109,7 +109,16 @@ pub fn spawn_memguard(min_free_mb: u64, max_rss_mb: u64) {
     });
 }
 
-pub fn serve(d: Decider, bind: &str, votes_dir: &std::path::Path) -> Result<()> {
+/// Eligibility gate for phones: with `--eligible-file F`, voting is on only while F contains "1"
+/// (the Android juror service writes it from charging / Wi-Fi / thermal state).
+fn eligible(f: &Option<std::path::PathBuf>) -> bool {
+    match f {
+        None => true,
+        Some(p) => std::fs::read_to_string(p).map(|s| s.trim() == "1").unwrap_or(false),
+    }
+}
+
+pub fn serve(d: Decider, bind: &str, votes_dir: &std::path::Path, eligible_file: Option<std::path::PathBuf>) -> Result<()> {
     let reg = Registry::load()?;
     let mut store = jury::Store::open(votes_dir)?;
     let model_hash = jury::model_hash(&d.dir, &d.cfg.weights, &d.cfg.head)?;
@@ -147,6 +156,7 @@ pub fn serve(d: Decider, bind: &str, votes_dir: &std::path::Path) -> Result<()> 
                     Err(e) => (400, json!({"error": e.to_string()})),
                 }
             }
+            ("POST", "/vote") if !eligible(&eligible_file) => (503, json!({"error": "not eligible (needs charging, Wi-Fi, no thermal throttling)"})),
             ("POST", "/vote") => {
                 let mut buf = String::new();
                 let r = (|| -> Result<(u16, Value)> {
@@ -163,7 +173,7 @@ pub fn serve(d: Decider, bind: &str, votes_dir: &std::path::Path) -> Result<()> 
                 }
             }
             ("GET", "/capacity") => {
-                if lat.is_empty() {
+                if lat.is_empty() && eligible(&eligible_file) {
                     if let Ok(ms) = self_bench(&d, &reg) {
                         lat.push_back(ms);
                     }
@@ -172,8 +182,12 @@ pub fn serve(d: Decider, bind: &str, votes_dir: &std::path::Path) -> Result<()> 
                 v.sort_by(|a, b| a.total_cmp(b));
                 let p50 = v.get(v.len() / 2).copied();
                 let (epoch_ms, frac) = (30000.0, budget_fraction());
+                let ok = eligible(&eligible_file);
                 (200, json!({"ms_per_vote_p50": p50, "samples": v.len(), "epoch_ms": epoch_ms, "budget_fraction": frac,
-                    "concurrency": 1, "votes_per_epoch": p50.map(|p| ((epoch_ms * frac) / p.max(1.0)).floor() as u64).unwrap_or(0)}))
+                    "concurrency": 1, "eligible": ok,
+                    "votes_per_epoch": if ok { p50.map(|p| ((epoch_ms * frac) / p.max(1.0)).floor() as u64).unwrap_or(0) } else { 0 },
+                    // slow nodes (nebra ~22 s/vote) get < 1 per epoch: the node samples with this rate
+                    "votes_per_100_epochs": if ok { p50.map(|p| ((100.0 * epoch_ms * frac) / p.max(1.0)).floor() as u64).unwrap_or(0) } else { 0 }}))
             }
             ("POST", u) if u.starts_with("/commit/") => match u[8..].parse::<u64>() {
                 Ok(e) => match store.seal(e, &model_hash) {
@@ -251,8 +265,8 @@ fn vote(d: &Decider, reg: &Registry, store: &mut jury::Store, model_hash: &str,
     if req.epoch <= sealed {
         return Ok((409, json!({"error": format!("epoch {} is at or below the highest sealed epoch {sealed}", req.epoch)})));
     }
-    if store.newest > 0 && req.epoch > store.newest + 2 {
-        bail!("epoch {} is more than 2 ahead of the newest epoch seen ({})", req.epoch, store.newest);
+    if store.newest > 0 && req.epoch > store.max_acceptable() {
+        bail!("epoch {} is too far ahead of the newest epoch seen ({}; max now {})", req.epoch, store.newest, store.max_acceptable());
     }
     let t0 = std::time::Instant::now();
     let (mut votes, mut errors, mut fresh) = (vec![], vec![], vec![]);

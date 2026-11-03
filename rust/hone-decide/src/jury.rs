@@ -131,6 +131,8 @@ pub fn verify(leaf: [u8; 32], proof: &[(char, [u8; 32])], root: [u8; 32]) -> boo
 pub struct Store {
     dir: PathBuf,
     pub newest: u64,
+    /// When `newest` last advanced (or the store was opened), for the epoch-ahead guard.
+    pub newest_at: std::time::Instant,
 }
 
 fn sync_dir(dir: &Path) {
@@ -149,7 +151,7 @@ impl Store {
                 newest = newest.max(ep);
             }
         }
-        Ok(Store { dir: dir.to_path_buf(), newest })
+        Ok(Store { dir: dir.to_path_buf(), newest, newest_at: std::time::Instant::now() })
     }
 
     fn votes_path(&self, e: u64) -> PathBuf {
@@ -157,6 +159,12 @@ impl Store {
     }
     fn commit_path(&self, e: u64) -> PathBuf {
         self.dir.join(format!("{e}.commit"))
+    }
+
+    /// Highest epoch a vote may name: newest + 2, plus one per 30 s of wall time since `newest`
+    /// advanced, so a node that was offline can resume without being locked out.
+    pub fn max_acceptable(&self) -> u64 {
+        self.newest + 2 + self.newest_at.elapsed().as_secs() / 30
     }
 
     /// Highest sealed epoch (0 if none).
@@ -201,6 +209,7 @@ impl Store {
         sync_dir(&self.dir);
         if e > self.newest {
             self.newest = e;
+            self.newest_at = std::time::Instant::now();
             self.prune();
         }
         Ok(())
