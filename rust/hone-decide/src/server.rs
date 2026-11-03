@@ -36,6 +36,15 @@ pub struct DecideReq {
     kind: Option<String>,
     #[serde(default)]
     task: Option<String>,
+    /// Abstain when the top probability is below this (overrides model/task defaults).
+    #[serde(default)]
+    pub threshold: Option<f32>,
+}
+
+/// Threshold resolution: request > model thresholds.json[task] > task.abstain_below > none.
+pub fn resolve_threshold(req_t: Option<f32>, task: Option<&str>, d: &Decider, reg: &Registry) -> Option<f32> {
+    req_t.or_else(|| task.and_then(|t| d.thresholds.get(t).copied()))
+        .or_else(|| task.and_then(|t| reg.get(t)).and_then(|t| t.abstain_below))
 }
 
 pub fn build_record(req: DecideReq, reg: &Registry) -> Result<Record> {
@@ -116,10 +125,16 @@ pub fn serve(d: Decider, bind: &str) -> Result<()> {
                         bail!("request too large");
                     }
                     std::io::Read::read_to_string(rq.as_reader(), &mut buf)?;
-                    let rec = build_record(serde_json::from_str(&buf)?, &reg)?;
+                    let req: DecideReq = serde_json::from_str(&buf)?;
+                    let (task, req_t) = (req.task.clone(), req.threshold);
+                    let rec = build_record(req, &reg)?;
                     let out = d.decide(&rec)?;
                     let best = (0..out.probs.len()).max_by(|&a, &b| out.probs[a].total_cmp(&out.probs[b])).unwrap_or(0);
+                    let conf = out.probs[best];
+                    let th = resolve_threshold(req_t, task.as_deref(), &d, &reg);
+                    let decision = if th.map(|t| conf < t).unwrap_or(false) { "abstain" } else { "answer" };
                     Ok(json!({"probs": out.probs, "candidates": out.keys, "choice": out.keys[best], "model": d.name(),
+                              "confidence": conf, "threshold": th, "decision": decision,
                               "latency_ms": (out.latency_ms * 10.0).round() / 10.0, "tokens": out.tokens}))
                 })();
                 match r {

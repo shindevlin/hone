@@ -57,7 +57,8 @@ for r in rows:
                 res = json.loads(resp.read())
             rec.update(ok=True, wall_ms=round((time.time() - t0) * 1000, 1), latency_ms=res["latency_ms"],
                        tokens=res["tokens"], model=res["model"], probs=res["probs"],
-                       candidates=res["candidates"], choice=res["choice"])
+                       candidates=res["candidates"], choice=res["choice"],
+                       confidence=res.get("confidence"), decision=res.get("decision"), threshold=res.get("threshold"))
             break
         except urllib.error.HTTPError as e:
             rec.update(ok=False, error=f"HTTP {e.code}: {e.read()[:200]!r}", wall_ms=round((time.time() - t0) * 1000, 1))
@@ -86,5 +87,8 @@ for x in ok:
 print(json.dumps({"n": len(res), "ok": len(ok), "failures": len(res) - len(ok),
                   "p50_ms": pct(0.5), "p90_ms": pct(0.9), "max_ms": lat[-1] if lat else None,
                   "accuracy": acc, "per_task": {k: round(sum(v) / len(v), 3) for k, v in by.items()},
+                  "answered": sum(x.get("decision") != "abstain" for x in ok),
+                  "accuracy_answered": (lambda a: sum(x["choice"] == x["label"] for x in a) / len(a) if a else None)(
+                      [x for x in ok if x.get("decision") != "abstain"]),
                   "max_rss_mb_seen": max((x.get("rss_mb") or 0) for x in res),
                   "min_avail_mb_seen": min(min(x.get("avail_mb_before", 9999), x.get("avail_mb_after") or 9999) for x in res)}))

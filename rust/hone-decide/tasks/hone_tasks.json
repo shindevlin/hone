@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "HONE decision tasks. Each task is an Open-Jev style question: a fixed instruction plus named candidates with descriptions. Add a task by adding an entry here; the Rust registry (src/tasks.rs) and the Python generator read this file.",
+  "note": "HONE decision tasks. Each task is an Open-Jev style question: a fixed instruction plus named candidates with descriptions. Add a task by adding an entry here; the Rust registry (src/tasks.rs) and the Python generator read this file. `abstain_below` is the default confidence threshold; a model dir's thresholds.json overrides it per task.",
   "tasks": {
     "sensor_plausibility": {
       "type": "choice",
@@ -9,7 +9,8 @@
         "yes": "The latest reading is consistent with the sensor's recent history, its type and physical limits.",
         "no": "The latest reading is physically impossible, a stuck or faulty value, or a jump no real change could explain.",
         "unsure": "There is too little history, or the change is large but could still be real."
-      }
+      },
+      "abstain_below": 0.96
     },
     "reading_novelty": {
       "type": "choice",
@@ -18,7 +19,8 @@
         "new": "Nothing comparable is on chain yet for this sensor, cell or time window: first information.",
         "changed": "The chain has comparable readings and this one differs from them by more than normal noise.",
         "repeat": "The reading matches what the chain already holds within normal noise, or duplicates a reading already submitted."
-      }
+      },
+      "abstain_below": 0.7
     },
     "job_routing": {
       "type": "choice",
@@ -26,7 +28,8 @@
       "candidates": {
         "local": "This node has the model, memory and time budget to finish the job before its deadline, or the job must not leave the node.",
         "network": "The job needs a model, memory or speed this node lacks, and capable peers are reachable."
-      }
+      },
+      "abstain_below": 0.75
     },
     "peer_behavior": {
       "type": "choice",
@@ -35,6 +38,34 @@
         "normal": "Statistics are within normal ranges for a healthy honest node.",
         "suspicious": "Some statistics are unusual (skew, duplicates, gaps, rate spikes) but not proof of misbehaviour.",
         "misbehaving": "Clear evidence of misbehaviour: invalid signatures, conflicting proposals, replayed or forged messages."
+      },
+      "abstain_below": 0.57
+    },
+    "coverage_usefulness": {
+      "type": "choice",
+      "question": "Does this coverage report add useful information to what the chain already holds for this cell and carrier this epoch?",
+      "candidates": {
+        "new": "First report for this cell and carrier this epoch.",
+        "adds": "Independent evidence: a different reporter in a cell not yet corroborated, or a signal that differs from the cell median by more than the material change threshold.",
+        "repeat": "Nothing new: the reporter already reported this cell, is at the per-epoch cap, or the cell is already corroborated with a similar signal."
+      }
+    },
+    "entry_screen": {
+      "type": "choice",
+      "question": "Should this pending entry be accepted, or is it a duplicate or spam?",
+      "candidates": {
+        "accept": "Next nonce, new data hash, under the submitter's epoch cap, sane clock and a non-empty payload.",
+        "duplicate": "A replay: the nonce is not above the submitter's last nonce, or the data hash was already submitted.",
+        "spam": "Not a replay, but over the epoch cap, more than 120 s of clock skew, or an empty payload."
+      }
+    },
+    "sensor_plausibility_v2": {
+      "type": "choice",
+      "question": "Is the latest reading plausible given this sensor's type, its physical limits, its recent readings and the derived comparisons?",
+      "candidates": {
+        "yes": "The latest reading is consistent with the sensor's recent history, its type and physical limits.",
+        "no": "The latest reading is physically impossible, a stuck or faulty value, or a jump no real change could explain.",
+        "unsure": "There is too little history, or the change is large but could still be real."
       }
     }
   }

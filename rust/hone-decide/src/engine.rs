@@ -71,6 +71,8 @@ pub struct Decider {
     model: Model,
     head: Head,
     tok: Tokenizer,
+    /// Per-task abstain thresholds calibrated for this model (optional thresholds.json).
+    pub thresholds: std::collections::HashMap<String, f32>,
 }
 
 pub struct Decision {
@@ -101,7 +103,9 @@ impl Decider {
             bail!("head size {} != hidden size {}", head.w.len(), model.hidden_size());
         }
         let tok = Tokenizer::from_file(dir.join(&cfg.tokenizer)).map_err(|e| anyhow::anyhow!("tokenizer: {e}"))?;
-        Ok(Decider { cfg, dir: dir.to_path_buf(), model, head, tok })
+        let thresholds = std::fs::read(dir.join("thresholds.json")).ok()
+            .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        Ok(Decider { cfg, dir: dir.to_path_buf(), model, head, tok, thresholds })
     }
 
     pub fn name(&self) -> &str {

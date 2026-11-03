@@ -153,6 +153,9 @@ fn quantize(a: &HashMap<String, String>) -> Result<()> {
     for extra in ["config.json", "tokenizer.json", "head.safetensors"] {
         std::fs::copy(src.join(extra), dst.join(extra))?;
     }
+    if src.join("thresholds.json").exists() {
+        std::fs::copy(src.join("thresholds.json"), dst.join("thresholds.json"))?;
+    }
     cfg["weights"] = json!(out_name);
     cfg["name"] = json!(format!("{}-{dtype}", cfg["name"].as_str().unwrap_or("student")));
     std::fs::write(dst.join("decide.json"), serde_json::to_string_pretty(&cfg)?)?;

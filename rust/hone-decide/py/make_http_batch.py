@@ -11,9 +11,12 @@ with open(dst, "w") as f:
         if c[r["task"]] >= n:
             continue
         c[r["task"]] += 1
-        q = r["request"]["questions"]["q"]
-        body = {"context": r["request"]["state"], "question": q["instructions"], "kind": q["type"]}
-        if q["type"] == "choice":
-            body["candidates"] = q["criteria"]
+        if "request" in r:
+            q = r["request"]["questions"]["q"]
+            body = {"context": r["request"]["state"], "question": q["instructions"], "kind": q["type"]}
+            if q["type"] == "choice":
+                body["candidates"] = q["criteria"]
+        else:  # HONE task row: send the task name so per-task abstain thresholds apply
+            body = {"task": r["task"], "context": r["context"], "question": r["question"], "candidates": r["candidates"]}
         f.write(json.dumps({"id": r["id"], "task": r["task"], "label": r["label"], "body": body}, ensure_ascii=False) + "\n")
 print(dict(c))

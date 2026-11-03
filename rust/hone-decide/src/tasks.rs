@@ -14,6 +14,9 @@ pub struct Task {
     pub kind: String,
     pub question: String,
     pub candidates: Ordered<Value>,
+    /// Default confidence below which the sidecar abstains (None = always answer).
+    #[serde(default)]
+    pub abstain_below: Option<f32>,
 }
 fn choice() -> String {
     "choice".into()
@@ -51,7 +54,7 @@ impl Registry {
                 .iter()
                 .map(|(n, t)| {
                     let c: serde_json::Map<String, Value> = t.candidates.0.iter().cloned().collect();
-                    (n.clone(), serde_json::json!({"type": t.kind, "question": t.question, "candidates": c}))
+                    (n.clone(), serde_json::json!({"type": t.kind, "question": t.question, "candidates": c, "abstain_below": t.abstain_below}))
                 })
                 .collect(),
         )
