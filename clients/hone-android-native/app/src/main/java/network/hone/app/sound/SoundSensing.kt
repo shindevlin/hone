@@ -138,6 +138,7 @@ object SoundSensing {
         val species = HashMap<String, Pair<Float, Int>>()   // name -> (max conf, frames)
         var frames = 0
         var framesHuman = 0
+        var blocksMutedVoice = 0                            // 100 ms blocks muted by VoiceGate
         val blockDb = ArrayList<Double>()                   // 100 ms block levels, non-human frames
         var peak = -200.0
     }
@@ -171,10 +172,16 @@ object SoundSensing {
     }
 
     private fun processFrame(p: Perch, frame: FloatArray, win: Window) {
-        val probs = p.classify(frame)
+        // Voice gate first (spec 2f, layer 5): every 100 ms block with human speech, plus a margin,
+        // is zeroed before Perch or the noise meter sees the audio. Mostly speech: drop the frame.
+        val gate = VoiceGate.analyze(frame)
+        gate.mute(frame)
+        win.blocksMutedVoice += gate.mutedBlocks
+        val probs = if (gate.drop) null else p.classify(frame)
         win.frames++
-        val human = p.humanIdx.maxOfOrNull { probs[it] } ?: 0f
-        if (human > HUMAN_MAX) {
+        // Second gate: Perch's own human classes on what is left.
+        val human = if (probs == null) 1f else (p.humanIdx.maxOfOrNull { probs[it] } ?: 0f)
+        if (probs == null || human > HUMAN_MAX) {
             win.framesHuman++
             _live.value = _live.value.copy(
                 framesHeard = _live.value.framesHeard + 1,
@@ -185,7 +192,10 @@ object SoundSensing {
         // Noise levels, 100 ms blocks, dBFS (uncalibrated; per-device offset comes later).
         val block = Perch.SAMPLE_RATE / 10
         var sumE = 0.0
+        var keptBlocks = 0
         for (b in 0 until Perch.FRAME / block) {
+            if (gate.mask[b]) continue                      // muted speech: not measured
+            keptBlocks++
             var e = 0.0
             for (k in b * block until (b + 1) * block) { val v = frame[k].toDouble(); e += v * v }
             val db = 10 * log10(e / block + 1e-12)
@@ -194,7 +204,7 @@ object SoundSensing {
         var pk = 0f
         for (v in frame) pk = max(pk, kotlin.math.abs(v))
         win.peak = max(win.peak, 20 * log10(pk.toDouble() + 1e-9))
-        val leq = 10 * log10(sumE / Perch.FRAME + 1e-12)
+        val leq = 10 * log10(sumE / (max(keptBlocks, 1) * block) + 1e-12)
 
         val now = System.currentTimeMillis()
         val ctx = appCtx
@@ -236,6 +246,7 @@ object SoundSensing {
             put("listen_seconds", w.frames * 5)
             put("frames", w.frames)
             put("frames_discarded_human", w.framesHuman)
+            put("blocks_muted_voice", w.blocksMutedVoice)
             put("species", JSONArray().apply {
                 w.species.entries.sortedByDescending { it.value.first }.forEach { (k, v) ->
                     put(JSONObject().put("name", k).put("conf_q8", (v.first * 255).toInt()).put("frames", v.second))
