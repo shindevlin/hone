@@ -24,6 +24,20 @@ pub fn run(dir: &str, accounts: &[String]) -> anyhow::Result<()> {
             per_epoch.entry(parts[1].to_owned()).or_default().push((epoch, amount));
         }
     });
+    // STATE_AUDIT_DUMP=<file>: one CSV line per storage reward (r,account,epoch,amount) and
+    // per storage_beat row (b,node,epoch,bytes_proven) — for a per-epoch cross-node diff.
+    if let Ok(path) = std::env::var("STATE_AUDIT_DUMP") {
+        use std::io::Write;
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&path)?);
+        for (a, v) in &per_epoch { for (e, x) in v { writeln!(f, "r,{a},{e},{x}")?; } }
+        store.for_each_meta_prefix("storage_beat:", |key, val| {
+            let p: Vec<&str> = key.splitn(3, ':').collect();
+            if p.len() < 3 { return; }
+            let bytes = serde_json::from_slice::<serde_json::Value>(val).ok()
+                .and_then(|j| j["bytes_proven"].as_u64()).unwrap_or(0);
+            let _ = writeln!(f, "b,{},{},{}", p[2], p[1], bytes);
+        });
+    }
     let mut sys = vec![hone_types::RECYCLE_FUND_ACCOUNT.to_string(), hone_types::TREASURY_ACCOUNT.to_string(), hone_types::TESTNET_FUND_ACCOUNT.to_string(), "treasury".into()];
     sys.extend(accounts.iter().cloned());
     let balances: BTreeMap<String, u64> = sys.iter()
