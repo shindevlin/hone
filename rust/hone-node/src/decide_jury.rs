@@ -357,6 +357,54 @@ pub fn features(e: &LedgerEntry) -> serde_json::Value {
     v
 }
 
+/// The trained `entry_screen` feature shape (hone-decide py/gen_tasks2.py gen_entry):
+/// entry facts, the submitter's recent history from the last 100 committed epochs, and the
+/// derived flags. `epoch` is the seal the entry was committed at.
+pub fn entry_screen_features(chain: &Chain, e: &LedgerEntry, epoch: u64) -> serde_json::Value {
+    let v = serde_json::to_value(e).unwrap_or_default();
+    let ty = v["type"].as_str().unwrap_or("").to_owned();
+    let tyname = match e {
+        LedgerEntry::SensorDataCommit { .. } => "SensorDataCommit",
+        LedgerEntry::CoverageReport { .. } => "CoverageReport",
+        LedgerEntry::TrackerSightingCommit { .. } => "TrackerSightingCommit",
+        _ => ty.as_str(),
+    }.to_owned();
+    let submitter = v["signed_by"].as_str().or_else(|| v["owner"].as_str()).unwrap_or("").to_owned();
+    let nonce = v["nonce"].as_u64().unwrap_or(0);
+    let data_hash = ["batch_hash", "data_hash", "report_hash", "commitment"].iter()
+        .find_map(|k| v[*k].as_str().map(str::to_owned)).unwrap_or_else(|| e.hash());
+    let payload_bytes = serde_json::to_vec(e).map(|b| b.len()).unwrap_or(0);
+    let skew_ms: i64 = (e.epoch() as i64 - epoch as i64) * 30_000;
+    let cap: u64 = match e {
+        LedgerEntry::CoverageReport { .. } => hone_types::COVERAGE_MAX_REPORTS_PER_EPOCH,
+        LedgerEntry::TrackerSightingCommit { .. } => hone_types::MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH,
+        _ => 4,
+    };
+    let (mut last_nonce, mut recent, mut this_epoch) = (0u64, Vec::<String>::new(), 0u64);
+    for ep in epoch.saturating_sub(100)..=epoch {
+        for x in committed_entries(chain, ep) {
+            if x.hash() == e.hash() { continue; }
+            let xv = serde_json::to_value(&x).unwrap_or_default();
+            if xv["signed_by"].as_str().or_else(|| xv["owner"].as_str()) != Some(submitter.as_str()) { continue; }
+            if ep < epoch || xv["nonce"].as_u64().unwrap_or(0) < nonce { last_nonce = last_nonce.max(xv["nonce"].as_u64().unwrap_or(0)); }
+            if let Some(dh) = ["batch_hash", "data_hash", "report_hash", "commitment"].iter().find_map(|k| xv[*k].as_str()) {
+                recent.push(dh.to_owned());
+            }
+            if ep == epoch && xv["type"] == v["type"] { this_epoch += 1; }
+        }
+    }
+    let seen = recent.contains(&data_hash);
+    if recent.len() > 8 { recent.drain(..recent.len() - 8); }
+    serde_json::json!({
+        "entry": { "type": tyname, "submitter": submitter, "nonce": nonce, "data_hash": data_hash,
+                   "payload_bytes": payload_bytes, "clock_skew_ms": skew_ms },
+        "submitter_recent": { "last_nonce": last_nonce, "recent_data_hashes": recent,
+                              "entries_this_epoch": this_epoch, "epoch_cap": cap },
+        "derived": { "nonce_is_next": nonce > last_nonce, "hash_seen_before": seen,
+                     "over_cap": this_epoch >= cap, "skew_over_120s": skew_ms.abs() > 120_000 },
+    })
+}
+
 /// After the quorum seal of `epoch`: vote on our share of its judgment entries, seal the
 /// batch, publish DecideCommit, and post any reveals now due. Any hone-decide failure
 /// skips this epoch.
@@ -379,7 +427,7 @@ pub async fn vote_epoch(chain: &std::sync::Arc<Chain>, cmd_tx: &tokio::sync::mps
     };
     if !mine.is_empty() {
         let items: Vec<serde_json::Value> = mine.iter().map(|e| serde_json::json!({
-            "entry_hash": e.hash(), "task": judgment_task(e).unwrap_or("entry_screen"), "features": features(e) })).collect();
+            "entry_hash": e.hash(), "task": judgment_task(e).unwrap_or("entry_screen"), "features": entry_screen_features(chain, e, epoch) })).collect();
         let t = std::time::Duration::from_secs(10 * items.len() as u64 + 30);
         match http.post(format!("{base}/vote")).timeout(t).json(&serde_json::json!({ "epoch": epoch, "items": items })).send().await {
             Ok(r) if r.status().is_success() => {}
@@ -541,6 +589,16 @@ mod tests {
         assert_eq!(capacity_at(&c, "d0", ve + 5), 100, "new capacity applies from +10");
         assert_eq!(capacity_at(&c, "d0", ve + 11), 68);
         assert_eq!(c.store.balance_merkle_root(), root0);
+    }
+
+    #[test]
+    fn entry_screen_features_have_the_trained_shape() {
+        let (c, _d) = chain("feat");
+        let e = LedgerEntry::GenesisAlloc { account: "a".into(), amount: 1, token: "HONE".into() };
+        let f = entry_screen_features(&c, &e, 10);
+        for k in ["entry", "submitter_recent", "derived"] { assert!(f[k].is_object(), "{k}"); }
+        assert!(f["derived"]["nonce_is_next"].is_boolean());
+        assert!(serde_json::to_string(&f).unwrap().len() <= 2000);
     }
 
     #[test]
