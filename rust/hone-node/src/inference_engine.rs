@@ -153,11 +153,22 @@ pub async fn warm_up() {
 // used against Ollama, so an Ollama-compatible server is a drop-in.
 
 #[cfg(test)]
+pub fn resolve_model_for_test(m: &str) -> String { resolve_model(m) }
+
+#[cfg(test)]
 pub async fn http_chat_for_test(base: &str, req: &ChatRequest) -> Result<ChatResponse> { http_chat(base, req).await }
+
+/// The model name sent to the external server: the caller's, unless it is empty or
+/// "auto", in which case HONE_INFERENCE_MODEL (e.g. "llama3.2:1b" on Ollama).
+fn resolve_model(requested: &str) -> String {
+    let r = requested.trim();
+    if !r.is_empty() && r != "auto" { return r.to_owned(); }
+    std::env::var("HONE_INFERENCE_MODEL").ok().filter(|m| !m.trim().is_empty()).unwrap_or_default()
+}
 
 async fn http_chat(base: &str, req: &ChatRequest) -> Result<ChatResponse> {
     let body = serde_json::json!({
-        "model": req.model,
+        "model": resolve_model(&req.model),
         "messages": req.messages,
         "stream": false,
         "options": { "num_predict": req.max_tokens },
@@ -175,6 +186,7 @@ async fn http_chat(base: &str, req: &ChatRequest) -> Result<ChatResponse> {
         .await?
         .json::<serde_json::Value>()
         .await?;
+    if let Some(e) = resp["error"].as_str() { return Err(anyhow!("inference server: {e}")); }
     // Ollama: { "message": { "content" } }. OpenAI: { "choices":[{"message":{"content"}}] }.
     let content = resp["message"]["content"]
         .as_str()

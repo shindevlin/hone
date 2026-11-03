@@ -86,6 +86,14 @@ memory budget, reached over localhost.
    `HONE_INFERENCE_EMBEDDED=true` re-enables the in-process candle backend on a full node
    (not recommended). A light node (MemTotal < 2 GiB, e.g. nebra) never loads a model.
 
+### grouchly (2026-11-03): Ollama
+grouchly's node points at the local Ollama (`INFERENCE_URL=http://127.0.0.1:11434`,
+`HONE_INFERENCE_MODEL=llama3.2:1b`; a caller's empty or `auto` model maps to it). Ollama is
+already a separate process with its own unit and memory cap. CPU only: llama3.2:1b runs at
+~21 tok/s, so a 512-token reply takes ~25–30 s. `hone-inference.service` (below) is the
+fallback, installed but stopped and disabled; to use it, start it and set
+`INFERENCE_URL=http://127.0.0.1:4250`.
+
 ### The sidecar: `hone-node inference-serve`
 
 Same binary, separate process. It holds no keys, opens no chain store, joins no network.

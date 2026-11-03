@@ -98,6 +98,14 @@ mod tests {
         assert!(inference_engine::http_chat_for_test(&base, &req()).await.is_err(), "sidecar down = error");
     }
 
+    #[test]
+    fn empty_or_auto_model_uses_the_configured_default() {
+        assert_eq!(inference_engine::resolve_model_for_test("qwen3:4b"), "qwen3:4b");
+        std::env::set_var("HONE_INFERENCE_MODEL", "llama3.2:1b");
+        assert_eq!(inference_engine::resolve_model_for_test(""), "llama3.2:1b");
+        assert_eq!(inference_engine::resolve_model_for_test("auto"), "llama3.2:1b");
+    }
+
     #[tokio::test]
     async fn sidecar_routes_answer_without_a_model() {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
