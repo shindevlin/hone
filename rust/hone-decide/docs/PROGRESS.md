@@ -243,3 +243,50 @@ Resume notes for whoever picks this up. Newest state at the top of each section.
 - The features gate rejected two legacy generator strings (job_routing node.cpu, peer window);
   the generators now emit token strings (`arm64-4xA53-1.2GHz`, `window_epochs: 2880`). The r3
   students were trained on the old strings; retraining with the new ones is a follow-up.
+- 17:01 smollm2-135m-r3 (warm from 135M-gen; replay 3000 HONE + 3000 MCQ + 6000 new; 1 epoch;
+  T 1.12), Python fp32, full test splits (5900 rows): acc 0.750, ECE 0.022.
+  - New tasks: plausibility_v2 0.956, coverage_usefulness 0.972, entry_screen 1.000.
+  - Old HONE vs 135M-gen: novelty .752->.748, routing .934->.928, plausibility .774->.816,
+    peer .910->.844. HONE mean .843->.834 (-0.9 pt), but **peer -6.6 pt**.
+  - MCQ mean .540->.539.
+  - Meets the "<= 1 point" rule on the aggregates, not on peer alone. Peer is the first jury
+    task to activate, so this needs a follow-up (more peer replay).
+- 360M-gen Q8 full Rust eval finished: HONE 500 rows acc 0.926 / ECE 0.047, MCQ 0.621 (2400).
+- nebra jury bench 1 (135M-gen Q4, legacy HONE tasks, token features, batches of 4, test epochs
+  100+): 24 votes before the guard stopped it (hone-node redeployed by the chain agent at 16:38;
+  not us). 22.7 s p50 / 28.0 s p90 per vote, coverage 0.417, accuracy on answered 0.90
+  (peer 3/4, others 6/6), 24/24 reveals verified, RSS 140 MB, cgroup peak 142 MB, min free 523 MB.
+  Test epochs wiped afterwards.
+- Android: `JurorEngine.kt` (commit 7d1af7ad on android/live-wallet-20261029; only my 3 files
+  committed, other agents' uncommitted rust/hone-gnss-capture changes left alone). APK builds
+  (32 MB) with lib/arm64-v8a/libhone_decide.so. Only the moto (ZL8322X6XW) is on grouchly's
+  adb; the Pixel is not connected, so there is no Pixel measurement and no APK install.
+  - Moto sidecar bench via adb shell (/data/local/tmp, 135M-gen Q4, 4 threads, USB power):
+    200 ctx 11.8 s / RSS 129 MB, 500 ctx 26.0 s / RSS 140 MB. Thermal status was already
+    2 (MODERATE), so JurorEngine would mark it ineligible.
+- Abstain thresholds for 135M-r3: fitted on the f32 cal preds (`cal_preds.jsonl`, 3657 rows) at
+  a **97%** target, as a margin over 95%. At 95% the cal fit did not hold on test for peer and novelty.
+  Values: peer .62, routing .96, novelty .71, plausibility .94, plausibility_v2 .87,
+  coverage .30, entry .30. MCQ: ARC-E .93, CSQA .72, OBQA .82, others 1.01 (always abstain).
+- Rust Q4 eval of 135M-r3 on grouchly (`ev_135r3_q4.jsonl`, same rows as the gen baseline):
+  - HONE 500: .824 -> .820 (novelty .760->.775, routing .892->.868, plausibility .713->.778,
+    peer .910->.851).
+  - MCQ 800: .510 -> .509.
+  - New tasks 300: .340 -> .963 (plausibility_v2 .95, coverage .939, entry 1.00).
+  - At the thresholds, Q4 test: peer 73% covered @ 96.9%, novelty 38% @ 98.0%, routing 30% @ 100%,
+    plausibility 20% @ 100%, plausibility_v2 79% @ 98.7%, entry 100% @ 100%. Coverage 100% @ 93.9%
+    falls below 95% under Q4, so its threshold is refit on Q4 cal rows.
+- coverage_usefulness Q4 threshold refit on Q4-scored cal rows (300): 0.30 gives 96.7%, 0.63 (97%
+  target) gives 98% coverage @ 97.3%. Q4 test (99 rows): 99% @ 93.9%. The 6 errors are high-confidence,
+  so no threshold removes them. Follow-up: more coverage training rows near the 10 dB and
+  3-reporter boundaries.
+- nebra jury bench 2 (135M-r3 Q4 as a side instance on :4252, 42 items, 6 per task, all 7 tasks,
+  token features): 42/42 voted, 0 errors, 42/42 reveals verified, 27.5 s p50 / 33.8 s p90 per
+  vote, coverage 0.667, accuracy on answered 0.929. Per task (answered/correct): entry 6/6,
+  coverage 6/5, plausibility_v2 4/4, peer 5/4, novelty 3/3, routing 3/3, plausibility 1/1.
+  RSS 157 MB, cgroup peak 173 MB, min MemAvailable 394 MB, hone-node unchanged.
+- 17:35 deployed 135M-r3 Q4 to nebra. Combined (HONE+MCQ)/2 is 0.664 vs 0.667 (-0.3 pt, within 1 pt);
+  new tasks .34 -> .96.
+  - Rollback: `/opt/hone-decide/model-gen` (135M-gen Q4, hash 547d64ae...) and `model-prev` (135M-mix).
+  - model_hash 04df19894e0a348f98000949b5580ccfee4da36742a9e0015b92318f2d4ab2ed, identical to grouchly.
+  - Vote store wiped. New binary has votes_per_100_epochs and the eligibility gate.
