@@ -21,7 +21,7 @@ API (all JSON):
        payload = {"v":1,"latin","t","license":"UFL","account"?}
   GET  /api/birds/photos/<id>.jpg
 """
-import base64, hashlib, json, os, re, sqlite3, sys, threading, time
+import base64, hashlib, hmac, json, os, re, sqlite3, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -182,6 +182,25 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, add_sighting(body))
             if path == "/api/birds/photos":
                 return self._send(200, add_photo(body))
+            if path == "/api/birds/admin/posting-keys":
+                # Refreshed by the n8n workflow "HONE: birds posting-key refresh" on grouchly.
+                token = os.environ.get("HONE_BIRDS_ADMIN_TOKEN", "")
+                if not token or not hmac.compare_digest(self.headers.get("X-Hone-Admin", ""), token):
+                    return self._send(403, {"error": "forbidden"})
+                keys = {str(a): str(k).lower() for a, k in body.items() if re.fullmatch(r"[0-9a-fA-F]{64}", str(k))}
+                if len(keys) < 10:
+                    raise ValueError("refusing a suspiciously small key table")
+                tmp = KEYS_FILE + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(keys, f)
+                os.replace(tmp, KEYS_FILE)
+                # Rows held back because the account was unknown become public once it is known.
+                with lock:
+                    for acct, pub in keys.items():
+                        db.execute("UPDATE sightings SET verified=1 WHERE verified=0 AND account=? AND lower(pub)=?", (acct, pub))
+                        db.execute("UPDATE photos SET verified=1 WHERE verified=0 AND account=? AND lower(pub)=?", (acct, pub))
+                    db.commit()
+                return self._send(200, {"ok": True, "accounts": len(keys)})
             return self._send(404, {"error": "not found"})
         except Exception as e:
             return self._send(400, {"error": str(e)[:200]})
