@@ -204,3 +204,13 @@ Resume notes for whoever picks this up. Newest state at the top of each section.
 - nebra serves smollm2-135m-gen Q4 (rollback in /opt/hone-decide/model-prev); Q8 staged in
   ~/decide/smollm2-135m-gen-q8 (fits the 250 MiB cap: peak ~194 MB at 500 ctx; +2 MCQ points).
 - beastly GPU: nothing of ours running. Students in beastly ~/decide/students/*-gen.
+- 15:56 nebra back (Josh power-cycled; outage was a truncated hone-node binary). Run 2's result
+  file had a NUL-filled tail line from the power cut; backed up as
+  `http_run2_135gen_q4.jsonl.bak-powercut`, bad line dropped, resumed at 144/200 under
+  `guard_run2.sh` (kills the client if MemAvailable < 200 MB or hone-node restarts/changes PID).
+- HTTP run 2 complete (135M-gen Q4, same 200 questions as run 1): 200/200 ok, 0 timeouts,
+  p50 10.5 s, p90 17.7 s, max 30.4 s, service RSS max 147 MB, cgroup MemoryPeak 218 MB
+  (includes mmap page cache; cap 250 MiB), min MemAvailable 488 MB (hone-mem min 510 MB),
+  accuracy 0.555 (run 1: 0.28). Per dataset: ARC-E .68, ARC-C .48, CSQA .68, OBQA .64,
+  MMLU .24, HellaSwag .52, PIQA .68, BoolQ .52. hone-node NRestarts 0 throughout.
+- 360M-gen Q8 full eval still running on grouchly (2764/2900 at 16:10).
