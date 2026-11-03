@@ -26,18 +26,24 @@ PREFIX, SUFFIX = "<|im_start|>user\n", "<|im_end|>\n<|im_start|>assistant\n"
 
 
 def load(data, teacher, split):
-    t = {}
-    for l in open(Path(teacher) / f"{split}.jsonl"):
-        r = json.loads(l)
-        t[r["id"]] = r["probs"]
+    """data/teacher may be comma-separated lists of dirs (e.g. HONE tasks + public MCQ)."""
     rows = []
-    for l in open(Path(data) / f"{split}.jsonl"):
-        r = json.loads(l)
-        if r["id"] not in t:
-            continue
-        rec = compile_request(r["context"], {"q": {"type": "choice", "instructions": r["question"], "criteria": r["candidates"]}})[0]
-        rows.append({"id": r["id"], "task": r["task"], "prompts": [PREFIX + p + SUFFIX for p in candidate_prompts(rec)],
-                     "teacher": t[r["id"]], "label": rec["answer_keys"].index(r["label"])})
+    for dd, td in zip(data.split(","), teacher.split(",")):
+        t = {}
+        for l in open(Path(td) / f"{split}.jsonl"):
+            r = json.loads(l)
+            t[r["id"]] = r["probs"]
+        for l in open(Path(dd) / f"{split}.jsonl"):
+            r = json.loads(l)
+            if r["id"] not in t:
+                continue
+            if "request" in r:
+                rec = compile_request(r["request"]["state"], r["request"]["questions"])[0]
+            else:
+                rec = compile_request(r["context"], {"q": {"type": "choice", "instructions": r["question"], "criteria": r["candidates"]}})[0]
+            rows.append({"id": r["id"], "task": r["task"], "kind": rec["kind"],
+                         "prompts": [PREFIX + p + SUFFIX for p in candidate_prompts(rec)],
+                         "teacher": t[r["id"]], "label": rec["answer_keys"].index(r["label"])})
     return rows
 
 
@@ -75,7 +81,10 @@ def batched_logits(model, rows, bs, max_len, amp=True):
     out, i = [], 0
     for r in rows:
         n = len(r["prompts"])
-        out.append(s[i:i + n])
+        v = s[i:i + n]
+        if r.get("kind") == "noul":  # Open-Jev: noul logits are [0, s]
+            v = torch.stack([torch.zeros_like(v[0]), v[0]])
+        out.append(v)
         i += n
     return out
 
@@ -125,13 +134,22 @@ def main():
     ap.add_argument("--bs", type=int, default=4)
     ap.add_argument("--max-len", type=int, default=2048)
     ap.add_argument("--name", default="student")
+    ap.add_argument("--init", help="warm start: a student dir (model.safetensors + head.safetensors)")
     ap.add_argument("--label-weight", type=float, default=0.0,
                     help="0 = pure distillation (KL to teacher); >0 mixes in CE on the task's ground-truth label")
     a = ap.parse_args()
     random.seed(0); torch.manual_seed(0)
     train, cal, test = (load(a.data, a.teacher, s) for s in ("train", "cal", "test"))
     print(json.dumps({"train": len(train), "cal": len(cal), "test": len(test)}), flush=True)
-    model = Student(a.base).cuda()
+    model = Student(a.base)
+    if a.init:
+        from safetensors.torch import load_file
+        missing, unexpected = model.backbone.load_state_dict(load_file(str(Path(a.init) / "model.safetensors")), strict=False)
+        hd = load_file(str(Path(a.init) / "head.safetensors"))
+        with torch.no_grad():
+            model.head.weight.copy_(hd["head.weight"]); model.head.bias.copy_(hd["head.bias"])
+        print(json.dumps({"init": a.init, "missing": len(missing), "unexpected": len(unexpected)}), flush=True)
+    model = model.cuda()
     model.backbone.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.train()
     import bitsandbytes as bnb
@@ -180,7 +198,7 @@ def main():
     (out / "decide.json").write_text(json.dumps({
         "arch": "llama", "name": a.name, "weights": "model.safetensors", "head": "head.safetensors",
         "prompt_prefix": PREFIX, "prompt_suffix": SUFFIX, "max_length": a.max_len,
-        "distilled_from": str(a.teacher), "label_weight": a.label_weight, "base": str(a.base)}, indent=2))
+        "distilled_from": str(a.teacher), "label_weight": a.label_weight, "base": str(a.base), "init": a.init}, indent=2))
     print(json.dumps(rep["test"]["ALL"]), flush=True)
 
 

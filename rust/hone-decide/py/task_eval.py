@@ -5,14 +5,22 @@ import json, sys
 from collections import defaultdict
 
 rows = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
-pred = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[2])}
-ref = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[3])} if len(sys.argv) > 3 else {}
+def ld(p):
+    out = {}
+    for l in open(p):
+        r = json.loads(l)
+        out[r["id"][:-2] if r["id"].endswith("/q") else r["id"]] = r
+    return out
+pred = ld(sys.argv[2])
+ref = ld(sys.argv[3]) if len(sys.argv) > 3 else {}
 am = lambda v: max(range(len(v)), key=v.__getitem__)
 by = defaultdict(list)
 for k, p in pred.items():
     if k in rows:
         r = rows[k]
-        keys = p.get("answer_keys") or list(r["candidates"])
+        keys = p.get("answer_keys") or (list(r["candidates"]) if "candidates" in r else
+               (["false", "true"] if r["request"]["questions"]["q"]["type"] == "noul"
+                else list(r["request"]["questions"]["q"]["criteria"])))
         by[r["task"]].append((p["probs"], keys.index(r["label"]), ref.get(k, {}).get("probs")))
 by["ALL"] = [x for t in list(by) for x in by[t]]
 out = {}
@@ -25,5 +33,6 @@ for t, items in by.items():
     agr = [am(p) == am(q) for p, _, q in items if q]
     if agr:
         o["agree"] = round(sum(agr) / len(agr), 4)
+    o["chance"] = round(sum(1 / len(p) for p, _, _ in items) / len(items), 3)
     out[t] = o
 print(json.dumps(out))

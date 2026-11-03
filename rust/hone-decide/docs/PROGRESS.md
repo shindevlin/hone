@@ -144,3 +144,43 @@ Resume notes for whoever picks this up. Newest state at the top of each section.
 - nebra: `hone-decide.service` active with smollm2-135m-mix Q4; models also in /home/pi/decide.
 - Next steps: 135M-kl on full data; 360M-mix; refit the teacher temperature on HONE cal data
   (its released T gives ECE 0.19 here); real (not synthetic) labels for the four tasks.
+
+## Round 2 (2026-11-03): public multiple-choice benchmarks
+- `py/prep_mcq.py` -> beastly `~/decide/mcq/` (copy in `decide/mcq`): 8 datasets, 7000 train /
+  1557 cal / 2400 test (300 test each). Licenses in `mcq/SOURCES.json`: ARC-E/ARC-C CC-BY-SA-4.0,
+  CommonsenseQA MIT, OpenBookQA Apache-2.0, MMLU MIT (6 subjects, test+cal only, never trained),
+  HellaSwag MIT, PIQA AFL-3.0, BoolQ CC-BY-SA-3.0 (as `noul`). Where the public test split has
+  no labels (CSQA, HellaSwag, PIQA, BoolQ) our test = their validation and cal is carved from
+  the tail of train. No benchmark test split is used for training. Rows over 1500 chars dropped.
+- Open-Jev-2B bf16 zero-shot on the 2400 test rows: acc 0.720 (chance 0.306), ECE 0.161.
+- nebra end-to-end HTTP run 1 (current 135M-mix Q4, 200 questions, 25 per dataset):
+  `nebra:~/decide/http_run1_135mix_q4.jsonl`, client `py/nebra_http_test.py` (resumable).
+- Open-Jev-9B NF4 zero-shot on the 2400 test rows: acc 0.874, ECE 0.143.
+- Existing 135M-mix Q4 (HONE-only) zero-shot via Rust on grouchly: acc 0.307 = chance (0.306).
+- nebra HTTP run 1 (135M-mix Q4, 200 q): 200/200 ok, 0 timeouts, p50 10.3 s, p90 15.6 s,
+  max 25.3 s, service VmHWM 150 MB, min MemAvailable 439 MB (hone-mem min 466 MB), acc 0.28.
+- Students `smollm2-{135m,360m}-gen` (HONE 8000 + MCQ 7000 train rows, 0.5 KL / 0.5 label,
+  2 epochs) queued in beastly `run_gen_students.sh`, start after the 9B labels the MCQ train split.
+- 360M-kl3 Q8 (HONE-only) zero-shot via Rust: acc 0.287 (chance 0.306).
+- Cold 2-epoch gen runs were ~1.5 s/step on the shared card (3 h+ each); replaced with warm
+  starts (`--init`): 135M-gen from 135M-mix, 360M-gen from 360M-kl3, 1 epoch over HONE+MCQ
+  (15,000 rows), lr 5e-5, 0.5 KL / 0.5 label. Script `run_gen2.sh`, log `gen2.log`.
+- Combined score for deployment = mean(HONE test acc, MCQ test acc), both from Rust on the
+  deployable quantisation. Current nebra model 135M-mix Q4: 0.722 (HONE, 500 rows) and
+  0.307 (MCQ), so 0.515.
+- 13:39 smollm2-135m-gen (warm from 135M-mix, 1 epoch HONE+MCQ, T 1.00), Python fp32 on all
+  4400 test rows: acc 0.677, ECE 0.030, teacher agreement 0.617. HONE acc
+  novelty 0.752 / routing 0.934 / plausibility 0.774 / peer 0.910 (mean 0.843, was 0.739).
+  MCQ: ARC-E 0.700, ARC-C 0.463, CSQA 0.547, OBQA 0.557, MMLU 0.363, HellaSwag 0.447,
+  PIQA 0.657, BoolQ 0.583 (mean 0.540, chance 0.306). Q8/Q4 Rust eval running on grouchly
+  (`ev_135gen_{q4,q8}.jsonl`, evalset = MCQ test + HONE test500). Q4 staged on nebra in
+  ~/decide/smollm2-135m-gen-q4. 360M-gen training started 13:38.
+- 135M-gen Rust eval (grouchly, `ev_135gen_q4.jsonl`): Q4 MCQ acc 0.520 / ECE 0.018 (2400 rows),
+  HONE acc 0.824 / ECE 0.051 (500 rows; same rows as the 135M-mix Q4 baseline at 0.722).
+  Combined 0.672 vs 0.515, so it was deployed at 14:18 on nebra. The previous model is
+  kept at /opt/hone-decide/model-prev (smollm2-135m-mix-q4). Rollback:
+  `sudo systemctl stop hone-decide; sudo mv /opt/hone-decide/model /opt/hone-decide/model-gen;
+  sudo mv /opt/hone-decide/model-prev /opt/hone-decide/model; sudo systemctl start hone-decide`.
+- nebra was rebooted by another agent with `cgroup_enable=memory cgroup_memory=1`; MemoryMax is
+  now enforced (memory.max = 262144000). HTTP run 2 (135M-gen Q4) started 14:18 ->
+  `nebra:~/decide/http_run2_135gen_q4.jsonl`.
