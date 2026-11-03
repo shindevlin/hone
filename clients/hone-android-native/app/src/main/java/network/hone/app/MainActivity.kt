@@ -19,4 +19,9 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        if (network.hone.app.sound.SoundSensing.isEnabled(this)) network.hone.app.service.NodeService.start(this)
+    }
 }

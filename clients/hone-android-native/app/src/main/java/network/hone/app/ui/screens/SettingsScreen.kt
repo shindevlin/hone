@@ -94,10 +94,16 @@ fun SettingsScreen() {
         SoundCard()
 
         Section("Birds privacy") {
+            Text(
+                if (network.hone.app.birds.BirdsSync.canSign(ctx)) "Posting key imported: sightings and photos are signed by your account."
+                else "Import your posting key (Sensors > Find my things > keys) to publish sightings and photos.",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (network.hone.app.birds.BirdsSync.canSign(ctx)) HoneGreen else MaterialTheme.colorScheme.error,
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Show my name on public sightings", style = MaterialTheme.typography.bodyMedium)
-                    Text("Off: your sightings are anonymous, each with a one-time ID.",
+                    Text("Off: your name is hidden on the public map; HONE still verifies your posting key.",
                         style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
                 }
                 Switch(showName, { showName = it; prefs.edit().putBoolean("show_name", it).apply() })

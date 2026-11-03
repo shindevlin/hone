@@ -158,6 +158,10 @@ object SoundSensing {
                 if (now / WINDOW_MS != win.index) { closeWindow(ctx, win); win = Window(now / WINDOW_MS) }
                 _live.value = _live.value.copy(listening = true, status = "listening")
                 if (!record(frame)) { _live.value = _live.value.copy(status = "mic busy or blocked"); break }
+                if (frame.all { it == 0f }) {
+                    _live.value = _live.value.copy(listening = false, status = "microphone silenced by Android: open HONE to resume")
+                    break
+                }
                 processFrame(p, frame, win)
                 frame.fill(0f)
             }

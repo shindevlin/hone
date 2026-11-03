@@ -29,7 +29,7 @@ import javax.crypto.spec.GCMParameterSpec
 object RoleKeys {
     private const val TAG = "HoneSight"
     private const val ALIAS = "hone.rolekeys.wrap"
-    val ROLES = listOf("hide", "memo", "active")
+    val ROLES = listOf("hide", "memo", "active", "posting")
     private val cache = HashMap<String, ByteArray>()
 
     private fun file(ctx: Context, role: String) = File(ctx.filesDir, "hone-node/role_$role.wrapped")
