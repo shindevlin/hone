@@ -1488,9 +1488,12 @@ async fn get_node_models() -> Json<serde_json::Value> {
         }
         return Json(serde_json::json!({ "models": [], "backend": "external" }));
     }
-    // Embedded backend: the single GGUF the operator selected via HONE_MODEL.
-    let models: Vec<String> = std::env::var("HONE_MODEL").ok().into_iter().collect();
-    Json(serde_json::json!({ "models": models, "backend": "embedded" }))
+    // No sidecar configured: the node serves no model in-process (see inference_engine).
+    let backend = crate::inference_engine::backend_name();
+    let models: Vec<String> = if backend == "embedded" {
+        std::env::var("HONE_MODEL").ok().into_iter().collect()
+    } else { vec![] };
+    Json(serde_json::json!({ "models": models, "backend": backend }))
 }
 
 #[derive(serde::Deserialize)]

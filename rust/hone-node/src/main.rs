@@ -42,6 +42,7 @@ mod chain;
 mod clock;
 mod config;
 mod mem_profile;
+mod inference_sidecar;
 mod local_submit;
 mod state_healer;
 mod contracts;
@@ -150,6 +151,14 @@ use store::Store;
 fn main() -> Result<()> {
     // Allocator caps must be set before the runtime spawns its worker threads.
     mem_profile::tune_allocator();
+    // `hone-node inference-serve`: the separate inference process (inference_sidecar.rs).
+    if std::env::args().nth(1).as_deref() == Some("inference-serve") {
+        let _ = tracing_subscriber::fmt().with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))).try_init();
+        return tokio::runtime::Builder::new_multi_thread().enable_all().build()?
+            .block_on(inference_sidecar::serve());
+    }
     let prof = mem_profile::get();
     mem_profile::spawn_trimmer();
     tokio::runtime::Builder::new_multi_thread()

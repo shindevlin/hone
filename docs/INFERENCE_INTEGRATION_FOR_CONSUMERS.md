@@ -71,13 +71,35 @@ is forwarded verbatim to an external backend.
 
 ## Backend selection (decided once, at node startup)
 
-In priority order:
+The node is the front door for inference: the API endpoints, job routing, pricing and
+fees, verification, payments and rewards all stay in the node and in consensus. The node
+**never runs a model in its own process** (since v2.1-live-identity, 2026-11-02). The model
+runs in a separate process, the **hone-inference sidecar**, with its own systemd unit and
+memory budget, reached over localhost.
 
-1. **`INFERENCE_URL`** set (or the legacy **`OLLAMA_URL`** alias) → route to that external
-   OpenAI/Ollama-compatible server. **This is how a GPU node points at vLLM.**
-2. else, node built with cargo feature **`inference-embedded`** (ON by default) →
-   **embedded candle GGUF**, in-process.
-3. else → inference **unavailable** (relay-only node).
+1. **`INFERENCE_URL`** set (or the legacy **`OLLAMA_URL`**) → the node sends every chat call
+   there (Ollama `/api/chat` shape, OpenAI response shape also accepted). Point it at the
+   sidecar (`http://127.0.0.1:4250`), at Ollama, or at vLLM on a GPU node. Calls are bounded
+   by `HONE_INFERENCE_TIMEOUT_SECS` (default 120): a dead or restarting sidecar is an error
+   to that caller, never a hang or a node crash.
+2. else → **no inference** on this node (`/api/node/models` reports `backend: "none"`).
+   `HONE_INFERENCE_EMBEDDED=true` re-enables the in-process candle backend on a full node
+   (not recommended). A light node (MemTotal < 2 GiB, e.g. nebra) never loads a model.
+
+### The sidecar: `hone-node inference-serve`
+
+Same binary, separate process. It holds no keys, opens no chain store, joins no network.
+
+```
+HONE_INFERENCE_LISTEN=127.0.0.1:4250   # loopback only (default)
+HONE_MODEL_DIR=/mnt/nvme-storage/hone-models
+HONE_MODEL=qwen2.5-0.5b-instruct-q4_k_m.gguf
+HONE_INFERENCE_MAX_TOKENS=512
+```
+
+Routes: `POST /api/chat`, `GET /api/tags`, `GET /v1/models`, `GET /health` (503 on `/api/chat`
+when no model is loaded). Unit: `systemd/hone-inference.service` (MemoryMax, Restart=always).
+On the node add `INFERENCE_URL=http://127.0.0.1:4250` to its env file.
 
 ---
 

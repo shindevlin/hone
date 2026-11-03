@@ -1,0 +1,23 @@
+# hone-inference — the model process HONE serves inference from (hone-node inference-serve).
+# Separate from the node: its own memory budget, crash/restart never touches the node.
+# The node reaches it with INFERENCE_URL=http://127.0.0.1:4250 in its env file.
+[Unit]
+Description=HONE inference sidecar (model process)
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntclaw
+Environment=HONE_INFERENCE_LISTEN=127.0.0.1:4250
+Environment=HONE_MODEL_DIR=/mnt/nvme-storage/hone-models
+Environment=HONE_MODEL=qwen2.5-0.5b-instruct-q4_k_m.gguf
+Environment=HONE_INFERENCE_MAX_TOKENS=512
+ExecStart=/mnt/nvme-storage/hone-bin/hone-inference inference-serve
+Restart=always
+RestartSec=5
+MemoryHigh=1536M
+MemoryMax=2G
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

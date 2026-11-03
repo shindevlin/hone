@@ -60,6 +60,21 @@ enum Backend {
 }
 
 static BACKEND: OnceLock<Backend> = OnceLock::new();
+/// Set once by `inference-serve`: this process IS the inference sidecar.
+static SIDECAR: OnceLock<bool> = OnceLock::new();
+
+/// Mark this process as the inference sidecar (call before the first inference call).
+pub fn set_sidecar() { let _ = SIDECAR.set(true); }
+
+/// Which backend this process resolved to ("http", "embedded", "none").
+pub fn backend_name() -> &'static str {
+    match backend() {
+        Backend::Http { .. } => "http",
+        #[cfg(feature = "inference-embedded")]
+        Backend::Embedded => "embedded",
+        Backend::None => "none",
+    }
+}
 
 /// Resolve the backend once. Priority: explicit external URL → embedded → none.
 fn backend() -> &'static Backend {
@@ -75,18 +90,23 @@ fn backend() -> &'static Backend {
             tracing::info!("inference-engine: external backend at {base}");
             return Backend::Http { base };
         }
-        // A light (small-RAM) node never loads a GGUF on its own: a ~400 MB model would
-        // OOM a 1 GB Pi. HONE_INFERENCE=true opts back in.
-        if crate::mem_profile::get().light
-            && !matches!(std::env::var("HONE_INFERENCE").as_deref(), Ok("true") | Ok("1"))
-        {
-            tracing::info!("inference-engine: disabled on light memory profile (HONE_INFERENCE=true to enable)");
-            return Backend::None;
-        }
+        // The node never loads a model in its own process: inference is served by the
+        // separate `hone-node inference-serve` sidecar (or any Ollama/OpenAI-compatible
+        // server) at INFERENCE_URL, with its own unit and memory budget, so a model load,
+        // OOM or crash cannot take the node down. Only the sidecar process itself (or an
+        // explicit HONE_INFERENCE_EMBEDDED=true on a full node) uses the embedded backend,
+        // and a light (small-RAM) node never does.
+        let embedded_ok = !crate::mem_profile::get().light
+            && (SIDECAR.get().copied().unwrap_or(false)
+                || matches!(std::env::var("HONE_INFERENCE_EMBEDDED").as_deref(), Ok("true") | Ok("1")));
         #[cfg(feature = "inference-embedded")]
-        {
-            tracing::info!("inference-engine: embedded candle GGUF backend");
+        if embedded_ok {
+            tracing::info!("inference-engine: embedded candle GGUF backend (in this process)");
             return Backend::Embedded;
+        }
+        if !embedded_ok {
+            tracing::info!("inference-engine: no in-process model; set INFERENCE_URL to the hone-inference sidecar");
+            return Backend::None;
         }
         #[allow(unreachable_code)]
         {
@@ -132,6 +152,9 @@ pub async fn warm_up() {
 // Preserves the /api/chat request/response shape the old scattered call sites
 // used against Ollama, so an Ollama-compatible server is a drop-in.
 
+#[cfg(test)]
+pub async fn http_chat_for_test(base: &str, req: &ChatRequest) -> Result<ChatResponse> { http_chat(base, req).await }
+
 async fn http_chat(base: &str, req: &ChatRequest) -> Result<ChatResponse> {
     let body = serde_json::json!({
         "model": req.model,
@@ -139,7 +162,12 @@ async fn http_chat(base: &str, req: &ChatRequest) -> Result<ChatResponse> {
         "stream": false,
         "options": { "num_predict": req.max_tokens },
     });
-    let http = reqwest::Client::new();
+    // Bounded: a hung or restarting sidecar returns an error to the caller, never wedges it.
+    let secs = std::env::var("HONE_INFERENCE_TIMEOUT_SECS").ok()
+        .and_then(|v| v.parse::<u64>().ok()).unwrap_or(120);
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(secs))
+        .build()?;
     let resp = http
         .post(format!("{base}/api/chat"))
         .json(&body)
