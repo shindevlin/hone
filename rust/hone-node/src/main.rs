@@ -43,6 +43,7 @@ mod clock;
 mod config;
 mod mem_profile;
 mod inference_sidecar;
+mod state_audit;
 mod local_submit;
 mod state_healer;
 mod contracts;
@@ -151,6 +152,12 @@ use store::Store;
 fn main() -> Result<()> {
     // Allocator caps must be set before the runtime spawns its worker threads.
     mem_profile::tune_allocator();
+    // `hone-node state-audit <dir> [accounts]`: offline read of a state-dir copy.
+    if std::env::args().nth(1).as_deref() == Some("state-audit") {
+        let dir = std::env::args().nth(2).unwrap_or_default();
+        let accts: Vec<String> = std::env::args().nth(3).map(|s| s.split(',').map(str::to_owned).collect()).unwrap_or_default();
+        return state_audit::run(&dir, &accts);
+    }
     // `hone-node inference-serve`: the separate inference process (inference_sidecar.rs).
     if std::env::args().nth(1).as_deref() == Some("inference-serve") {
         let _ = tracing_subscriber::fmt().with_env_filter(

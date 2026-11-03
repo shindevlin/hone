@@ -441,6 +441,17 @@ impl Store {
 
     /// Scan all keys with the given prefix in CF_META.
     /// Returns (key, value) pairs where `key` is the full stored key string.
+    /// Streaming variant of `state_scan_prefix` (no Vec of every row in memory).
+    pub fn for_each_meta_prefix(&self, prefix: &str, mut f: impl FnMut(&str, &[u8])) {
+        let Some(cf) = self.db.cf_handle(CF_META) else { return };
+        let iter = self.db.iterator_cf(&cf, IteratorMode::From(prefix.as_bytes(), Direction::Forward));
+        for item in iter {
+            let Ok((k, v)) = item else { break };
+            if !k.starts_with(prefix.as_bytes()) { break; }
+            if let Ok(key) = std::str::from_utf8(&k) { f(key, &v); }
+        }
+    }
+
     pub fn state_scan_prefix(&self, prefix: &str) -> Vec<(String, Vec<u8>)> {
         let Some(cf) = self.db.cf_handle(CF_META) else { return vec![] };
         let iter = self.db.iterator_cf(
