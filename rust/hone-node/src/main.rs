@@ -2588,6 +2588,11 @@ fn highest_contiguous_rewarded_from_epoch_one(chain: &Chain) -> u64 {
 /// Scan txhist: and write any missing txglobal: entries.
 /// Runs once at startup — safe to repeat, skips existing keys.
 fn backfill_txglobal(chain: &Chain) {
+    // A one-time index migration, but it re-scanned every txhist row on EVERY start:
+    // minutes on a Pi (nebra), long enough for its health check to restart the node in
+    // a loop. Index only (not in state_root), so a local done-marker is safe.
+    const DONE: &str = "txglobal_backfill_done";
+    if chain.store.state_get(DONE).is_some() { return; }
     let all: Vec<(String, Vec<u8>)> = chain.store.state_scan_prefix("txhist:");
     let mut written = 0usize;
     for (key, val) in all {
@@ -2607,6 +2612,7 @@ fn backfill_txglobal(chain: &Chain) {
     if written > 0 {
         tracing::info!("txglobal backfill: {} entries written", written);
     }
+    let _ = chain.store.state_set(DONE, b"1");
 }
 
 // ── Epoch reward distribution ─────────────────────────────────────────────────
