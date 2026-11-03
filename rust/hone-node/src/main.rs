@@ -873,6 +873,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             }
                             Vec::new()
                         };
+                        let mut committed_weight: u64 = 0;
                         if sealed.quorum >= 2 && pending.is_empty() {
                             epoch_sync::record(&chain_ref, sealed_epoch, &[]);
                         }
@@ -882,6 +883,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             // shared with the restart backfill so both follow one rule).
                             let applied_set = epoch_sync::apply_set(&chain_ref, sealed_epoch, pending.clone(), None);
                             let applied = applied_set.len();
+                            committed_weight = applied_set.iter().map(|(e, _)| entry_weight(e)).sum();
                             for (e, _) in &applied_set {
                                 // Forward accepted non-system entry hashes to LoRaWAN devices.
                                 if !tx::is_system_entry(e) {
@@ -914,49 +916,15 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             }
                         }
 
-                        // Sum entry weights for this epoch (T3-2): used to adjust base fee.
-                        // Counts all submitted entries (including rejected) — bandwidth is bandwidth.
-                        let epoch_total_weight: u64 = pending.iter()
-                            .map(|(e, _)| entry_weight(e))
-                            .sum();
-
-                        // Release matured unbonding tokens, apply timelocked param changes,
-                        // and finalize any governance proposals whose voting window closed.
-                        // Inference awards/expiries/payments, derived from the state as of
-                        // this seal on every node (moved from a free-running timer).
-                        // Same for the expiry sweepers (ensemble / session market / agent
-                        // sessions / VRF): they refund or forfeit escrow, so they must see the
-                        // same state at the same epoch on every node, not a wall-clock tick.
+                        // Per-epoch seal-time processing (base fee, inference daemon, sweepers,
+                        // unbonding/params/governance): quorum seals only, as a pure function of
+                        // what was COMMITTED this epoch. It used to run on solo seals too and to
+                        // weigh rejected entries, so a restarted or isolated node moved its
+                        // base fee on its own and charged different fees afterwards (beastly
+                        // vs grouchly, 2026-11-03: 15,000 hunits). epoch_sync runs the same
+                        // tick for every epoch it backfills.
                         if sealed.quorum >= 2 {
-                            inference_daemon::process_epoch(&chain_ref, sealed_epoch);
-                            ensemble::sweep_expired(&chain_ref, sealed_epoch);
-                            session_market::sweep_expired(&chain_ref, sealed_epoch);
-                            agent_session::sweep_expired(&chain_ref, sealed_epoch);
-                            vrf::sweep_epoch(&chain_ref, sealed_epoch);
-                        }
-                        chain_ref.drain_unbonding(sealed_epoch);
-                        chain_ref.drain_pending_params(sealed_epoch);
-                        chain_ref.drain_governance_proposals(sealed_epoch);
-
-                        // Dynamic base fee update (EIP-1559-style ±10%/epoch toward 50% target).
-                        let current_base_fee: u64 = chain_ref.store.state_get("chain_param:base_fee")
-                            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                            .and_then(|j| j["fee"].as_u64())
-                            .unwrap_or(BASE_FEE_INITIAL_HUNITS);
-                        let new_base_fee = compute_next_base_fee(
-                            current_base_fee, epoch_total_weight, EPOCH_TARGET_WEIGHT_UNITS
-                        );
-                        let _ = chain_ref.store.state_set(
-                            "chain_param:base_fee",
-                            &serde_json::to_vec(&serde_json::json!({ "fee": new_base_fee }))
-                                .unwrap_or_default(),
-                        );
-                        if new_base_fee != current_base_fee {
-                            info!(
-                                "clock: epoch {} base_fee {} → {} (epoch_weight={} target={})",
-                                sealed_epoch, current_base_fee, new_base_fee,
-                                epoch_total_weight, EPOCH_TARGET_WEIGHT_UNITS
-                            );
+                            epoch_sync::epoch_tick(&chain_ref, sealed_epoch, committed_weight);
                         }
 
                         // Count unique active verifiers over last VERIFIER_ACTIVITY_TRACK_EPOCHS.

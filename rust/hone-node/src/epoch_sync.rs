@@ -82,6 +82,30 @@ pub fn apply_set(chain: &Chain, epoch: u64, mut remaining: Vec<(LedgerEntry, Opt
     applied
 }
 
+/// Seal-time processing of one committed epoch, identical on every node: the inference
+/// daemon and expiry sweepers, unbonding / timelocked params / governance, then the base
+/// fee step from the committed weight.
+pub fn epoch_tick(chain: &Chain, epoch: u64, committed_weight: u64) {
+    crate::inference_daemon::process_epoch(chain, epoch);
+    crate::ensemble::sweep_expired(chain, epoch);
+    crate::session_market::sweep_expired(chain, epoch);
+    crate::agent_session::sweep_expired(chain, epoch);
+    crate::vrf::sweep_epoch(chain, epoch);
+    chain.drain_unbonding(epoch);
+    chain.drain_pending_params(epoch);
+    chain.drain_governance_proposals(epoch);
+    let cur: u64 = chain.store.state_get("chain_param:base_fee")
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j["fee"].as_u64())
+        .unwrap_or(hone_types::BASE_FEE_INITIAL_HUNITS);
+    let new = hone_types::compute_next_base_fee(cur, committed_weight, hone_types::EPOCH_TARGET_WEIGHT_UNITS);
+    let _ = chain.store.state_set("chain_param:base_fee",
+        &serde_json::to_vec(&serde_json::json!({ "fee": new })).unwrap_or_default());
+    if new != cur {
+        info!("clock: epoch {} base_fee {} → {} (committed weight {})", epoch, cur, new, committed_weight);
+    }
+}
+
 /// Apply fetched epoch sets in order and record them. Returns entries applied.
 pub fn apply_backfill(chain: &Chain, mut sets: Vec<(u64, Vec<(LedgerEntry, Option<String>)>)>) -> usize {
     sets.sort_by_key(|(e, _)| *e);
@@ -91,6 +115,7 @@ pub fn apply_backfill(chain: &Chain, mut sets: Vec<(u64, Vec<(LedgerEntry, Optio
         let applied = apply_set(chain, e, entries, Some(e));
         n += applied.len();
         record(chain, e, &applied);
+        epoch_tick(chain, e, applied.iter().map(|(x, _)| hone_types::entry_weight(x)).sum());
     }
     n
 }
@@ -192,6 +217,7 @@ mod tests {
             let ap = apply_set(&a, ep, set, None);
             assert!(!ap.is_empty());
             record(&a, ep, &ap);
+            epoch_tick(&a, ep, ap.iter().map(|(x, _)| hone_types::entry_weight(x)).sum());
         }
         // Back up, tip is 110 (entries of 101..103 are now outside the stale window).
         seal(&b, 110); seal(&a, 110);
@@ -199,6 +225,8 @@ mod tests {
         assert_eq!(last_committed(&b), 100);
         let n = apply_backfill(&b, parse(&serve(&a, 101, 103)));
         assert_eq!(n, 4);
+        // The per-epoch tick ran for the missed epochs too: same base fee as A.
+        assert_eq!(b.store.state_get("chain_param:base_fee"), a.store.state_get("chain_param:base_fee"));
         // Epoch 104's entry (nonce 6) applies on both now.
         let e104 = vec![xfer(&sk, 6, 110)];
         for c in [&a, &b] { let ap = apply_set(c, 110, e104.clone(), None); assert_eq!(ap.len(), 1); record(c, 110, &ap); }
