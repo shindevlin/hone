@@ -10,7 +10,7 @@ StartLimitBurst=5
 DynamicUser=yes
 # refuse to start unless the host keeps >= 200 MB free after loading (~120 MB student)
 ExecStartPre=/bin/sh -c 'awk "/MemAvailable/ {exit !(\$2/1024 >= 330)}" /proc/meminfo'
-ExecStart=/usr/local/bin/hone-decide serve --model /opt/hone-decide/model --bind 127.0.0.1:4250 --max-length 1024 --min-free-mb 200 --max-rss-mb 240
+ExecStart=/usr/local/bin/hone-decide serve --model /opt/hone-decide/model --bind 127.0.0.1:4250 --max-length 1024 --min-free-mb 200 --max-rss-mb 240 --votes-dir /var/lib/hone-decide/votes
 Environment=RAYON_NUM_THREADS=3 MALLOC_ARENA_MAX=2
 # NOTE: nebra boots with cgroup_disable=memory, so MemoryMax/MemorySwapMax are not
 # enforced there; --max-rss-mb 240 and --min-free-mb 200 do the capping in-process.
@@ -30,6 +30,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+# sealed jury votes (kept 2880 epochs, a few MB at nebra rates)
+StateDirectory=hone-decide
 
 [Install]
 WantedBy=multi-user.target

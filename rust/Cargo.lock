@@ -2815,6 +2815,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tiny_http",
  "tokenizers 0.20.4",
 ]

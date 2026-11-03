@@ -214,3 +214,32 @@ Resume notes for whoever picks this up. Newest state at the top of each section.
   accuracy 0.555 (run 1: 0.28). Per dataset: ARC-E .68, ARC-C .48, CSQA .68, OBQA .64,
   MMLU .24, HellaSwag .52, PIQA .68, BoolQ .52. hone-node NRestarts 0 throughout.
 - 360M-gen Q8 full eval still running on grouchly (2764/2900 at 16:10).
+
+## Round 3 (2026-11-03 16:10-): confidence map and confident-zone HONE tasks
+- `CONFIDENCE_MAP.md` + `py/conf_map.py`: selective accuracy per task, shape and length for
+  135M-gen Q4/Q8/f32 and 360M-gen Q8/f32. Deployed 135M Q4 high-trust (>=30% coverage at >=95%):
+  peer 81% @0.57, routing 70% @0.75, novelty 39% @0.70; plausibility 16% @0.96; MCQ <=4%.
+  3-option structured contexts under ~800 chars are the confident zone. Yes/no (noul) never is.
+- New tasks (`py/gen_tasks2.py`, `tasks/hone_tasks.json`), deterministic labels, contexts
+  ~470-570 chars, 2000/300/500 rows per task -> beastly `~/decide/data3`, teacher = smoothed
+  one-hot (`data3_t`):
+  - coverage_usefulness (new / adds / repeat): mirrors chain.rs CoverageReport apply
+  - entry_screen (accept / duplicate / spam): nonce, hash, cap and skew checks
+  - sensor_plausibility_v2: v1 plus derived median/delta/max-step/in-range
+- API: `/decide` now returns `confidence`, `threshold`, `decision` (answer|abstain). Threshold
+  order: request `threshold` > model `thresholds.json[task]` > task `abstain_below`.
+  `py/fit_thresholds.py` fits per-task thresholds on cal (lowest t with >=95% on answered).
+- Training `run_r3.sh` (beastly): warm from *-gen, replay 3000 HONE + 3000 MCQ + 6000 new rows,
+  1 epoch, lr 3e-5, 0.5 KL / 0.5 label -> students/smollm2-{135m,360m}-r3.
+- Zero-shot baseline, deployed 135M-gen Q4 on 300 new-task test rows: coverage_usefulness 0.273,
+  entry_screen 0.257 (chance 0.333), sensor_plausibility_v2 0.490 (ECE 0.354).
+- Jury side (spec claude/hone-decide-jury-spec-2026-11-03.md): `src/jury.rs` + server routes
+  POST /vote, GET /commit/{epoch} (seals), GET /reveal/{epoch}/{entry_hash}, GET /capacity;
+  model_hash in /health; contract in docs/JURY.md, sent to chain agent acdc3ab9887853918.
+  Unit tests: merkle proofs (1-11 leaves), features gate, torn-line store roundtrip.
+  grouchly smoke (`py/jury_smoke.py`, 135M-gen Q4): 5 votes in 5.4 s, revote returns the same
+  leaf, free text rejected, seal idempotent, vote after seal 409, 5/5 reveals verified by
+  `py/jury_verify.py`, capacity 14 votes/epoch at budget 0.5.
+- The features gate rejected two legacy generator strings (job_routing node.cpu, peer window);
+  the generators now emit token strings (`arm64-4xA53-1.2GHz`, `window_epochs: 2880`). The r3
+  students were trained on the old strings; retraining with the new ones is a follow-up.

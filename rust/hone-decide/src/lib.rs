@@ -8,6 +8,7 @@
 //! scores into a softmax. See docs/OPEN_JEV_NOTES.md.
 
 pub mod engine;
+pub mod jury;
 pub mod models;
 pub mod prompt;
 pub mod pyjson;

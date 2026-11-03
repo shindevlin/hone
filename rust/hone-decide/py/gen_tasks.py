@@ -135,8 +135,9 @@ def gen_novelty(rng, seed, label):
 
 MODELS = [("smollm2-135m-q8", 160, 60.0), ("qwen2.5-0.5b-q4", 420, 18.0), ("qwen3-1.7b-q4", 1300, 6.0),
           ("qwen3.5-9b-bf16", 18500, 1.0), ("llama3.1-8b-q4", 5200, 2.5), ("open-jev-2b", 4800, 3.0)]
-NODES = [("4x Cortex-A53 1.2GHz", 0, 25.0), ("8x Cortex-A76", 0, 80.0), ("x86_64 20 cores", 0, 160.0),
-         ("x86_64 + RTX 3090", 24, 2500.0), ("Snapdragon phone", 0, 60.0)]
+# token-only strings (the jury features gate rejects free text; see docs/JURY.md)
+NODES = [("arm64-4xA53-1.2GHz", 0, 25.0), ("arm64-8xA76", 0, 80.0), ("x86_64-20c", 0, 160.0),
+         ("x86_64-RTX3090", 24, 2500.0), ("arm64-snapdragon-phone", 0, 60.0)]
 
 
 def gen_routing(rng, seed, label):
@@ -190,7 +191,7 @@ def gen_peer(rng, seed, label):
             if k == "replay": s["replayed_msgs_1h"] = rng.randrange(10, 500)
         if rng.random() < 0.4:
             s["clock_skew_ms"] = rng.randrange(1000, 20000)
-    return {"peer": rng.choice(accounts), "window": "last 24h (2880 epochs)", "stats": s,
+    return {"peer": rng.choice(accounts), "window_epochs": 2880, "stats": s,
             "network_medians": {"clock_skew_ms": 80, "msgs_per_min": 18, "dup_msgs_1h": 2, "missed_epochs_24h": 12}}
 
 

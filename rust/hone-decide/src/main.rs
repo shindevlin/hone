@@ -10,7 +10,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 const USAGE: &str = "hone-decide <command> [--key value ...]
-  serve    --model DIR [--bind 127.0.0.1:4250] [--max-length N] [--min-free-mb N] [--max-rss-mb N]
+  serve    --model DIR [--bind 127.0.0.1:4250] [--max-length N] [--min-free-mb N] [--max-rss-mb N] [--votes-dir DIR]
   score    --model DIR --rows rows.jsonl --out out.jsonl [--dump-tokens f.jsonl] [--no-prefix-cache]
   quantize --model DIR --out DIR --dtype q8_0|q4
   bench    --model DIR [--ctx 200,500] [--n 5]";
@@ -47,7 +47,8 @@ fn main() -> Result<()> {
             let max_rss: u64 = a.get("max-rss-mb").map(|s| s.parse()).transpose()?.unwrap_or(0);
             server::spawn_memguard(min_free, max_rss);
             let bind = a.get("bind").cloned().unwrap_or_else(|| "127.0.0.1:4250".into());
-            server::serve(d, &bind)
+            let votes = a.get("votes-dir").cloned().unwrap_or_else(|| "votes".into());
+            server::serve(d, &bind, Path::new(&votes))
         }
         "score" => score(&a),
         "quantize" => quantize(&a),
