@@ -23,6 +23,16 @@ A model directory holds `decide.json` (arch + prompt template), `config.json`,
 `tokenizer.json`, the weights and `head.safetensors` (`head.weight`, `head.bias`,
 `temperature`).
 
+## Results (2026-11-02, details in docs/PROGRESS.md)
+- Parity: Rust qwen35 vs Open-Jev-2B Python, both fp32: max |dp| 3.6e-6 over 74
+  probabilities, identical token ids. vs the bf16 release: 0.0125 (same as Python's own
+  fp32-vs-bf16 gap).
+- HONE tasks, 2000 test rows: teacher Open-Jev-9B (NF4) acc 0.689 / ECE 0.190;
+  135M student (KL + label) acc 0.739 / ECE 0.022; 360M pure KL 0.686 / 0.049 (agreement 0.908);
+  135M pure KL (partial data) 0.570 / 0.065.
+- nebra (Pi CM3+, Q4, 3 threads): ~18 s per decision at 200 context tokens, ~42 s at 500,
+  peak RSS 127 / 143 MB.
+
 ## Use
 ```
 hone-decide serve --model DIR --bind 127.0.0.1:4250 --max-length 1024 --min-free-mb 200

@@ -111,3 +111,36 @@ Resume notes for whoever picks this up. Newest state at the top of each section.
   agreement 0.982 (86 MB GGUF). Script: grouchly `~/decide/qeval.sh <student>`.
 - 21:24 teacher labels complete (11,200 rows, `teacher9b_all.jsonl`); 360M-kl training started
   on all 8000 train rows (1 epoch, ~0.8 s/step).
+- 22:00 smollm2-360m-kl (KL only, 8000 rows, 1 epoch, T 2.97): agreement 0.694, acc 0.481,
+  ECE 0.074 (novelty 0.736/0.552/0.070, routing 0.690/0.532/0.109, plausibility
+  0.522/0.394/0.037, peer 0.828/0.448/0.132). Under-trained; 3-epoch rerun queued as
+  `run_students5.sh` -> `students/smollm2-360m-kl3`.
+  360M GGUF: Q8_0 385 MB, Q4 227 MB; Q4 peak RSS 283/307 MB at 200/500 ctx (grouchly):
+  does not fit nebra's 250 MB budget. On grouchly (3 threads) Q4: 3.2 s / 7.8 s.
+- 22:40 smollm2-135m-mix (0.5 KL to teacher + 0.5 CE on the generator label, 8000 rows,
+  2 epochs, T 0.82): agreement 0.719, acc 0.739 (teacher 0.689), ECE 0.022 (teacher 0.190).
+  Per task agree/acc/ECE: novelty 0.778/0.632/0.076, routing 0.658/0.836/0.069,
+  plausibility 0.690/0.680/0.038, peer 0.748/0.808/0.034. Beats its teacher on routing and
+  peer because the rule labels carry information the zero-shot teacher lacks.
+- nebra now serves smollm2-135m-mix Q4 (/opt/hone-decide/model). Example: barometer jump
+  915 -> 1650 hPa -> "no" p=0.56, 326 tokens, 17.2 s.
+- Quantisation loss, Rust, first 500 test rows (acc / ECE / argmax agreement with f32):
+  135M-mix f32 0.746/0.062; Q8_0 0.746/0.061/1.000; Q4 0.722/0.055/0.960.
+  360M-kl f32 0.502/0.073; Q8_0 0.502/0.074/1.000.
+  Q4 costs ~2.4 points on the mix student; Q8 costs nothing measurable. nebra keeps Q4
+  because Q8 peaks at ~194 MB and would sit at the 200 MB MemAvailable floor on 500-token
+  contexts.
+- 360M-kl Q4: acc 0.492 / ECE 0.057 / agreement with f32 0.970.
+- 23:50 smollm2-360m-kl3 (KL only, 8000 rows, 3 epochs, T 2.34; beastly
+  `students/smollm2-360m-kl3`): agreement 0.908, acc 0.686 (teacher 0.689), ECE 0.049.
+  Per task agree/acc/ECE: novelty 0.874/0.744/0.136, routing 0.868/0.638/0.137,
+  plausibility 0.920/0.750/0.096, peer 0.970/0.612/0.178. Best pure-distillation student;
+  too big for nebra (Q4 RSS ~283-307 MB), fine for grouchly/beastly CPU.
+- Caveat: smollm2-135m-kl saw only 2912 train rows (it started before the teacher finished);
+  a like-for-like 135M-kl run on all 8000 rows for 3 epochs has not been done.
+
+## State at hand-off
+- All beastly GPU jobs are finished; nothing of ours holds the card.
+- nebra: `hone-decide.service` active with smollm2-135m-mix Q4; models also in /home/pi/decide.
+- Next steps: 135M-kl on full data; 360M-mix; refit the teacher temperature on HONE cal data
+  (its released T gives ECE 0.19 here); real (not synthetic) labels for the four tasks.
