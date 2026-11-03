@@ -680,6 +680,22 @@ impl Chain {
     /// All nodes that received the same gossip will sort identically, ensuring consistent
     /// "first claim wins" across the whole network regardless of gossip arrival timing.
     /// Clears the dedup set so the next epoch starts fresh.
+    /// The entries the quorum seal of `seal_epoch` commits (see SEAL_LAG_ACTIVATION_EPOCH):
+    /// those whose own epoch is <= seal_epoch - SEAL_LAG_EPOCHS, in hash order. Newer ones
+    /// stay pending (and stay deduplicated); entries dated far in the future are dropped.
+    pub fn drain_pending_for_seal(&self, seal_epoch: u64) -> Vec<(LedgerEntry, Option<String>)> {
+        if seal_epoch < hone_types::SEAL_LAG_ACTIVATION_EPOCH {
+            return self.drain_pending_sorted();
+        }
+        let cutoff = seal_epoch.saturating_sub(hone_types::SEAL_LAG_EPOCHS);
+        let all = self.drain_pending_sorted();
+        let (now, later): (Vec<_>, Vec<_>) = all.into_iter().partition(|(e, _)| e.epoch() <= cutoff);
+        for (e, s) in later {
+            if e.epoch() <= seal_epoch + 10 { self.push_pending(e, s); }
+        }
+        now
+    }
+
     pub fn drain_pending_sorted(&self) -> Vec<(LedgerEntry, Option<String>)> {
         let mut pool = self.pending.lock();
         pool.sort_by_cached_key(|(e, _)| {

@@ -865,7 +865,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             }
                         }
                         let pending = if sealed.quorum >= 2 {
-                            chain_ref.drain_pending_sorted()
+                            chain_ref.drain_pending_for_seal(sealed_epoch)
                         } else {
                             if chain_ref.pending_count() > 0 {
                                 info!("[epoch {}] solo seal — {} pending entries held for a quorum seal",
@@ -1029,7 +1029,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                                         let v = healer_s.observe(snap.epoch, snap.cursor, &node_id_c, &snap.root, &node_id_c, &voters);
                                         // Peers' attestations may have arrived first.
                                         if let Some(state_healer::Verdict::Diverged { canonical, .. }) = v.clone() {
-                                            if state_healer::on_verdict(v.as_ref().unwrap(), state_healer::mode())
+                                            if state_healer::on_verdict_at(v.as_ref().unwrap(), state_healer::mode(), snap.epoch)
                                                 && state_healer::rate_ok(&healer_s.requested, (snap.epoch, snap.cursor))
                                             {
                                                 if let Ok(data) = serde_json::to_vec(&serde_json::json!({
@@ -1863,7 +1863,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                                 }
                                 let v = healer_n.observe(e, r, &node, &root, &echo_node_id, &voters);
                                 if let Some(state_healer::Verdict::Diverged { canonical, .. }) = v.clone() {
-                                    if state_healer::on_verdict(v.as_ref().unwrap(), state_healer::mode())
+                                    if state_healer::on_verdict_at(v.as_ref().unwrap(), state_healer::mode(), e)
                                         && state_healer::rate_ok(&healer_n.requested, (e, r))
                                     {
                                         error!("[healer] requesting canonical snapshot {}/{} root {}", e, r, canonical);
@@ -1891,6 +1891,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                                 }
                             }
                             "checkpoint_snap" if state_healer::mode() == state_healer::Mode::Heal => {
+                                if e <= hone_types::SEAL_LAG_ACTIVATION_EPOCH + hone_types::SEAL_LAG_EPOCHS { continue; }
+                                if !state_healer::halted() { continue; } // only a node that halted on a verdict rebases
                                 let Some(canonical) = healer_n.diverged_from(e, r, &voters) else { continue };
                                 let Ok(snap) = serde_json::from_value::<state_healer::Snapshot>(msg["snapshot"].clone()) else { continue };
                                 if snap.epoch != e || snap.cursor != r { continue; }

@@ -74,6 +74,18 @@ pub fn halted() -> bool { HALTED.load(Ordering::SeqCst) }
 /// returns true: the caller asks the attesters for the canonical snapshot. The halt is
 /// lifted only by a successful `heal`. Report mode and Hold never halt.
 pub fn on_verdict(v: &Verdict, mode: Mode) -> bool {
+    on_verdict_at(v, mode, u64::MAX)
+}
+
+/// As `on_verdict`, but a checkpoint taken before the seal lag was active never heals:
+/// those states can legitimately differ by entries still in flight at the seal.
+pub fn on_verdict_at(v: &Verdict, mode: Mode, checkpoint_epoch: u64) -> bool {
+    if checkpoint_epoch <= hone_types::SEAL_LAG_ACTIVATION_EPOCH + hone_types::SEAL_LAG_EPOCHS {
+        if let Verdict::Diverged { .. } = v {
+            warn!("[healer] checkpoint {} predates the seal lag: reporting only", checkpoint_epoch);
+        }
+        return false;
+    }
     match (v, mode) {
         (Verdict::Diverged { .. }, Mode::Heal) => {
             if !HALTED.swap(true, Ordering::SeqCst) {

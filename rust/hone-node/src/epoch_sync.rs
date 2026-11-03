@@ -238,6 +238,29 @@ mod tests {
         assert_eq!(b.store.balance_merkle_root(), root);
     }
 
+    /// Seal lag: an entry dated E-1 waits for the seal of E+1, so a node that heard it late
+    /// in E commits it at the same seal as the node that originated it.
+    #[test]
+    fn seal_lag_commits_entries_two_seals_after_their_epoch() {
+        let sk = SigningKey::from_bytes(&[0x42; 32]);
+        let (a, _da) = chain("lag");
+        let act = hone_types::SEAL_LAG_ACTIVATION_EPOCH;
+        let (old, s1) = xfer(&sk, 1, act);
+        let (new, s2) = xfer(&sk, 2, act + 1);
+        let (far, s3) = xfer(&sk, 3, act + 500);
+        a.push_pending(old.clone(), s1); a.push_pending(new.clone(), s2); a.push_pending(far, s3);
+        let got = a.drain_pending_for_seal(act + 2);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0.hash(), old.hash());
+        assert_eq!(a.pending_count(), 1, "act+1 waits; far-future dropped");
+        assert!(!a.push_pending(new.clone(), None), "still deduplicated while waiting");
+        assert_eq!(a.drain_pending_for_seal(act + 3).len(), 1);
+        // Before activation: everything, as before.
+        let (x, s) = xfer(&sk, 9, act - 1);
+        a.push_pending(x, s);
+        assert_eq!(a.drain_pending_for_seal(act - 1).len(), 1);
+    }
+
     #[test]
     fn sync_peers_from_env_or_bootstrap() {
         std::env::remove_var("HONE_SYNC_PEERS");

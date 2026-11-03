@@ -112,6 +112,16 @@ pub const LIVENESS_DECAY_DELAY_EPOCHS: u64 = 2 * 1_051_920;
 pub const LIVENESS_HALF_LIFE_EPOCHS: u64 = 2 * 1_051_920;
 
 
+// ── Seal lag ─────────────────────────────────────────────────────────────────────
+/// From this seal epoch on, the quorum seal of E commits only pending entries whose own
+/// epoch is <= E - SEAL_LAG_EPOCHS; newer ones wait for a later seal. Before, each node
+/// committed whatever it happened to hold at its seal instant, so an entry gossiped in
+/// the last seconds of E (a node's own heartbeat, say) landed at E on its origin and at
+/// E+1 elsewhere: balances matched again a seal later, but every healer checkpoint
+/// compared states that differed by those in-flight entries. Consensus-critical.
+pub const SEAL_LAG_ACTIVATION_EPOCH: u64 = 351_880;
+pub const SEAL_LAG_EPOCHS: u64 = 2;
+
 // ── Memory service signing ──────────────────────────────────────────────────────
 /// From this entry epoch on, MemorySet / MemoryDelete are signed over an explicit
 /// client-reproducible message (account, chain_id, key, nonce, type[, value]) instead of
