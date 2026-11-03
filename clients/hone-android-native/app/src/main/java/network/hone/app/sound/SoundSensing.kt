@@ -114,6 +114,7 @@ object SoundSensing {
 
     fun start(ctx: Context) {
         val app = ctx.applicationContext
+        appCtx = app
         if (!isEnabled(app)) { _live.value = SoundLive(enabled = false); return }
         if (job?.isActive == true) return
         _live.value = _live.value.copy(enabled = true, status = "starting…")
@@ -199,6 +200,7 @@ object SoundSensing {
             val prev = win.species[d.name]
             win.species[d.name] = Pair(max(prev?.first ?: 0f, d.conf), (prev?.second ?: 0) + 1)
         }
+        if (top.isNotEmpty()) logDetections(top)
         val s = _live.value
         _live.value = s.copy(
             framesHeard = s.framesHeard + 1,
@@ -247,6 +249,24 @@ object SoundSensing {
         synchronized(this) { pending.addLast(r); while (pending.size > 96) pending.removeFirst() }
         _live.value = _live.value.copy(reportsStored = _live.value.reportsStored + 1)
         Log.i(TAG, "window ${w.index}: ${w.frames} frames, ${w.framesHuman} dropped, ${w.species.size} species")
+    }
+
+    @Volatile private var appCtx: Context? = null
+
+    /** Private detection history for the Birds tab: time, species, confidence, fix. Device only. */
+    private fun logDetections(top: List<Detection>) {
+        val ctx = appCtx ?: return
+        val fix = SightingsEngine.lastFix()
+        runCatching {
+            val f = File(ctx.filesDir, "hone-node/sound/detections.jsonl").apply { parentFile?.mkdirs() }
+            val sb = StringBuilder()
+            for (d in top) {
+                val j = JSONObject().put("t", d.atMs).put("name", d.name).put("conf", round1(d.conf * 100.0))
+                if (fix != null) j.put("lat", fix.latitude).put("lon", fix.longitude).put("acc", fix.accuracy.toDouble())
+                sb.append(j.toString()).append('\n')
+            }
+            f.appendText(sb.toString())
+        }
     }
 
     /** Records one frame into [out]. Returns false if the mic could not be opened. */
