@@ -138,6 +138,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sync/blocks", get(get_sync_blocks))
         .route("/api/chain/healer", get(get_healer_status))
         .route("/api/sync/checkpoint/:epoch/:cursor", get(get_sync_checkpoint))
+        .route("/api/sync/epoch_entries", get(get_sync_epoch_entries))
         .route("/api/entry/:hash/status", get(get_entry_status))
         .route("/api/stake/:account", get(get_stake))
         .route("/api/epoch/:epoch", get(get_epoch))
@@ -2198,6 +2199,18 @@ async fn get_healer_status() -> Json<serde_json::Value> {
         Some(h) => Json(h.status()),
         None => Json(serde_json::json!({ "error": "healer not running" })),
     }
+}
+
+/// GET /api/sync/epoch_entries?from=A&to=B — the entry sets this node committed at each
+/// quorum seal (epoch_sync.rs), for a restarted peer to backfill. Entries carry their
+/// signatures; the receiver re-validates every one.
+async fn get_sync_epoch_entries(
+    State(s): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, u64>>,
+) -> Json<serde_json::Value> {
+    let from = q.get("from").copied().unwrap_or(0);
+    let to = q.get("to").copied().unwrap_or(from);
+    Json(crate::epoch_sync::serve(&s.chain, from, to))
 }
 
 /// GET /api/sync/checkpoint/:epoch/:cursor — this node's balance snapshot for a checkpoint.

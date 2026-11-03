@@ -45,6 +45,7 @@ mod mem_profile;
 mod inference_sidecar;
 mod state_audit;
 mod state_correct;
+mod epoch_sync;
 mod local_submit;
 mod state_healer;
 mod contracts;
@@ -809,6 +810,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         let hw_fp  = hw_fingerprint_for_seal;
         let hw_acc = hw_account_for_seal;
         let lorawan_for_seal = lorawan_handle.clone();
+        let sync_peers = epoch_sync::peers(&cfg.bootstrap_peers);
+        info!("[epoch-sync] backfill peers: {:?}", sync_peers);
         tokio::spawn(async move {
             loop {
                 match sealed_rx.recv().await {
@@ -852,6 +855,15 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                                 Err(e) => error!("[epoch {}] reserved-name migration failed: {}", sealed_epoch, e),
                             }
                         }
+                        // Restart-loss fix: commit what peers committed at the quorum seals
+                        // this node missed (down, booting, transplanted), BEFORE this epoch's
+                        // entries — they may depend on those nonces. See epoch_sync.rs.
+                        if sealed.quorum >= 2 {
+                            let prev = epoch_sync::last_committed(&chain_ref);
+                            if prev > 0 && sealed_epoch > prev + 1 {
+                                epoch_sync::backfill(&chain_ref, &sync_peers, prev + 1, sealed_epoch - 1).await;
+                            }
+                        }
                         let pending = if sealed.quorum >= 2 {
                             chain_ref.drain_pending_sorted()
                         } else {
@@ -861,50 +873,26 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             }
                             Vec::new()
                         };
+                        if sealed.quorum >= 2 && pending.is_empty() {
+                            epoch_sync::record(&chain_ref, sealed_epoch, &[]);
+                        }
                         if !pending.is_empty() {
                             let total = pending.len();
-                            let mut applied = 0usize;
-                            // Hash order first, then retry what failed until a pass makes no
-                            // progress. Hash order alone can put nonce N+1 ahead of N from the
-                            // same account; the submitting node used to apply them in arrival
-                            // order while every peer rejected N+1 here — a fork. Passes are a
-                            // pure function of the pending set, so every node with the same
-                            // set ends in the same state.
-                            let mut remaining: Vec<(LedgerEntry, Option<String>, String)> = pending
-                                .iter().map(|(e, s)| (e.clone(), s.clone(), String::new())).collect();
-                            loop {
-                                let mut next = Vec::new();
-                                let mut progress = false;
-                                for (e, sig, _) in remaining {
-                                    match tx::validate_and_apply(&chain_ref, &e, sig.as_deref()) {
-                                        Ok(_) => {
-                                            applied += 1;
-                                            progress = true;
-                                            chain_ref.record_entry_result(&e.hash(), sealed_epoch, None);
-                                            // Forward accepted non-system entry hashes to LoRaWAN
-                                            // devices on the next downlink window.
-                                            if !tx::is_system_entry(&e) {
-                                                if let Some(ref lh) = lorawan_for_seal {
-                                                    if let Ok(hash_bytes) = hex::decode(e.hash()) {
-                                                        if let Ok(arr) = hash_bytes.try_into() {
-                                                            lh.queue_hash(arr);
-                                                        }
-                                                    }
-                                                }
-                                            }
+                            // Hash order, then retry until no progress (epoch_sync::apply_set,
+                            // shared with the restart backfill so both follow one rule).
+                            let applied_set = epoch_sync::apply_set(&chain_ref, sealed_epoch, pending.clone(), None);
+                            let applied = applied_set.len();
+                            for (e, _) in &applied_set {
+                                // Forward accepted non-system entry hashes to LoRaWAN devices.
+                                if !tx::is_system_entry(e) {
+                                    if let Some(ref lh) = lorawan_for_seal {
+                                        if let Ok(hash_bytes) = hex::decode(e.hash()) {
+                                            if let Ok(arr) = hash_bytes.try_into() { lh.queue_hash(arr); }
                                         }
-                                        Err(err) => next.push((e, sig, err.to_string())),
                                     }
                                 }
-                                if next.is_empty() || !progress {
-                                    for (e, _, err) in &next {
-                                        tracing::debug!("[epoch {}] pending entry rejected: {}", sealed_epoch, err);
-                                        chain_ref.record_entry_result(&e.hash(), sealed_epoch, Some(err.clone()));
-                                    }
-                                    break;
-                                }
-                                remaining = next;
                             }
+                            epoch_sync::record(&chain_ref, sealed_epoch, &applied_set);
                             info!("[epoch {}] committed {}/{} pending entries",
                                 sealed_epoch, applied, total);
                         }

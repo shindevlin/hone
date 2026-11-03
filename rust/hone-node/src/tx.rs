@@ -197,6 +197,18 @@ pub fn is_system_entry(entry: &LedgerEntry) -> bool {
 /// signature (EpochSeal) or are protocol-only system entries (GenesisAlloc).
 ///
 /// Returns `Ok(entry_hash)` — the SHA-256 hex of the entry JSON — on success.
+thread_local! {
+    static AS_OF: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+/// Scoped "apply as of epoch E" for the stale-window check only (epoch_sync backfill of
+/// entries committed at a seal this node missed). Restored on drop.
+pub struct AsOfEpoch(Option<u64>);
+impl AsOfEpoch {
+    pub fn set(e: Option<u64>) -> Self { AsOfEpoch(AS_OF.with(|c| c.replace(e))) }
+    pub fn get() -> Option<u64> { AS_OF.with(|c| c.get()) }
+}
+impl Drop for AsOfEpoch { fn drop(&mut self) { AS_OF.with(|c| c.set(self.0)); } }
+
 pub fn validate_and_apply(
     chain: &Chain,
     entry: &LedgerEntry,
@@ -224,7 +236,7 @@ pub fn validate_and_apply(
     let stale_exempt = is_system_entry(entry) || matches!(entry, LedgerEntry::ClockNodeRegister { .. });
     if !stale_exempt {
         if let Some(entry_epoch) = entry_epoch(entry) {
-            let current = chain.current_epoch();
+            let current = AsOfEpoch::get().unwrap_or_else(|| chain.current_epoch());
             if current > STALE_WINDOW && entry_epoch < current - STALE_WINDOW {
                 bail!(
                     "entry epoch {} is too stale (current: {}, max stale: {})",
