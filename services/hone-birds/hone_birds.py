@@ -4,9 +4,9 @@
 Privacy model (decided by Josh, 2026-11-03):
   - Sightings arrive already coarsened by the phone: ~5 km (H3 res 7) inside the user's home
     area, otherwise as precise as the GPS fix allows.
-  - Anonymous by default: each sighting carries a random one-time id and no account, so
-    sightings can't be linked to each other. A user may opt in to show their name; then the
-    sighting is signed with the phone's Ed25519 device key and names the account.
+  - Every sighting and photo is signed by the account's posting key and checked against the
+    chain's key table (posting_keys.json, pushed from a node). No anonymous submissions.
+    The account is shown publicly only if the user opted in ("show my name").
   - Photos: re-encoded on the phone (no EXIF), published under HONE's license (UFL).
 
 API (all JSON):
@@ -39,12 +39,14 @@ db.executescript("""
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS sightings(
   sid TEXT PRIMARY KEY, window INTEGER, cell TEXT, res INTEGER, latin TEXT, conf_q8 INTEGER,
-  frames INTEGER, model TEXT, account TEXT, pub TEXT, received INTEGER);
+  frames INTEGER, model TEXT, account TEXT NOT NULL, pub TEXT NOT NULL, received INTEGER,
+  verified INTEGER, show_name INTEGER);
 CREATE INDEX IF NOT EXISTS s_win ON sightings(window);
 CREATE INDEX IF NOT EXISTS s_latin ON sightings(latin);
 CREATE TABLE IF NOT EXISTS photos(
-  id TEXT PRIMARY KEY, latin TEXT, t INTEGER, license TEXT, account TEXT, pub TEXT,
-  sha256 TEXT, received INTEGER, hidden INTEGER DEFAULT 0);
+  id TEXT PRIMARY KEY, latin TEXT, t INTEGER, license TEXT, account TEXT NOT NULL, pub TEXT NOT NULL,
+  sha256 TEXT, received INTEGER, hidden INTEGER DEFAULT 0, verified INTEGER, show_name INTEGER,
+  ufl_agreed_ms INTEGER);
 CREATE INDEX IF NOT EXISTS p_latin ON photos(latin);
 """)
 lock = threading.Lock()
@@ -60,22 +62,38 @@ def limited(ip, n=120, per=3600):
     return w[1] > n
 
 
+KEYS_FILE = os.path.join(DATA, "posting_keys.json")  # {account: posting_pub_hex}, pushed from a node
+_keys = {"mtime": 0, "map": {}}
+
+
+def posting_key(account):
+    try:
+        m = os.path.getmtime(KEYS_FILE)
+        if m != _keys["mtime"]:
+            _keys["map"] = json.load(open(KEYS_FILE)); _keys["mtime"] = m
+    except OSError:
+        pass
+    return _keys["map"].get(account)
+
+
 def verify(body):
-    """Returns (payload dict, pub or None). Signature required only when a name is shown."""
+    """Every submission must be signed by the account's posting key (Josh, 2026-11-03).
+    Returns (payload, pub, verified): verified=1 when pub matches the account's posting key
+    on chain; otherwise the row is held back (not public) until the key table catches up."""
     payload_s = body["payload"]
     payload = json.loads(payload_s)
-    pub, sig = body.get("pub"), body.get("sig")
-    if payload.get("account"):
-        if not (pub and sig):
-            raise ValueError("named submissions must be signed")
-        VerifyKey(bytes.fromhex(pub)).verify(payload_s.encode(), bytes.fromhex(sig))
-    else:
-        pub = None
-    return payload, pub
+    pub, sig, acct = body.get("pub"), body.get("sig"), payload.get("account")
+    if not (acct and pub and sig):
+        raise ValueError("account, posting-key pub and signature required")
+    VerifyKey(bytes.fromhex(pub)).verify(payload_s.encode(), bytes.fromhex(sig))
+    known = posting_key(acct)
+    if known is not None and known.lower() != pub.lower():
+        raise ValueError("pub is not this account's posting key")
+    return payload, pub, 1 if known else 0
 
 
 def add_sighting(body):
-    p, pub = verify(body)
+    p, pub, verified = verify(body)
     cell = p["cell"]
     if not h3.is_valid_cell(cell):
         raise ValueError("bad cell")
@@ -88,15 +106,15 @@ def add_sighting(body):
             continue
         rows.append((f"{sid}:{i}", int(p["window"]), cell, res, name, int(s["conf_q8"]),
                      int(s.get("frames", 1)), str(p.get("model", ""))[:64],
-                     (p.get("account") or None), pub, int(time.time())))
+                     p["account"], pub, int(time.time()), verified, 1 if p.get("show_name") else 0))
     with lock:
-        db.executemany("INSERT OR IGNORE INTO sightings VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
+        db.executemany("INSERT OR IGNORE INTO sightings VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         db.commit()
     return {"ok": True, "stored": len(rows)}
 
 
 def add_photo(body):
-    p, pub = verify(body)
+    p, pub, verified = verify(body)
     if not LATIN.match(p["latin"]):
         raise ValueError("bad species")
     if p.get("license") != "UFL" or not p.get("ufl_agreed_ms"):
@@ -111,8 +129,10 @@ def add_photo(body):
     with open(os.path.join(DATA, "photos", pid + ".jpg"), "wb") as f:
         f.write(jpeg)
     with lock:
-        db.execute("INSERT OR IGNORE INTO photos(id,latin,t,license,account,pub,sha256,received) VALUES(?,?,?,?,?,?,?,?)",
-                   (pid, p["latin"], int(p["t"]), "UFL", p.get("account") or None, pub, h, int(time.time())))
+        db.execute("INSERT OR IGNORE INTO photos(id,latin,t,license,account,pub,sha256,received,verified,show_name,ufl_agreed_ms)"
+                   " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                   (pid, p["latin"], int(p["t"]), "UFL", p["account"], pub, h, int(time.time()),
+                    verified, 1 if p.get("show_name") else 0, int(p["ufl_agreed_ms"])))
         db.commit()
     return {"ok": True, "id": pid, "url": f"/api/birds/photos/{pid}.jpg"}
 
@@ -126,7 +146,9 @@ def q(sql, args=()):
 
 def public_sighting(r):
     # never return the signing key of anonymous rows (there is none) or receive times
-    return {k: r[k] for k in ("window", "cell", "res", "latin", "conf_q8", "frames", "account")}
+    out = {k: r[k] for k in ("window", "cell", "res", "latin", "conf_q8", "frames")}
+    out["account"] = r["account"] if r["show_name"] else None   # verified either way; name only on opt-in
+    return out
 
 
 class H(BaseHTTPRequestHandler):
@@ -170,22 +192,23 @@ class H(BaseHTTPRequestHandler):
         path = u.path
         try:
             if path == "/api/birds/sightings":
-                rows = q("SELECT * FROM sightings WHERE window>=? ORDER BY window DESC LIMIT ?",
+                rows = q("SELECT * FROM sightings WHERE verified=1 AND window>=? ORDER BY window DESC LIMIT ?",
                          (int(a.get("since", 0)), min(int(a.get("limit", 500)), 2000)))
                 return self._send(200, [public_sighting(r) for r in rows])
             if path == "/api/birds/species":
                 rows = q("""SELECT latin, COUNT(*) sightings, COUNT(DISTINCT cell) cells,
                             MAX(window) last_window, MIN(window) first_window
-                            FROM sightings GROUP BY latin ORDER BY sightings DESC""")
-                photos = {r["latin"]: r["n"] for r in q("SELECT latin, COUNT(*) n FROM photos WHERE hidden=0 GROUP BY latin")}
+                            FROM sightings WHERE verified=1 GROUP BY latin ORDER BY sightings DESC""")
+                photos = {r["latin"]: r["n"] for r in q("SELECT latin, COUNT(*) n FROM photos WHERE hidden=0 AND verified=1 GROUP BY latin")}
                 for r in rows:
                     r["photos"] = photos.get(r["latin"], 0)
                 return self._send(200, rows)
             m = re.match(r"^/api/birds/species/(.+)$", path)
             if m:
                 latin = unquote(m.group(1))
-                s = q("SELECT * FROM sightings WHERE latin=? ORDER BY window DESC LIMIT 500", (latin,))
-                p = q("SELECT id, t, license, account FROM photos WHERE latin=? AND hidden=0 ORDER BY t DESC LIMIT 100", (latin,))
+                s = q("SELECT * FROM sightings WHERE verified=1 AND latin=? ORDER BY window DESC LIMIT 500", (latin,))
+                p = q("SELECT id, t, license, CASE WHEN show_name=1 THEN account END account FROM photos"
+                      " WHERE latin=? AND hidden=0 AND verified=1 ORDER BY t DESC LIMIT 100", (latin,))
                 for r in p:
                     r["url"] = f"/api/birds/photos/{r['id']}.jpg"
                 return self._send(200, {"latin": latin, "sightings": [public_sighting(r) for r in s], "photos": p})
@@ -193,7 +216,7 @@ class H(BaseHTTPRequestHandler):
                 res = int(a.get("res", 5))
                 if res not in (3, 5, 7, 9):
                     raise ValueError("res must be 3, 5, 7 or 9")
-                sql = "SELECT cell, res, latin FROM sightings WHERE window>=?"
+                sql = "SELECT cell, res, latin FROM sightings WHERE verified=1 AND window>=?"
                 args = [int(a.get("since", 0))]
                 if a.get("species"):
                     sql += " AND latin=?"; args.append(a["species"])
@@ -207,8 +230,8 @@ class H(BaseHTTPRequestHandler):
             m = re.match(r"^/api/birds/photos/([0-9a-f]{24})\.jpg$", path)
             if m:
                 f = os.path.join(DATA, "photos", m.group(1) + ".jpg")
-                hidden = q("SELECT hidden FROM photos WHERE id=?", (m.group(1),))
-                if not os.path.exists(f) or not hidden or hidden[0]["hidden"]:
+                hidden = q("SELECT hidden, verified FROM photos WHERE id=?", (m.group(1),))
+                if not os.path.exists(f) or not hidden or hidden[0]["hidden"] or not hidden[0]["verified"]:
                     return self._send(404, {"error": "not found"})
                 with open(f, "rb") as fh:
                     return self._send(200, raw=fh.read(), ctype="image/jpeg")
