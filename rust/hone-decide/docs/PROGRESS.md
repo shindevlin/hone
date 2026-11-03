@@ -184,3 +184,23 @@ Resume notes for whoever picks this up. Newest state at the top of each section.
 - nebra was rebooted by another agent with `cgroup_enable=memory cgroup_memory=1`; MemoryMax is
   now enforced (memory.max = 262144000). HTTP run 2 (135M-gen Q4) started 14:18 ->
   `nebra:~/decide/http_run2_135gen_q4.jsonl`.
+- 135M-gen Q8 Rust: MCQ 0.541 / ECE 0.020 (Q4-vs-Q8 argmax agreement 0.83), HONE 0.836 / 0.062.
+- 14:47 smollm2-360m-gen (warm from 360M-kl3, 1 epoch, T 0.75), Python fp32, 4400 test rows:
+  acc 0.771, ECE 0.024, agreement 0.691. HONE novelty 0.964 / routing 0.878 /
+  plausibility 0.898 / peer 0.940 (mean 0.920). MCQ ARC-E 0.763, ARC-C 0.590, CSQA 0.657,
+  OBQA 0.710, MMLU 0.387, HellaSwag 0.613, PIQA 0.753, BoolQ 0.703 (mean 0.647).
+  Q8 Rust eval on grouchly -> `ev_360gen_q8.jsonl`.
+- 360M-gen Q8 (Rust, first 1557 MCQ test rows): acc 0.621, ECE 0.042, argmax agreement with
+  f32 0.991. Full Q8 eval still running on grouchly (`ev_360gen_q8.jsonl`, slow under load).
+- 14:50 nebra became unreachable: ping OK, TCP 22 open, sshd resets at key exchange from both
+  beastly and grouchly (still at 15:40). Last reading before that: HTTP run 2 at 142/200, 0
+  failures, MemAvailable 534 MB, hone-decide 114 MB under the enforced 250 MiB cap. The run 2
+  client is resumable: `cd ~/decide; python3 nebra_http_test.py http_batch200.jsonl
+  http_run2_135gen_q4.jsonl` prints the summary when done. Cause unknown (another agent was
+  due to work on nebra); my earlier unauthenticated probe from grouchly may have added to an
+  sshd per-source penalty.
+
+## State at hand-off (round 2)
+- nebra serves smollm2-135m-gen Q4 (rollback in /opt/hone-decide/model-prev); Q8 staged in
+  ~/decide/smollm2-135m-gen-q8 (fits the 250 MiB cap: peak ~194 MB at 500 ctx; +2 MCQ points).
+- beastly GPU: nothing of ours running. Students in beastly ~/decide/students/*-gen.
