@@ -44,6 +44,7 @@ mod config;
 mod mem_profile;
 mod inference_sidecar;
 mod state_audit;
+mod state_correct;
 mod local_submit;
 mod state_healer;
 mod contracts;
@@ -152,6 +153,10 @@ use store::Store;
 fn main() -> Result<()> {
     // Allocator caps must be set before the runtime spawns its worker threads.
     mem_profile::tune_allocator();
+    // `hone-node state-correct <dir> <file>`: one-time operator correction (stopped node).
+    if std::env::args().nth(1).as_deref() == Some("state-correct") {
+        return state_correct::run(&std::env::args().nth(2).unwrap_or_default(), &std::env::args().nth(3).unwrap_or_default());
+    }
     // `hone-node state-audit <dir> [accounts]`: offline read of a state-dir copy.
     if std::env::args().nth(1).as_deref() == Some("state-audit") {
         let dir = std::env::args().nth(2).unwrap_or_default();

@@ -1,0 +1,14 @@
+{
+ "id": "storage-selfpay-2026-11-03",
+ "authorized_by": "Josh (2026-11-03 11:37 CST, via coordinator): canonical = grouchly/beastly lineage minus self-paid storage",
+ "rule": "for every epoch <= 351090 and every storage_reward(account): canonical payout = min(grouchly, beastly); the excess, and the 0.4% testnet / 0.1% treasury earnings share computed on it (floor per epoch), goes to __recycle_fund__",
+ "base": "grouchly state (txhist storage_reward rows), cross-checked against beastly",
+ "cursor": 351090,
+ "deltas_hunits": {
+  "natoshisakamoto": -215101717959,
+  "__testnet_fund__": -862765216,
+  "__treasury__": -215691102,
+  "__recycle_fund__": 216769840585,
+  "shindevlin": -589666308
+ }
+}
