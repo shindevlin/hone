@@ -202,8 +202,13 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
         item {
             Text("History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             val (yes, no) = remember(verdicts) { Birds.trainingCounts(ctx) }
-            Text("Was it really this bird? Your answers train HONE's local model and keep wrong ones off the map. " +
-                "$yes confirmed · $no rejected so far.", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+            Text("Only answer if you're sure. Not sure? Leave it blank, or play its call to compare. " +
+                "Answers train HONE's local model and keep wrong ones off the map. $yes yes · $no no so far.",
+                style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+            TextButton(onClick = {
+                ctx.startActivity(Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://xeno-canto.org/explore?query=" + Uri.encode(s.latin))))
+            }) { Text("Play its call (xeno-canto)") }
         }
         items(s.history.take(200), key = { "h-${it.t}" }) { h ->
             val v = verdicts["${h.t}|${h.name}"]
@@ -213,10 +218,10 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall, color = HoneTextDim, modifier = Modifier.weight(1f))
                 FilterChip(selected = v == true, onClick = {
                     Birds.label(ctx, h, true); verdicts = Birds.labels(ctx)
-                }, label = { Text("Right") }, modifier = Modifier.padding(end = 6.dp))
+                }, label = { Text("Yes, sure") }, modifier = Modifier.padding(end = 6.dp))
                 FilterChip(selected = v == false, onClick = {
                     Birds.label(ctx, h, false); verdicts = Birds.labels(ctx)
-                }, label = { Text("Wrong") })
+                }, label = { Text("No, sure") })
             }
         }
         item { Spacer(Modifier.height(24.dp)) }

@@ -13,8 +13,8 @@ import java.io.File
  * If the list isn't known yet, a much higher confidence bar applies instead.
  */
 object Range {
-    const val MIN_IN_RANGE = 0.30f
-    const val MIN_UNKNOWN = 0.60f
+    const val MIN_IN_RANGE = 0.50f
+    const val MIN_UNKNOWN = 0.70f
     /** Out-of-range species still count at this confidence: vagrants and early migrants happen. */
     const val MIN_RARE = 0.85f
     private const val TTL_MS = 30L * 86_400_000L

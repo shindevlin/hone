@@ -27,7 +27,7 @@ object BirdsSync {
     private const val TAG = "HoneBirds"
     const val BASE = "https://honemesh.net/api/birds"
     private const val WINDOW_MS = 900_000L
-    private const val PUBLISH_MIN_CONF = 50.0   // percent
+    private const val PUBLISH_MIN_CONF = 70.0   // percent; or heard twice in the window
 
     @Synchronized
     fun syncNow(ctx: Context) {
