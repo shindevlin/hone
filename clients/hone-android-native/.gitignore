@@ -14,3 +14,5 @@
 keystore.properties
 # Native libs are built by cargo-ndk into app/src/main/jniLibs (Phase 0b)
 /app/src/main/jniLibs
+# Perch model, fetched by tools/fetch-perch.sh
+/app/src/main/assets/perch/

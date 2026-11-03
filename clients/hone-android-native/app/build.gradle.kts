@@ -36,12 +36,18 @@ android {
     }
 
     buildFeatures { compose = true }
+    androidResources { noCompress += "tflite" }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+        // litert 2.3.2's Kotlin API jar carries Kotlin 2.4 metadata; we only call its Java
+        // Interpreter API, so skip the metadata check rather than bump the project's Kotlin.
+        freeCompilerArgs += "-Xskip-metadata-version-check"
+    }
 }
 
 dependencies {
@@ -77,6 +83,9 @@ dependencies {
     // Play services fused location (high accuracy) when GMS is present; LocationManager otherwise.
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
+    // Perch v2 on-device (LiteRT, the TensorFlow Lite runtime).
+    implementation("com.google.ai.edge.litert:litert:2.3.2")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }
@@ -101,6 +110,7 @@ android {
             "android-arm/**", "android-arm64/**", "darwin-arm64/**", "darwin-x64/**",
             "linux-arm64/**", "linux-armv5/**", "linux-armv7/**", "linux-ppc64le/**",
             "linux-s390x/**", "linux-x64/**", "linux-x86/**", "windows-x64/**", "windows-x86/**",
+            "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
         )
     }
 }

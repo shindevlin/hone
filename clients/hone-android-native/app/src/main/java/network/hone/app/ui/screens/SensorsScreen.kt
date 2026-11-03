@@ -112,6 +112,7 @@ fun SensorsScreen() {
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item(key = "coverage") { CoverageCard(coverage, onFindMy = { showFindMy = true }) }
+            item(key = "sound") { SoundCard() }
             item(key = "nearby-title") {
                 Text("Nearby HONE devices", style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold)

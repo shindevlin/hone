@@ -158,6 +158,7 @@ object SightingsEngine {
     // ── Location ─────────────────────────────────────────────────────────────────
     @Volatile private var loc: Location? = null
     @Volatile private var locSrc = ""
+    fun lastFix(): Location? = loc
     @Volatile private var fpFix: Location? = null        // from Wi-Fi fingerprints
     private val locListener = LocationListener { l -> onLocation(l, if (l.provider == "gps") "gps" else l.provider ?: "lm") }
     private var gmsCallback: LocationCallback? = null

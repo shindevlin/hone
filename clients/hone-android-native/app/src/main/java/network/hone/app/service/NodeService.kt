@@ -77,6 +77,8 @@ class NodeService : Service() {
         network.hone.app.data.HoneAnnounceScanner.start(applicationContext)
         // Coverage sensing + rotating-id advert (spec 1a/1b/2a).
         network.hone.app.sightings.SightingsEngine.start(applicationContext)
+        // Sound sensing (bird check + ambient noise), only if the user accepted the notice.
+        network.hone.app.sound.SoundSensing.start(applicationContext)
         // Bring the witness clock seat back after a reboot or app update.
         if (File(dataDir(), "witness_account").exists()) scope.launch {
             (network.hone.app.data.NodeRepositories.get(applicationContext)
@@ -152,6 +154,24 @@ class NodeService : Service() {
                     Log.w(TAG, "commit $sensorId rejected (${resp.status}): $lastError")
                 }
             }
+            if ("sound" in sub.channels) {
+                val sensorId = sub.settings.sensorId("sound")
+                val identity = identities[sensorId]
+                    ?: runCatching { keystore.getOrCreate(sensorId) }.getOrNull()?.also { identities[sensorId] = it }
+                if (identity != null) for (r in network.hone.app.sound.SoundSensing.drainReports()) {
+                    // Report stays on the phone (files/hone-node/sound); the chain gets its hash.
+                    val batch = SensorReadingBatch(
+                        sensorId = sensorId,
+                        owner = sub.settings.owner,
+                        batchHash = network.hone.app.sound.SoundSensing.reportHash(r),
+                        readingCount = r.optLong("frames", 1L).coerceAtLeast(1L),
+                        sensorType = "acoustic",
+                    )
+                    val resp = runCatching { coordinator.submitWithEnrolledDevice(batch, identity) }
+                        .getOrElse { e -> network.hone.app.data.SensorHttpResponse(0, e.message ?: "error") }
+                    if (resp.accepted) accepted++ else { rejected++; lastError = resp.body.take(160) }
+                }
+            }
             writePubkeys(identities)
             updateNotification("$avail sensors · $accepted accepted · $rejected rejected")
         }
@@ -169,6 +189,7 @@ class NodeService : Service() {
 
     override fun onDestroy() {
         network.hone.app.sightings.SightingsEngine.stop()
+        network.hone.app.sound.SoundSensing.stop()
         capture.stop()
         loop?.cancel()
         scope.cancel()
@@ -183,12 +204,18 @@ class NodeService : Service() {
             // (readings are then kept unlocated) rather than failing to start.
             val loc = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-            val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
-                (if (loc) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
-            runCatching { startForeground(NOTIF_ID, n, types) }.onFailure {
-                Log.w(TAG, "location FGS type refused (${it.message}); running without it")
-                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            val mic = network.hone.app.sound.SoundSensing.isEnabled(this) &&
+                network.hone.app.sound.SoundSensing.hasMic(this)
+            val base = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            val locT = if (loc) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
+            val micT = if (mic) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+            // The microphone type can only start while the app is visible (Android 14+); from a
+            // boot or background start it is refused, so fall back step by step.
+            val ok = listOf(base or locT or micT, base or locT, base).distinct().any { t ->
+                runCatching { startForeground(NOTIF_ID, n, t) }
+                    .onFailure { Log.w(TAG, "FGS types $t refused (${it.message})") }.isSuccess
             }
+            if (!ok) Log.e(TAG, "foreground start refused for all type sets")
         } else {
             startForeground(NOTIF_ID, n)
         }
