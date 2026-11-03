@@ -19,6 +19,10 @@ class Perch(ctx: Context) : Closeable {
     private val interp: Interpreter
     val names: Array<String>
     private val labelOut: Int
+    private val embOut: Int
+    private val embBuf = ByteBuffer.allocateDirect(4 * EMB).order(ByteOrder.nativeOrder())
+    /** Perch embedding of the last classified frame (1,536 floats). Stays on the phone. */
+    val lastEmbedding = FloatArray(EMB)
     private val input = ByteBuffer.allocateDirect(4 * FRAME).order(ByteOrder.nativeOrder())
     private val output: ByteBuffer
 
@@ -39,6 +43,9 @@ class Perch(ctx: Context) : Closeable {
         j.keys().forEach { k -> names[j.getInt(k) - 1] = k }
         labelOut = (0 until interp.outputTensorCount).first { interp.getOutputTensor(it).shape().last() == n }
         output = ByteBuffer.allocateDirect(4 * n).order(ByteOrder.nativeOrder())
+        embOut = (0 until interp.outputTensorCount).first {
+            interp.getOutputTensor(it).shape().let { s -> s.size == 2 && s[1] == EMB }
+        }
         humanIdx = names.indices.filter { HUMAN.containsMatchIn(names[it]) }.toIntArray()
         isSpecies = BooleanArray(n) { names[it].contains(' ') && names[it] != "Homo sapiens" }
     }
@@ -48,10 +55,12 @@ class Perch(ctx: Context) : Closeable {
         require(audio.size == FRAME)
         input.clear(); input.asFloatBuffer().put(audio)
         output.clear()
-        val outs = HashMap<Int, Any>().apply { put(labelOut, output) }
+        embBuf.clear()
+        val outs = HashMap<Int, Any>().apply { put(labelOut, output); put(embOut, embBuf) }
         interp.runForMultipleInputsOutputs(arrayOf<Any>(input), outs)
         output.rewind()
         val p = FloatArray(names.size); output.asFloatBuffer().get(p)
+        embBuf.rewind(); embBuf.asFloatBuffer().get(lastEmbedding)
         // Don't keep audio around longer than needed.
         input.clear(); repeat(FRAME) { input.putFloat(0f) }
         return p
@@ -62,6 +71,7 @@ class Perch(ctx: Context) : Closeable {
     companion object {
         const val SAMPLE_RATE = 32_000
         const val FRAME = 160_000
+        const val EMB = 1536
         const val MODEL_FILE = "perch_v2_8bit.tflite"
         const val MODEL_ID = "perch-v2-int8-litert@arm"
         const val MODEL_SHA256 = "9ccbfc424bf35efd1d1f4604a3339c2bb9e03b1c7f2ca7b8ccea7f0a026ceb0c"

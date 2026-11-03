@@ -28,6 +28,9 @@
     <!-- Sound sensing (bird check + ambient noise). Off until the user accepts the notice.
          Audio stays in RAM; frames with human voices are dropped on the phone. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Bird photos taken in HONE (capture evidence for rare records). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />

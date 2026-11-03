@@ -208,7 +208,7 @@ object SoundSensing {
             val prev = win.species[d.name]
             win.species[d.name] = Pair(max(prev?.first ?: 0f, d.conf), (prev?.second ?: 0) + 1)
         }
-        if (top.isNotEmpty()) logDetections(top)
+        if (top.isNotEmpty()) logDetections(top, p.lastEmbedding)
         val s = _live.value
         _live.value = s.copy(
             framesHeard = s.framesHeard + 1,
@@ -262,10 +262,16 @@ object SoundSensing {
     @Volatile private var appCtx: Context? = null
 
     /** Private detection history for the Birds tab: time, species, confidence, fix. Device only. */
-    private fun logDetections(top: List<Detection>) {
+    private fun logDetections(top: List<Detection>, emb: FloatArray) {
         val ctx = appCtx ?: return
         val fix = SightingsEngine.lastFix()
         runCatching {
+            // Perch's embedding of this frame, kept on the phone for training a local layer once the
+            // user confirms or rejects the detection. Not audio: it can't be played back.
+            val ed = File(ctx.filesDir, "hone-node/sound/emb").apply { mkdirs() }
+            val bb = java.nio.ByteBuffer.allocate(4 * emb.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            bb.asFloatBuffer().put(emb)
+            File(ed, "${top[0].atMs}.f32").writeBytes(bb.array())
             val f = File(ctx.filesDir, "hone-node/sound/detections.jsonl").apply { parentFile?.mkdirs() }
             val sb = StringBuilder()
             for (d in top) {

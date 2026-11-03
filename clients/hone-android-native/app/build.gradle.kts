@@ -85,6 +85,10 @@ dependencies {
 
     // Perch v2 on-device (LiteRT, the TensorFlow Lite runtime).
     implementation("com.google.ai.edge.litert:litert:2.3.2")
+    // In-app bird photos with capture evidence (focus distance, parallax, motion).
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
     // Bird maps: MapLibre (BSD-2) with OpenFreeMap tiles (no key).
     implementation("org.maplibre.gl:android-sdk:11.13.5")
 

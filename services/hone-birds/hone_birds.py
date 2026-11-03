@@ -21,7 +21,8 @@ API (all JSON):
        payload = {"v":1,"latin","t","license":"UFL","account"?}
   GET  /api/birds/photos/<id>.jpg
 """
-import base64, hashlib, hmac, json, os, re, sqlite3, sys, threading, time, urllib.request
+import base64, hashlib, hmac, io, json, os, re, sqlite3, sys, threading, time, urllib.parse, urllib.request
+from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
@@ -53,7 +54,13 @@ CREATE INDEX IF NOT EXISTS p_latin ON photos(latin);
 db.executescript("""
 CREATE TABLE IF NOT EXISTS ranges(cell TEXT PRIMARY KEY, species TEXT, updated INTEGER);
 CREATE TABLE IF NOT EXISTS gbif_names(key INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE IF NOT EXISTS wiki_hash(latin TEXT PRIMARY KEY, dhash TEXT);
 """)
+for col in ("dhash TEXT", "evidence TEXT", "evidence_ok INTEGER DEFAULT 0"):
+    try:
+        db.execute("ALTER TABLE photos ADD COLUMN " + col)
+    except sqlite3.OperationalError:
+        pass  # already there
 lock = threading.Lock()
 rate = {}  # ip -> [window_start, count]
 
@@ -90,7 +97,7 @@ def gbif_name(key):
 def species_range(cell):
     """Species names recorded within RANGE_KM of the res-3 cell's centre (cached 30 days)."""
     if h3.get_resolution(cell) != 3:
-        cell = h3.cell_to_parent(cell, 3)
+        cell = area(cell)
     with lock:
         r = db.execute("SELECT species, updated FROM ranges WHERE cell=?", (cell,)).fetchone()
     if r and time.time() - r[1] < RANGE_TTL:
@@ -118,9 +125,15 @@ def species_range(cell):
         return cell, names
 
 
+def area(cell):
+    """Res-3 area of a cell by its centre point (same rule the phone uses: lat/lon -> res 3).
+    Not cell_to_parent: H3 children aren't strictly inside their parent near edges."""
+    return h3.latlng_to_cell(*h3.cell_to_latlng(cell), 3)
+
+
 def in_range(cell, latin):
     """True/False if the range for this cell is cached; None if not known yet."""
-    c3 = h3.cell_to_parent(cell, 3) if h3.get_resolution(cell) > 3 else cell
+    c3 = area(cell)
     with lock:
         r = db.execute("SELECT species FROM ranges WHERE cell=?", (c3,)).fetchone()
     return None if not r else latin in set(json.loads(r[0]))
@@ -192,11 +205,11 @@ def add_sighting(body):
         for r in rows:
             if r[11] != 3:
                 continue
-            c3 = h3.cell_to_parent(r[2], 3) if r[3] > 3 else r[2]
+            c3 = area(r[2])
             others = [o for o in db.execute(
                 "SELECT sid, cell, res FROM sightings WHERE latin=? AND verified IN (3,4) AND account<>? AND ABS(window-?)<=288",
                 (r[4], r[8], r[1])).fetchall()
-                if (h3.cell_to_parent(o[1], 3) if o[2] > 3 else o[1]) == c3]
+                if area(o[1]) == c3]
             if others:
                 db.executemany("UPDATE sightings SET verified=4 WHERE sid=?", [(o[0],) for o in others] + [(r[0],)])
         db.commit()
@@ -216,15 +229,111 @@ def add_photo(body):
         raise ValueError("strip EXIF before upload")
     h = hashlib.sha256(jpeg).hexdigest()
     pid = h[:24]
+    # Anti-gaming: near-duplicates of any HONE photo or of the species' Wikipedia image are refused.
+    dh = dhash(jpeg)
+    with lock:
+        known = [r[0] for r in db.execute("SELECT dhash FROM photos WHERE dhash IS NOT NULL AND id<>?", (pid,))]
+    wiki = wiki_dhash(p["latin"])
+    if any(hamming(dh, k) <= DUP_BITS for k in known + ([wiki] if wiki else [])):
+        raise ValueError("this photo matches an existing image")
+    ev = p.get("evidence") if isinstance(p.get("evidence"), dict) else None
+    ev_ok = evidence_ok(ev)
+    store_photo(pid, jpeg)
+    with lock:
+        db.execute("INSERT OR IGNORE INTO photos(id,latin,t,license,account,pub,sha256,received,verified,show_name,ufl_agreed_ms,"
+                   "dhash,evidence,evidence_ok) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (pid, p["latin"], int(p["t"]), "UFL", p["account"], pub, h, int(time.time()),
+                    verified, 1 if p.get("show_name") else 0, int(p["ufl_agreed_ms"]),
+                    dh, json.dumps(ev) if ev else None, 1 if ev_ok else 0))
+        # An in-app photo with good evidence confirms that account's rare report of the species (±72 h).
+        if ev_ok and verified:
+            w = int(p["t"]) // 900_000
+            db.execute("UPDATE sightings SET verified=4 WHERE verified=3 AND latin=? AND account=? AND ABS(window-?)<=288",
+                       (p["latin"], p["account"], w))
+        db.commit()
+    return {"ok": True, "id": pid, "url": f"/api/birds/photos/{pid}.jpg", "evidence_ok": ev_ok}
+
+
+# ── photo evidence, duplicates, storage ──────────────────────────────────────────────────
+DUP_BITS = 6
+
+
+def dhash(jpeg, size=8):
+    im = Image.open(io.BytesIO(jpeg)).convert("L").resize((size + 1, size), Image.LANCZOS)
+    px = list(im.getdata())
+    bits = 0
+    for r in range(size):
+        for c in range(size):
+            bits = (bits << 1) | (1 if px[r * (size + 1) + c] > px[r * (size + 1) + c + 1] else 0)
+    return f"{bits:016x}"
+
+
+def hamming(a, b):
+    return bin(int(a, 16) ^ int(b, 16)).count("1")
+
+
+def wiki_dhash(latin):
+    with lock:
+        r = db.execute("SELECT dhash FROM wiki_hash WHERE latin=?", (latin,)).fetchone()
+    if r:
+        return r[0]
+    h = None
+    try:
+        s = json.load(urllib.request.urlopen(urllib.request.Request(
+            "https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(latin.replace(" ", "_")),
+            headers={"User-Agent": "hone-birds/1 (https://honemesh.net)"}), timeout=20))
+        src = (s.get("thumbnail") or {}).get("source")
+        if src:
+            h = dhash(urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": "hone-birds/1"}), timeout=20).read())
+    except Exception:
+        return None
+    with lock:
+        db.execute("INSERT OR REPLACE INTO wiki_hash VALUES(?,?)", (latin, h)); db.commit()
+    return h
+
+
+def evidence_ok(ev):
+    """In-app capture with plausible distance. Parallax/motion are recorded but not yet enforced
+    (thresholds to be set from real examples)."""
+    if not ev or not ev.get("in_app") or int(ev.get("frames", 0)) < 2:
+        return False
+    focus_m, zoom = ev.get("focus_m"), float(ev.get("zoom") or 1.0)
+    # a bird filling the frame from under ~0.8 m without zoom is almost always a screen or a print
+    if focus_m is not None and float(focus_m) < 0.8 and zoom < 2.0:
+        return False
+    return True
+
+
+S4 = None
+if os.environ.get("S4_BUCKET"):
+    import boto3
+    from botocore.config import Config
+    S4 = boto3.client("s3", endpoint_url=os.environ["S4_ENDPOINT"],
+                      aws_access_key_id=os.environ["S4_ACCESS_KEY"], aws_secret_access_key=os.environ["S4_SECRET_KEY"],
+                      region_name=os.environ.get("S4_REGION", "eu-central-1"),
+                      config=Config(s3={"addressing_style": "path"}, signature_version="s3v4"))
+S4_PREFIX = os.environ.get("S4_PREFIX", "birds/photos/")
+
+
+def store_photo(pid, jpeg):
+    """MEGA S4 when configured (source of truth), plus the local cache used for serving."""
+    if S4:
+        S4.put_object(Bucket=os.environ["S4_BUCKET"], Key=S4_PREFIX + pid + ".jpg", Body=jpeg, ContentType="image/jpeg")
     with open(os.path.join(DATA, "photos", pid + ".jpg"), "wb") as f:
         f.write(jpeg)
-    with lock:
-        db.execute("INSERT OR IGNORE INTO photos(id,latin,t,license,account,pub,sha256,received,verified,show_name,ufl_agreed_ms)"
-                   " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                   (pid, p["latin"], int(p["t"]), "UFL", p["account"], pub, h, int(time.time()),
-                    verified, 1 if p.get("show_name") else 0, int(p["ufl_agreed_ms"])))
-        db.commit()
-    return {"ok": True, "id": pid, "url": f"/api/birds/photos/{pid}.jpg"}
+
+
+def load_photo(pid):
+    f = os.path.join(DATA, "photos", pid + ".jpg")
+    if os.path.exists(f):
+        with open(f, "rb") as fh:
+            return fh.read()
+    if S4:
+        b = S4.get_object(Bucket=os.environ["S4_BUCKET"], Key=S4_PREFIX + pid + ".jpg")["Body"].read()
+        with open(f, "wb") as fh:
+            fh.write(b)
+        return b
+    return None
 
 
 def q(sql, args=()):
@@ -318,7 +427,7 @@ class H(BaseHTTPRequestHandler):
             if m:
                 latin = unquote(m.group(1))
                 s = q("SELECT * FROM sightings WHERE verified IN (1,3,4) AND latin=? ORDER BY window DESC LIMIT 500", (latin,))
-                p = q("SELECT id, t, license, CASE WHEN show_name=1 THEN account END account FROM photos"
+                p = q("SELECT id, t, license, evidence_ok, CASE WHEN show_name=1 THEN account END account FROM photos"
                       " WHERE latin=? AND hidden=0 AND verified=1 ORDER BY t DESC LIMIT 100", (latin,))
                 for r in p:
                     r["url"] = f"/api/birds/photos/{r['id']}.jpg"
@@ -340,12 +449,13 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, out)
             m = re.match(r"^/api/birds/photos/([0-9a-f]{24})\.jpg$", path)
             if m:
-                f = os.path.join(DATA, "photos", m.group(1) + ".jpg")
                 hidden = q("SELECT hidden, verified FROM photos WHERE id=?", (m.group(1),))
-                if not os.path.exists(f) or not hidden or hidden[0]["hidden"] or not hidden[0]["verified"]:
+                if not hidden or hidden[0]["hidden"] or not hidden[0]["verified"]:
                     return self._send(404, {"error": "not found"})
-                with open(f, "rb") as fh:
-                    return self._send(200, raw=fh.read(), ctype="image/jpeg")
+                b = load_photo(m.group(1))
+                if b is None:
+                    return self._send(404, {"error": "not found"})
+                return self._send(200, raw=b, ctype="image/jpeg")
             if path == "/api/birds/range":
                 c3, names = species_range(a["cell"])
                 return self._send(200, {"cell": c3, "radius_km": RANGE_KM, "source": "GBIF.org occurrences",

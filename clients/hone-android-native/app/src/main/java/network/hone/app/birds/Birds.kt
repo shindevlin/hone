@@ -13,7 +13,12 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 
 /** One heard detection, kept only on this phone. */
-data class Heard(val t: Long, val name: String, val conf: Double, val lat: Double?, val lon: Double?, val rare: Boolean = false)
+data class Heard(
+    val t: Long, val name: String, val conf: Double, val lat: Double?, val lon: Double?,
+    val rare: Boolean = false,
+    /** User's verdict: true = right, false = wrong, null = not reviewed. */
+    val label: Boolean? = null,
+)
 
 /** Everything this phone has heard of one species. */
 data class MySpecies(
@@ -50,7 +55,7 @@ object Birds {
     private fun birdDir(ctx: Context) = File(ctx.filesDir, "birds").apply { mkdirs() }
 
     /** All detections on this phone, newest first. Older windows come from the window reports. */
-    fun heard(ctx: Context): List<Heard> {
+    private fun heardRaw(ctx: Context): List<Heard> {
         val out = ArrayList<Heard>()
         val det = File(soundDir(ctx), "detections.jsonl")
         if (det.exists()) det.forEachLine { l ->
@@ -79,10 +84,42 @@ object Birds {
         return out.sortedByDescending { it.t }
     }
 
+    fun heard(ctx: Context): List<Heard> {
+        val lb = labels(ctx)
+        return heardRaw(ctx).map { h -> lb[key(h.t, h.name)]?.let { h.copy(label = it) } ?: h }
+    }
+
+    // ── confirm / reject (training labels, kept on the phone) ───────────────────
+
+    private fun key(t: Long, name: String) = "$t|$name"
+    private fun labelFile(ctx: Context) = File(soundDir(ctx), "labels.jsonl")
+
+    /** Latest verdict per detection. */
+    fun labels(ctx: Context): Map<String, Boolean> {
+        val f = labelFile(ctx)
+        if (!f.exists()) return emptyMap()
+        val m = HashMap<String, Boolean>()
+        f.forEachLine { l -> runCatching { JSONObject(l) }.getOrNull()?.let { m[key(it.getLong("t"), it.getString("name"))] = it.getBoolean("ok") } }
+        return m
+    }
+
+    /** Records the user's verdict on one detection (with its embedding, this is a training example). */
+    fun label(ctx: Context, h: Heard, ok: Boolean) {
+        labelFile(ctx).appendText(JSONObject().put("t", h.t).put("name", h.name).put("ok", ok)
+            .put("conf", h.conf).put("at", System.currentTimeMillis())
+            .put("emb", File(soundDir(ctx), "emb/${h.t}.f32").exists()).toString() + "\n")
+    }
+
+    /** (confirmed, rejected) examples with an embedding: the training set for the local layer. */
+    fun trainingCounts(ctx: Context): Pair<Int, Int> {
+        val lb = labels(ctx).filterKeys { File(soundDir(ctx), "emb/${it.substringBefore('|')}.f32").exists() }
+        return lb.values.count { it } to lb.values.count { !it }
+    }
+
     /** Species heard here. Once the local range is known, species that don't occur here are left out. */
     fun mySpecies(ctx: Context): List<MySpecies> {
         val range = Range.current(ctx)
-        val keep = heard(ctx).filter { range == null || it.name in range || it.conf >= Range.MIN_RARE * 100 }
+        val keep = heard(ctx).filter { it.label != false && (range == null || it.name in range || it.conf >= Range.MIN_RARE * 100) }
         return keep.groupBy { it.name }.map { (latin, hs) ->
             MySpecies(latin, english(ctx, latin), hs.size, hs.minOf { it.t }, hs.maxOf { it.t },
                 hs.maxOf { it.conf }, hs, rare = range != null && latin !in range)
@@ -113,7 +150,7 @@ object Birds {
         cached()?.let { return it.takeUnless { it === NONE } }
         synchronized(imgLock) {
             cached()?.let { return it.takeUnless { it === NONE } }
-            val got = runCatching { community(latin, img) }.onFailure { Log.w(TAG, "community img $latin: ${it.message}") }.getOrNull()
+            val got = runCatching { community(ctx, latin, img) }.onFailure { Log.w(TAG, "community img $latin: ${it.message}") }.getOrNull()
                 ?: runCatching { commonsFile(wikipediaFile(key), img) }.onFailure { Log.w(TAG, "wikipedia img $latin: ${it.message}") }.getOrNull()
                 ?: runCatching { commonsFile(wikidataFile(latin), img) }.onFailure { Log.w(TAG, "wikidata img $latin: ${it.message}") }.getOrNull()
             if (got == null) { meta.writeText("""{"none":true}"""); return null }
@@ -125,11 +162,11 @@ object Birds {
     private val NONE = SpeciesImage(File(""), "", "", "")
     private const val TAG = "HoneBirds"
 
-    private fun community(latin: String, out: File): SpeciesImage? {
+    private fun community(ctx: Context, latin: String, out: File): SpeciesImage? {
         val p = JSONObject(BirdsSync.getJson("/species/" + enc(latin))).optJSONArray("photos") ?: return null
         if (p.length() == 0) return null
         val first = p.getJSONObject(0)
-        out.writeBytes(BirdsSync.getBytes(first.getString("url")))
+        out.writeBytes(BirdsSync.cachedBytes(ctx, first.getString("url")))
         return SpeciesImage(out, first.optString("account").ifEmpty { "HONE community" }, "UFL", "")
     }
 
@@ -178,13 +215,19 @@ object Birds {
      */
     fun addPhoto(ctx: Context, latin: String, uri: Uri, uflAgreedMs: Long): Boolean = runCatching {
         val src = ctx.contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it) } ?: return false
+        addPhoto(ctx, latin, src, uflAgreedMs, null)
+    }.getOrDefault(false)
+
+    /** [evidence] is set for photos taken in the HONE camera (see BirdCamera); gallery photos have none. */
+    fun addPhoto(ctx: Context, latin: String, src: Bitmap, uflAgreedMs: Long, evidence: JSONObject?): Boolean = runCatching {
         val scale = minOf(1f, 2048f / maxOf(src.width, src.height))
         val bmp = if (scale < 1f) Bitmap.createScaledBitmap(src, (src.width * scale).toInt(), (src.height * scale).toInt(), true) else src
         val dir = File(birdDir(ctx), "photos/" + latin.replace(' ', '_')).apply { mkdirs() }
         val t = System.currentTimeMillis()
         File(dir, "$t.jpg").outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
         File(dir, "$t.json").writeText(JSONObject().put("latin", latin).put("t", t)
-            .put("license", "UFL").put("ufl_agreed_ms", uflAgreedMs).put("status", "queued").toString())
+            .put("license", "UFL").put("ufl_agreed_ms", uflAgreedMs).put("status", "queued")
+            .apply { if (evidence != null) put("evidence", evidence) }.toString())
         true
     }.getOrDefault(false)
 

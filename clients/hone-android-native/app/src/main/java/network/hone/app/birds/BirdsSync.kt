@@ -65,8 +65,10 @@ object BirdsSync {
         val last = prefs(ctx).getLong("sent_window", current - 1)
         // window -> cell -> species -> (best conf, count)
         val byWin = sortedMapOf<Long, HashMap<String, HashMap<String, Pair<Double, Int>>>>()
+        val rejected = Birds.labels(ctx).filterValues { !it }.keys
         det.forEachLine { l ->
             val j = runCatching { JSONObject(l) }.getOrNull() ?: return@forEachLine
+            if ("${j.getLong("t")}|${j.getString("name")}" in rejected) return@forEachLine  // user said wrong
             val w = j.getLong("t") / WINDOW_MS
             if (w <= last || w >= current || !j.has("lat")) return@forEachLine
             val cell = publicCell(ctx, j.getDouble("lat"), j.getDouble("lon"), j.optDouble("acc", 50.0).toFloat())
@@ -114,6 +116,7 @@ object BirdsSync {
                 val payload = JSONObject().put("v", 1).put("latin", meta.getString("latin"))
                     .put("t", meta.getLong("t")).put("license", "UFL")
                     .put("ufl_agreed_ms", meta.getLong("ufl_agreed_ms"))
+                    .apply { meta.optJSONObject("evidence")?.let { put("evidence", it) } }
                 payload.put("account", acct).put("show_name", show)
                 val body = signed(ctx, payload.toString())
                     .put("jpeg_b64", Base64.encodeToString(jpg.readBytes(), Base64.NO_WRAP))
@@ -153,6 +156,15 @@ object BirdsSync {
         (URL("$BASE$path").openConnection() as HttpURLConnection).apply {
             connectTimeout = 10_000; readTimeout = readTimeoutMs; setRequestProperty("User-Agent", "HONE-app/1.0")
         }.inputStream.bufferedReader().use { it.readText() }
+
+    /** Download once, then serve from the phone (files/birds/cache). Photos are immutable by id. */
+    fun cachedBytes(ctx: Context, url: String): ByteArray {
+        val name = java.security.MessageDigest.getInstance("SHA-256").digest(url.toByteArray())
+            .joinToString("") { "%02x".format(it) }.take(32)
+        val f = File(ctx.filesDir, "birds/cache/$name").apply { parentFile?.mkdirs() }
+        if (f.exists() && f.length() > 0) return f.readBytes()
+        return getBytes(url).also { f.writeBytes(it) }
+    }
 
     fun getBytes(url: String): ByteArray =
         (URL(if (url.startsWith("http")) url else "https://honemesh.net$url").openConnection() as HttpURLConnection).apply {

@@ -141,7 +141,15 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
     val img by produceState<SpeciesImage?>(null, s.latin) { value = withContext(Dispatchers.IO) { Birds.image(ctx, s.latin) } }
     val bmp = remember(img) { img?.let { Birds.bitmap(it.file, 1080) } }
     var photos by remember { mutableStateOf(Birds.myPhotos(ctx, s.latin)) }
+    var verdicts by remember { mutableStateOf(Birds.labels(ctx)) }
     var confirm by remember { mutableStateOf<Uri?>(null) }
+    var camera by remember { mutableStateOf(false) }
+    var shot by remember { mutableStateOf<Pair<android.graphics.Bitmap, JSONObject>?>(null) }
+    if (camera) {
+        BackHandler { camera = false }
+        BirdCamera(onDone = { b, ev -> shot = b to ev; camera = false }, onCancel = { camera = false })
+        return
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> confirm = uri }
 
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -174,7 +182,9 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
                     modifier = Modifier.weight(1f))
                 OutlinedButton(onClick = {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) { Text("Add your photo") }
+                }) { Text("From gallery") }
+                Spacer(Modifier.width(6.dp))
+                Button(onClick = { camera = true }) { Text("Take photo") }
             }
         }
         if (photos.isNotEmpty()) item {
@@ -189,14 +199,35 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
                 }
             }
         }
-        item { Text("History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
-        items(s.history.take(200)) { h ->
-            Text("${DateUtils.formatDateTime(ctx, h.t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · ${h.conf.toInt()}%",
-                style = MaterialTheme.typography.bodySmall, color = HoneTextDim)
+        item {
+            Text("History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            val (yes, no) = remember(verdicts) { Birds.trainingCounts(ctx) }
+            Text("Was it really this bird? Your answers train HONE's local model and keep wrong ones off the map. " +
+                "$yes confirmed · $no rejected so far.", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+        }
+        items(s.history.take(200), key = { "h-${it.t}" }) { h ->
+            val v = verdicts["${h.t}|${h.name}"]
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${DateUtils.formatDateTime(ctx, h.t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · ${h.conf.toInt()}%" +
+                    (if (h.rare) " · rare here" else ""),
+                    style = MaterialTheme.typography.bodySmall, color = HoneTextDim, modifier = Modifier.weight(1f))
+                FilterChip(selected = v == true, onClick = {
+                    Birds.label(ctx, h, true); verdicts = Birds.labels(ctx)
+                }, label = { Text("Right") }, modifier = Modifier.padding(end = 6.dp))
+                FilterChip(selected = v == false, onClick = {
+                    Birds.label(ctx, h, false); verdicts = Birds.labels(ctx)
+                }, label = { Text("Wrong") })
+            }
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
 
+    shot?.let { (bmp, ev) ->
+        UflDialog(name = s.english ?: s.latin, onCancel = { shot = null }) { agreedMs ->
+            Birds.addPhoto(ctx, s.latin, bmp, agreedMs, ev); photos = Birds.myPhotos(ctx, s.latin); shot = null
+            Thread { BirdsSync.syncNow(ctx.applicationContext) }.start()
+        }
+    }
     confirm?.let { uri ->
         UflDialog(name = s.english ?: s.latin, onCancel = { confirm = null }) { agreedMs ->
             Birds.addPhoto(ctx, s.latin, uri, agreedMs); photos = Birds.myPhotos(ctx, s.latin); confirm = null
@@ -309,7 +340,7 @@ private fun PublicDetail(latin: String, onBack: () -> Unit) {
                     items((0 until photos.length()).map { photos.getJSONObject(it) }, key = { it.getString("id") }) { p ->
                         val b by produceState<android.graphics.Bitmap?>(null, p.getString("id")) {
                             value = withContext(Dispatchers.IO) {
-                                runCatching { BirdsSync.getBytes(p.getString("url")).let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) } }.getOrNull()
+                                runCatching { BirdsSync.cachedBytes(ctx, p.getString("url")).let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) } }.getOrNull()
                             }
                         }
                         Column {
