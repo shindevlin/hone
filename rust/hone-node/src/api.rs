@@ -2327,7 +2327,7 @@ pub(crate) fn submit_entry(
         // Already queued this epoch — idempotent resubmit.
         return Ok(hash);
     }
-    s.chain.outbox.lock().push((entry.clone(), sig.clone(), s.chain.current_epoch()));
+    s.chain.outbox_push(entry.clone(), sig.clone(), s.chain.current_epoch());
     // Carry the signature alongside the entry so gossip peers can re-verify.
     let _ = s.tx_broadcast.send((entry, sig));
     Ok(hash)

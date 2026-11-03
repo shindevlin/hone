@@ -67,7 +67,7 @@ pub fn queue_own(chain: &Chain, entry: &LedgerEntry, signed: bool) -> Result<(St
     crate::tx::precheck_submission(chain, entry, sig.as_deref())?;
     let hash = entry.hash();
     if chain.push_pending(entry.clone(), sig.clone()) {
-        chain.outbox.lock().push((entry.clone(), sig.clone(), chain.current_epoch()));
+        chain.outbox_push(entry.clone(), sig.clone(), chain.current_epoch());
     }
     Ok((hash, sig))
 }

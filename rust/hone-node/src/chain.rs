@@ -668,8 +668,52 @@ impl Chain {
             return false;
         }
         drop(seen);
-        self.pending.lock().push((entry, sig));
+        let mut pool = self.pending.lock();
+        pool.push((entry, sig));
+        self.persist_pool("pending_pool", &pool.iter().map(|(e, s)| (e.clone(), s.clone(), 0u64)).collect::<Vec<_>>());
         true
+    }
+
+    /// Pending pool and outbox survive a restart (local meta, not in state_root). An entry a
+    /// node held when it stopped (its own heartbeat, a peer's late gossip) was otherwise lost
+    /// on that node only, while peers committed it: grouchly 2026-11-03 16:43 missed its own
+    /// storage beat for 351806 and paid natoshisakamoto 0.0051 HONE less than the others.
+    fn persist_pool(&self, key: &str, rows: &[(LedgerEntry, Option<String>, u64)]) {
+        let v: Vec<serde_json::Value> = rows.iter()
+            .map(|(e, s, f)| serde_json::json!({ "entry": e, "sig": s, "first": f })).collect();
+        let _ = self.store.state_set(key, &serde_json::to_vec(&v).unwrap_or_default());
+    }
+
+    fn load_pool(&self, key: &str) -> Vec<(LedgerEntry, Option<String>, u64)> {
+        self.store.state_get(key).and_then(|b| serde_json::from_slice::<Vec<serde_json::Value>>(&b).ok())
+            .unwrap_or_default().into_iter().filter_map(|r| Some((
+                serde_json::from_value::<LedgerEntry>(r["entry"].clone()).ok()?,
+                r["sig"].as_str().map(str::to_owned), r["first"].as_u64().unwrap_or(0))))
+            .collect()
+    }
+
+    /// Queue an entry this node originated for re-gossip (see main's outbox loop).
+    pub fn outbox_push(&self, entry: LedgerEntry, sig: Option<String>, first: u64) {
+        let mut ob = self.outbox.lock();
+        ob.push((entry, sig, first));
+        self.persist_pool("outbox_pool", &ob);
+    }
+
+    /// Re-persist the outbox after the re-gossip loop pruned it.
+    pub fn outbox_persist(&self) {
+        let ob = self.outbox.lock().clone();
+        self.persist_pool("outbox_pool", &ob);
+    }
+
+    /// At startup: reload what was pending / in the outbox when the node stopped. Entries
+    /// that committed meanwhile are rejected at seal by exactly-once.
+    pub fn restore_pools(&self) -> (usize, usize) {
+        let p = self.load_pool("pending_pool");
+        let o = self.load_pool("outbox_pool");
+        let (np, no) = (p.len(), o.len());
+        for (e, s, _) in p { self.push_pending(e, s); }
+        *self.outbox.lock() = o;
+        (np, no)
     }
 
     pub fn pending_count(&self) -> usize {
@@ -707,6 +751,7 @@ impl Chain {
         let drained = pool.drain(..).collect();
         drop(pool);
         self.seen_entries.lock().clear();
+        self.persist_pool("pending_pool", &[]);
         drained
     }
 

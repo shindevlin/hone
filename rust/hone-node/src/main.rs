@@ -315,6 +315,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
 
     // Genesis
     genesis::init_genesis(&chain, cfg.genesis_file.as_deref(), cfg.genesis_timestamp)?;
+    // Restart-loss: reload the pending pool and outbox this node held when it stopped.
+    let (rp, ro) = chain.restore_pools();
+    if rp + ro > 0 { info!("restored {} pending entries and {} outbox entries from before restart", rp, ro); }
 
     // One-time backfill: populate txglobal: from existing txhist: entries so historical
     // transactions appear in the explorer even before the txglobal index existed.
@@ -1161,6 +1164,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                     ob.retain(|(_, _, first)| cur <= first.saturating_add(chain::OUTBOX_EPOCHS));
                     ob.clone()
                 };
+                chain_c.outbox_persist();
                 for (entry, sig, _) in items {
                     let Ok(entry_val) = serde_json::to_value(&entry) else { continue };
                     // "resend" varies the bytes so gossipsub does not drop it as a duplicate.
@@ -1691,7 +1695,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                 return;
             }
             chain_c.push_pending(hw_entry.clone(), sig.clone());
-            chain_c.outbox.lock().push((hw_entry.clone(), sig.clone(), chain_c.current_epoch()));
+            chain_c.outbox_push(hw_entry.clone(), sig.clone(), chain_c.current_epoch());
             let _ = txb.send((hw_entry, sig));
             info!("[hardware] signed claim queued and gossiped");
         });

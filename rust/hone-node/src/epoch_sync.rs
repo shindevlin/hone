@@ -261,6 +261,29 @@ mod tests {
         assert_eq!(a.drain_pending_for_seal(act - 1).len(), 1);
     }
 
+    /// Restart mid-epoch: what was pending (a node's own heartbeat gossiped just before the
+    /// stop) and its outbox come back on a fresh Chain over the same store.
+    #[test]
+    fn pending_pool_and_outbox_survive_restart() {
+        let sk = SigningKey::from_bytes(&[0x42; 32]);
+        let d = tempfile::tempdir().unwrap();
+        let st = crate::store::Store::open(d.path()).unwrap();
+        let (e1, s1) = xfer(&sk, 1, 500);
+        {
+            let a = Chain::new(st.clone(), "a".into(), "hone-test".into());
+            a.push_pending(e1.clone(), s1.clone());
+            a.outbox_push(e1.clone(), s1.clone(), 500);
+        }
+        let b = Chain::new(st.clone(), "a".into(), "hone-test".into());
+        assert_eq!(b.pending_count(), 0);
+        assert_eq!(b.restore_pools(), (1, 1));
+        assert_eq!(b.pending_count(), 1);
+        assert_eq!(b.drain_pending_sorted()[0].0.hash(), e1.hash());
+        // A drained pool stays drained across another restart.
+        let c = Chain::new(st.clone(), "a".into(), "hone-test".into());
+        assert_eq!(c.restore_pools().0, 0);
+    }
+
     #[test]
     fn sync_peers_from_env_or_bootstrap() {
         std::env::remove_var("HONE_SYNC_PEERS");
