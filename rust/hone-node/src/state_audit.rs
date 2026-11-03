@@ -10,6 +10,7 @@ pub fn run(dir: &str, accounts: &[String]) -> anyhow::Result<()> {
     // (account, role) -> (count, sum, first_epoch, last_epoch)
     let mut agg: BTreeMap<(String, String), (u64, u128, u64, u64)> = BTreeMap::new();
     let mut per_epoch: BTreeMap<String, Vec<(u64, u64)>> = BTreeMap::new();
+    let mut all_rewards: Vec<(String, String, u64, u64)> = Vec::new();
     let want = |a: &str| accounts.is_empty() || accounts.iter().any(|x| x == a);
     store.for_each_meta_prefix("txhist:", |key, val| {
         // txhist:{account}:{epoch:016x}:{role}:{hash}
@@ -23,6 +24,7 @@ pub fn run(dir: &str, accounts: &[String]) -> anyhow::Result<()> {
         if parts[3] == "storage_reward" {
             per_epoch.entry(parts[1].to_owned()).or_default().push((epoch, amount));
         }
+        if parts[3].ends_with("_reward") { all_rewards.push((parts[3].to_owned(), parts[1].to_owned(), epoch, amount)); }
     });
     // STATE_AUDIT_DUMP=<file>: one CSV line per storage reward (r,account,epoch,amount) and
     // per storage_beat row (b,node,epoch,bytes_proven) — for a per-epoch cross-node diff.
@@ -30,6 +32,7 @@ pub fn run(dir: &str, accounts: &[String]) -> anyhow::Result<()> {
         use std::io::Write;
         let mut f = std::io::BufWriter::new(std::fs::File::create(&path)?);
         for (a, v) in &per_epoch { for (e, x) in v { writeln!(f, "r,{a},{e},{x}")?; } }
+        for (role, a, e, x) in &all_rewards { writeln!(f, "w,{role}|{a},{e},{x}")?; }
         store.for_each_meta_prefix("storage_beat:", |key, val| {
             let p: Vec<&str> = key.splitn(3, ':').collect();
             if p.len() < 3 { return; }
