@@ -77,6 +77,11 @@ pub struct Stored {
     pub vote: Vote,
     pub salt: String,
     pub leaf: String,
+    /// Not part of the leaf; returned in reveals so the node can re-check abstain and the model.
+    #[serde(default)]
+    pub t95_q8: u8,
+    #[serde(default)]
+    pub model_hash: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -154,6 +159,13 @@ impl Store {
         self.dir.join(format!("{e}.commit"))
     }
 
+    /// Highest sealed epoch (0 if none).
+    pub fn max_sealed(&self) -> u64 {
+        fs::read_dir(&self.dir).into_iter().flatten().flatten()
+            .filter_map(|e| e.file_name().to_string_lossy().strip_suffix(".commit").and_then(|x| x.parse().ok()))
+            .max().unwrap_or(0)
+    }
+
     pub fn commit(&self, e: u64) -> Option<Commit> {
         serde_json::from_slice(&fs::read(self.commit_path(e)).ok()?).ok()
     }
@@ -221,8 +233,11 @@ impl Store {
         let leaves: Vec<[u8; 32]> = vs.iter().filter_map(|s| unhex32(&s.leaf).ok()).collect();
         let (root, proof) = merkle(&leaves, Some(idx));
         let s = &vs[idx];
+        let mut vote = serde_json::to_value(&s.vote).ok()?;
+        vote["t95_q8"] = serde_json::json!(s.t95_q8);
+        vote["model_hash"] = serde_json::json!(s.model_hash);
         Some(serde_json::json!({
-            "vote": s.vote, "salt": s.salt, "leaf": s.leaf, "root": hex(&root), "committed_root": c.root,
+            "vote": vote, "salt": s.salt, "leaf": s.leaf, "root": hex(&root), "committed_root": c.root,
             "proof": proof.iter().map(|(side, h)| serde_json::json!({"side": side.to_string(), "hash": hex(h)})).collect::<Vec<_>>(),
         }))
     }
@@ -341,7 +356,7 @@ mod tests {
         let mut s = Store::open(&d).unwrap();
         let v = Vote { entry_hash: "ab".repeat(32), epoch: 5, task: "peer_behavior".into(), option: "normal".into(), conf_q8: 200 };
         let salt = [7u8; 32];
-        let st = Stored { leaf: hex(&v.leaf(&salt).unwrap()), salt: hex(&salt), vote: v };
+        let st = Stored { leaf: hex(&v.leaf(&salt).unwrap()), salt: hex(&salt), vote: v, t95_q8: 145, model_hash: "mh".into() };
         s.append(5, &[st.clone()]).unwrap();
         OpenOptions::new().append(true).open(d.join("5.votes")).unwrap().write_all(&[0u8; 40]).unwrap();
         assert_eq!(s.votes(5).len(), 1);

@@ -175,10 +175,17 @@ pub fn serve(d: Decider, bind: &str, votes_dir: &std::path::Path) -> Result<()> 
                 (200, json!({"ms_per_vote_p50": p50, "samples": v.len(), "epoch_ms": epoch_ms, "budget_fraction": frac,
                     "concurrency": 1, "votes_per_epoch": p50.map(|p| ((epoch_ms * frac) / p.max(1.0)).floor() as u64).unwrap_or(0)}))
             }
-            ("GET", u) if u.starts_with("/commit/") => match u[8..].parse::<u64>() {
+            ("POST", u) if u.starts_with("/commit/") => match u[8..].parse::<u64>() {
                 Ok(e) => match store.seal(e, &model_hash) {
                     Ok(c) => (200, serde_json::to_value(c).unwrap_or_default()),
                     Err(err) => (500, json!({"error": err.to_string()})),
+                },
+                Err(_) => (400, json!({"error": "bad epoch"})),
+            },
+            ("GET", u) if u.starts_with("/commit/") => match u[8..].parse::<u64>() {
+                Ok(e) => match store.commit(e) {
+                    Some(c) => (200, serde_json::to_value(c).unwrap_or_default()),
+                    None => (404, json!({"error": "epoch not sealed"})),
                 },
                 Err(_) => (400, json!({"error": "bad epoch"})),
             },
@@ -240,8 +247,12 @@ fn vote(d: &Decider, reg: &Registry, store: &mut jury::Store, model_hash: &str,
     if req.items.len() > jury::MAX_ITEMS {
         bail!("at most {} items per call", jury::MAX_ITEMS);
     }
-    if store.commit(req.epoch).is_some() {
-        return Ok((409, json!({"error": format!("epoch {} is sealed", req.epoch)})));
+    let sealed = store.max_sealed();
+    if req.epoch <= sealed {
+        return Ok((409, json!({"error": format!("epoch {} is at or below the highest sealed epoch {sealed}", req.epoch)})));
+    }
+    if store.newest > 0 && req.epoch > store.newest + 2 {
+        bail!("epoch {} is more than 2 ahead of the newest epoch seen ({})", req.epoch, store.newest);
     }
     let t0 = std::time::Instant::now();
     let (mut votes, mut errors, mut fresh) = (vec![], vec![], vec![]);
@@ -268,7 +279,8 @@ fn vote(d: &Decider, reg: &Registry, store: &mut jury::Store, model_hash: &str,
             let v = jury::Vote { entry_hash: eh.clone(), epoch: req.epoch, task: it.task.clone(), option,
                                  conf_q8: (conf * 255.0).round().clamp(0.0, 255.0) as u8 };
             let salt = jury::salt()?;
-            let s = jury::Stored { leaf: jury::hex(&v.leaf(&salt)?), salt: jury::hex(&salt), vote: v };
+            let s = jury::Stored { leaf: jury::hex(&v.leaf(&salt)?), salt: jury::hex(&salt), vote: v,
+                                   t95_q8: (th * 255.0).round().clamp(0.0, 255.0) as u8, model_hash: model_hash.to_string() };
             fresh.push(s.clone());
             Ok(s)
         })();

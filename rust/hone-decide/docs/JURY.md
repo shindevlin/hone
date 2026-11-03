@@ -20,7 +20,10 @@ Request:
   - `features` is rendered as sorted-key JSON and becomes the model context. The task's fixed
     question and candidates come from the registry (`GET /tasks`). Nothing else reaches the model.
 - **Revoting:** an entry already voted in this epoch returns the stored vote (same leaf). There is no revote.
-- **Sealed epochs:** voting on a sealed epoch returns `409`.
+- **Epoch guards:** an epoch at or below the highest sealed epoch returns `409`. An epoch more than 2 ahead
+  of the newest epoch seen returns `400`.
+- **Errors:** a bad item never fails the call; it goes in `errors[]`. Any non-200 response for the whole call,
+  or a timeout, means the node skips voting that epoch.
 
 Response:
 ```json
@@ -44,14 +47,18 @@ tree       = leaves sorted by entry_hash; parent = sha256(0x01 || left || right)
              an odd last node is carried up unchanged; empty epoch root = 32 zero bytes
 ```
 
-## GET /commit/{epoch}
-Returns `{"epoch", "root", "n_votes", "model_hash", "sealed": true}`.
-- The **first call seals** the epoch: the commit file is written atomically and fsynced, and no more votes are accepted.
-- Later calls return the same commit.
-- The node calls this once its epoch is over, then publishes `DECIDE_COMMIT`.
+## POST /commit/{epoch} and GET /commit/{epoch}
+Both return `{"epoch", "root", "n_votes", "model_hash", "sealed": true}`.
+- **POST seals** the epoch: the commit file is written atomically and fsynced, and no more votes are accepted.
+  It is idempotent: repeats return the same root.
+- **GET is read-only:** it returns 404 until the epoch is sealed, and the node may poll it.
+- The node calls POST once its epoch is over, then publishes `DECIDE_COMMIT`.
 
 ## GET /reveal/{epoch}/{entry_hash}
-Returns `{"vote": {"entry_hash", "epoch", "task", "option", "conf_q8"}, "salt", "leaf", "proof": [{"side": "L"|"R", "hash"}], "root", "committed_root"}`.
+Returns `{"vote": {"entry_hash", "epoch", "task", "option", "conf_q8", "t95_q8", "model_hash"}, "salt", "leaf", "proof": [{"side": "L"|"R", "hash"}], "root", "committed_root"}`.
+- `t95_q8` and `model_hash` are not part of the leaf. They are returned so the node can re-check abstain and
+  compare against `DECIDE_MODEL_HASH`.
+- All hashes are lowercase hex, 64 chars.
 - `side` is the sibling's position: `L` means `acc = sha256(01 || sibling || acc)`.
 - Reference verifier: `py/jury_verify.py`.
 - Returns 404 when the epoch is unsealed, was never voted, or has been pruned.
