@@ -13,14 +13,21 @@ import uniffi.hone_miner.NodeConfig
 
 /**
  * Live-chain parameters for chain "hone" (30 s epochs, genesis 2026-05-01).
- * Bootstrap is grouchly only: it is the sturdiest LAN node, and nebra has a
- * known gossip-reconnect bug we do not want a roaming phone to poke.
+ * Bootstrap: grouchly (LAN, then tailscale) and the public ferryvps relay node so a
+ * roaming phone reaches the mesh from anywhere. nebra is left out: it has a known
+ * gossip-reconnect bug we do not want a roaming phone to poke.
  */
 object LiveChain {
     const val CHAIN_ID = "hone"
     const val GENESIS_TS_MS = 1_783_191_600_000L
     val BOOTSTRAP = listOf(
+        // grouchly on the home LAN (first: fastest when home)
         "/ip4/192.168.68.72/tcp/6942/p2p/12D3KooWJSS73VUJwKHRfgEZHRkkhRFs6HwqPn3BoPkEAipmDTNb",
+        // grouchly over tailscale (when the phone is on the tailnet)
+        "/ip4/100.90.146.17/tcp/6942/p2p/12D3KooWJSS73VUJwKHRfgEZHRkkhRFs6HwqPn3BoPkEAipmDTNb",
+        // ferryvps: public non-clock relay node, reachable from anywhere
+        "/dns4/honemesh.net/tcp/6942/p2p/12D3KooWQnJPfAYbktWXv1zFoGCQAz4v7qWthLTdrD7ey5JPDCUt",
+        "/ip4/162.35.10.46/tcp/6942/p2p/12D3KooWQnJPfAYbktWXv1zFoGCQAz4v7qWthLTdrD7ey5JPDCUt",
     )
     const val P2P_PORT = 6943
 }
