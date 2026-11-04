@@ -465,7 +465,14 @@ user's **own** cameras into fixed bird and sound stations.
   leave the add-on.
 - **One seat per camera.** Each camera is a sensor seat `owner@<station key>` under the
   owner's account. It is paid under the usefulness rules with deferred payout (Section 6.4).
-- **Quality tiers A, B and C** are set by the camera's audio sample rate.
+- **Quality tiers** are set by the camera's audio:
+  - **A:** 32 kHz or more, wideband.
+  - **B:** 16 to 24 kHz.
+  - **C:** 8 kHz (G.711), low-band species only.
+
+  Every report carries its tier, and per-species thresholds take the tier into account.
+- **Enrolment probes the stream.** When a camera is enrolled, the add-on measures its
+  codec, sample rate, bandwidth and noise floor.
 - **Low trust until corroborated.** A new station's claims stay at low trust until
   independent owners corroborate them.
 - **Owned cameras only.** The add-on connects only to cameras the user owns. Access to other
