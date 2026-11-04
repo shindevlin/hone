@@ -146,6 +146,23 @@ fn clock_key_signed(chain: &Chain, account: &str, entry: &LedgerEntry, sig_hex: 
         .unwrap_or(false)
 }
 
+/// The `decide` device-seat gate (test-overridable).
+pub fn decide_device_seats_epoch() -> u64 {
+    #[cfg(test)]
+    if let Some(v) = TEST_SEATS_EPOCH.with(|c| c.get()) { return v; }
+    hone_types::DECIDE_DEVICE_SEATS_EPOCH
+}
+#[cfg(test)]
+thread_local! {
+    pub static TEST_SEATS_EPOCH: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// `signed_by` is a device seat `owner@<pubkey hex>` and `sig_hex` verifies under that key.
+pub fn seat_key_signed(chain: &Chain, signed_by: &str, entry: &LedgerEntry, sig_hex: Option<&str>) -> bool {
+    let Some((_, pk)) = hone_types::parse_device_clock_id(signed_by) else { return false };
+    sig_hex.is_some() && verify_against_pubkey(chain, pk, entry, sig_hex).is_ok()
+}
+
 /// Node-originated entries: the account's registered clock (node) key may sign them from
 /// NODE_ENTRY_CLOCK_SIG_EPOCH on; otherwise the account's posting key as before.
 fn check_node_signature(chain: &Chain, account: &str, entry: &LedgerEntry, sig_hex: Option<&str>) -> Result<()> {
@@ -1400,7 +1417,7 @@ pub fn validate_and_apply(
         }
 
         // ── Node Role Stake / Unstake ─────────────────────────────────────────
-        LedgerEntry::NodeRoleStake { node, role, staker, signed_by, nonce, amount, .. } => {
+        LedgerEntry::NodeRoleStake { node, role, staker, signed_by, nonce, amount, epoch, .. } => {
             let _guard = chain.write_lock.lock();
             let current_epoch = chain.current_epoch();
             if signed_by != staker
@@ -1412,8 +1429,10 @@ pub fn validate_and_apply(
                 bail!("stake amount must be positive");
             }
             if let Some((owner, _)) = hone_types::parse_device_clock_id(node) {
-                if role.as_str() != "clock" {
-                    bail!("device ids ('{}') are only valid for the clock role", node);
+                let seat_decide = role.as_str() == "decide" && *epoch >= decide_device_seats_epoch();
+                if role.as_str() != "clock" && !seat_decide {
+                    bail!("device ids ('{}') are only valid for the clock role (decide from epoch {})",
+                        node, decide_device_seats_epoch());
                 }
                 if staker.as_str() != owner {
                     bail!("only '{}' can stake on its device clock '{}'", owner, node);
@@ -2306,7 +2325,10 @@ pub fn validate_and_apply(
             let _guard = chain.write_lock.lock();
             crate::decide_jury::check(chain, entry)?;
             let node_entry = !matches!(entry, LedgerEntry::DecideChallenge { .. });
-            if !(node_entry && clock_key_signed(chain, signed_by, entry, sig_hex)) {
+            // A device seat signs its own commits and reveals with its seat key (the key in
+            // its id, the one it seals with); the owner's active key is not needed.
+            if !(node_entry && (clock_key_signed(chain, signed_by, entry, sig_hex)
+                                || seat_key_signed(chain, signed_by, entry, sig_hex))) {
                 check_value_signature(chain, signed_by, entry, sig_hex)?;
             }
             chain.apply_entry(entry)?;
@@ -3696,6 +3718,50 @@ mod tests {
         let msg = canonical_signing_message(entry, "hone-testnet").unwrap();
         let sig = sk.sign(msg.as_bytes());
         hex::encode(sig.to_bytes())
+    }
+
+    fn seat_stake(node: &str, staker: &str, epoch: u64) -> LedgerEntry {
+        LedgerEntry::NodeRoleStake { node: node.into(), role: "decide".into(), staker: staker.into(),
+            amount: 100_000_000_000, epoch, nonce: 1, signed_by: staker.into() }
+    }
+
+    #[test]
+    fn decide_device_seat_stake_is_gated_and_owner_only() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "josh", 1_000_000_000_000);
+        fund(&chain, "natoshisakamoto", 1_000_000_000_000);
+        let ak = register_key(&chain, "josh", "active", 0x51);
+        let nk = register_key(&chain, "natoshisakamoto", "active", 0x52);
+        let seat_pk = hex::encode(SigningKey::from_bytes(&[0x53; 32]).verifying_key().to_bytes());
+        let seat = format!("josh@{seat_pk}");
+        // Before the gate: a seat may only hold the clock role.
+        TEST_SEATS_EPOCH.with(|c| c.set(Some(10)));
+        let e = seat_stake(&seat, "josh", 0);
+        let err = validate_and_apply(&chain, &e, Some(&sign(&ak, &e))).unwrap_err().to_string();
+        assert!(err.contains("only valid for the clock role"), "{err}");
+        // After the gate: accepted when the owner stakes with its active key...
+        TEST_SEATS_EPOCH.with(|c| c.set(Some(0)));
+        validate_and_apply(&chain, &e, Some(&sign(&ak, &e))).expect("owner seat stake after the gate");
+        assert!(crate::decide_jury::decide_nodes(&chain).contains(&seat));
+        // ...and rejected when anyone else stakes on the seat.
+        let w = seat_stake(&seat, "natoshisakamoto", 0);
+        assert!(validate_and_apply(&chain, &w, Some(&sign(&nk, &w))).is_err(), "wrong staker must be rejected");
+        TEST_SEATS_EPOCH.with(|c| c.set(None));
+    }
+
+    #[test]
+    fn seat_key_verifies_its_own_decide_commit() {
+        let (chain, _d) = make_chain();
+        let sk = SigningKey::from_bytes(&[0x61; 32]);
+        let seat = format!("josh@{}", hex::encode(sk.verifying_key().to_bytes()));
+        let c = LedgerEntry::DecideCommit { node: seat.clone(), epoch: 1, root: "r".into(), n_votes: 1,
+            model_hash: "m".into(), capacity_per_100: 100, signed_by: seat.clone(), signature: None };
+        assert!(seat_key_signed(&chain, &seat, &c, Some(&sign(&sk, &c))));
+        let other = SigningKey::from_bytes(&[0x62; 32]);
+        assert!(!seat_key_signed(&chain, &seat, &c, Some(&sign(&other, &c))));
+        assert!(!seat_key_signed(&chain, &seat, &c, None));
+        // A plain account is never a seat.
+        assert!(!seat_key_signed(&chain, "josh", &c, Some(&sign(&sk, &c))));
     }
 
     // ── is_system_entry ───────────────────────────────────────────────────────

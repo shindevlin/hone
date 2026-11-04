@@ -102,8 +102,10 @@ pub fn decide_nodes(chain: &Chain) -> Vec<String> {
         let amt = serde_json::from_slice::<serde_json::Value>(&v).ok()
             .and_then(|j| j["amount"].as_u64().or_else(|| j.as_u64())).unwrap_or(1);
         if amt == 0 { continue; }
+        // Device seats (owner@pubkey) are decide nodes too once staked; a seat stake can
+        // only exist from DECIDE_DEVICE_SEATS_EPOCH (tx.rs).
         if let Some(node) = k.strip_prefix("role_stake:decide:").and_then(|r| r.split(':').next()) {
-            if hone_types::parse_device_clock_id(node).is_none() { set.insert(node.to_owned()); }
+            set.insert(node.to_owned());
         }
     }
     set.into_iter().collect()
