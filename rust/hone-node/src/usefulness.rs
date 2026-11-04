@@ -200,10 +200,15 @@ fn settle(chain: &Chain, cell: &str, m: &str, window: u64, proven: bool, epoch: 
     }
 }
 
+/// The scoring gate. Tests exercise the rule as if it were active from 352,700.
+pub fn scoring_epoch() -> u64 {
+    if cfg!(test) { 352_700 } else { hone_types::USEFULNESS_SCORING_EPOCH }
+}
+
 /// Per quorum seal (deterministic): claims whose window passed with no contradiction are
 /// proven. Called from epoch_sync::epoch_tick.
 pub fn release_due(chain: &Chain, epoch: u64) -> usize {
-    if epoch < hone_types::USEFULNESS_SCORING_EPOCH { return 0; }
+    if epoch < scoring_epoch() { return 0; }
     let mut n = 0;
     for (k, _) in chain.store.state_scan_prefix("uclaim_due:") {
         let rest = &k["uclaim_due:".len()..];
