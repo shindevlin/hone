@@ -123,8 +123,10 @@ struct NatState {
     reserved: HashSet<PeerId>,
     /// The address we dialed each outbound peer on (used as its relay address).
     dialed: HashMap<PeerId, Multiaddr>,
-    /// LAN peers seen by mDNS: peer -> one dialable address.
-    lan: HashMap<PeerId, Multiaddr>,
+    /// LAN peers seen by mDNS: peer -> its LAN TCP addresses.
+    lan: HashMap<PeerId, Vec<Multiaddr>>,
+    /// Last mDNS / LAN dial per peer (throttle: one dial per peer per 20 s).
+    lan_dialed: HashMap<PeerId, std::time::Instant>,
     /// Relays we hold a reservation on: relay -> its circuit base address
     /// (`.../p2p/<relay>/p2p-circuit`). Peers reserved on the same relay are reachable as
     /// `<base>/p2p/<peer>`, which is how two NAT'd nodes behind one seed first meet.
@@ -562,7 +564,7 @@ impl Network {
                     }
                 }
                 _ = peer_fill.tick() => {
-                    peer_fill_tick(&mut swarm, &nat);
+                    peer_fill_tick(&mut swarm, &mut nat);
                 }
                 _ = gossip_watch.tick() => {
                     gossip_watchdog(&mut swarm, &peer_cache, &mut gossip_strikes, &mut gossip_redial);
@@ -734,29 +736,25 @@ impl Network {
                 if self.config.isolated {
                     debug!("[isolated] ignoring {} mDNS-discovered peer(s)", peers.len());
                 } else {
-                    let mut best: HashMap<PeerId, Multiaddr> = HashMap::new();
                     for (peer_id, addr) in peers {
                         info!("mDNS: discovered {} at {}", peer_id, addr);
                         swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                         let plain_tcp = addr.iter().any(|p| matches!(p, Protocol::Tcp(_)))
-                            && !addr.iter().any(|p| matches!(p, Protocol::Ws(_) | Protocol::Wss(_)));
-                        if plain_tcp || !best.contains_key(&peer_id) { best.insert(peer_id, addr); }
+                            && !addr.iter().any(|p| matches!(p, Protocol::Ws(_) | Protocol::Wss(_)))
+                            && !is_local_only(&addr);
+                        if plain_tcp {
+                            let v = nat.lan.entry(peer_id).or_default();
+                            if !v.contains(&addr) { v.push(addr); }
+                        }
                     }
-                    // One dial per peer on its LAN TCP address, with `Disconnected` rather
-                    // than `DisconnectedAndNotDialing`: a hung dial to another address of the
-                    // same peer (stale tailscale / WAN) must not block the LAN dial. That left
-                    // grouchly and beastly unlinked on 2026-11-04.
-                    for (peer_id, addr) in best {
-                        nat.lan.insert(peer_id, addr.clone());
-                        if swarm.is_connected(&peer_id) { continue; }
-                        info!("mDNS: dialing {} at {}", peer_id, addr);
-                        let _ = swarm.dial(
-                            DialOpts::peer_id(peer_id)
-                                .addresses(vec![addr])
-                                .condition(PeerCondition::Disconnected)
-                                .build(),
-                        );
-                    }
+                    // All of a peer's LAN TCP addresses in ONE dial (the swarm keeps the first
+                    // that connects), with `Disconnected` rather than
+                    // `DisconnectedAndNotDialing`: a hung dial to another address of the same
+                    // peer (stale tailscale / WAN) must not block the LAN dial. That left
+                    // grouchly and beastly unlinked on 2026-11-04. Throttled to one dial per
+                    // peer per 20 s so mDNS bursts do not open parallel connections.
+                    let pids: Vec<PeerId> = nat.lan.keys().cloned().collect();
+                    for peer_id in pids { lan_dial(swarm, nat, peer_id); }
                 }
             }
             SwarmEvent::Behaviour(HoneBehaviourEvent::Mdns(
@@ -1048,14 +1046,20 @@ fn dial_once(swarm: &mut libp2p::Swarm<HoneBehaviour>, addr: Multiaddr) {
 /// Kademlia-known peers we are not connected to (their addresses may be relay circuit
 /// addresses), up to 24 connections. Two NAT'd nodes that share only a seed meet this
 /// way, and DCUtR then upgrades the relayed link to a direct one when it can.
-fn peer_fill_tick(swarm: &mut libp2p::Swarm<HoneBehaviour>, nat: &NatState) {
-    for (pid, addr) in &nat.lan {
-        if !swarm.is_connected(pid) {
-            debug!("peer fill: LAN redial {}", pid);
-            let _ = swarm.dial(DialOpts::peer_id(*pid).addresses(vec![addr.clone()])
-                .condition(PeerCondition::Disconnected).build());
-        }
-    }
+fn lan_dial(swarm: &mut libp2p::Swarm<HoneBehaviour>, nat: &mut NatState, pid: PeerId) {
+    if swarm.is_connected(&pid) { return; }
+    let Some(addrs) = nat.lan.get(&pid).cloned() else { return };
+    let now = std::time::Instant::now();
+    if nat.lan_dialed.get(&pid).map_or(false, |t| now.duration_since(*t) < Duration::from_secs(20)) { return; }
+    nat.lan_dialed.insert(pid, now);
+    info!("mDNS: dialing {} ({} LAN address(es))", pid, addrs.len());
+    let _ = swarm.dial(DialOpts::peer_id(pid).addresses(addrs)
+        .condition(PeerCondition::Disconnected).build());
+}
+
+fn peer_fill_tick(swarm: &mut libp2p::Swarm<HoneBehaviour>, nat: &mut NatState) {
+    let pids: Vec<PeerId> = nat.lan.keys().cloned().collect();
+    for pid in pids { lan_dial(swarm, nat, pid); }
     if swarm.connected_peers().count() >= 24 { return; }
     let me = *swarm.local_peer_id();
     let mut todo: Vec<(PeerId, Vec<Multiaddr>)> = Vec::new();
