@@ -13,14 +13,16 @@ import kotlinx.coroutines.flow.flow
 data class NodeSnapshot(
     val running: Boolean,
     val statusText: String,
-    val epoch: ULong,
-    val balanceHunits: ULong,
+    val epoch: ULong?,            // chain tip (public node API); null until it answers
+    val balanceHunits: ULong?,    // chain balance of the seat account; null until it answers
     val peers: Int,
     val isMiner: Boolean,
     val isClock: Boolean,
+    val seat: String? = null,        // "josh@3f5a…" when this device runs a witness seat
+    val sealedToday: Long? = null,   // epochs this seat sealed today (UTC), from chain sealed_by
 ) {
     /** 1 HONE = 10^10 hunits (canonical HUNITS_PER_HONE). */
-    val balanceHone: Double get() = balanceHunits.toDouble() / 10_000_000_000.0
+    val balanceHone: Double? get() = balanceHunits?.let { it.toDouble() / 10_000_000_000.0 }
 }
 
 /**

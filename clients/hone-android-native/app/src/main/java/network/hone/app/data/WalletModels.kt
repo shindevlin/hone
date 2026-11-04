@@ -8,6 +8,7 @@ data class WalletIdentity(
     val address: String,
     val balanceHunits: ULong,
     val delegatedHunits: ULong,
+    val balanceKnown: Boolean = true,   // false until the chain has answered
 ) {
     val balanceHone: Double get() = balanceHunits.toDouble() / 10_000_000_000.0
     val delegatedHone: Double get() = delegatedHunits.toDouble() / 10_000_000_000.0

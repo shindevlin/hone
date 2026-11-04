@@ -19,8 +19,9 @@ API:
   POST /api/flipper/frames                       signed batch of Flipper-signed commits
   GET  /api/flipper/frames?since=<t_min>&limit=&owner=
   GET  /api/flipper/map?res=5|7
+  GET  /api/devices/seals/<node id>              sealed epochs today (from finalized sealed_by)
 """
-import hmac, json, os, re, time, urllib.request
+import hmac, json, os, re, time, urllib.error, urllib.request
 
 import h3
 from nacl.signing import VerifyKey
@@ -333,3 +334,77 @@ def get_frames_map(args):
         c = h3.cell_to_parent(cell, res) if h3.get_resolution(cell) > res else cell
         agg[c] = agg.get(c, 0) + n
     return [{"cell": c, "frames": n} for c, n in agg.items()]
+
+
+# ── sealed-epoch counts per seat (from finalized epochs' sealed_by on the local node) ──
+# GET /api/devices/seals/<node id>  e.g. josh@3f5a20e4...  -> sealed epochs today (UTC).
+# A background thread walks finalized epochs on the ferryvps node (127.0.0.1:4242) and counts
+# each sealer per UTC day, so phones show a chain-derived number, never a local counter.
+GENESIS_TS_MS = 1_783_191_600_000
+EPOCH_MS = 30_000
+NODE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}(@[0-9a-f]{64})?$")
+_seal_state = {"cursor": None, "tip": None, "err": None}
+
+
+def _node_json(path):
+    with urllib.request.urlopen(NODE + path, timeout=5) as r:
+        return json.loads(r.read())
+
+
+def _day(ms):
+    return time.strftime("%Y-%m-%d", time.gmtime(ms / 1000))
+
+
+def _seals_loop():
+    import threading  # noqa: F401  (thread started by start_seals)
+    with _lock:
+        _db.execute("CREATE TABLE IF NOT EXISTS seal_counts(day TEXT, node TEXT, n INTEGER, PRIMARY KEY(day, node))")
+        _db.execute("CREATE TABLE IF NOT EXISTS seal_cursor(k TEXT PRIMARY KEY, epoch INTEGER)")
+        r = _db.execute("SELECT epoch FROM seal_cursor WHERE k='done'").fetchone()
+        _db.commit()
+    now_ms = int(time.time() * 1000)
+    day0 = (now_ms // 86_400_000) * 86_400_000
+    first_today = (day0 - GENESIS_TS_MS) // EPOCH_MS
+    done = r[0] if r else first_today - 1
+    while True:
+        try:
+            tip = int(_node_json("/api/node/info")["epoch"])
+            _seal_state["tip"] = tip
+            hi = min(tip - 2, done + 400)       # finalized lag; catch up in chunks
+            for e in range(done + 1, hi + 1):
+                try:
+                    j = _node_json(f"/api/epoch/{e}")
+                except urllib.error.HTTPError:
+                    j = {}
+                if j.get("finalized"):
+                    day = _day(int(j.get("finalized_at") or (GENESIS_TS_MS + e * EPOCH_MS)))
+                    with _lock:
+                        for s in set(j.get("sealed_by") or []):
+                            _db.execute("INSERT INTO seal_counts VALUES(?,?,1) ON CONFLICT(day,node) DO UPDATE SET n=n+1",
+                                        (day, str(s)[:128]))
+                        _db.commit()
+                done = e
+                with _lock:
+                    _db.execute("INSERT OR REPLACE INTO seal_cursor VALUES('done', ?)", (done,))
+                    _db.execute("DELETE FROM seal_counts WHERE day < ?", (_day(time.time() * 1000 - 3 * 86_400_000),))
+                    _db.commit()
+            _seal_state.update(cursor=done, err=None)
+        except Exception as ex:
+            _seal_state["err"] = str(ex)[:120]
+        time.sleep(5 if _seal_state["tip"] and done < _seal_state["tip"] - 10 else 30)
+
+
+def start_seals():
+    import threading
+    threading.Thread(target=_seals_loop, name="seals", daemon=True).start()
+
+
+def get_seals(node_id):
+    if not NODE_ID.match(node_id):
+        raise ValueError("node id: account or account@<64 hex>")
+    today = _day(time.time() * 1000)
+    with _lock:
+        r = _db.execute("SELECT n FROM seal_counts WHERE day=? AND node=?", (today, node_id)).fetchone()
+    return {"node": node_id, "day": today, "sealed_today": r[0] if r else 0,
+            "counted_to_epoch": _seal_state["cursor"], "chain_tip": _seal_state["tip"],
+            "source": "sealed_by of finalized epochs"}

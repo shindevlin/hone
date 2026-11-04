@@ -79,7 +79,10 @@ fun SensorsScreen() {
                 Text("Sensor node", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     when {
-                        running -> "running · read-only capture"
+                        running -> network.hone.app.telemetry.Telemetry.let { t ->
+                            val a = t.sensorAccepted.get(); val r = t.sensorRejected.get()
+                            if (a + r == 0L) "running" else "running · $a commits accepted by the chain, $r refused"
+                        }
                         else -> "${capture.availableCount()} sensors ready"
                     },
                     style = MaterialTheme.typography.labelSmall,

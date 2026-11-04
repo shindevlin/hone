@@ -180,6 +180,7 @@ class ChainWalletRepository(context: Context) : WalletRepository {
             address = account,
             balanceHunits = 0UL,
             delegatedHunits = 0UL,
+            balanceKnown = false,
         )
     )
     override val identity: StateFlow<WalletIdentity> = _identity.asStateFlow()
@@ -207,6 +208,7 @@ class ChainWalletRepository(context: Context) : WalletRepository {
         }
         _identity.value = _identity.value.copy(
             balanceHunits = bal,
+            balanceKnown = true,
             delegatedHunits = staked ?: _identity.value.delegatedHunits,
         )
         ChainHttp.history(account)?.let { _history.value = it }

@@ -261,6 +261,8 @@ def verify(body):
 
 
 devices.init(db, lock, posting_key)
+if os.environ.get("HONE_SEALS", "1") == "1":
+    devices.start_seals()
 
 
 def add_sighting(body):
@@ -573,6 +575,9 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/devices/status" or path.startswith("/api/devices/status/"):
                 out = devices.get_status(path, a, self.headers)
                 return self._send(200, out) if out is not None else self._send(404, {"error": "not found"})
+            m = re.match(r"^/api/devices/seals/([^/]+)$", path)
+            if m:
+                return self._send(200, devices.get_seals(unquote(m.group(1))))
             if path == "/api/devices/admin/unbound":
                 if not devices.admin(self.headers):
                     return self._send(403, {"error": "forbidden"})

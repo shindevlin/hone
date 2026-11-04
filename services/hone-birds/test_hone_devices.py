@@ -95,6 +95,9 @@ def main():
         c, r = call("POST", "/api/flipper/frames", env(dict(fb, device=s2[:16], frames=[good]), seat2, "seat")); assert r["duplicates"] == 1, r
         c, r = call("GET", "/api/flipper/frames"); assert len(r) == 1 and r[0]["heard_by"] == 2 and r[0]["cells"] == [cell7], r
         c, r = call("GET", "/api/flipper/map?res=5"); assert r[0]["frames"] == 1, r
+        # 8. sealed-epoch counts endpoint (node unreachable in the test: zero, but well-formed)
+        c, r = call("GET", "/api/devices/seals/testacct@" + seat_pub); assert c == 200 and r["sealed_today"] == 0, r
+        c, r = call("GET", "/api/devices/seals/Bad%20Id"); assert c == 400, r
         print("ALL INDEXER TESTS PASSED")
     finally:
         srv.terminate()

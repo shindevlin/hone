@@ -59,29 +59,11 @@ private fun Header(s: NodeSnapshot) {
         Text("HONE", style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.weight(1f))
-        StatusPill(running = s.running, text = s.statusText)
-    }
-}
-
-@Composable
-private fun StatusPill(running: Boolean, text: String) {
-    val dot = if (running) HoneGreen else HoneRed
-    // Gentle pulse on the live dot.
-    val infinite = rememberInfiniteTransition(label = "pulse")
-    val alpha by infinite.animateFloat(
-        initialValue = if (running) 0.4f else 1f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dotAlpha",
-    )
-    Row(
-        Modifier
-            .background(MaterialTheme.colorScheme.surface, CircleShape)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .semantics { contentDescription = "Node status: $text" },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(Modifier.size(8.dp).background(dot.copy(alpha = alpha), CircleShape))
-        Text(text, style = MaterialTheme.typography.labelLarge, color = HoneTextDim)
+        // Seat id + sealed epochs today from the chain; nothing when this device has no seat.
+        s.seat?.let { seat ->
+            Text(seat + (s.sealedToday?.let { " · $it sealed today" } ?: ""),
+                style = MaterialTheme.typography.labelLarge, color = HoneTextDim)
+        }
     }
 }
 
@@ -89,7 +71,7 @@ private fun StatusPill(running: Boolean, text: String) {
 private fun BalanceHero(s: NodeSnapshot) {
     // Smoothly animate the balance so rewards visibly count up.
     val animated by animateFloatAsState(
-        targetValue = s.balanceHone.toFloat(),
+        targetValue = (s.balanceHone ?: 0.0).toFloat(),
         animationSpec = tween(800, easing = FastOutSlowInEasing), label = "balance",
     )
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -97,7 +79,7 @@ private fun BalanceHero(s: NodeSnapshot) {
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                "%.6f".format(animated),
+                if (s.balanceHone == null) "—" else "%.6f".format(animated),
                 style = MaterialTheme.typography.displayLarge.copy(fontFamily = HoneMono),
                 color = MaterialTheme.colorScheme.onBackground,
             )
@@ -112,7 +94,7 @@ private fun BalanceHero(s: NodeSnapshot) {
 private fun StatGrid(s: NodeSnapshot) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard("EPOCH", s.epoch.toString(), Icons.Filled.Schedule,
+            StatCard("EPOCH", s.epoch?.toString() ?: "—", Icons.Filled.Schedule,
                 Modifier.weight(1f), accent = s.running)
             StatCard("PEERS", s.peers.toString(), Icons.Filled.Hub, Modifier.weight(1f))
         }

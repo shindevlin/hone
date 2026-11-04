@@ -52,7 +52,7 @@ fun WalletScreen(vm: WalletViewModel = viewModel()) {
         Text(identity.name, style = MaterialTheme.typography.titleMedium, color = HoneTextDim)
 
         Spacer(Modifier.height(20.dp))
-        BalanceCard(identity.balanceHone, identity.delegatedHone)
+        BalanceCard(identity.balanceHone.takeIf { identity.balanceKnown }, identity.delegatedHone)
 
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -87,7 +87,7 @@ private fun ActionSheet(onDismiss: () -> Unit, content: @Composable () -> Unit) 
 }
 
 @Composable
-private fun BalanceCard(balance: Double, delegated: Double) {
+private fun BalanceCard(balance: Double?, delegated: Double) {
     Column(
         Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
@@ -96,7 +96,7 @@ private fun BalanceCard(balance: Double, delegated: Double) {
         Text("BALANCE", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("%.6f".format(balance),
+            Text(if (balance == null) "—" else "%.6f".format(balance),
                 style = MaterialTheme.typography.displayLarge.copy(fontFamily = HoneMono),
                 color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.width(8.dp))

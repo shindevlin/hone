@@ -44,14 +44,22 @@ class BridgeNodeRepository(private val context: Context) : NodeRepository {
     override fun observe(): Flow<NodeSnapshot> = flow {
         // The embedded core is a light seat and does not hold the ledger, so the
         // balance comes from the chain over HTTP (the seat's account earns its rewards).
-        val account = runCatching {
-            context.filesDir.resolve("hone-node/witness_account").readText().trim()
-        }.getOrDefault("")
+        // Never a local counter: the embedded core's own balance/epoch can disagree with the chain.
         var chainBalance: ULong? = null
+        var chainEpoch: ULong? = null
+        var sealed: Long? = null
+        var account = ""
         var tick = 0
         while (true) {
-            if (account.isNotEmpty() && tick % 15 == 0) {
-                ChainHttp.balanceHunits(account)?.let { chainBalance = it }
+            if (tick % 15 == 0) {
+                account = runCatching {
+                    context.filesDir.resolve("hone-node/witness_account").readText().trim()
+                }.getOrDefault("")
+                chainBalance = if (account.isEmpty()) null else ChainHttp.balanceHunits(account) ?: chainBalance
+                ChainHttp.get("/api/node/info")?.let { b ->
+                    runCatching { org.json.JSONObject(b).getLong("epoch").toULong() }.getOrNull()?.let { chainEpoch = it }
+                }
+                sealed = if (account.isEmpty()) null else sealedToday("$account@${seatPub()}") ?: sealed
             }
             tick++
             val s = node.status()
@@ -59,16 +67,32 @@ class BridgeNodeRepository(private val context: Context) : NodeRepository {
                 NodeSnapshot(
                     running = s.running,
                     statusText = s.statusText,
-                    epoch = s.epoch,
-                    balanceHunits = chainBalance ?: s.balanceHunits,
+                    epoch = chainEpoch,
+                    balanceHunits = chainBalance,
                     peers = s.peers.toInt(),
                     isMiner = false,
                     isClock = s.witness,
+                    seat = if (account.isEmpty()) null else "$account@${seatPub().take(4)}…",
+                    sealedToday = sealed,
                 )
             )
             delay(2_000)
         }
     }.flowOn(Dispatchers.IO)
+
+    private fun seatPub(): String =
+        network.hone.app.sightings.RoleKeys.devicePub(context).joinToString("") { "%02x".format(it) }
+
+    /** Sealed epochs today for this seat, counted by the indexer from finalized epochs' sealed_by. */
+    private fun sealedToday(nodeId: String): Long? = runCatching {
+        val c = java.net.URL("https://honemesh.net/api/devices/seals/" + java.net.URLEncoder.encode(nodeId, "UTF-8"))
+            .openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 5_000; c.readTimeout = 8_000
+        try {
+            if (c.responseCode != 200) null
+            else org.json.JSONObject(c.inputStream.bufferedReader().use { it.readText() }).getLong("sealed_today")
+        } finally { c.disconnect() }
+    }.getOrNull()
 
     override suspend fun start(isMiner: Boolean, isClock: Boolean) {
         withContext(Dispatchers.IO) {

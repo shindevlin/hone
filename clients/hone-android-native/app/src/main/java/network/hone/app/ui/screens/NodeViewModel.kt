@@ -24,8 +24,8 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = NodeSnapshot(
-            running = false, statusText = "Idle", epoch = 0UL,
-            balanceHunits = 0UL, peers = 0, isMiner = true, isClock = true,
+            running = false, statusText = "Idle", epoch = null,
+            balanceHunits = null, peers = 0, isMiner = true, isClock = true,
         ),
     )
 
