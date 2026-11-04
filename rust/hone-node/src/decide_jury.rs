@@ -176,9 +176,18 @@ fn committed_entries(chain: &Chain, epoch: u64) -> Vec<LedgerEntry> {
 pub fn jury(seed_after: &[u8], entry_hash: &str, candidates: &[String]) -> (Vec<String>, Vec<String>) {
     let mut c: Vec<&String> = candidates.iter().collect();
     c.sort_by_key(|n| h(&[seed_after, b"jury", entry_hash.as_bytes(), n.as_bytes()]));
+    // Spec 3a: one owner's devices can't verify each other. At most one device per owner
+    // across the jury AND its backups (owner = the account before '@' of a device id).
+    let mut owners = BTreeSet::new();
+    let c: Vec<&String> = c.into_iter().filter(|n| owners.insert(owner_of(n).to_owned())).collect();
     let j: Vec<String> = c.iter().take(hone_types::DECIDE_JURY).map(|s| s.to_string()).collect();
     let b: Vec<String> = c.iter().skip(hone_types::DECIDE_JURY).take(hone_types::DECIDE_BACKUPS).map(|s| s.to_string()).collect();
     (j, b)
+}
+
+/// The account a decide node belongs to: `josh@<device>` -> `josh`, a plain node -> itself.
+pub fn owner_of(node: &str) -> &str {
+    hone_types::parse_device_clock_id(node).map(|(o, _)| o).unwrap_or(node)
 }
 
 /// S (node, entry) spot checks drawn by `seed` from a sample.
@@ -623,5 +632,21 @@ mod tests {
         assert_eq!(count(&[r("normal", 200), r("normal", 100), r("spam", 220)]), Outcome::Escalate9b);
         assert_eq!(count(&[r("normal", 200), r("normal", 210), r("spam", 220), r("spam", 220)]), Outcome::Escalate9b);
         assert_eq!(count(&[]), Outcome::Escalate9b);
+    }
+
+    #[test]
+    fn jury_takes_at_most_one_device_per_owner() {
+        let dev = |o: &str, i: usize| format!("{o}@{}", format!("{:064x}", i));
+        let mut cands: Vec<String> = (0..6).map(|i| dev("josh", i)).collect();
+        cands.push("josh".into());
+        cands.extend(["natoshisakamoto", "shindevlin", "alice", "bob", "carol"].iter().map(|s| s.to_string()));
+        for seed in 0u8..20 {
+            let (j, b) = jury(&[seed; 32], "e", &cands);
+            let all: Vec<&String> = j.iter().chain(b.iter()).collect();
+            let joshes = all.iter().filter(|n| owner_of(n) == "josh").count();
+            assert_eq!(joshes, 1, "seed {seed}: {all:?}");
+            assert_eq!(j.len(), hone_types::DECIDE_JURY);
+            assert_eq!(b.len(), 1); // 6 distinct owners: 5 jurors + 1 backup
+        }
     }
 }
