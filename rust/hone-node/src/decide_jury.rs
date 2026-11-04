@@ -374,7 +374,10 @@ pub fn entry_screen_features(chain: &Chain, e: &LedgerEntry, epoch: u64) -> serd
     let data_hash = ["batch_hash", "data_hash", "report_hash", "commitment"].iter()
         .find_map(|k| v[*k].as_str().map(str::to_owned)).unwrap_or_else(|| e.hash());
     let payload_bytes = serde_json::to_vec(e).map(|b| b.len()).unwrap_or(0);
-    let skew_ms: i64 = (e.epoch() as i64 - epoch as i64) * 30_000;
+    // No wall timestamp on chain entries: an epoch delta is not a clock skew (training
+    // saw ms around 0 +- 20 s), so send 0 rather than flag old entries as spam.
+    let skew_ms: i64 = v["timestamp"].as_i64().map(|t| t - crate::utils::now_ms() as i64).unwrap_or(0);
+    let _ = epoch;
     let cap: u64 = match e {
         LedgerEntry::CoverageReport { .. } => hone_types::COVERAGE_MAX_REPORTS_PER_EPOCH,
         LedgerEntry::TrackerSightingCommit { .. } => hone_types::MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH,

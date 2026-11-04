@@ -119,8 +119,9 @@ pub const LIVENESS_HALF_LIFE_EPOCHS: u64 = 2 * 1_051_920;
 pub const DECIDE_ENTRIES_EPOCH: u64 = 352_400;
 /// Jury outcomes become binding (for one task) from this epoch. UNSET: shadow only.
 pub const DECIDE_JURY_BINDING_EPOCH: u64 = u64::MAX;
-/// The pinned hone-decide model (135M-gen Q4; hone-decide contract v1 model_hash).
-pub const DECIDE_MODEL_HASH: &str = "547d64ae1f95e9086ad0591de7b54a50be40a63ca76f0869dd8d0d458eedd1b5";
+/// The pinned hone-decide model: smollm2-135m-r3 Q4 incl. per-task thresholds.json
+/// (hone-decide contract v1 model_hash; previous 547d64ae…).
+pub const DECIDE_MODEL_HASH: &str = "04df19894e0a348f98000949b5580ccfee4da36742a9e0015b92318f2d4ab2ed";
 /// Voters per judgment entry, jury size + backups, spot checks per epoch, reveal window.
 pub const DECIDE_K: usize = 7;
 pub const DECIDE_JURY: usize = 5;
