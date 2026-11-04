@@ -1626,6 +1626,15 @@ impl Chain {
             // Coverage reports — cellular dead-spot mapping.
             // Quantize lat/lon to 0.001° grid cells (~100m). Track per-cell reporter count
             // for corroboration bonus, and per-reporter count for anti-spam cap.
+            LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, .. } => {
+                let (verdicts, pts) = crate::usefulness::score(self, sensor_id, owner, cell, *window, metrics, *epoch);
+                for (m, v) in &verdicts {
+                    crate::usefulness::shadow_push(self, sensor_id, owner, cell, *window, m, metrics[m], v);
+                }
+                info!("[usefulness] {} {} {} w{}: {:?} -> {} point(s)", owner, sensor_id, cell, window,
+                    verdicts.iter().map(|(m, v)| format!("{m}:{v:?}")).collect::<Vec<_>>(), pts);
+            }
+
             LedgerEntry::CoverageReport { reporter, lat, lon, signal_dbm, carrier_mcc_mnc, technology, data_hash, epoch, .. } => {
                 self.touch_alive(reporter, *epoch);
                 self.ensure_account(reporter, *epoch)?;

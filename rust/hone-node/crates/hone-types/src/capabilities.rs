@@ -153,7 +153,7 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         | E::NodeRoleOptIn { .. } | E::NodeRoleOptOut { .. }
         | E::Mine { .. } | E::PhoneMineSubmit { .. }
         | E::ContractDeploy { .. } | E::ContractCall { .. }
-        | E::CoverageReport { .. }
+        | E::CoverageReport { .. } | E::SensorSummary { .. }
         | E::InferenceJobComplete { .. } | E::InferenceVerifyClaim { .. } | E::InferenceJobCommit { .. }
         | E::InferenceJobVerify { .. } | E::InferenceJobClaim { .. } | E::InferenceReviewVote { .. }
         | E::InferenceJobCancel { .. }

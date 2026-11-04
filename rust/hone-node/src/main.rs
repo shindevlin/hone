@@ -42,6 +42,7 @@ mod chain;
 mod clock;
 mod config;
 mod mem_profile;
+mod usefulness;
 mod peer_ident;
 mod inference_sidecar;
 mod state_audit;
@@ -800,6 +801,11 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                 }
             }
         });
+    }
+
+    // Usefulness shadow: hone-decide answers logged next to the deterministic rule.
+    if usefulness::shadow_enabled() {
+        tokio::spawn(usefulness::shadow_loop());
     }
 
     // ── LoRaWAN transport — Phase 8 transport cascade ────────────────────────
@@ -3097,6 +3103,8 @@ activity pool starved (sealing clock-node count too high for era budget)",
         for (_, v) in chain.store.state_scan_prefix(&format!("sensor_commit:{}:", epoch)) {
             let Ok(j) = serde_json::from_slice::<serde_json::Value>(&v) else { continue };
             let Some(owner) = j["owner"].as_str() else { continue };
+            // Usefulness scoring replaces volume scoring (spec 2026-11-02 §3).
+            if epoch >= hone_types::USEFULNESS_SCORING_EPOCH { continue; }
             let sensor_id     = j["sensor_id"].as_str().unwrap_or("");
             let reading_count = j["reading_count"].as_u64().unwrap_or(0);
             let stype         = j["sensor_type"].as_str().unwrap_or("continuous");
@@ -3137,6 +3145,12 @@ activity pool starved (sealing clock-node count too high for era budget)",
                 (base as u128 * COVERAGE_CORROBORATION_BONUS_BPS as u128 / 10_000) as u64
             } else { base };
             *by_owner.entry(reporter.to_owned()).or_default() += score;
+        }
+        // Usefulness points (SensorSummary, deterministic rule) share the sensor pool.
+        if epoch >= hone_types::USEFULNESS_SCORING_EPOCH {
+            for (owner, p) in crate::usefulness::points_for_epoch(&chain, epoch) {
+                *by_owner.entry(owner).or_default() += p;
+            }
         }
         by_owner.into_iter().collect()
     };

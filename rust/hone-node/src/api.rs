@@ -259,6 +259,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sensor/commit", post(post_sensor_commit))
         .route("/api/sensor/vouch", post(post_sensor_vouch))
         .route("/api/coverage/report", post(post_coverage_report))
+        .route("/api/sensor/summary", post(post_sensor_summary))
         .route("/api/sensor/:id", get(get_sensor))
         .route("/api/sensors/:sensor_id/consensus/:epoch", get(get_sensor_consensus))
         .route("/api/sensors/:sensor_id/strikes", get(get_sensor_strikes))
@@ -4657,6 +4658,33 @@ struct CoverageReportBody {
     data_hash: String,
     #[serde(default)]
     signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SensorSummaryBody {
+    sensor_id: String,
+    owner: String,
+    #[serde(default)]
+    batch_hash: String,
+    cell: String,
+    window: u64,
+    metrics: std::collections::BTreeMap<String, i64>,
+    #[serde(default)]
+    signature: String,
+}
+
+/// POST /api/sensor/summary — one public (cell, window) summary, scored for usefulness.
+/// Signed by the owner's posting key over the SENSOR_SUMMARY canonical message.
+async fn post_sensor_summary(
+    State(s): State<AppState>,
+    Json(b): Json<SensorSummaryBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::SensorSummary {
+        sensor_id: b.sensor_id, owner: b.owner.clone(), batch_hash: b.batch_hash,
+        cell: b.cell, window: b.window, metrics: b.metrics,
+        epoch: s.chain.current_epoch(), signed_by: b.owner,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&b.signature))
 }
 
 async fn post_coverage_report(

@@ -1175,6 +1175,23 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── SensorSummary: public (cell, window) summary, scored for usefulness ──
+        LedgerEntry::SensorSummary { sensor_id, owner, cell, metrics, epoch, signed_by, .. } => {
+            if *epoch < hone_types::USEFULNESS_SCORING_EPOCH {
+                bail!("SensorSummary is not active before epoch {}", hone_types::USEFULNESS_SCORING_EPOCH);
+            }
+            if signed_by != owner { bail!("signed_by must match owner"); }
+            if sensor_id.is_empty() || sensor_id.len() > 128 { bail!("invalid sensor_id"); }
+            if !crate::usefulness::valid_cell(cell) { bail!("invalid H3 cell '{}'", cell); }
+            if metrics.is_empty() || metrics.len() > crate::usefulness::MAX_METRICS
+                || !metrics.keys().all(|m| crate::usefulness::valid_metric(m)) {
+                bail!("SensorSummary needs 1..={} metrics with lowercase names", crate::usefulness::MAX_METRICS);
+            }
+            require_key(chain, owner)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
         // ── InferenceVerifyClaim: verifier claims a job to inspect ────────────
         LedgerEntry::InferenceVerifyClaim { verifier, signed_by, .. } => {
             if signed_by != verifier {
@@ -2451,6 +2468,7 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
         LedgerEntry::InferenceJobPost    { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobBid     { epoch, .. }      => Some(*epoch),
         LedgerEntry::CoverageReport      { epoch, .. }      => Some(*epoch),
+        LedgerEntry::SensorSummary       { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobComplete{ epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobCommit  { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobVerify  { epoch, .. }      => Some(*epoch),
@@ -3423,6 +3441,17 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "cancelled_by": cancelled_by,
                 "job_id": job_id,
                 "nonce": nonce,
+            }),
+        LedgerEntry::SensorSummary { sensor_id, owner, batch_hash, cell, window, metrics, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "SENSOR_SUMMARY",
+                "sensor_id": sensor_id,
+                "owner": owner,
+                "batch_hash": batch_hash,
+                "cell": cell,
+                "window": window,
+                "metrics": metrics,
             }),
         LedgerEntry::CoverageReport { reporter, lat, lon, carrier_mcc_mnc, data_hash, .. } =>
             serde_json::json!({

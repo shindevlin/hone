@@ -589,6 +589,24 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
+    /// One public `(cell, window)` sensor summary, scored for usefulness (spec 2026-11-02
+    /// §3: pay for what is new or changed; repeats earn 0, verification near 0). `metrics`
+    /// maps metric name (e.g. "wifi.ap_count", "ble.crowd", "subghz.433") to an integer.
+    /// `batch_hash` optionally binds it to the device batch it summarises.
+    SensorSummary {
+        sensor_id: String,
+        owner: AccountId,
+        #[serde(default)]
+        batch_hash: String,
+        /// H3 cell (hex), res 9 for the public layer.
+        cell: String,
+        /// floor(unix / 900).
+        window: u64,
+        metrics: std::collections::BTreeMap<String, i64>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
     // ── Inference Marketplace ─────────────────────────────────────────────────
     /// Requester posts a job; max_fee held in escrow until completion or cancel.
     InferenceJobPost {
@@ -2901,6 +2919,7 @@ impl LedgerEntry {
             Self::ContractCall { epoch, .. } => *epoch,
             Self::SensorReading { epoch, .. } => *epoch,
             Self::CoverageReport { epoch, .. } => *epoch,
+            Self::SensorSummary { epoch, .. } => *epoch,
             Self::InferenceJobPost { epoch, .. } => *epoch,
             Self::InferenceJobBid { epoch, .. } => *epoch,
             Self::InferenceJobAward { epoch, .. } => *epoch,
@@ -3153,6 +3172,7 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::Mine { .. }
         | LedgerEntry::SensorDataCommit { .. }
         | LedgerEntry::CoverageReport { .. }
+        | LedgerEntry::SensorSummary { .. }
         | LedgerEntry::GatewayHeartbeat { .. }
         | LedgerEntry::ServiceHeartbeat { .. }
         | LedgerEntry::MempoolHeartbeat { .. }
