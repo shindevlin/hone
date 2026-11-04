@@ -12,13 +12,18 @@ $crate = Resolve-Path "$here\..\.."
 $ver = (Select-String -Path "$crate\Cargo.toml" -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
 $env:CARGO_TARGET_DIR = 'C:\hl\target'
 Push-Location $crate
-& "$env:USERPROFILE\.cargo\bin\cargo.exe" build --release --locked --features tray
-if ($LASTEXITCODE) { throw 'cargo build failed' }
+$ErrorActionPreference = 'Continue'   # cargo writes progress to stderr (PS 5.1 would stop on it)
+& "$env:USERPROFILE\.cargo\bin\cargo.exe" build --release --locked --features tray 2>&1 | Out-Host
+$code = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+if ($code) { throw 'cargo build failed' }
 Pop-Location
 $exe = 'C:\hl\target\release\hone-listener.exe'
 New-Item -ItemType Directory -Force $Out | Out-Null
 $stage = Join-Path $Out 'stage'; Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue; New-Item -ItemType Directory $stage | Out-Null
 Copy-Item $exe, $Tfl, $Ffmpeg $stage
+$lic = Join-Path (Split-Path -Parent (Split-Path -Parent $Ffmpeg)) 'LICENSE.txt'
+if (Test-Path $lic) { Copy-Item $lic (Join-Path $stage 'FFMPEG-LICENSE.txt') }
 foreach ($f in 'perch_v2_8bit.tflite','class_names.json','names_en.json','NOTICE.txt') { Copy-Item (Join-Path $Assets $f) $stage }
 Copy-Item $exe (Join-Path $Out "hone-listener-$ver-windows-x86_64.exe")
 $zip = Join-Path $Out "hone-listener-$ver-windows-x86_64.zip"
@@ -31,6 +36,9 @@ Copy-Item -Recurse "$here\Assets" "$m\Assets"
 (Get-Content "$here\AppxManifest.xml" -Raw).Replace('__VERSION__', $ver).Replace('__PACKAGE_IDENTITY_NAME__', $IdentityName).Replace('__PUBLISHER_CN__', $Publisher).Replace('__PUBLISHER_DISPLAY_NAME__', $PublisherDisplayName).Replace('__APP_DISPLAY_NAME__', $AppName) | Set-Content -Encoding UTF8 "$m\AppxManifest.xml"
 $makeappx = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe' | Sort-Object FullName | Select-Object -Last 1).FullName
 $msix = Join-Path $Out "HONE-Birds-Listener-$ver-x64.msix"
-& $makeappx pack /o /d $m /p $msix
-if ($LASTEXITCODE) { throw 'makeappx failed' }
+$ErrorActionPreference = 'Continue'
+& $makeappx pack /o /d $m /p $msix 2>&1 | Out-Host
+$code = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+if ($code) { throw 'makeappx failed' }
 Get-ChildItem $Out -File | Select-Object Name, Length

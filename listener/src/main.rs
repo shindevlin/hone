@@ -16,6 +16,7 @@ mod discovery;
 mod live;
 mod perch;
 mod pipeline;
+mod relay;
 mod report;
 mod rtsp;
 mod secrets;
@@ -32,8 +33,21 @@ mod web;
 use config::{state_dir, Config, DEFAULT_PORT};
 use std::sync::mpsc;
 
-fn port() -> u16 {
+fn preferred_port() -> u16 {
     std::env::var("HONE_LISTENER_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT)
+}
+
+/// The port the running listener chose (saved at start), else the preferred one.
+fn port() -> u16 {
+    std::fs::read_to_string(state_dir().join("ui-port")).ok().and_then(|p| p.trim().parse().ok()).unwrap_or_else(preferred_port)
+}
+
+/// Is a HONE listener already answering on this port?
+fn listener_at(port: u16) -> bool {
+    ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(2)).build()
+        .get(&format!("http://127.0.0.1:{port}/status")).call().ok()
+        .and_then(|r| r.into_json::<serde_json::Value>().ok())
+        .map(|j| j["name"] == "hone-listener").unwrap_or(false)
 }
 
 fn token_from_disk() -> Option<String> {
@@ -48,16 +62,31 @@ fn page_url(lan: bool) -> Option<String> {
 
 fn run(tray: bool) {
     let _ = std::fs::create_dir_all(state_dir());
-    let server = match web::bind(port()) {
-        Ok(s) => s,
-        Err(_) => {
-            // Already running: just show it.
-            if let Some(u) = page_url(false) {
-                let _ = open::that(u);
+    let want = preferred_port();
+    // Windows (Hyper-V/WSL/Docker) reserves whole port ranges, so a failed bind does not mean
+    // another listener runs: only a /status that answers as hone-listener means that.
+    let mut bound = None;
+    for p in (want..want + 20).chain(std::iter::once(0)) {
+        match web::bind(p) {
+            Ok(s) => {
+                let real = s.server_addr().to_ip().map(|a| a.port()).unwrap_or(p);
+                bound = Some((s, real));
+                break;
             }
-            return;
+            Err(_) if p == want && listener_at(want) => {
+                if let Some(u) = page_url(false) {
+                    let _ = open::that(u);
+                }
+                return;
+            }
+            Err(_) => continue,
         }
+    }
+    let Some((server, port_now)) = bound else {
+        log::error!("could not open a local port for the setup page");
+        std::process::exit(1);
     };
+    let _ = std::fs::write(state_dir().join("ui-port"), port_now.to_string());
     if let Err(e) = secrets::station_key() {
         log::error!("station key: {e}");
     }
@@ -69,9 +98,9 @@ fn run(tray: bool) {
     status::spawn();
     let first_run = !cfg.ready();
     engine.sync(&cfg);
-    let app = web::App::new(engine, cfg, port());
+    let app = web::App::new(engine, cfg, port_now);
     web::serve(app.clone(), server);
-    log::info!("HONE listener {} on http://127.0.0.1:{} (state {})", env!("CARGO_PKG_VERSION"), port(), state_dir().display());
+    log::info!("HONE listener {} on http://127.0.0.1:{} (state {})", env!("CARGO_PKG_VERSION"), port_now, state_dir().display());
     let url = web::url(app.port, &app.token, "127.0.0.1");
     if first_run && std::env::var("HONE_LISTENER_NO_BROWSER").is_err() && (tray || std::env::var("DISPLAY").is_ok()) {
         let _ = open::that(&url);

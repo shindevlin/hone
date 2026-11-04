@@ -128,7 +128,7 @@ pub fn rate_of(m: &SdpMedia) -> u32 {
     }
 }
 
-struct Auth {
+pub(crate) struct Auth {
     user: Option<String>,
     pass: Option<String>,
     scheme: Option<&'static str>,
@@ -154,10 +154,13 @@ fn auth_params(s: &str) -> HashMap<String, String> {
 }
 
 impl Auth {
-    fn has_creds(&self) -> bool {
+    pub(crate) fn new(user: &str, pass: &str) -> Self {
+        Auth { user: Some(user.into()), pass: Some(pass.into()), scheme: None, realm: String::new(), nonce: String::new(), qop: None, opaque: None, nc: 0 }
+    }
+    pub(crate) fn has_creds(&self) -> bool {
         self.user.as_deref().map(|u| !u.is_empty()).unwrap_or(false)
     }
-    fn accept(&mut self, headers: &[String]) -> bool {
+    pub(crate) fn accept(&mut self, headers: &[String]) -> bool {
         if let Some(d) = headers.iter().find(|h| h.trim().to_lowercase().starts_with("digest")) {
             let p = auth_params(d.trim().split_once(' ').map(|x| x.1).unwrap_or(""));
             let Some(new_nonce) = p.get("nonce").cloned() else { return false };
@@ -179,7 +182,7 @@ impl Auth {
         }
         false
     }
-    fn header(&mut self, method: &str, uri: &str) -> Option<String> {
+    pub(crate) fn header(&mut self, method: &str, uri: &str) -> Option<String> {
         if !self.has_creds() {
             return None;
         }

@@ -149,11 +149,25 @@ pub fn redact(line: &str, secrets: &[&str]) -> String {
     s.chars().take(200).collect()
 }
 
+fn st_ref(s: &Station) -> &Station {
+    s
+}
+
 pub fn run_station(st: Station, stop: Arc<AtomicBool>, q: Arc<FrameQueue>) {
     let mut failures = 0u32;
     while !stop.load(Ordering::Relaxed) {
         let creds = secrets::camera_creds(&st.id);
-        let url = stream_url(&st, creds.as_ref());
+        // The login never goes on ffmpeg's command line: a loopback relay adds it (relay.rs).
+        let url = match creds.as_ref().filter(|(u, _)| !u.is_empty()) {
+            Some((u, p)) => match crate::relay::start(&st.host, st.port, u, p) {
+                Ok(lp) => format!("rtsp://127.0.0.1:{lp}{}", if st.path.starts_with('/') { st.path.clone() } else { format!("/{}", st.path) }),
+                Err(e) => {
+                    log::warn!("relay: {e}");
+                    stream_url(st_ref(&st), None)
+                }
+            },
+            None => stream_url(st_ref(&st), None),
+        };
         let secret_parts: Vec<String> = creds.iter().flat_map(|(u, p)| [u.clone(), p.clone()]).collect();
         let sp: Vec<&str> = secret_parts.iter().map(|s| s.as_str()).collect();
         let started = std::time::Instant::now();
@@ -185,6 +199,12 @@ pub fn run_station(st: Station, stop: Arc<AtomicBool>, q: Arc<FrameQueue>) {
 /// Offline check: run a local audio file through the same ffmpeg -> resample -> ring -> gates ->
 /// Perch path, at the given camera rate (8000 = G.711 camera). Returns the window report payload.
 pub fn analyze_file(path: &str, rate: u32) -> Result<serde_json::Value, String> {
+    let p = path.to_string();
+    std::thread::Builder::new().stack_size(PERCH_STACK).spawn(move || analyze_file_inner(&p, rate)).map_err(|e| e.to_string())?
+        .join().map_err(|_| "analysis crashed".to_string())?
+}
+
+fn analyze_file_inner(path: &str, rate: u32) -> Result<serde_json::Value, String> {
     let st = Station { id: "0000000000000000".into(), label: "file".into(), host: String::new(), port: 0, path: String::new(), onvif: None,
         codec: "file".into(), rate, tier: crate::audio::tier(rate).into(), id_source: "file".into(), noise_db: None, enabled: true, added_ms: 0 };
     let q = Arc::new(FrameQueue::default());
@@ -297,6 +317,10 @@ pub struct Win {
     pub species: BTreeMap<String, (f32, u32)>,
     pub block_db: Vec<f64>,
 }
+
+/// TFLite/XNNPACK kernels use large stack frames: Windows' default 1 MB main stack is not
+/// enough (access violation), so Perch always runs on a thread with this stack.
+pub const PERCH_STACK: usize = 16 << 20;
 
 pub fn strict_voice() -> bool {
     std::env::var("HONE_LISTENER_STRICT_VOICE").map(|v| v == "1").unwrap_or(false)
@@ -450,6 +474,7 @@ impl Analyzer {
 pub fn spawn_analyzer(q: Arc<FrameQueue>, reports: mpsc::Sender<report::Report>) {
     std::thread::Builder::new()
         .name("hone-perch".into())
+        .stack_size(PERCH_STACK)
         .spawn(move || {
             let mut a = Analyzer::new(reports, Box::new(NoopVoiceprint));
             loop {

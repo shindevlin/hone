@@ -147,6 +147,9 @@ impl Config {
 
     pub fn load() -> Self {
         let mut c: Config = std::fs::read_to_string(Self::path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        if let Ok(v) = std::env::var("HONE_LISTENER_API") { c.api = v; }
+        if let Ok(v) = std::env::var("HONE_LISTENER_CHAIN") { c.chain = v; }
+        if let Ok(v) = std::env::var("HONE_LISTENER_UPDATE_URL") { c.update_url = v; }
         // Invite code dropped by the installer (from the download link), once.
         let rf = state_dir().join("ref");
         if let Ok(r) = std::fs::read_to_string(&rf) {

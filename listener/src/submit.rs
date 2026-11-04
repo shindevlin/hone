@@ -161,6 +161,14 @@ fn chain_round(cfg: &Config) {
     };
     let Ok(key) = secrets::station_key() else { return };
     let owner = format!("{referrer}@{}", canonical::pub_hex(&key));
+    // Same gate as the Android app (StationChain): nothing goes to the chain until the chain's
+    // usefulness record for this seat says seat_registered and its activation epoch has come.
+    // (The public node accepts summaries from unregistered device seats today, so a refusal is
+    // not a reliable signal on its own.)
+    if let Some(wait) = seat_gate(cfg, &owner) {
+        live::set(|l| l.chain_state = Some(wait));
+        return;
+    }
     let mut sent = 0;
     for f in queue_files("chain-queue") {
         if sent >= PER_ROUND {
@@ -189,6 +197,7 @@ fn chain_round(cfg: &Config) {
             Ok((_, b)) => {
                 let j: Value = serde_json::from_str(&b).unwrap_or(json!({}));
                 if j["accepted"].as_bool() == Some(true) {
+                    log::info!("chain accepted window {window}: entry {}", j["hash"].as_str().unwrap_or("?"));
                     let _ = std::fs::remove_file(&f);
                     live::set(|l| {
                         l.chain_accepted += 1;
@@ -214,6 +223,31 @@ fn chain_round(cfg: &Config) {
         sent += 1;
         std::thread::sleep(Duration::from_secs(2));
     }
+}
+
+fn get_json(url: &str) -> Option<Value> {
+    agent().get(url).call().ok()?.into_json().ok()
+}
+
+/// None = this seat may submit; Some(state to show) = keep waiting.
+pub fn seat_gate(cfg: &Config, owner: &str) -> Option<String> {
+    let tip = get_json(&format!("{}/api/node/info", cfg.chain)).and_then(|j| j["epoch"].as_i64());
+    let u = get_json(&format!("{}/api/sensor/usefulness/{owner}", cfg.chain));
+    match (tip, u) {
+        (Some(tip), Some(u)) => gate_decision(&u, tip),
+        _ => Some("chain unreachable, will retry".into()),
+    }
+}
+
+pub fn gate_decision(u: &Value, tip: i64) -> Option<String> {
+    if u["seat_registered"].as_bool() != Some(true) {
+        return Some(WAITING.into());
+    }
+    let from = u["active_from_epoch"].as_i64().unwrap_or(-1);
+    if from <= 0 || tip < from {
+        return Some(WAITING.into());
+    }
+    None
 }
 
 pub fn enqueue(r: &Report, cfg: &Config) {
@@ -263,6 +297,14 @@ mod tests {
         assert!(is_seat_wait("device seat 'maria@ab..' has no stake by 'maria'"));
         assert!(!is_seat_wait("SensorSummary signature does not verify under seat key 'x'"));
         assert!(!is_seat_wait("invalid H3 cell 'x'"));
+    }
+
+    #[test]
+    fn gate_waits_until_the_seat_is_registered() {
+        // today's public node: no seat_registered field at all
+        assert_eq!(gate_decision(&json!({"owner": "maria", "active_from_epoch": 354420}), 354754).as_deref(), Some(WAITING));
+        assert_eq!(gate_decision(&json!({"seat_registered": true, "active_from_epoch": 400000}), 354754).as_deref(), Some(WAITING));
+        assert_eq!(gate_decision(&json!({"seat_registered": true, "active_from_epoch": 354420}), 354754), None);
     }
 
     #[test]
