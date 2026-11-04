@@ -136,6 +136,17 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
                 }
                 Switch(showName, { showName = it; prefs.edit().putBoolean("show_name", it).apply() })
             }
+            if (advanced) {
+                var tiered by remember { mutableStateOf(network.hone.app.birds.BirdsSync.tiered(ctx)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_publish_tiered), style = MaterialTheme.typography.bodyMedium)
+                        Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_publish_tiered_sub),
+                            style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+                    }
+                    Switch(tiered, { tiered = it; network.hone.app.birds.BirdsSync.setTiered(ctx, it) })
+                }
+            }
             Text("Home area: sightings inside it are shown at about 5 km. Elsewhere, as precise as your GPS.",
                 style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
             Text("Radius ${homeRadius.toInt()} m", style = MaterialTheme.typography.bodySmall)

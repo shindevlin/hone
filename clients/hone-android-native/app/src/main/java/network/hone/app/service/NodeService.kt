@@ -238,7 +238,9 @@ class NodeService : Service() {
             // boot or background start it is refused, so fall back step by step.
             val ok = listOf(base or locT or micT, base or locT, base).distinct().any { t ->
                 runCatching { startForeground(NOTIF_ID, n, t) }
-                    .onFailure { Log.w(TAG, "FGS types $t refused (${it.message})") }.isSuccess
+                    .onFailure { Log.w(TAG, "FGS types $t refused (${it.message})") }
+                    .onSuccess { fgsTypes = t; if (micT != 0 && t and micT == 0) Log.w(TAG, "running without the microphone type") }
+                    .isSuccess
             }
             if (!ok) Log.e(TAG, "foreground start refused for all type sets")
         } else {
@@ -264,6 +266,8 @@ class NodeService : Service() {
         private const val CHANNEL_ID = "hone_node"
         private const val NOTIF_ID = 1001
         private const val COMMIT_INTERVAL_MS = 30_000L
+        /** Foreground service types the system accepted last (0 = not started). */
+        @Volatile var fgsTypes: Int = 0
 
         fun ensureChannel(ctx: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

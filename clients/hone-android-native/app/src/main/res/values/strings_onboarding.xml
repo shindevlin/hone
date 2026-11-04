@@ -81,4 +81,12 @@
     <string name="nt_station_service">Listening to your camera</string>
     <string name="set_digest">Morning summary of last night\'s birds</string>
     <string name="set_advanced">Advanced</string>
+    <string name="nt_alerts_channel">Listening alerts</string>
+    <string name="nt_mic_paused">Listening paused — tap to resume</string>
+    <string name="nt_mic_paused_body">Android turned off HONE\'s microphone in the background. Tap to open HONE and keep listening for birds.</string>
+    <string name="nt_battery_title">Battery low</string>
+    <string name="nt_battery_low">Battery is at %1$d%%. Bird listening is paused until you plug in your phone.</string>
+    <string name="nt_battery_weak">Battery is at %1$d%% even though it is charging. Try a stronger charger so HONE can keep listening.</string>
+    <string name="set_publish_tiered">Publish by local range</string>
+    <string name="set_publish_tiered_sub">On: 60%% for local birds, 70%% when the local list is unknown, 85%% for rare ones. Off: 70%% for all. Heard twice in 15 minutes always publishes.</string>
 </resources>

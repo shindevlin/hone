@@ -32,6 +32,17 @@ object BirdsSync {
     private const val WINDOW_MS = 900_000L
     private const val PUBLISH_MIN_CONF = 70.0   // percent; or heard twice in the window
 
+    /** Tiered thresholds (off by default until Josh confirms): 60 local, 70 unknown, 85 rare. */
+    fun tiered(ctx: Context) = prefs(ctx).getBoolean("publish_tiered", false)
+    fun setTiered(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("publish_tiered", on).apply()
+
+    /** [inRange]: true local, false out of range, null list unknown. [conf] in percent. */
+    fun publishable(conf: Double, heard: Int, inRange: Boolean?, tiered: Boolean): Boolean {
+        if (heard >= 2) return true
+        if (!tiered) return conf >= PUBLISH_MIN_CONF
+        return conf >= when (inRange) { true -> 60.0; null -> 70.0; false -> 85.0 }
+    }
+
     /** HTTP failure the indexer gave a final answer to (4xx except 429): retrying will not help. */
     class Refused(val code: Int, msg: String) : Exception(msg)
 
@@ -92,10 +103,12 @@ object BirdsSync {
         }
         if (unlocated > 0) Telemetry.skipped(ctx, "birds", "$unlocated detections without a location fix")
         val show = prefs(ctx).getBoolean("show_name", false)
+        val tier = tiered(ctx)
+        val range = Range.current(ctx)
         for ((w, cells) in byWin) {
             for ((cell, spAll) in cells) {
                 // Publish only confident or repeated detections; weak one-offs stay private.
-                val sp = spAll.filterValues { (conf, n) -> conf >= PUBLISH_MIN_CONF || n >= 2 }
+                val sp = spAll.filter { (name, v) -> publishable(v.first, v.second, range?.contains(name), tier) }
                 if (sp.isEmpty()) continue
                 val payload = JSONObject().put("v", 1).put("sid", UUID.randomUUID().toString())
                     .put("window", w).put("cell", cell).put("model", Perch.MODEL_ID)

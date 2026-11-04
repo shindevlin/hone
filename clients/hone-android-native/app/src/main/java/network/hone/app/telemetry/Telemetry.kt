@@ -98,6 +98,9 @@ object Telemetry {
 
     /** Account this device publishes for: the sensor-node owner, else the seat account. */
     fun account(ctx: Context): String? {
+        // The seat's chain account wins: the seat key is registered under it, so status and bird
+        // rows signed for any other name stay unbound (the moto had owner "josh", seat shindevlin).
+        seatAccount(ctx)?.let { return it }
         val owner = runCatching {
             JSONObject(File(ctx.filesDir, "hone-node/sensor_settings.json").readText()).optString("owner", "")
         }.getOrNull()

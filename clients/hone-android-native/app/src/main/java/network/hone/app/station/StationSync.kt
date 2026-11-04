@@ -53,7 +53,9 @@ object StationSync {
         }
         val show = ctx.getSharedPreferences("hone_birds", Context.MODE_PRIVATE).getBoolean("show_name", false)
         for ((w, spAll) in byWin) {
-            val sp = spAll.filterValues { (c, n) -> c >= MIN_CONF || n >= 2 }
+            val range = network.hone.app.birds.Range.current(ctx)
+            val tier = BirdsSync.tiered(ctx)
+            val sp = spAll.filter { (name, v) -> BirdsSync.publishable(v.first, v.second, range?.contains(name), tier) }
             if (sp.isNotEmpty()) {
                 val payload = JSONObject().put("v", 1).put("sid", UUID.randomUUID().toString()).put("window", w).put("cell", cell)
                     .put("model", network.hone.app.sound.Perch.MODEL_ID).put("source", "station").put("tier", st.tier).put("station", st.id)

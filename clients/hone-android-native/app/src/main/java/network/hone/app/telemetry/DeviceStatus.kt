@@ -147,7 +147,12 @@ object DeviceStatus {
             "sensors" to mapOf(
                 "sound" to mapOf("enabled" to soundOn, "mic_permission" to mic, "listening" to sound.listening,
                     "status" to sound.status.take(80), "last_event_s" to ageS(Telemetry.birdLastMs, now),
-                    "detections_session" to Telemetry.birdDetections.get()),
+                    "detections_session" to Telemetry.birdDetections.get(),
+                    "mic" to sound.mic, "silenced_frames" to sound.silencedFrames, "other_app_pauses" to sound.otherAppPauses,
+                    "battery_pct" to sound.batteryPct,
+                    "fgs_types" to network.hone.app.service.NodeService.fgsTypes,
+                    "fgs_microphone" to (network.hone.app.service.NodeService.fgsTypes and 0x80 != 0),
+                    "publish_tiered" to network.hone.app.birds.BirdsSync.tiered(ctx)),
                 "perch" to mapOf("running" to perchRunning),
                 "gps" to mapOf("fix_age_s" to fixAge, "acc_m" to fix?.accuracy?.toInt(), "permission" to perms["location_fine"]),
                 "ble" to mapOf("on" to btOn, "permission" to bleScanPerm, "adverts" to SightingsEngine.crowdResults,

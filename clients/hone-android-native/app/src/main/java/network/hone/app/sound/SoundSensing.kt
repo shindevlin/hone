@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioFormat
+import android.media.AudioManager
+import android.os.Build
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.BatteryManager
@@ -43,6 +45,11 @@ data class SoundLive(
     val windowSpecies: List<Detection> = emptyList(),
     val recent: List<Detection> = emptyList(),
     val reportsStored: Int = 0,
+    /** ok | silenced | other_app | low_battery */
+    val mic: String = "ok",
+    val silencedFrames: Int = 0,
+    val otherAppPauses: Int = 0,
+    val batteryPct: Int? = null,
 )
 
 /**
@@ -170,8 +177,17 @@ object SoundSensing {
         var win = Window(System.currentTimeMillis() / WINDOW_MS)
         val frame = FloatArray(Perch.FRAME)
         while (currentCoroutineContext().isActive) {
-            val burst = if (onPower(ctx)) 6 else FRAMES_PER_BURST
+            val plugged = onPower(ctx)
+            val burst = if (plugged) 6 else FRAMES_PER_BURST
             val started = System.currentTimeMillis()
+            var pauseMs = 0L
+            val pct = batteryPct(ctx)
+            MicAlerts.battery(ctx, pct, plugged)
+            if (pct != null && pct < LOW_BATTERY_PCT && !plugged) {
+                _live.value = _live.value.copy(listening = false, mic = "low_battery", batteryPct = pct,
+                    status = "paused: battery low ($pct%)")
+                delay(60_000); continue
+            }
             for (i in 0 until burst) {
                 val now = System.currentTimeMillis()
                 if (now / WINDOW_MS != win.index) { closeWindow(ctx, win); win = Window(now / WINDOW_MS) }
@@ -179,20 +195,38 @@ object SoundSensing {
                     _live.value = _live.value.copy(listening = false, status = "paused: playing a reference call")
                     while (playbackHold() && currentCoroutineContext().isActive) delay(300)
                 }
-                _live.value = _live.value.copy(listening = true, status = "listening")
+                // Another app (a call, a voice note) has the microphone: step aside, count nothing.
+                if (otherAppRecording(ctx)) {
+                    _live.value = _live.value.copy(listening = false, mic = "other_app",
+                        otherAppPauses = _live.value.otherAppPauses + 1, status = "paused: microphone in use by another app")
+                    pauseMs = 30_000; break
+                }
+                _live.value = _live.value.copy(listening = true, status = "listening", batteryPct = pct)
                 val epoch = pauseEpoch
-                if (!record(frame)) { _live.value = _live.value.copy(status = "mic busy or blocked"); break }
+                val got = record(frame)
+                if (got == REC_FAIL) { _live.value = _live.value.copy(status = "mic busy or blocked"); pauseMs = 30_000; break }
                 // Playback started (or just ended) while this frame was recording: drop it.
                 if (epoch != pauseEpoch || playbackHold()) { frame.fill(0f); continue }
-                if (frame.all { it == 0f }) {
-                    _live.value = _live.value.copy(listening = false, status = "microphone silenced by Android: open HONE to resume")
-                    break
+                if (got == REC_SILENCED || isSilent(frame)) {
+                    // Android hands a silenced app zeros. Without the microphone FGS type (a background
+                    // restart, Android 14+) only the user can fix it: ask them. With the type, another
+                    // app has taken priority: wait it out. Silent frames are never listening time.
+                    val noMicType = network.hone.app.service.NodeService.fgsTypes and 0x80 == 0
+                    _live.value = _live.value.copy(listening = false, mic = if (noMicType) "silenced" else "other_app",
+                        silencedFrames = _live.value.silencedFrames + 1,
+                        otherAppPauses = _live.value.otherAppPauses + if (noMicType) 0 else 1,
+                        status = if (noMicType) "microphone silenced by Android: open HONE to resume"
+                            else "paused: microphone in use by another app")
+                    if (noMicType) MicAlerts.silenced(ctx)
+                    frame.fill(0f); pauseMs = if (noMicType) 20_000 else 30_000; break
                 }
+                if (_live.value.mic != "ok") { _live.value = _live.value.copy(mic = "ok"); MicAlerts.clearSilenced(ctx) }
                 processFrame(p, frame, win)
                 frame.fill(0f)
             }
+            if (pauseMs > 0) { delay(pauseMs); continue }
             _live.value = _live.value.copy(listening = false, status = "waiting")
-            if (!onPower(ctx)) delay(max(0L, BURST_EVERY_MS - (System.currentTimeMillis() - started)))
+            if (!plugged) delay(max(0L, BURST_EVERY_MS - (System.currentTimeMillis() - started)))
         }
     }
 
@@ -312,11 +346,43 @@ object SoundSensing {
         }
     }
 
-    /** Records one frame into [out]. Returns false if the mic could not be opened. */
-    private fun record(out: FloatArray): Boolean {
+    internal const val LOW_BATTERY_PCT = 15
+    private const val REC_OK = 0
+    private const val REC_FAIL = 1
+    private const val REC_SILENCED = 2
+
+    /** Digital silence: what a silenced client gets. Real rooms are far above 1e-6 RMS. */
+    internal fun isSilent(frame: FloatArray): Boolean {
+        var e = 0.0
+        for (v in frame) e += v.toDouble() * v
+        return Math.sqrt(e / frame.size) < 1e-6
+    }
+
+    /**
+     * True while a phone or VoIP call (WhatsApp, Meet...) holds the audio mode. Android does not show
+     * an ordinary app other apps' recordings (getActiveRecordingConfigurations lists only our own),
+     * so a call is the one case we can see up front; a recorder that takes priority shows up as
+     * isClientSilenced on our own capture instead.
+     */
+    private fun otherAppRecording(ctx: Context): Boolean {
+        val am = ctx.getSystemService(AudioManager::class.java) ?: return false
+        return when (am.mode) {
+            AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION -> true
+            else -> Build.VERSION.SDK_INT >= 30 && am.mode == AudioManager.MODE_CALL_SCREENING
+        }
+    }
+
+    private fun batteryPct(ctx: Context): Int? {
+        val i: Intent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+        val l = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1); val s = i.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        return if (l < 0 || s <= 0) null else l * 100 / s
+    }
+
+    /** Records one frame into [out]: REC_OK, REC_FAIL (mic could not be opened) or REC_SILENCED. */
+    private fun record(out: FloatArray): Int {
         val rate = Perch.SAMPLE_RATE
         val minBuf = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT)
-        if (minBuf <= 0) return false
+        if (minBuf <= 0) return REC_FAIL
         val rec = runCatching {
             @Suppress("MissingPermission")
             AudioRecord(
@@ -326,17 +392,19 @@ object SoundSensing {
                 MediaRecorder.AudioSource.MIC, rate, AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_FLOAT, max(minBuf, rate * 4),
             )
-        }.getOrNull() ?: return false
+        }.getOrNull() ?: return REC_FAIL
         try {
-            if (rec.state != AudioRecord.STATE_INITIALIZED) return false
+            if (rec.state != AudioRecord.STATE_INITIALIZED) return REC_FAIL
             rec.startRecording()
             var off = 0
             while (off < out.size) {
                 val n = rec.read(out, off, out.size - off, AudioRecord.READ_BLOCKING)
-                if (n <= 0) return false
+                if (n <= 0) return REC_FAIL
                 off += n
             }
-            return true
+            val silenced = Build.VERSION.SDK_INT >= 29 &&
+                runCatching { rec.activeRecordingConfiguration?.isClientSilenced == true }.getOrDefault(false)
+            return if (silenced) REC_SILENCED else REC_OK
         } finally {
             runCatching { rec.stop() }; rec.release()
         }
