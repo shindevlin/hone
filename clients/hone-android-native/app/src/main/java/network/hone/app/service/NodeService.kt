@@ -45,7 +45,7 @@ import java.security.MessageDigest
  *     once (SensorKeyRegister signed by the owner's posting key, done off-device).
  *
  * Settings example (written by the operator, e.g. via adb run-as):
- *   {"chain_id":"hone","owner":"josh","node_url":"http://192.168.68.72:4242",
+ *   {"chain_id":"hone","owner":"josh","node_url":"https://honemesh.net/chain",
  *    "sensor_id_prefix":"moto-gpower","sensor_type":"continuous",
  *    "channels":["accel","gyro","mag","baro","light","proximity"]}
  * GNSS is never submitted by default: its value would publish the phone's location.

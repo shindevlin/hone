@@ -16,16 +16,19 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Read-only HTTP view of the live chain. Tries each known node in order and
- * sticks with the first that answers: grouchly on the LAN, nebra, beastly, then
- * grouchly over Tailscale for when the phone is away from home.
+ * HTTP view of the live chain. Tries each known node in order and sticks with the
+ * first that answers: the public API at honemesh.net/chain first, then home LAN
+ * nodes as optional fallbacks. Nothing depends on the LAN.
  */
 object ChainHttp {
+    const val PUBLIC_BASE = "https://honemesh.net/chain"
     val NODES = listOf(
+        // Public node API (ferryvps, allowlisted): works for anyone, anywhere.
+        PUBLIC_BASE,
+        // Home LAN nodes: optional fallbacks for Josh's own devices at home only.
         "http://192.168.68.72:4242",
-        "http://192.168.68.75:4242",
         "http://192.168.68.79:4242",
-        "http://100.90.146.17:4242",
+        "http://192.168.68.75:4242",
     )
     @Volatile private var preferred = 0
 

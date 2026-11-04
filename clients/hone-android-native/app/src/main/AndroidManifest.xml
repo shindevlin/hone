@@ -4,6 +4,8 @@
 
     <!-- Node participation: networking + keep-alive -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- In-app updates: hand a verified APK to the system installer (user confirms). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- BLE: hear HONE device announces (e.g. the Flipper). Not used for location. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
@@ -91,5 +93,14 @@
             android:name=".sightings.WindowAlarmReceiver"
             android:exported="false" />
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
     </application>
 </manifest>

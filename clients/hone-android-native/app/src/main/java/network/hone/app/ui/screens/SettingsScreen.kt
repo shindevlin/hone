@@ -33,7 +33,7 @@ fun SettingsScreen() {
     val ctx = LocalContext.current
     val file = remember { File(ctx.filesDir, "hone-node/sensor_settings.json") }
     val cur = remember { runCatching { JSONObject(file.readText()) }.getOrDefault(JSONObject()) }
-    var nodeUrl by remember { mutableStateOf(cur.optString("node_url", "")) }
+    var nodeUrl by remember { mutableStateOf(cur.optString("node_url", "").ifBlank { network.hone.app.data.ChainHttp.PUBLIC_BASE }) }
     var owner by remember { mutableStateOf(cur.optString("owner", "")) }
     var prefix by remember { mutableStateOf(cur.optString("sensor_id_prefix", android.os.Build.MODEL.lowercase().replace(' ', '-'))) }
     val chans = remember {

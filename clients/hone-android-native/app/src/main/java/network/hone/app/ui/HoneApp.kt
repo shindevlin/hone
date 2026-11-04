@@ -39,6 +39,7 @@ fun HoneApp() {
     val current = backStack?.destination
 
     Scaffold(
+        topBar = { network.hone.app.update.UpdateBanner() },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 Dest.entries.forEach { dest ->
