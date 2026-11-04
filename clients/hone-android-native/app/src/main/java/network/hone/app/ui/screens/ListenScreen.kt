@@ -45,7 +45,8 @@ fun ListenScreen() {
                 Text(when { !ready -> stringResource(R.string.st_paused); l?.reachable == false -> stringResource(R.string.st_unreachable)
                     else -> stringResource(R.string.st_running) },
                     style = MaterialTheme.typography.labelLarge, color = if (ready && l?.reachable != false) HoneGreen else HoneTextFaint)
-                Text(stringResource(R.string.st_stats, (l?.birds ?: 0).toInt(), (l?.speechDropped ?: 0).toInt()),
+                Text(stringResource(R.string.st_stats, (l?.birds ?: 0).toInt(), (l?.speechDropped ?: 0).toInt()) +
+                    " · " + stringResource(R.string.st_checked, (l?.frames ?: 0).toInt()),
                     style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
                 TextButton({ StationStore.remove(ctx, s.id); version++; if (StationStore.list(ctx).isEmpty()) StationService.stop(ctx) }) {
                     Text(stringResource(R.string.st_remove))

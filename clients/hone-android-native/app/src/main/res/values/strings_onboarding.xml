@@ -67,6 +67,7 @@
     <string name="st_running">Listening now</string>
     <string name="st_unreachable">Can\'t reach the camera. Trying again soon.</string>
     <string name="st_stats">%1$d birds heard · %2$d voices deleted</string>
+    <string name="st_checked">%1$d sounds checked</string>
     <string name="st_remove">Remove</string>
     <string name="st_mic">This phone\'s microphone</string>
 

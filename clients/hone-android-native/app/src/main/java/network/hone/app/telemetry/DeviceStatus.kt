@@ -126,6 +126,9 @@ object DeviceStatus {
             "ble" to (btOn && bleScanPerm), "flipper" to (flipLast > 0 && now - flipLast < 300_000),
             "net" to netType, "charging" to plugged, "opt_exempt" to optExempt, "posting" to posting, "perms" to perms,
             "service" to (Telemetry.serviceStartedMs > 0),
+            "stations" to network.hone.app.station.StationStore.list(ctx).map { s ->
+                network.hone.app.station.Stations.live.value[s.id].let { l -> "${s.id.take(6)}:${l?.running == true}:${l?.reachable}" }
+            },
         )
 
         return linkedMapOf(
