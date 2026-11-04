@@ -51,7 +51,14 @@ object FindMy {
 
     fun targets(ctx: Context, store: SightingStore): List<Target> {
         val me = account(ctx).ifEmpty { "me" }
-        val own = buildList {
+        val myPub = RoleKeys.devicePub(ctx).hex()
+        val owned = store.ownedDevices().associate { (label, pub) -> pub to label }
+        val hw = HwKeys.granted(ctx)
+        val own = if (hw.isNotEmpty()) hw.map { g ->
+            // Seeds held in this phone's Keystore (standing hardware grant).
+            Target(if (g.device == myPub) "This phone" else owned[g.device] ?: g.label.ifEmpty { g.device.take(8) },
+                HwKeys.owner(ctx) ?: me) { p -> HwKeys.shareKey(g.device, g.generation, p) }
+        } else buildList {
             val (seed, _) = RoleKeys.thisSeed(ctx)
             add(Target("This phone", me) { IdKeys.shareKey(seed, it) })
             for ((label, pub) in store.ownedDevices()) {
@@ -77,14 +84,15 @@ object FindMy {
                 val k = IdKeys.windowKey(sk, w)
                 keys[k.lid.hex()] = k
             }
-            for (ix in indexes) for (e in ix.lookup(keys.keys)) {
+            shareCache.values.forEach { it?.fill(0) }   // share_k never outlives the search
+            try { for (ix in indexes) for (e in ix.lookup(keys.keys)) {
                 val k = keys[e.lid] ?: continue
                 val pt = IdKeys.open(k.sk, k.pk, SightingsEngine.INFO_SIGHTING, e.blob, aad = k.lid) ?: continue
                 val j = runCatching { JSONObject(String(pt)) }.getOrNull() ?: continue
                 out += DeviceSighting(t.label, t.owner, j.optLong("w"), j.optString("c").ifEmpty { null }.takeIf { it != "null" },
                     j.optString("cp").ifEmpty { null }.takeIf { it != "null" }, j.optInt("a", -1).takeIf { it >= 0 },
                     j.optInt("r"), j.optLong("t"), ix.name)
-            }
+            } } finally { keys.values.forEach { it.sk.fill(0) } }
         }
         return out.sortedByDescending { it.ts }
     }
@@ -130,36 +138,44 @@ object FindMy {
 
     /** Build a grant of [devicePub]'s locations for [months] months to [grantee]. */
     fun buildGrant(ctx: Context, grantee: String, devicePub: ByteArray, label: String, months: Int = 2): Pair<String, String> {
-        val hide = RoleKeys.get(ctx, "hide") ?: error("import your hide key first")
         val me = account(ctx)
         val memoHex = ChainHttp.get("/api/account/$grantee")?.let { JSONObject(it).optJSONObject("keys")?.optString("memo") }
         require(!memoHex.isNullOrEmpty()) { "$grantee has no memo key on chain" }
-        val seed = IdKeys.deviceSeed(hide, devicePub)
+        val dev = devicePub.hex()
+        val g = HwKeys.granted(ctx).firstOrNull { it.device == dev }
+        val hide = RoleKeys.get(ctx, "hide")
+        require(g != null || hide != null) { "this device is not in this phone's hardware grant" }
         val p0 = IdKeys.period(IdKeys.window())
-        val keys = JSONObject().apply { for (p in p0 until p0 + months) put(p.toString(), IdKeys.shareKey(seed, p).hex()) }
+        val keys = JSONObject().apply {
+            for (p in p0 until p0 + months) {
+                val k = if (g != null) HwKeys.shareKey(dev, g.generation, p)!! else IdKeys.shareKey(IdKeys.deviceSeed(hide!!, devicePub), p)
+                put(p.toString(), k.hex()); k.fill(0)
+            }
+        }
         val pt = JSONObject().put("v", 1).put("from", me).put("to", grantee).put("device", devicePub.hex())
             .put("label", label).put("keys", keys).toString()
         val blob = IdKeys.seal(IdKeys.edPubToX(memoHex!!.unhex()), INFO_GRANT, pt.toByteArray(), aad = me.toByteArray())
         return grantKeyName(grantee, devicePub.hex()) to Base64.encodeToString(blob, Base64.NO_WRAP)
     }
 
-    /** Sign + submit MemorySet/MemoryDelete with the imported active key. Returns a status line. */
-    fun submitMemory(ctx: Context, key: String, value: String?): String {
-        val active = RoleKeys.get(ctx, "active") ?: return "no active key on this phone: run tools/hone_locshare.py on the wallet host"
+    /** Sign (via [sign], the wallet's biometric-gated active key) + submit MemorySet/MemoryDelete.
+     *  [sign] returns the signature hex, or null when cancelled. Returns a status line. */
+    suspend fun submitMemory(ctx: Context, key: String, value: String?, sign: suspend (String) -> String?): String {
         val me = account(ctx)
-        val nonce = (ChainHttp.get("/api/account/$me")?.let { JSONObject(it).optLong("nonce") } ?: return "no node reachable") + 1
+        val io = kotlinx.coroutines.Dispatchers.IO
+        val nonce = (kotlinx.coroutines.withContext(io) { ChainHttp.get("/api/account/$me") }?.let { JSONObject(it).optLong("nonce") } ?: return "no node reachable") + 1
         val fields = sortedMapOf<String, Any>("account" to me, "chain_id" to "hone", "key" to key, "nonce" to nonce,
             "type" to if (value == null) "MEMORY_DELETE" else "MEMORY_SET")
         if (value != null) fields["value"] = value
         val msg = fields.entries.joinToString(",", "{", "}") { (k, v) ->
             JSONObject.quote(k) + ":" + if (v is String) JSONObject.quote(v) else v.toString()
         }
-        val sig = Ed25519Signer().run {
-            init(true, Ed25519PrivateKeyParameters(active, 0)); val b = msg.toByteArray(); update(b, 0, b.size); generateSignature()
-        }.hex()
+        val sig = sign(msg) ?: return "not signed"
         val body = JSONObject().put("nonce", nonce).put("signature", sig).apply { if (value != null) put("value", value) }
         val path = "/api/memory/$me/$key"
-        val res = if (value != null) ChainHttp.postJson(path, body.toString()) else ChainHttp.deleteJson(path, body.toString())
+        val res = kotlinx.coroutines.withContext(io) {
+            if (value != null) ChainHttp.postJson(path, body.toString()) else ChainHttp.deleteJson(path, body.toString())
+        }
         return res?.let { "${it.first}: ${it.second.take(120)}" } ?: "no node reachable"
     }
 

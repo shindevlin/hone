@@ -104,6 +104,23 @@ object RoleKeys {
     fun seedFor(ctx: Context, devicePub: ByteArray): ByteArray? =
         get(ctx, "hide")?.let { IdKeys.deviceSeed(it, devicePub) }
 
+    /**
+     * This phone's window key and where its seed lives: "hardware" (standing grant, seed in
+     * Keystore), "hide" (legacy hide key on the phone) or "provisional" (random, unlinked).
+     * share_k is zeroed here; the returned sk is for the caller to zero when done.
+     */
+    fun thisWindowKey(ctx: Context, window: Long): Pair<IdKeys.WindowKey, String> {
+        val me = devicePub(ctx).hex()
+        HwKeys.granted(ctx).firstOrNull { it.device == me }?.let { g ->
+            runCatching { HwKeys.shareKey(me, g.generation, IdKeys.period(window)) }.getOrNull()?.let { sk ->
+                // Advertising needs only pk/lid/tag: sk_w and share_k are zeroed here.
+                try { return IdKeys.windowKey(sk, window).also { it.sk.fill(0) } to "hardware" } finally { sk.fill(0) }
+            }
+        }
+        val (s, d) = thisSeed(ctx)
+        return IdKeys.windowKeyFromSeed(s, window) to (if (d) "hide" else "provisional")
+    }
+
     @Volatile private var provisional: ByteArray? = null
 
     /** This phone's seed and whether it is derived (true) or provisional (false). */

@@ -76,6 +76,17 @@ object IdKeys {
     fun deviceSeed(hidePriv: ByteArray, devicePub: ByteArray): ByteArray =
         hkdf(hidePriv, ByteArray(0), s("hone-id-seed") + devicePub)
 
+    /** Seed generation g (bumped to make a revocation real for new windows); g = 0 is today's seed. */
+    fun deviceSeed(hidePriv: ByteArray, devicePub: ByteArray, generation: Int): ByteArray =
+        if (generation == 0) deviceSeed(hidePriv, devicePub)
+        else hkdf(hidePriv, ByteArray(0), s("hone-id-seed") + devicePub + be32(generation))
+
+    /** HKDF-Extract of a seed (empty salt): the value the granting tool wraps into the phone's Keystore. */
+    fun seedPrk(seed: ByteArray): ByteArray = hmac(ByteArray(0), seed)
+
+    /** share_k from a PRK by one HMAC (HKDF-Expand T(1)); what the Keystore HMAC key computes. */
+    fun shareKeyFromPrk(prk: ByteArray, period: Int): ByteArray = hmac(prk, s("hone-share"), be32(period), byteArrayOf(1))
+
     fun shareKey(seed: ByteArray, period: Int): ByteArray =
         hkdf(seed, ByteArray(0), s("hone-share") + be32(period))
 

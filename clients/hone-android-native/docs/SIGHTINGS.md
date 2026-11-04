@@ -237,3 +237,25 @@ One row per (cell, window), the cell at the resolution its readings supported:
 
 About 3.5 mA (~1.7 %/day) indoors screen off, more outdoors while GPS is used.
 Switching to BALANCED priority when on battery and moving slowly is the obvious knob.
+
+## Standing hardware grant (no hide key on phones)
+
+The owner's hide key stays on the wallet host. `tools/hone_findgrant.py` checks the phone's
+Android Key Attestation (Google root, not revoked, TEE/StrongBox, PURPOSE_WRAP_KEY, challenge
+`SHA-256("hone-find-v1|<account>|<device_pub>")`, package + signing-cert digest), signs
+FIND_GRANT with the hide key, and wraps per device `PRK = HKDF-Extract(salt="", id_seed_g)`
+to the phone's attested RSA-2048 wrapping key (ImportWrappedKey, RSA-OAEP SHA-256/MGF1-SHA-1,
+AES-256-GCM, AAD = KeyDescription) as a non-exportable HMAC-SHA256 key.
+
+`id_seed_g = HKDF(hide, "hone-id-seed" || device_pub || be32(g))`; g = 0 omits the suffix
+(today's seed). `share_k(p) = HMAC(PRK, "hone-share" || be32(p) || 0x01)`, computed in the Keystore.
+
+| Where | What |
+|---|---|
+| Hardware only (TEE on the moto g power 2025; StrongBox when present) | wrapping key, every PRK / id_seed |
+| Never on the phone | hide key, owner key; active key only in the wallet (biometric per signature) |
+| App RAM, briefly, zeroed after use, never stored or logged | `share_k` of the month searched or advertised; per-window `sk_w` (X25519 and AES-GCM need the raw scalar) |
+| Public | `pk_w`, `lid`, `tag`, the grant entry |
+
+A Keystore HMAC returns its output to the app, so `share_k` cannot be chained further inside
+the hardware; everything above it stays there.

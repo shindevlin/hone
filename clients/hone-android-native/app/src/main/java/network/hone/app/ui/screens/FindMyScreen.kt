@@ -36,11 +36,11 @@ import java.util.Date
 import java.util.Locale
 
 private val ROLE_HELP = mapOf(
-    "hide" to "hide key: finds your own devices (derives their rotating ids). Paste it here to see your things.",
     "memo" to "memo key: decrypts location shares sent to your account.",
-    "active" to "active key: only needed to grant or revoke sharing from this phone.",
     "posting" to "posting key: signs bird uploads from this phone.",
 )
+// The hide key no longer goes on phones (hardware grant below); the active key lives only in the wallet.
+private val PHONE_ROLES = listOf("memo", "posting")
 
 private fun ByteArray.hx() = joinToString("") { "%02x".format(it) }
 
@@ -55,7 +55,7 @@ fun FindMyScreen(onBack: () -> Unit) {
     var shared by remember { mutableStateOf(emptyList<SightingStore.Shared>()) }
     var status by remember { mutableStateOf("") }
     var refresh by remember { mutableIntStateOf(0) }
-    var keyRole by remember { mutableStateOf("hide") }
+    var keyRole by remember { mutableStateOf("memo") }
     var keyHex by remember { mutableStateOf("") }
     var keyErr by remember { mutableStateOf<String?>(null) }
     var label by remember { mutableStateOf("") }
@@ -88,8 +88,9 @@ fun FindMyScreen(onBack: () -> Unit) {
         // ── keys ──
         item {
             Text("Wallet keys on this phone", fontWeight = FontWeight.SemiBold)
-            Text(RoleKeys.ROLES.joinToString(" · ") { "$it ${if (RoleKeys.has(ctx, it)) "yes" else "no"}" }, style = line, color = HoneTextDim)
-            Row { RoleKeys.ROLES.forEach { r -> FilterChip(selected = keyRole == r, onClick = { keyRole = r }, label = { Text(r) }, modifier = Modifier.padding(end = 6.dp)) } }
+            Text(PHONE_ROLES.joinToString(" · ") { "$it ${if (RoleKeys.has(ctx, it)) "yes" else "no"}" } +
+                " · hide: never on the phone (hardware grant) · active: Wallet", style = line, color = HoneTextDim)
+            Row { PHONE_ROLES.forEach { r -> FilterChip(selected = keyRole == r, onClick = { keyRole = r }, label = { Text(r) }, modifier = Modifier.padding(end = 6.dp)) } }
             Text(ROLE_HELP[keyRole] ?: "", style = line, color = HoneTextDim)
             // The key is never logged and never leaves the phone: RoleKeys wraps it with a
             // non-exportable AndroidKeyStore key. Masked on screen.
@@ -107,7 +108,6 @@ fun FindMyScreen(onBack: () -> Unit) {
                     val err = withContext(Dispatchers.IO) { RoleKeys.import(ctx, role, hex, chainPub) }
                     keyErr = err
                     status = if (err != null) "" else ("$role key imported" + if (chainPub.isNullOrEmpty()) " (not registered on chain)" else " (matches chain)")
-                    if (err == null && role == "hide") withContext(Dispatchers.IO) { SightingsEngine.reloadIdentity() }
                     if (err == null && role == "memo") withContext(Dispatchers.IO) { runCatching { FindMy.refreshShared(ctx, store) } }
                     refresh++
                 }
@@ -123,6 +123,8 @@ fun FindMyScreen(onBack: () -> Unit) {
                 Text("Import $keyRole key")
             }
         }
+        // ── hardware grant ──
+        item { HardwareGrantCard(onChanged = { refresh++ }) { status = it } }
         // ── my devices ──
         item {
             Text("My devices", fontWeight = FontWeight.SemiBold)
@@ -157,19 +159,18 @@ fun FindMyScreen(onBack: () -> Unit) {
                             runCatching {
                                 val dev = devicePubFor(shareDev) ?: error("unknown device")
                                 val (k, v) = FindMy.buildGrant(ctx, grantee, dev.chunked(2).map { it.toInt(16).toByte() }.toByteArray(), shareDev)
-                                "share $shareDev -> $grantee: " + FindMy.submitMemory(ctx, k, v)
-                            }.getOrElse { it.message ?: "error" }
-                        }
+                                k to v
+                            }
+                        }.let { r -> r.fold({ (k, v) -> "share $shareDev -> $grantee: " + FindMy.submitMemory(ctx, k, v, signer(ctx, "Share location")) },
+                            { it.message ?: "error" }) }
                     }
                 }) { Text("Share (this month + next)") }
                 TextButton(enabled = grantee.isNotBlank(), onClick = {
                     scope.launch {
-                        status = withContext(Dispatchers.IO) {
-                            runCatching {
-                                val dev = devicePubFor(shareDev) ?: error("unknown device")
-                                "revoke $shareDev -> $grantee: " + FindMy.submitMemory(ctx, FindMy.grantKeyName(grantee, dev), null)
-                            }.getOrElse { it.message ?: "error" }
-                        }
+                        status = runCatching {
+                            val dev = devicePubFor(shareDev) ?: error("unknown device")
+                            "revoke $shareDev -> $grantee: " + FindMy.submitMemory(ctx, FindMy.grantKeyName(grantee, dev), null, signer(ctx, "Revoke location share"))
+                        }.getOrElse { it.message ?: "error" }
                     }
                 }) { Text("Revoke") }
             }
@@ -211,6 +212,53 @@ fun FindMyScreen(onBack: () -> Unit) {
                 Text("cell ${s.cellf ?: s.cell ?: "unlocated"}${s.accM?.let { " · ±$it m" } ?: ""} · ${s.rssi} dBm · window ${s.window} · via ${s.source}",
                     style = line, color = HoneGreen)
             }
+        }
+    }
+}
+
+/** Signs with the wallet's active key (biometric per signature). */
+private fun signer(ctx: android.content.Context, title: String): suspend (String) -> String? = { msg ->
+    var c: android.content.Context? = ctx
+    while (c is android.content.ContextWrapper && c !is androidx.fragment.app.FragmentActivity) c = c.baseContext
+    val act = c as? androidx.fragment.app.FragmentActivity
+    if (act == null || !network.hone.app.data.ActiveKeyVault.has(ctx)) null
+    else (network.hone.app.data.ActiveKeyVault.sign(act, msg, title, "Signs a Memory entry with your active key")
+        as? network.hone.app.data.ActiveKeyVault.Signed.Ok)?.signatureHex
+}
+
+/** Standing hardware grant: export the attested hardware key, import the wrapped seeds. */
+@Composable
+private fun HardwareGrantCard(onChanged: () -> Unit, setStatus: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var tick by remember { mutableIntStateOf(0) }
+    val line = MaterialTheme.typography.labelSmall
+    val info = remember(tick) { runCatching { network.hone.app.sightings.HwKeys.info() }.getOrNull() }
+    val grant = remember(tick) { network.hone.app.sightings.HwKeys.grant(ctx) }
+    val devs = remember(tick) { network.hone.app.sightings.HwKeys.granted(ctx) }
+    fun run(label: String, f: () -> String) = scope.launch {
+        setStatus(withContext(Dispatchers.IO) { runCatching(f).getOrElse { "$label failed: ${it.message}" } }); tick++; onChanged()
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Hardware grant", fontWeight = FontWeight.SemiBold)
+        Text("Your hide key stays on your wallet host. It grants this phone's hardware key; device seeds are " +
+            "imported into the phone's secure hardware and never leave it.", style = line, color = HoneTextDim)
+        Text(if (info == null) "hardware key: not created yet" else "hardware key ${info.hwKey.take(12)}… in ${info.securityLevel}",
+            style = line, color = HoneTextDim)
+        Text(if (grant == null) "no grant imported" else
+            "grant from @${grant.optString("owner")}: ${devs.size} device(s)" + if (grant.optBoolean("dry_run")) " · TEST grant" else "",
+            style = line, color = if (grant == null) HoneTextFaint else HoneGreen)
+        Row {
+            TextButton(onClick = { run("export") {
+                val f = network.hone.app.sightings.HwKeys.export(ctx, FindMy.account(ctx)); "hardware key exported: ${f.path}" } }) { Text("Export hardware key") }
+            TextButton(onClick = { run("import") { network.hone.app.sightings.HwKeys.importBundle(ctx).also { SightingsEngine.reloadIdentity() } } }) { Text("Import grant") }
+        }
+        if (grant != null) Row {
+            if (grant.has("selftest")) TextButton(onClick = { run("self-test") {
+                val (ok, n, pt) = network.hone.app.sightings.HwKeys.selfTest(ctx)
+                "self-test: lids $ok/$n match · test sighting " + (if (pt != null) "decrypted" else "NOT decrypted")
+            } }) { Text("Self-test") }
+            TextButton(onClick = { run("forget") { network.hone.app.sightings.HwKeys.forgetGrant(ctx); SightingsEngine.reloadIdentity(); "grant removed from this phone" } }) { Text("Remove grant") }
         }
     }
 }

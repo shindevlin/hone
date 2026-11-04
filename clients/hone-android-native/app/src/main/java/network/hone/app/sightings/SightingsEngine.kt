@@ -140,19 +140,18 @@ object SightingsEngine {
     }
 
     // ── Identity ─────────────────────────────────────────────────────────────────
-    @Volatile private var seed: ByteArray? = null
     @Volatile private var seedDerived = false
     @Volatile private var wkey: IdKeys.WindowKey? = null
 
     /** Re-read the seed (after a hide key import): one-time key change. */
     fun reloadIdentity() {
         val c = appCtx ?: return
-        val (s, d) = RoleKeys.thisSeed(c)
-        seed = s; seedDerived = d
-        wkey = IdKeys.windowKeyFromSeed(s, window)
+        val (k, src) = RoleKeys.thisWindowKey(c, window)
+        seedDerived = src != "provisional"
+        wkey = k
         IdAdvertiser.stop(c)
         IdAdvertiser.ensure(c, wkey!!)
-        Log.i(TAG, "identity ${if (d) "derived from hide key" else "provisional"}")
+        Log.i(TAG, "identity: $src")
     }
 
     // ── Location ─────────────────────────────────────────────────────────────────
@@ -267,7 +266,7 @@ object SightingsEngine {
         val c = ctx.applicationContext
         appCtx = c
         store = SightingStore(c)
-        RoleKeys.thisSeed(c).let { (s, d) -> seed = s; seedDerived = d }
+
         rollWindow(c, System.currentTimeMillis())
         startLocation(c)
         startIdScan(c)
@@ -314,7 +313,7 @@ object SightingsEngine {
         window = w
         accs.clear(); sightBest.clear()
         dayKey(nowMs)
-        wkey = IdKeys.windowKeyFromSeed(seed!!, w)
+        wkey = RoleKeys.thisWindowKey(c, w).let { (k, src) -> seedDerived = src != "provisional"; k }
         IdAdvertiser.ensure(c, wkey!!)              // new key + new advertising set(s) (address)
         scheduleAlarm(c, IdKeys.windowStartMs(w + 1))
         store?.prune(w)
@@ -387,7 +386,7 @@ object SightingsEngine {
             if (!hasLocation(c)) add("location denied: readings kept unlocated, nothing queued")
             else if (!hasBackgroundLocation(c)) add("location only while app open (allow 'all the time')")
             if (!Cells.available()) add("H3 unavailable")
-            if (!seedDerived) add("no hide key imported: provisional identity (Find my things > keys)")
+            if (!seedDerived) add("no hardware grant: provisional identity (Find my things > hardware grant)")
             if (!IdAdvertiser.hasPermission(c)) add("Bluetooth advertise permission missing")
             else if (IdAdvertiser.lastError.isNotEmpty()) add(IdAdvertiser.lastError)
         }
