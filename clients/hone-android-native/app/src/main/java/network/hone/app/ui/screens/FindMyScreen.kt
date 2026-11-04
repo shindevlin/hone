@@ -10,7 +10,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,6 +35,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val ROLE_HELP = mapOf(
+    "hide" to "hide key: finds your own devices (derives their rotating ids). Paste it here to see your things.",
+    "memo" to "memo key: decrypts location shares sent to your account.",
+    "active" to "active key: only needed to grant or revoke sharing from this phone.",
+    "posting" to "posting key: signs bird uploads from this phone.",
+)
+
 private fun ByteArray.hx() = joinToString("") { "%02x".format(it) }
 
 /** Find my things: own devices (from the hide key), devices shared with me (grants), sharing. */
@@ -45,6 +57,7 @@ fun FindMyScreen(onBack: () -> Unit) {
     var refresh by remember { mutableIntStateOf(0) }
     var keyRole by remember { mutableStateOf("hide") }
     var keyHex by remember { mutableStateOf("") }
+    var keyErr by remember { mutableStateOf<String?>(null) }
     var label by remember { mutableStateOf("") }
     var pub by remember { mutableStateOf("") }
     var grantee by remember { mutableStateOf("") }
@@ -60,7 +73,8 @@ fun FindMyScreen(onBack: () -> Unit) {
     fun devicePubFor(name: String): String? = if (name == "This phone") myPub else owned.firstOrNull { it.first == name }?.second
     val line = MaterialTheme.typography.labelSmall
 
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    // imePadding: the key field and its Import button stay above the keyboard.
+    LazyColumn(Modifier.fillMaxSize().imePadding().padding(horizontal = 20.dp).padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Find my things", style = MaterialTheme.typography.headlineMedium,
@@ -76,21 +90,38 @@ fun FindMyScreen(onBack: () -> Unit) {
             Text("Wallet keys on this phone", fontWeight = FontWeight.SemiBold)
             Text(RoleKeys.ROLES.joinToString(" · ") { "$it ${if (RoleKeys.has(ctx, it)) "yes" else "no"}" }, style = line, color = HoneTextDim)
             Row { RoleKeys.ROLES.forEach { r -> FilterChip(selected = keyRole == r, onClick = { keyRole = r }, label = { Text(r) }, modifier = Modifier.padding(end = 6.dp)) } }
-            OutlinedTextField(value = keyHex, onValueChange = { keyHex = it.trim() }, singleLine = true,
-                label = { Text("$keyRole private key (64 hex)") }, modifier = Modifier.fillMaxWidth())
-            TextButton(enabled = keyHex.length == 64, onClick = {
-                val role = keyRole; val hex = keyHex; keyHex = ""
+            Text(ROLE_HELP[keyRole] ?: "", style = line, color = HoneTextDim)
+            // The key is never logged and never leaves the phone: RoleKeys wraps it with a
+            // non-exportable AndroidKeyStore key. Masked on screen.
+            fun submit() {
+                val hex = keyHex.trim().lowercase()
+                if (!hex.matches(Regex("[0-9a-f]{64}"))) {
+                    keyErr = "Expected 64 hex characters (0-9, a-f); got ${hex.length}"; return
+                }
+                keyErr = null
+                val role = keyRole; keyHex = ""
                 scope.launch {
                     val chainPub = withContext(Dispatchers.IO) {
                         ChainHttp.get("/api/account/${FindMy.account(ctx)}")?.let { JSONObject(it).optJSONObject("keys")?.optString(role) }
                     }
                     val err = withContext(Dispatchers.IO) { RoleKeys.import(ctx, role, hex, chainPub) }
-                    status = err ?: ("$role key imported" + if (chainPub.isNullOrEmpty()) " (not registered on chain)" else " (matches chain)")
+                    keyErr = err
+                    status = if (err != null) "" else ("$role key imported" + if (chainPub.isNullOrEmpty()) " (not registered on chain)" else " (matches chain)")
                     if (err == null && role == "hide") withContext(Dispatchers.IO) { SightingsEngine.reloadIdentity() }
                     if (err == null && role == "memo") withContext(Dispatchers.IO) { runCatching { FindMy.refreshShared(ctx, store) } }
                     refresh++
                 }
-            }) { Text("Import key") }
+            }
+            OutlinedTextField(value = keyHex, onValueChange = { keyHex = it.trim(); keyErr = null }, singleLine = true,
+                label = { Text("$keyRole private key (64 hex)") }, isError = keyErr != null,
+                supportingText = { Text(keyErr ?: "${keyHex.length}/64") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done, autoCorrectEnabled = false),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                modifier = Modifier.fillMaxWidth())
+            Button(onClick = { submit() }, enabled = keyHex.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                Text("Import $keyRole key")
+            }
         }
         // ── my devices ──
         item {
