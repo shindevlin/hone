@@ -21,7 +21,7 @@ API (all JSON):
        payload = {"v":1,"latin","t","license":"UFL","account"?}
   GET  /api/birds/photos/<id>.jpg
 """
-import base64, hashlib, hmac, io, json, os, re, sqlite3, sys, threading, time, urllib.parse, urllib.request
+import base64, hashlib, hmac, io, json, os, re, sqlite3, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -137,6 +137,79 @@ def in_range(cell, latin):
     with lock:
         r = db.execute("SELECT species FROM ranges WHERE cell=?", (c3,)).fetchone()
     return None if not r else latin in set(json.loads(r[0]))
+
+
+# ── reference calls (xeno-canto API v3, metadata only) ─────────────────────────────────
+# The app streams audio from xeno-canto's own file URL; nothing is rehosted here. These
+# recordings are reference listening only: never used for rewards, scoring, training,
+# anti-gaming or marketing. Key: XC_API_KEY in /etc/hone-birds.env (never logged).
+db.execute("CREATE TABLE IF NOT EXISTS xc_calls(latin TEXT PRIMARY KEY, body TEXT, updated INTEGER)")
+XC_TTL, XC_NEG_TTL, XC_MAX = 30 * 86400, 86400, 3
+xc_locks = {}
+
+
+def xc_license(url):
+    """(rank, short name, https url): CC0, BY, BY-SA, BY-ND, then NC variants."""
+    u = (url or "").lower()
+    if "zero" in u or "publicdomain" in u:
+        name = "CC0"
+    else:
+        m = re.search(r"licenses/([a-z-]+)/([0-9.]+)", u)
+        name = ("CC " + m.group(1).upper() + " " + m.group(2)) if m else (url or "unknown")
+    order = ["CC0", "CC BY ", "CC BY-SA", "CC BY-ND", "CC BY-NC ", "CC BY-NC-SA", "CC BY-NC-ND"]
+    rank = next((i for i, o in enumerate(order) if (name + " ").startswith(o)), len(order))
+    full = url if (url or "").startswith("http") else ("https:" + url if (url or "").startswith("//") else url)
+    return rank, name, full
+
+
+def xc_fetch(latin):
+    key = os.environ.get("XC_API_KEY", "").strip()
+    if not key:
+        raise LookupError("xeno-canto API key not configured")
+    gen, sp = latin.split(" ", 1)
+    recs = []
+    for query in (f'gen:{gen} sp:{sp}', f'sp:"{latin}"'):
+        url = "https://xeno-canto.org/api/3/recordings?" + urllib.parse.urlencode(
+            {"query": query, "per_page": 100, "key": key})
+        req = urllib.request.Request(url, headers={"User-Agent": "hone-birds/1 (https://honemesh.net)"})
+        try:
+            data = json.load(urllib.request.urlopen(req, timeout=30))
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"xeno-canto HTTP {e.code}") from None  # no URL: it carries the key
+        recs = [r for r in data.get("recordings", [])
+                if f"{r.get('gen', '')} {r.get('sp', '')}".lower() == latin.lower() and r.get("file")]
+        if recs:
+            break
+    out = []
+    for r in recs:
+        rank, lic, lic_url = xc_license(r.get("lic"))
+        page = r.get("url") or f"https://xeno-canto.org/{r.get('id')}"
+        out.append({"xc_id": str(r.get("id")), "recordist": r.get("rec") or "unknown", "license": lic,
+                    "license_url": lic_url, "quality": r.get("q") or "", "file_url": r["file"],
+                    "page_url": "https:" + page if page.startswith("//") else page,
+                    "length": r.get("length") or "", "type": r.get("type") or "", "country": r.get("cnt") or "",
+                    "_rank": (rank, (r.get("q") or "z").upper() if (r.get("q") or "") in "ABCDE" else "Z")})
+    out.sort(key=lambda x: x["_rank"])
+    for x in out:
+        x.pop("_rank")
+    return out[:XC_MAX]
+
+
+def xc_calls(latin):
+    if not LATIN.match(latin):
+        raise ValueError("bad species name")
+    now = int(time.time())
+    with lock:
+        r = db.execute("SELECT body, updated FROM xc_calls WHERE latin=?", (latin,)).fetchone()
+    if r:
+        body = json.loads(r[0])
+        if now - r[1] < (XC_TTL if body else XC_NEG_TTL):
+            return body
+    with xc_locks.setdefault(latin, threading.Lock()):
+        body = xc_fetch(latin)
+        with lock:
+            db.execute("INSERT OR REPLACE INTO xc_calls VALUES(?,?,?)", (latin, json.dumps(body), now)); db.commit()
+    return body
 
 
 def limited(ip, n=120, per=3600):
@@ -456,6 +529,18 @@ class H(BaseHTTPRequestHandler):
                 if b is None:
                     return self._send(404, {"error": "not found"})
                 return self._send(200, raw=b, ctype="image/jpeg")
+            m = re.match(r"^/api/birds/call/(.+)$", path)
+            if m:
+                latin = unquote(m.group(1))
+                ip = self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0]
+                if limited("xc:" + ip, 60, 3600):
+                    return self._send(429, {"error": "slow down"})
+                try:
+                    recs = xc_calls(latin)
+                except LookupError as e:
+                    return self._send(503, {"error": str(e)})
+                return self._send(200, {"latin": latin, "source": "xeno-canto.org",
+                                        "use": "reference listening only; played unmodified", "recordings": recs})
             if path == "/api/birds/range":
                 c3, names = species_range(a["cell"])
                 return self._send(200, {"cell": c3, "radius_km": RANGE_KM, "source": "GBIF.org occurrences",
