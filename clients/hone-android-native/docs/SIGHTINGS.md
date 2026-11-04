@@ -140,20 +140,22 @@ blobs with `sk_w`. Host equivalent: `hone_locshare.py find --wallet W --device P
   The tools sign `{"account","chain_id","key","nonce","type":"MEMORY_SET","value"}`
   (sorted, compact; same as hone-cli's `sign_entry`).
 
-**Chain blocker (found 2026-11-02):** `canonical_signing_message` has no arm for
-MemorySet/MemoryDelete, so they fall to the generic arm, which serialises the whole entry
-including the server-set `epoch` and the `signature` field itself. No client can produce
-a valid signature; a test grant from natoshisakamoto was accepted by the HTTP handler and
-never applied. Fix (chain owner): add explicit arms
+**Chain signing (fixed 2026-11-02, v2.1-live-identity dcfd28b0):** `canonical_signing_message`
+had no arm for MemorySet/MemoryDelete, so they fell to the generic arm (whole entry incl. the
+server-set `epoch` and the `signature` field); no client could sign it, and a test grant from
+natoshisakamoto was accepted by the HTTP handler and never applied. From entry epoch
+`MEMORY_SIGNING_ACTIVATION_EPOCH` = **349,100** the node signs exactly what these tools sign:
 
-```rust
-LedgerEntry::MemorySet { account, key, value, nonce, .. } =>
-    json!({"chain_id": chain_id, "type": "MEMORY_SET", "account": account, "key": key, "value": value, "nonce": nonce}),
-LedgerEntry::MemoryDelete { account, key, nonce, .. } =>
-    json!({"chain_id": chain_id, "type": "MEMORY_DELETE", "account": account, "key": key, "nonce": nonce}),
 ```
-(serde_json maps sort keys, which matches the tools). Gate it behind an activation epoch
-like the other signing changes.
+{"account":A,"chain_id":C,"key":K,"nonce":N,"type":"MEMORY_SET","value":V}
+{"account":A,"chain_id":C,"key":K,"nonce":N,"type":"MEMORY_DELETE"}
+```
+
+Sorted keys, compact separators. Note: the node build has serde_json `preserve_order` ON, so
+the Rust arm writes the keys in sorted order explicitly (json! does not sort). Values must be
+ASCII (base64 is): Python `json.dumps` escapes non-ASCII by default and serde_json does not.
+Before 349,100 the old message applies and a client-signed memory entry is now refused at
+submission (signature precheck) instead of being "accepted" and dropped.
 
 ## 4. Observing (§1b, §2a)
 
