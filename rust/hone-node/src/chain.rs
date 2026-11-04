@@ -1626,6 +1626,10 @@ impl Chain {
             // Coverage reports — cellular dead-spot mapping.
             // Quantize lat/lon to 0.001° grid cells (~100m). Track per-cell reporter count
             // for corroboration bonus, and per-reporter count for anti-spam cap.
+            LedgerEntry::FindGrant { .. } | LedgerEntry::FindRevoke { .. } | LedgerEntry::SeedGeneration { .. } => {
+                crate::find_grant::apply(self, entry)?;
+            }
+
             LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, .. } => {
                 let (verdicts, pts) = crate::usefulness::score(self, sensor_id, owner, cell, *window, metrics, *epoch);
                 for (m, v) in &verdicts {

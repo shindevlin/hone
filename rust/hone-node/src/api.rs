@@ -260,6 +260,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sensor/vouch", post(post_sensor_vouch))
         .route("/api/coverage/report", post(post_coverage_report))
         .route("/api/sensor/summary", post(post_sensor_summary))
+        .route("/api/find/grant", post(post_find_grant))
+        .route("/api/find/revoke", post(post_find_revoke))
+        .route("/api/find/generation", post(post_seed_generation))
+        .route("/api/find/grants/:owner", get(get_find_grants))
+        .route("/api/find/generation/:device", get(get_find_generation))
         .route("/api/sensor/:id", get(get_sensor))
         .route("/api/sensors/:sensor_id/consensus/:epoch", get(get_sensor_consensus))
         .route("/api/sensors/:sensor_id/strikes", get(get_sensor_strikes))
@@ -4740,6 +4745,89 @@ async fn post_sensor_summary(
         epoch: s.chain.current_epoch(), signed_by: b.owner,
     };
     apply_and_broadcast(&s, entry, non_empty(&b.signature))
+}
+
+// ── Find-My grants (hide-key signed) ─────────────────────────────────────────
+// Bodies carry the owner's account nonce + 1 and a signature by the owner's CURRENT hide
+// key over the canonical message (see tx::canonical_signing_message). `epoch` defaults to
+// the current epoch.
+
+#[derive(Debug, Deserialize)]
+struct FindGrantBody {
+    owner: String,
+    hw_key: String,
+    attestation_digest: String,
+    devices: Vec<hone_types::FindDevice>,
+    nonce: u64,
+    #[serde(default)]
+    epoch: Option<u64>,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FindRevokeBody {
+    owner: String,
+    hw_key: String,
+    nonce: u64,
+    #[serde(default)]
+    epoch: Option<u64>,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeedGenerationBody {
+    owner: String,
+    device_pubkey: String,
+    generation: u32,
+    nonce: u64,
+    #[serde(default)]
+    epoch: Option<u64>,
+    #[serde(default)]
+    signature: String,
+}
+
+/// POST /api/find/grant
+async fn post_find_grant(State(s): State<AppState>, Json(b): Json<FindGrantBody>) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::FindGrant {
+        owner: b.owner.clone(), hw_key: b.hw_key, attestation_digest: b.attestation_digest,
+        devices: b.devices, nonce: b.nonce,
+        epoch: b.epoch.unwrap_or_else(|| s.chain.current_epoch()), signed_by: b.owner,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&b.signature))
+}
+
+/// POST /api/find/revoke
+async fn post_find_revoke(State(s): State<AppState>, Json(b): Json<FindRevokeBody>) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::FindRevoke {
+        owner: b.owner.clone(), hw_key: b.hw_key, nonce: b.nonce,
+        epoch: b.epoch.unwrap_or_else(|| s.chain.current_epoch()), signed_by: b.owner,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&b.signature))
+}
+
+/// POST /api/find/generation
+async fn post_seed_generation(State(s): State<AppState>, Json(b): Json<SeedGenerationBody>) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::SeedGeneration {
+        owner: b.owner.clone(), device_pubkey: b.device_pubkey, generation: b.generation, nonce: b.nonce,
+        epoch: b.epoch.unwrap_or_else(|| s.chain.current_epoch()), signed_by: b.owner,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&b.signature))
+}
+
+/// GET /api/find/grants/:owner — every grant with `active` decided against the current hide key.
+async fn get_find_grants(State(s): State<AppState>, Path(owner): Path<String>) -> Json<serde_json::Value> {
+    Json(crate::find_grant::grants_view(&s.chain, &owner))
+}
+
+/// GET /api/find/generation/:device[?owner=NAME]
+async fn get_find_generation(
+    State(s): State<AppState>,
+    Path(device): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    Json(crate::find_grant::generation_view(&s.chain, &device, q.get("owner").map(String::as_str)))
 }
 
 async fn post_coverage_report(

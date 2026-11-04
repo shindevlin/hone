@@ -32,6 +32,8 @@ pub enum Capability {
     Service,
     /// Encrypted messaging / purchase intent.
     Message,
+    /// Find-My grants, revokes and seed generations (signed by the hide key only).
+    Find,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -53,7 +55,8 @@ impl KeyType {
             KeyType::Fulfill => &[Deliver],
             KeyType::Service => &[Service],
             KeyType::Device  => &[Service],
-            KeyType::Hide    => &[], // a decryption key, never an entry signer
+            // The hide key decrypts; its only signing use is Find-My (FIND_GRANT etc.).
+            KeyType::Hide    => &[Find],
         }
     }
     /// Authority rank (higher = more privileged); used for rotation checks.
@@ -129,6 +132,9 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
 
         // ── Message: encrypted messaging / purchase intent ───────────────────
         E::OrderPlace { .. } | E::MemorySet { .. } | E::MemoryDelete { .. } => Message,
+
+        // ── Find: Find-My grants (hide key) ──────────────────────────────────
+        E::FindGrant { .. } | E::FindRevoke { .. } | E::SeedGeneration { .. } => Find,
 
         // ── Service: liveness, heartbeats, proofs, data commits ──────────────
         E::MempoolHeartbeat { .. } | E::GatewayHeartbeat { .. } | E::StorageHeartbeat { .. }

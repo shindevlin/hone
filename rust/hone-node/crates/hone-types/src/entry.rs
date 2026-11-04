@@ -133,6 +133,14 @@ pub struct OwnerAuth {
     pub corroborant_sig: Option<String>,
 }
 
+/// One device named in a `FindGrant`: its ed25519 pubkey (64 hex) and the seed generation
+/// the grantee was given. Field order is the signing order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FindDevice {
+    pub device_pubkey: String,
+    pub generation: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum LedgerEntry {
@@ -603,6 +611,41 @@ pub enum LedgerEntry {
         /// floor(unix / 900).
         window: u64,
         metrics: std::collections::BTreeMap<String, i64>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    /// Find-My: a standing grant letting the phone hardware key `hw_key` (SHA-256 of its
+    /// attested key's SubjectPublicKeyInfo) find `devices`. Signed by the owner's CURRENT
+    /// hide key; no expiry. Active only while that key is still the account's hide key, so
+    /// rotating `hide` voids it. A later grant for the same `(owner, hw_key)` replaces it.
+    FindGrant {
+        owner: AccountId,
+        hw_key: String,
+        /// SHA-256 of the attestation chain (DER, leaf first).
+        attestation_digest: String,
+        /// Sorted by `device_pubkey`, no duplicates.
+        devices: Vec<FindDevice>,
+        nonce: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Find-My: withdraw the grant for `hw_key`. Hide-key signed.
+    FindRevoke {
+        owner: AccountId,
+        hw_key: String,
+        nonce: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Find-My: bump a device's seed generation (strictly increasing; 0 is implicit).
+    /// Devices derive `id_seed_g = HKDF(hide_private, "hone-id-seed" || device_pubkey || be32(g))`
+    /// for g > 0; g = 0 is the original seed. Hide-key signed.
+    SeedGeneration {
+        owner: AccountId,
+        device_pubkey: String,
+        generation: u32,
+        nonce: u64,
         epoch: Epoch,
         signed_by: AccountId,
     },
@@ -2920,6 +2963,9 @@ impl LedgerEntry {
             Self::SensorReading { epoch, .. } => *epoch,
             Self::CoverageReport { epoch, .. } => *epoch,
             Self::SensorSummary { epoch, .. } => *epoch,
+            Self::FindGrant { epoch, .. } => *epoch,
+            Self::FindRevoke { epoch, .. } => *epoch,
+            Self::SeedGeneration { epoch, .. } => *epoch,
             Self::InferenceJobPost { epoch, .. } => *epoch,
             Self::InferenceJobBid { epoch, .. } => *epoch,
             Self::InferenceJobAward { epoch, .. } => *epoch,
@@ -3158,6 +3204,9 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::GrantExternalSigner { .. }
         | LedgerEntry::ExternalSignerTransfer { .. }
         | LedgerEntry::RevokeExternalSigner { .. }
+        | LedgerEntry::FindGrant { .. }
+        | LedgerEntry::FindRevoke { .. }
+        | LedgerEntry::SeedGeneration { .. }
         | LedgerEntry::SetKeyPolicy { .. }
         | LedgerEntry::DelegationGrant { .. }
         | LedgerEntry::DelegationRevoke { .. }

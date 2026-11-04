@@ -178,6 +178,11 @@ pub const USEFULNESS_SCORING_EPOCH: u64 = 352_700;
 
 pub const NAME_NFT_MIGRATION_EPOCH: u64 = 352_000;
 
+/// Find-My grants (FIND_GRANT / FIND_REVOKE / SEED_GENERATION), signed by the owner's
+/// current hide key. Data only. Consensus-critical: every node must run this same value
+/// before it is reached. Proposed, awaiting approval.
+pub const FIND_GRANT_EPOCH: u64 = u64::MAX;
+
 /// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
 /// PLACEHOLDER — confirm the exact three founder accounts.
 pub const IDENTITY_FOUNDER_ACCOUNTS: &[&str] = &["shindevlin", "josh", "natoshisakamoto"];

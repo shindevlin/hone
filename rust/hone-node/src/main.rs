@@ -43,6 +43,7 @@ mod clock;
 mod config;
 mod mem_profile;
 mod usefulness;
+mod find_grant;
 mod peer_ident;
 mod inference_sidecar;
 mod state_audit;

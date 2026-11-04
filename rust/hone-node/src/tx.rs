@@ -1192,6 +1192,20 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── Find-My: hide-key signed grants / revokes / seed generations (data only) ──
+        LedgerEntry::FindGrant { owner, nonce, epoch, .. }
+        | LedgerEntry::FindRevoke { owner, nonce, epoch, .. }
+        | LedgerEntry::SeedGeneration { owner, nonce, epoch, .. } => {
+            let _guard = chain.write_lock.lock();
+            let gate = crate::find_grant::activation_epoch();
+            if *epoch < gate { bail!("Find-My entries are not active before epoch {}", gate); }
+            crate::find_grant::check(chain, entry)?;
+            check_nonce(chain, owner, *nonce)?;
+            crate::find_grant::verify_hide_signature(chain, owner, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, owner)?;
+        }
+
         // ── SensorSummary: public (cell, window) summary, scored for usefulness ──
         LedgerEntry::SensorSummary { sensor_id, owner, cell, metrics, epoch, signed_by, .. } => {
             if *epoch < hone_types::USEFULNESS_SCORING_EPOCH {
@@ -2491,6 +2505,9 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
         LedgerEntry::InferenceJobBid     { epoch, .. }      => Some(*epoch),
         LedgerEntry::CoverageReport      { epoch, .. }      => Some(*epoch),
         LedgerEntry::SensorSummary       { epoch, .. }      => Some(*epoch),
+        LedgerEntry::FindGrant           { epoch, .. }      => Some(*epoch),
+        LedgerEntry::FindRevoke          { epoch, .. }      => Some(*epoch),
+        LedgerEntry::SeedGeneration      { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobComplete{ epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobCommit  { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobVerify  { epoch, .. }      => Some(*epoch),
@@ -3474,6 +3491,33 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "cell": cell,
                 "window": window,
                 "metrics": metrics,
+            }),
+        LedgerEntry::FindGrant { owner, hw_key, attestation_digest, devices, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "FIND_GRANT",
+                "owner": owner,
+                "hw_key": hw_key,
+                "attestation_digest": attestation_digest,
+                "devices": devices,
+                "nonce": nonce,
+            }),
+        LedgerEntry::FindRevoke { owner, hw_key, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "FIND_REVOKE",
+                "owner": owner,
+                "hw_key": hw_key,
+                "nonce": nonce,
+            }),
+        LedgerEntry::SeedGeneration { owner, device_pubkey, generation, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "SEED_GENERATION",
+                "owner": owner,
+                "device_pubkey": device_pubkey,
+                "generation": generation,
+                "nonce": nonce,
             }),
         LedgerEntry::CoverageReport { reporter, lat, lon, carrier_mcc_mnc, data_hash, .. } =>
             serde_json::json!({
