@@ -130,6 +130,10 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         // ── Message: encrypted messaging / purchase intent ───────────────────
         E::OrderPlace { .. } | E::MemorySet { .. } | E::MemoryDelete { .. } => Message,
 
+        // ── Sensor seats & bird cards ────────────────────────────────────────
+        E::SensorSeatRegister { .. } | E::SensorSeatTransfer { .. } | E::BirdCardSend { .. } => Value,
+        E::SensorSeatSet { .. } | E::BirdObserve { .. } | E::BirdName { .. } | E::BirdCardClaim { .. } => Operate,
+
         // ── Service: liveness, heartbeats, proofs, data commits ──────────────
         E::MempoolHeartbeat { .. } | E::GatewayHeartbeat { .. } | E::StorageHeartbeat { .. }
         | E::ServiceHeartbeat { .. } | E::LinkGitServeHeartbeat { .. }

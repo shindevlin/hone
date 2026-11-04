@@ -606,6 +606,53 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
+    /// Register a referral-backed sensor seat `owner@seat_pubkey` (owner active key).
+    SensorSeatRegister {
+        owner: AccountId,
+        seat_pubkey: String,
+        /// "phone" | "station"
+        kind: String,
+        #[serde(default)]
+        referrer: Option<AccountId>,
+        nonce: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Move a seat to `to_owner` (owner active key + seat-key countersignature over the
+    /// same canonical message). The sponsor's delegation stays on the seat.
+    SensorSeatTransfer {
+        seat: String,
+        to_owner: AccountId,
+        nonce: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+        #[serde(default)]
+        seat_sig: String,
+    },
+    /// Seat owner settings: autostake share of sensor rewards (bps).
+    SensorSeatSet {
+        seat: String,
+        autostake_bps: u64,
+        nonce: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// A seat reports a bird_id (seat key). The first report records the bird.
+    BirdObserve {
+        seat: String,
+        bird_id: String,
+        species: String,
+        cell_res7: String,
+        first_night: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Name a bird (first-reporting seat's owner, posting key). First valid name wins.
+    BirdName { bird_id: String, name: String, nonce: u64, epoch: Epoch, signed_by: AccountId },
+    /// Mint the bird's unique card to its namer (posting key).
+    BirdCardClaim { bird_id: String, nonce: u64, epoch: Epoch, signed_by: AccountId },
+    /// Send a bird card (owner active key).
+    BirdCardSend { card: String, to: AccountId, nonce: u64, epoch: Epoch, signed_by: AccountId },
 
     // ── Inference Marketplace ─────────────────────────────────────────────────
     /// Requester posts a job; max_fee held in escrow until completion or cancel.
@@ -2920,6 +2967,13 @@ impl LedgerEntry {
             Self::SensorReading { epoch, .. } => *epoch,
             Self::CoverageReport { epoch, .. } => *epoch,
             Self::SensorSummary { epoch, .. } => *epoch,
+            Self::SensorSeatRegister { epoch, .. } => *epoch,
+            Self::SensorSeatTransfer { epoch, .. } => *epoch,
+            Self::SensorSeatSet { epoch, .. } => *epoch,
+            Self::BirdObserve { epoch, .. } => *epoch,
+            Self::BirdName { epoch, .. } => *epoch,
+            Self::BirdCardClaim { epoch, .. } => *epoch,
+            Self::BirdCardSend { epoch, .. } => *epoch,
             Self::InferenceJobPost { epoch, .. } => *epoch,
             Self::InferenceJobBid { epoch, .. } => *epoch,
             Self::InferenceJobAward { epoch, .. } => *epoch,
@@ -3158,6 +3212,10 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::GrantExternalSigner { .. }
         | LedgerEntry::ExternalSignerTransfer { .. }
         | LedgerEntry::RevokeExternalSigner { .. }
+        | LedgerEntry::SensorSeatSet { .. }
+        | LedgerEntry::BirdName { .. }
+        | LedgerEntry::BirdCardClaim { .. }
+        | LedgerEntry::BirdCardSend { .. }
         | LedgerEntry::SetKeyPolicy { .. }
         | LedgerEntry::DelegationGrant { .. }
         | LedgerEntry::DelegationRevoke { .. }
@@ -3173,6 +3231,9 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::SensorDataCommit { .. }
         | LedgerEntry::CoverageReport { .. }
         | LedgerEntry::SensorSummary { .. }
+        | LedgerEntry::SensorSeatRegister { .. }
+        | LedgerEntry::SensorSeatTransfer { .. }
+        | LedgerEntry::BirdObserve { .. }
         | LedgerEntry::GatewayHeartbeat { .. }
         | LedgerEntry::ServiceHeartbeat { .. }
         | LedgerEntry::MempoolHeartbeat { .. }

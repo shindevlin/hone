@@ -45,6 +45,7 @@ fn entry_fee_payer(entry: &LedgerEntry) -> Option<String> {
         LedgerEntry::Mine      { miner,   .. } => Some(miner.clone()),
         // A device seat's summaries are paid by its owner (the seat holds no balance).
         LedgerEntry::SensorSummary { owner, .. } => Some(crate::usefulness::owner_of(owner)),
+        LedgerEntry::BirdObserve { seat, .. } => Some(crate::usefulness::owner_of(seat)),
         _ => serde_json::to_value(entry).ok()
                 .and_then(|v| v["signed_by"].as_str().map(str::to_owned)),
     }
@@ -1201,6 +1202,50 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── Sensor seats (gated SENSOR_SEATS_EPOCH) ───────────────────────────
+        LedgerEntry::SensorSeatRegister { signed_by, nonce, epoch, .. }
+        | LedgerEntry::SensorSeatTransfer { signed_by, nonce, epoch, .. }
+        | LedgerEntry::SensorSeatSet { signed_by, nonce, epoch, .. } => {
+            let _guard = chain.write_lock.lock();
+            let gate = crate::sensor_seat::activation_epoch();
+            if *epoch < gate { bail!("sensor seats are not active before epoch {}", gate); }
+            crate::sensor_seat::check(chain, entry)?;
+            if let LedgerEntry::SensorSeatTransfer { to_owner, .. } = entry { require_key(chain, to_owner)?; }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, signed_by)?;
+        }
+
+        // ── Bird names & cards (gated BIRD_CARDS_EPOCH) ──────────────────────
+        LedgerEntry::BirdObserve { seat, epoch, .. } => {
+            let gate = crate::bird_cards::activation_epoch();
+            if *epoch < gate { bail!("bird cards are not active before epoch {}", gate); }
+            crate::bird_cards::check(chain, entry)?;
+            let Some((seat_owner, _)) = hone_types::parse_device_clock_id(seat) else { bail!("bad seat id") };
+            if !seat_staked(chain, seat, seat_owner) && !crate::sensor_seat::backed(chain, seat) {
+                bail!("seat '{}' is not backed", seat);
+            }
+            require_key(chain, seat_owner)?;
+            if !seat_key_signed(chain, seat, entry, sig_hex) { bail!("BirdObserve must be signed by the seat key"); }
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::BirdName { signed_by, nonce, epoch, .. }
+        | LedgerEntry::BirdCardClaim { signed_by, nonce, epoch, .. }
+        | LedgerEntry::BirdCardSend { signed_by, nonce, epoch, .. } => {
+            let _guard = chain.write_lock.lock();
+            let gate = crate::bird_cards::activation_epoch();
+            if *epoch < gate { bail!("bird cards are not active before epoch {}", gate); }
+            crate::bird_cards::check(chain, entry)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            let role = if matches!(entry, LedgerEntry::BirdCardSend { .. }) { "active" } else { "posting" };
+            check_signature(chain, signed_by, entry, sig_hex, role)?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, signed_by)?;
+        }
+
         // ── SensorSummary: public (cell, window) summary, scored for usefulness ──
         LedgerEntry::SensorSummary { sensor_id, owner, cell, metrics, epoch, signed_by, .. } => {
             if *epoch < crate::usefulness::scoring_epoch() {
@@ -1217,7 +1262,7 @@ pub fn validate_and_apply(
                 // A device seat `owner@<pubkey>` (a phone) signs with its own seat key. The
                 // seat must be staked by its owner (clock or decide role), so a made-up
                 // `owner@<any key>` cannot report in someone else's name.
-                if !seat_staked(chain, signed_by, seat_owner) {
+                if !seat_staked(chain, signed_by, seat_owner) && !crate::sensor_seat::backed(chain, signed_by) {
                     bail!("device seat '{}' has no stake by '{}'", signed_by, seat_owner);
                 }
                 require_key(chain, seat_owner)?;
@@ -1452,7 +1497,8 @@ pub fn validate_and_apply(
             }
             if let Some((owner, _)) = hone_types::parse_device_clock_id(node) {
                 let seat_decide = role.as_str() == "decide" && *epoch >= decide_device_seats_epoch();
-                if role.as_str() != "clock" && !seat_decide {
+                let seat_sensor = role.as_str() == "sensor" && crate::sensor_seat::get(chain, node).is_some();
+                if role.as_str() != "clock" && !seat_decide && !seat_sensor {
                     bail!("device ids ('{}') are only valid for the clock role (decide from epoch {})",
                         node, decide_device_seats_epoch());
                 }
@@ -1535,7 +1581,10 @@ pub fn validate_and_apply(
                     amount, current, node, role
                 );
             }
-            chain.apply_entry(entry)?;
+            // A transferred seat's sponsor leaves with notice (returned at epoch_tick).
+            let noticed = role.as_str() == "sensor"
+                && crate::sensor_seat::notice_unstake(chain, node, staker, *amount, entry.epoch())?;
+            if !noticed { chain.apply_entry(entry)?; }
             bump_nonce(chain, staker)?;
         }
 
@@ -2513,6 +2562,13 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
         LedgerEntry::InferenceJobBid     { epoch, .. }      => Some(*epoch),
         LedgerEntry::CoverageReport      { epoch, .. }      => Some(*epoch),
         LedgerEntry::SensorSummary       { epoch, .. }      => Some(*epoch),
+        LedgerEntry::SensorSeatRegister  { epoch, .. }      => Some(*epoch),
+        LedgerEntry::SensorSeatTransfer  { epoch, .. }      => Some(*epoch),
+        LedgerEntry::SensorSeatSet       { epoch, .. }      => Some(*epoch),
+        LedgerEntry::BirdObserve         { epoch, .. }      => Some(*epoch),
+        LedgerEntry::BirdName            { epoch, .. }      => Some(*epoch),
+        LedgerEntry::BirdCardClaim       { epoch, .. }      => Some(*epoch),
+        LedgerEntry::BirdCardSend        { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobComplete{ epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobCommit  { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobVerify  { epoch, .. }      => Some(*epoch),
@@ -3486,6 +3542,22 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "job_id": job_id,
                 "nonce": nonce,
             }),
+        LedgerEntry::SensorSeatRegister { owner, seat_pubkey, kind, referrer, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SENSOR_SEAT_REGISTER", "owner": owner,
+                "seat_pubkey": seat_pubkey, "kind": kind, "referrer": referrer, "nonce": nonce }),
+        LedgerEntry::SensorSeatTransfer { seat, to_owner, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SENSOR_SEAT_TRANSFER", "seat": seat, "to_owner": to_owner, "nonce": nonce }),
+        LedgerEntry::SensorSeatSet { seat, autostake_bps, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SENSOR_SEAT_SET", "seat": seat, "autostake_bps": autostake_bps, "nonce": nonce }),
+        LedgerEntry::BirdObserve { seat, bird_id, species, cell_res7, first_night, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "BIRD_OBSERVE", "seat": seat, "bird_id": bird_id,
+                "species": species, "cell_res7": cell_res7, "first_night": first_night }),
+        LedgerEntry::BirdName { bird_id, name, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "BIRD_NAME", "bird_id": bird_id, "name": name, "nonce": nonce }),
+        LedgerEntry::BirdCardClaim { bird_id, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "BIRD_CARD_CLAIM", "bird_id": bird_id, "nonce": nonce }),
+        LedgerEntry::BirdCardSend { card, to, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "BIRD_CARD_SEND", "card": card, "to": to, "nonce": nonce }),
         LedgerEntry::SensorSummary { sensor_id, owner, batch_hash, cell, window, metrics, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,

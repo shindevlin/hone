@@ -43,6 +43,8 @@ mod clock;
 mod config;
 mod mem_profile;
 mod usefulness;
+mod sensor_seat;
+mod bird_cards;
 mod peer_ident;
 mod inference_sidecar;
 mod state_audit;

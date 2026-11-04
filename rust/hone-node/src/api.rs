@@ -261,6 +261,16 @@ pub fn router(state: AppState) -> Router {
         .route("/api/coverage/report", post(post_coverage_report))
         .route("/api/sensor/summary", post(post_sensor_summary))
         .route("/api/sensor/usefulness/:owner", get(get_sensor_usefulness))
+        .route("/api/sensor/seat/register", post(|State(s): State<AppState>, Json(b): Json<serde_json::Value>| async move { post_typed(&s, "SENSOR_SEAT_REGISTER", b) }))
+        .route("/api/sensor/seat/transfer", post(|State(s): State<AppState>, Json(b): Json<serde_json::Value>| async move { post_typed(&s, "SENSOR_SEAT_TRANSFER", b) }))
+        .route("/api/sensor/seat/set", post(|State(s): State<AppState>, Json(b): Json<serde_json::Value>| async move { post_typed(&s, "SENSOR_SEAT_SET", b) }))
+        .route("/api/bird/observe", post(|State(s): State<AppState>, Json(b): Json<serde_json::Value>| async move { post_typed(&s, "BIRD_OBSERVE", b) }))
+        .route("/api/bird/name", post(|State(s): State<AppState>, Json(b): Json<serde_json::Value>| async move { post_typed(&s, "BIRD_NAME", b) }))
+        .route("/api/bird/card/claim", post(|State(s): State<AppState>, Json(b): Json<serde_json::Value>| async move { post_typed(&s, "BIRD_CARD_CLAIM", b) }))
+        .route("/api/bird/card/send", post(|State(s): State<AppState>, Json(b): Json<serde_json::Value>| async move { post_typed(&s, "BIRD_CARD_SEND", b) }))
+        .route("/api/sensor/seat/:seat", get(|State(s): State<AppState>, axum::extract::Path(x): axum::extract::Path<String>| async move { Json(crate::sensor_seat::view(&s.chain, &x)) }))
+        .route("/api/bird/card/:card", get(|State(s): State<AppState>, axum::extract::Path(x): axum::extract::Path<String>| async move { Json(crate::bird_cards::card_view(&s.chain, &x)) }))
+        .route("/api/bird/:bird_id", get(|State(s): State<AppState>, axum::extract::Path(x): axum::extract::Path<String>| async move { Json(crate::bird_cards::bird_view(&s.chain, &x)) }))
         .route("/api/sensor/:id", get(get_sensor))
         .route("/api/sensors/:sensor_id/consensus/:epoch", get(get_sensor_consensus))
         .route("/api/sensors/:sensor_id/strikes", get(get_sensor_strikes))
@@ -4741,6 +4751,21 @@ async fn post_sensor_summary(
         epoch: s.chain.current_epoch(), signed_by: b.owner,
     };
     apply_and_broadcast(&s, entry, non_empty(&b.signature))
+}
+
+/// Generic signed-entry submit: the body is the entry's fields (incl. signed_by) plus
+/// `signature`; `type` is fixed by the route and `epoch` defaults to the current epoch.
+fn post_typed(s: &AppState, ty: &str, mut b: serde_json::Value) -> Json<serde_json::Value> {
+    let sig = b.get("signature").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+    if let Some(o) = b.as_object_mut() {
+        o.remove("signature");
+        o.insert("type".into(), ty.into());
+        o.entry("epoch").or_insert(s.chain.current_epoch().into());
+    }
+    match serde_json::from_value::<LedgerEntry>(b) {
+        Ok(e) => apply_and_broadcast(s, e, non_empty(&sig)),
+        Err(e) => Json(serde_json::json!({ "accepted": false, "error": format!("bad body: {e}") })),
+    }
 }
 
 /// GET /api/sensor/usefulness/:owner — proven / queued points, trust and newest claims.

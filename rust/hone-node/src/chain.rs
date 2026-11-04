@@ -1626,7 +1626,14 @@ impl Chain {
             // Coverage reports — cellular dead-spot mapping.
             // Quantize lat/lon to 0.001° grid cells (~100m). Track per-cell reporter count
             // for corroboration bonus, and per-reporter count for anti-spam cap.
+            LedgerEntry::SensorSeatRegister { .. } | LedgerEntry::SensorSeatTransfer { .. } | LedgerEntry::SensorSeatSet { .. } => {
+                crate::sensor_seat::apply(self, entry)?;
+            }
+            LedgerEntry::BirdObserve { .. } | LedgerEntry::BirdName { .. } | LedgerEntry::BirdCardClaim { .. } | LedgerEntry::BirdCardSend { .. } => {
+                crate::bird_cards::apply(self, entry)?;
+            }
             LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, .. } => {
+                crate::sensor_seat::touch(self, owner, *epoch);
                 let (verdicts, pts) = crate::usefulness::score(self, sensor_id, owner, cell, *window, metrics, *epoch);
                 for (m, v) in &verdicts {
                     crate::usefulness::shadow_push(self, sensor_id, owner, cell, *window, m, metrics[m], v);
@@ -2634,6 +2641,7 @@ impl Chain {
             LedgerEntry::SensorReward { node_id, amount, epoch } => {
                 self.ensure_account(node_id, *epoch)?;
                 self.store.credit(node_id, NATIVE_TOKEN, *amount)?;
+                crate::sensor_seat::on_sensor_reward(self, node_id, *amount, *epoch);
             }
             LedgerEntry::GatewayRewardSplit { sensor_account, gateway_account, sensor_amount, gateway_amount, epoch } => {
                 self.ensure_account(sensor_account, *epoch)?;
