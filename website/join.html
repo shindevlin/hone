@@ -180,14 +180,14 @@ body.f-android [data-flow~="android"],body.f-ios [data-flow~="ios"],body.f-deskt
   t("refcode", ref || "none");
   if (!ref) document.querySelector(".code").style.display = "none";
   var q = ref ? "?ref=" + encodeURIComponent(ref) : "";
-  var listenerLink = "https://honemesh.net/listener" + q;
+  var listenerLink = "https://honemesh.net/listener/" + q;
   // Hands the invite code to the app: hone://join?ref=...
   var back = location.origin + location.pathname + location.search;
   document.getElementById("open_app").href = "intent://join?ref=" + encodeURIComponent(ref || "none") +
     "#Intent;scheme=hone;package=network.hone.app.debug;S.browser_fallback_url=" + encodeURIComponent(back) + ";end";
   document.getElementById("ios_email").href = "mailto:?subject=" + encodeURIComponent(C.ios_email_subject) +
     "&body=" + encodeURIComponent(C.ios_email_body.split("{link}").join(listenerLink));
-  document.getElementById("desk_more").href = "/listener" + q;
+  document.getElementById("desk_more").href = "/listener/" + q;
   if (flow === "desktop") HoneListener.render(document.getElementById("cards"), { ref: ref, compact: true });
 })();
 </script>

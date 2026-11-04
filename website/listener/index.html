@@ -32,7 +32,7 @@ header.top{display:flex;justify-content:space-between;align-items:center;padding
 .credit{font-size:11px;color:var(--faint);margin:6px 2px 0;text-align:right}.credit a{color:inherit}
 .btn{display:inline-block;background:var(--accent);color:#000;font-weight:800;font-size:18px;text-decoration:none;border-radius:14px;padding:15px 22px}
 .ghost{display:inline-block;margin-left:14px;font-weight:600}
-.ref{display:inline-block;margin:0 0 14px;font-size:14px;color:var(--dim);background:var(--hi);border:1px solid var(--line);border-radius:99px;padding:4px 12px}
+.ref[hidden]{display:none}.ref{display:inline-block;margin:0 0 14px;font-size:14px;color:var(--dim);background:var(--hi);border:1px solid var(--line);border-radius:99px;padding:4px 12px}
 .privacy{margin:34px 0 8px;background:var(--surface);border:1px solid var(--green);border-radius:18px;padding:20px 22px;display:flex;gap:16px;align-items:flex-start}
 .privacy svg{flex:none;width:34px;height:34px;color:var(--green)}
 .privacy h2{margin:0 0 6px;font-size:18px;letter-spacing:0;text-transform:none;color:var(--text)}
@@ -43,6 +43,7 @@ h2.sec{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--
 .steps li::before{content:counter(s);display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#000;font-weight:800;margin-bottom:10px}
 .steps b{display:block;margin-bottom:4px}
 .steps span{color:var(--dim);font-size:15px}
+.phone-note{background:var(--hi);border:1px solid var(--line);border-radius:14px;padding:12px 14px;color:var(--dim);margin:0 0 14px}.phone-note[hidden]{display:none}
 .install{display:grid;grid-template-columns:1fr;gap:0}
 @media (min-width:900px){.install{grid-template-columns:1fr 1fr;column-gap:14px}.install .hl-primary{grid-column:1/-1}.install .hl-ver{grid-column:1/-1}}
 .gets{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
@@ -110,6 +111,7 @@ footer a{color:var(--dim)}
   </ol>
 
   <h2 class="sec" id="install">Install the listener</h2>
+  <p class="phone-note" id="phone-note" hidden>You're on a phone. The listener runs on a computer at home: <a id="mail-self" href="#">email yourself this page</a>, then open it on that computer.</p>
   <div class="install" id="cards"></div>
 
   <div class="ai">
@@ -143,6 +145,13 @@ footer a{color:var(--dim)}
 (function () {
   var ref = HoneListener.cleanRef(new URLSearchParams(location.search).get("ref"));
   HoneListener.render(document.getElementById("cards"), { ref: ref });
+  var d = HoneListener.detect();
+  if (d === "ios" || d === "android") {
+    document.getElementById("phone-note").hidden = false;
+    document.getElementById("mail-self").href = "mailto:?subject=" + encodeURIComponent("Set up my HONE camera listener") +
+      "&body=" + encodeURIComponent("Open this on a computer that stays on at home:\nhttps://honemesh.net/listener/" + (ref ? "?ref=" + ref : "") +
+      "\n\nThen check your birds at https://honemesh.net/me");
+  }
   if (ref) {
     var r = document.getElementById("ref");
     r.textContent = "Invited by " + ref; r.hidden = false;
