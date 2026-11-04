@@ -422,6 +422,38 @@ pub fn entry_screen_features(chain: &Chain, e: &LedgerEntry, epoch: u64) -> serd
 /// After the quorum seal of `epoch`: vote on our share of its judgment entries, seal the
 /// batch, publish DecideCommit, and post any reveals now due. Any hone-decide failure
 /// skips this epoch.
+/// The items `node` was sampled for at committed epoch `epoch`, in the shape hone-decide
+/// /vote takes. Light seats (phones) fetch these from a full node.
+pub fn work_items(chain: &Chain, node: &str, epoch: u64) -> Vec<serde_json::Value> {
+    let s = sample_for_epoch(chain, epoch);
+    committed_entries(chain, epoch).iter()
+        .filter(|e| s.get(&e.hash()).map(|v| v.iter().any(|n| n == node)).unwrap_or(false))
+        .map(|e| serde_json::json!({ "entry_hash": e.hash(), "task": judgment_task(e).unwrap_or("entry_screen"),
+            "features": entry_screen_features(chain, e, epoch) }))
+        .collect()
+}
+
+/// Reveals `node` owes at `epoch`: spot checks drawn by this seal on epoch-2, plus juries
+/// seeded at this epoch that include it as juror or backup.
+pub fn due_items(chain: &Chain, node: &str, epoch: u64) -> Vec<(u64, String)> {
+    let mut due = Vec::new();
+    if let Some(sd) = seed(chain, epoch) {
+        let ve = epoch.saturating_sub(2);
+        for (n, eh) in spot_checks(&sd, &sample_for_epoch(chain, ve)) { if n == node { due.push((ve, eh)); } }
+    }
+    for (k, v) in chain.store.state_scan_prefix("decide_challenge:") {
+        let Ok(c) = serde_json::from_slice::<serde_json::Value>(&v) else { continue };
+        if c["seed_epoch"].as_u64() != Some(epoch) { continue; }
+        let eh = k.trim_start_matches("decide_challenge:").to_owned();
+        let ve = c["vote_epoch"].as_u64().unwrap_or(0);
+        let Some(sd) = seed(chain, epoch) else { continue };
+        let cands = sample_for_epoch(chain, ve).remove(&eh).unwrap_or_default();
+        let (j, b) = jury(&sd, &eh, &cands);
+        if j.iter().chain(b.iter()).any(|n| n == node) { due.push((ve, eh)); }
+    }
+    due
+}
+
 pub async fn vote_epoch(chain: &std::sync::Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, me: &str, epoch: u64) {
     if !shadow_enabled() || epoch < hone_types::DECIDE_ENTRIES_EPOCH { return; }
     let Ok(base) = std::env::var("DECIDE_URL") else { return };

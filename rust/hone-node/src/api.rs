@@ -320,6 +320,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/node/list", get(get_node_list))
         .route("/api/node/info", get(get_node_info))
         .route("/api/net/peers", get(get_net_peers))
+        .route("/api/decide/work/:node", get(get_decide_work))
+        .route("/api/decide/due/:node", get(get_decide_due))
+        .route("/api/decide/commit", post(post_decide_commit))
+        .route("/api/decide/reveal", post(post_decide_reveal))
         .route("/api/node/models", get(get_node_models))
         // Integration manifest — self-updating consumer contract (hone sync --node)
         .route("/api/integration/manifest", get(get_integration_manifest))
@@ -1324,6 +1328,57 @@ async fn get_node_list(State(s): State<AppState>) -> Json<serde_json::Value> {
 }
 
 // GET /api/node/info — node identity and active roles
+#[derive(Debug, Deserialize)]
+struct DecideEpochQ { epoch: Option<u64> }
+
+fn decide_epoch(s: &AppState, q: &DecideEpochQ) -> u64 {
+    q.epoch.unwrap_or_else(|| crate::epoch_sync::last_committed(&s.chain))
+}
+
+/// GET /api/decide/work/:node?epoch=E — what a light seat was sampled for at E (default:
+/// newest committed epoch).
+async fn get_decide_work(State(s): State<AppState>, Path(node): Path<String>,
+                         axum::extract::Query(q): axum::extract::Query<DecideEpochQ>) -> Json<serde_json::Value> {
+    let e = decide_epoch(&s, &q);
+    let cap = crate::decide_jury::capacity_at(&s.chain, &node, e);
+    Json(serde_json::json!({ "epoch": e, "capacity_in_force": cap,
+        "items": crate::decide_jury::work_items(&s.chain, &node, e) }))
+}
+
+/// GET /api/decide/due/:node?epoch=E — reveals the seat owes at E.
+async fn get_decide_due(State(s): State<AppState>, Path(node): Path<String>,
+                        axum::extract::Query(q): axum::extract::Query<DecideEpochQ>) -> Json<serde_json::Value> {
+    let e = decide_epoch(&s, &q);
+    let due: Vec<serde_json::Value> = crate::decide_jury::due_items(&s.chain, &node, e).into_iter()
+        .map(|(ve, eh)| serde_json::json!({ "vote_epoch": ve, "entry_hash": eh })).collect();
+    Json(serde_json::json!({ "epoch": e, "due": due }))
+}
+
+#[derive(Debug, Deserialize)]
+struct DecideCommitBody { node: String, epoch: u64, root: String, n_votes: u64, model_hash: String,
+    capacity_per_100: u32, #[serde(default)] signature: String }
+
+/// POST /api/decide/commit — a seat's signed commit (signed_by = node).
+async fn post_decide_commit(State(s): State<AppState>, Json(b): Json<DecideCommitBody>) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::DecideCommit { node: b.node.clone(), epoch: b.epoch, root: b.root,
+        n_votes: b.n_votes, model_hash: b.model_hash, capacity_per_100: b.capacity_per_100,
+        signed_by: b.node, signature: None };
+    apply_and_broadcast(&s, entry, non_empty(&b.signature))
+}
+
+#[derive(Debug, Deserialize)]
+struct DecideRevealBody { entry_hash: String, vote_epoch: u64, juror: String, task: String, option: String,
+    conf_q8: u8, t95_q8: u8, salt: String, #[serde(default)] proof: Vec<hone_types::DecideProofStep>,
+    epoch: u64, #[serde(default)] signature: String }
+
+/// POST /api/decide/reveal — a seat's signed reveal (signed_by = juror).
+async fn post_decide_reveal(State(s): State<AppState>, Json(b): Json<DecideRevealBody>) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::DecideReveal { entry_hash: b.entry_hash, vote_epoch: b.vote_epoch,
+        juror: b.juror.clone(), task: b.task, option: b.option, conf_q8: b.conf_q8, t95_q8: b.t95_q8,
+        salt: b.salt, proof: b.proof, epoch: b.epoch, signed_by: b.juror, signature: None };
+    apply_and_broadcast(&s, entry, non_empty(&b.signature))
+}
+
 /// GET /api/net/peers — connected peers and their signed self-identification
 /// (peer_ident.rs). Unidentified or badly signed peers are listed with verified=false.
 async fn get_net_peers() -> Json<serde_json::Value> {
