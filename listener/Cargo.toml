@@ -1,0 +1,48 @@
+[package]
+name = "hone-listener"
+version = "0.1.0"
+edition = "2021"
+description = "HONE Birds camera listener: turns a home IP camera's microphone into a bird listener"
+license-file = "../LICENSE"
+publish = false
+
+[features]
+default = []
+# System tray icon (Windows and macOS builds). Linux runs as a headless systemd service.
+tray = ["dep:tray-icon", "dep:tao"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+sha2 = "0.10"
+sha1 = "0.10"
+md-5 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+tiny_http = "0.12"
+libloading = "0.8"
+h3o = "0.6"
+dirs = "5"
+log = "0.4"
+env_logger = { version = "0.11", default-features = false, features = ["humantime"] }
+self-replace = "1"
+open = "5"
+percent-encoding = "2"
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+tray-icon = { version = "0.19", optional = true }
+tao = { version = "0.30", optional = true }
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

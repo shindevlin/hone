@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=HONE Birds Listener
+Comment=Hear who's singing at your place
+Exec=hone-listener open
+Icon=hone-listener
+Terminal=false
+Categories=Network;Science;

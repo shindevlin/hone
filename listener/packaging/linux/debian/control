@@ -1,0 +1,13 @@
+Package: hone-listener
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Shin Devlin <shindevlin@proton.me>
+Depends: ffmpeg, ca-certificates, systemd, passwd
+Section: sound
+Priority: optional
+Homepage: https://honemesh.net/listener/
+Description: HONE Birds camera listener
+ Turns a home IP camera's microphone into a bird listener. Pulls only the
+ camera's audio track, drops any sound with a human voice (only a count is
+ kept), identifies birds with Perch v2 on this computer and sends a short
+ signed bird report every 15 minutes. No audio is ever saved or sent.

@@ -1,0 +1,4 @@
+# HONE listener settings (read by the systemd service).
+# Show the setup page to other devices on your Wi-Fi (e.g. your phone) on a computer with no
+# screen. The page still needs its access link: run `sudo hone-listener url --lan`.
+#HONE_LISTENER_UI=lan

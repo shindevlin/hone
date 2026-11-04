@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HONE listener</title>
+<style>
+:root{--bg:#f7f3ea;--card:#fffdf8;--ink:#23251f;--muted:#6b6a60;--line:#e4dccb;--accent:#2f6b4a;--accent-ink:#fff;--warn:#9a5b12;--bad:#a23b2c;--chip:#eef3ea}
+@media (prefers-color-scheme:dark){:root{--bg:#171a16;--card:#20241f;--ink:#ecebe4;--muted:#a3a497;--line:#343a31;--accent:#6fb58c;--accent-ink:#0f1a13;--warn:#e0a85a;--bad:#e5806f;--chip:#263027}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif}
+main{max-width:560px;margin:0 auto;padding:32px 16px 64px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:24px}
+.dot{width:14px;height:14px;border-radius:50%;background:var(--accent)}
+h1{font-size:30px;line-height:1.15;margin:0 0 8px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:20px;margin:0 0 6px}
+p{margin:0 0 14px}
+.sub{color:var(--muted);margin-bottom:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px}
+label.f{display:block;font-size:14px;color:var(--muted);margin:12px 0 4px}
+input[type=text],input[type=email],input[type=password],input[type=number]{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font:inherit}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+button{font:inherit;border:0;border-radius:999px;padding:12px 20px;cursor:pointer;background:var(--accent);color:var(--accent-ink);font-weight:600}
+button.ghost{background:transparent;color:var(--accent);padding:10px 4px}
+button.line{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.45;cursor:default}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}
+.tick{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:12px;margin-top:12px;cursor:pointer}
+.tick input{width:22px;height:22px;margin-top:2px;flex:none;accent-color:var(--accent)}
+.err{color:var(--bad);margin-top:10px;min-height:1.2em}
+.muted{color:var(--muted)}
+.small{font-size:14px}
+.cam{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
+.cam:first-child{border-top:0}
+.tier{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--chip);font-size:13px;font-weight:600}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.stat{background:var(--chip);border-radius:12px;padding:12px}
+.stat b{display:block;font-size:26px;line-height:1.1}
+.bird{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.bird:first-child{border-top:0}
+.bird i{color:var(--muted);font-size:14px}
+.notice{border-left:3px solid var(--warn);padding:8px 12px;background:var(--chip);border-radius:6px;margin:10px 0}
+.disc{font-size:15px}
+.hide{display:none}
+.spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite;vertical-align:-3px;margin-right:8px}
+@keyframes s{to{transform:rotate(360deg)}}
+footer{color:var(--muted);font-size:13px;margin-top:24px}
+</style>
+</head>
+<body>
+<main>
+<div class="brand"><span class="dot"></span>HONE listener</div>
+
+<section id="s-account" class="hide">
+  <h1>Hear who's singing at your place</h1>
+  <p class="sub">HONE turns the security camera you already have into a nature listener.</p>
+  <div class="card" id="signup">
+    <label class="f" for="name">Your first name</label><input id="name" type="text" autocomplete="given-name">
+    <label class="f" for="email">Email</label><input id="email" type="email" autocomplete="email">
+    <label class="f" for="pw">Password (at least 10 characters)</label><input id="pw" type="password" autocomplete="new-password">
+    <label class="f" for="ref">Invite code (optional)</label><input id="ref" type="text" autocapitalize="off" spellcheck="false">
+    <label class="tick"><input type="checkbox" id="consent"><span id="consent-text" class="small"></span></label>
+    <div class="row"><button id="b-signup">Create my account</button><button class="ghost" id="to-login">I already have an account</button></div>
+    <div class="err" id="e-signup"></div>
+  </div>
+  <div class="card hide" id="login">
+    <label class="f" for="lemail">Email</label><input id="lemail" type="email" autocomplete="email">
+    <label class="f" for="lpw">Password</label><input id="lpw" type="password" autocomplete="current-password">
+    <div class="row"><button id="b-login">Sign in</button><button class="ghost" id="to-signup">Create an account instead</button></div>
+    <div class="err" id="e-login"></div>
+  </div>
+</section>
+
+<section id="s-verify" class="hide">
+  <h1>Check your email</h1>
+  <p class="sub" id="verify-body"></p>
+  <div class="card">
+    <label class="f" for="code">6-digit code</label><input id="code" type="text" inputmode="numeric" maxlength="6">
+    <div class="row"><button id="b-verify">Verify</button><button class="ghost" id="b-resend">Send a new code</button><button class="ghost" id="b-later">Later</button></div>
+    <div class="err" id="e-verify"></div>
+  </div>
+</section>
+
+<section id="s-referral" class="hide">
+  <h1>One thing first</h1>
+  <div class="card">
+    <label class="tick"><input type="checkbox" id="refack"><span id="refack-text"></span></label>
+    <div class="row"><button id="b-refack" disabled>Continue</button></div>
+    <div class="err" id="e-refack"></div>
+  </div>
+</section>
+
+<section id="s-find" class="hide">
+  <h1 id="find-title">Let's find out who's singing at your place.</h1>
+  <p class="sub" id="find-sub">Looking for cameras on your Wi-Fi…</p>
+  <div class="card" id="cams"></div>
+  <div class="card">
+    <p class="small muted">Know your camera's address? Type it here (for example 192.168.1.50).</p>
+    <div class="row" style="margin-top:0"><input id="manual" type="text" placeholder="192.168.1.50" style="flex:1;min-width:160px"><button class="line" id="b-manual">Use this address</button></div>
+    <div class="row"><button class="ghost" id="b-rescan">Look again</button></div>
+    <div class="err" id="e-find"></div>
+  </div>
+</section>
+
+<section id="s-camlogin" class="hide">
+  <h1>Camera username and password</h1>
+  <p class="sub">The same ones you use in your camera app. They stay on this computer, locked.</p>
+  <div class="card">
+    <p class="small muted" id="cam-name"></p>
+    <label class="f" for="cuser">Camera username</label><input id="cuser" type="text" autocomplete="off" autocapitalize="off">
+    <label class="f" for="cpass">Camera password</label><input id="cpass" type="password" autocomplete="off">
+    <div class="row"><button id="b-connect">Connect</button><button class="ghost" id="b-back">Back</button></div>
+    <div class="err" id="e-connect"></div>
+  </div>
+</section>
+
+<section id="s-probe" class="hide">
+  <h1 id="probe-title">Listening to your camera for a few seconds…</h1>
+  <div class="card hide" id="probe-res">
+    <p><span class="tier" id="probe-tier"></span></p>
+    <p id="probe-copy" style="font-size:18px"></p>
+    <p class="small muted" id="probe-detail"></p>
+    <p class="small">We only use sound, never video. Anyone talking is deleted instantly.</p>
+    <label class="f" for="clabel">Name this camera</label><input id="clabel" type="text" maxlength="40" placeholder="Back garden">
+    <label class="f">Where is this camera?</label>
+    <p class="small muted">Birds are shared on the map by area, never your exact address.</p>
+    <div class="row" style="margin-top:4px"><button class="line" id="b-geo">Use my location</button><span class="small muted" id="geo-state"></span></div>
+    <div class="row"><input id="lat" type="number" step="any" placeholder="Latitude, e.g. 13.68" style="flex:1;min-width:140px"><input id="lon" type="number" step="any" placeholder="Longitude, e.g. -89.24" style="flex:1;min-width:140px"></div>
+    <div class="row"><button id="b-add">Continue</button></div>
+    <div class="err" id="e-add"></div>
+  </div>
+</section>
+
+<section id="s-start" class="hide">
+  <h1>Ready to listen</h1>
+  <div class="card">
+    <label class="tick"><input type="checkbox" id="discack"><span class="disc" id="disc-text"></span></label>
+    <div class="row"><button id="b-start" disabled>Start listening</button></div>
+    <div class="err" id="e-start"></div>
+  </div>
+</section>
+
+<section id="s-home" class="hide">
+  <h1 id="home-title">Listening…</h1>
+  <p class="sub" id="home-sub">We'll tell you when we hear your first bird.</p>
+  <div class="notice hide" id="chain-note"></div>
+  <div class="notice hide" id="model-note"></div>
+  <div class="stats">
+    <div class="stat"><b id="n-birds">0</b><span class="small muted">birds heard</span></div>
+    <div class="stat"><b id="n-voices">0</b><span class="small muted">voices deleted</span></div>
+  </div>
+  <div class="card"><h2>Heard recently</h2><div id="birds"><p class="muted small">Nothing yet. Owls and nightjars usually call after dark.</p></div></div>
+  <div class="card"><h2>Cameras</h2><div id="stations"></div>
+    <div class="row"><button class="line" id="b-add-cam">Add a camera</button><button class="line" id="b-toggle">Pause listening</button></div></div>
+  <div class="card disc" id="home-disc"></div>
+  <div class="card small muted" id="home-meta"></div>
+  <div class="row"><button class="ghost" id="b-logout">Sign out</button><button class="ghost" id="b-upd">Check for updates</button></div>
+</section>
+
+<footer>Your camera sends sound to this computer only. Only short bird reports leave it.</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let S=null, cam=null, probe=null, adding=false, verifyLater=false, scanned=false;
+async function api(p,b){const r=await fetch('/api/'+p,{method:b?'POST':'GET',headers:b?{'Content-Type':'application/json','X-Hone':'1'}:{},body:b?JSON.stringify(b):undefined});const j=await r.json().catch(()=>({error:'Something went wrong. Try again.'}));if(!r.ok)throw new Error(j.error||'Something went wrong.');return j}
+function show(id){document.querySelectorAll('main>section').forEach(s=>s.classList.toggle('hide',s.id!==id))}
+function busy(btn,on,txt){btn.disabled=on;if(on){btn.dataset.t=btn.textContent;btn.innerHTML='<span class="spin"></span>'+(txt||btn.textContent)}else if(btn.dataset.t)btn.textContent=btn.dataset.t}
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function refresh(){S=await api('state');route()}
+function route(){
+  if(!S.account){show('s-account');if(!$('ref').value&&S.pending_ref){$('ref').value=S.pending_ref;refText()}else if(!$('consent-text').textContent)refText();return}
+  if(!S.account.verified&&!verifyLater){$('verify-body').textContent='We sent a 6-digit code to '+S.account.email+'.';show('s-verify');return}
+  if(!S.referral_ack){$('refack-text').textContent=S.consent_text;show('s-referral');return}
+  if(adding||!S.stations.length){if(!probe&&!cam){show('s-find');if(!scanned)scan()}return}
+  if(!S.listening){$('disc-text').textContent=S.disclaimer;$('discack').checked=false;$('b-start').disabled=true;show('s-start');return}
+  home();show('s-home')
+}
+let refT;function refText(){clearTimeout(refT);const c=$('ref').value.trim().toLowerCase();
+  if(!c){$('consent-text').textContent='Rewards from this app go to the HONE community pool until you create your own wallet.';return}
+  $('consent-text').textContent='Rewards from this app go to the person who invited you ('+c+') until you create your own wallet.';
+  refT=setTimeout(async()=>{try{const r=await api('ref',{code:c});$('e-signup').textContent=r.ok?'':'That invite code wasn\'t found. Check it, or leave it empty.'}catch(e){}},500)}
+$('ref').oninput=refText;
+$('to-login').onclick=()=>{$('signup').classList.add('hide');$('login').classList.remove('hide')};
+$('to-signup').onclick=()=>{$('login').classList.add('hide');$('signup').classList.remove('hide')};
+$('b-signup').onclick=async e=>{const b=e.target;$('e-signup').textContent='';if(!$('consent').checked){$('e-signup').textContent='Please tick the box to continue.';return}
+  busy(b,true);try{S=await api('signup',{name:$('name').value,email:$('email').value,password:$('pw').value,ref:$('ref').value,consent:true});route()}catch(x){$('e-signup').textContent=x.message}busy(b,false)};
+$('b-login').onclick=async e=>{const b=e.target;$('e-login').textContent='';busy(b,true);try{S=await api('login',{email:$('lemail').value,password:$('lpw').value});verifyLater=true;route()}catch(x){$('e-login').textContent=x.message}busy(b,false)};
+$('b-verify').onclick=async e=>{const b=e.target;busy(b,true);try{S=await api('verify',{code:$('code').value});route()}catch(x){$('e-verify').textContent=x.message}busy(b,false)};
+$('b-resend').onclick=async()=>{try{await api('resend',{});$('e-verify').textContent='A new code is on its way.'}catch(x){$('e-verify').textContent=x.message}};
+$('b-later').onclick=()=>{verifyLater=true;route()};
+$('refack').onchange=()=>$('b-refack').disabled=!$('refack').checked;
+$('b-refack').onclick=async()=>{try{S=await api('referral_ack',{ok:true});route()}catch(x){$('e-refack').textContent=x.message}};
+async function scan(host){scanned=true;$('find-sub').innerHTML='<span class="spin"></span>Looking for cameras on your Wi-Fi…';$('cams').innerHTML='';$('e-find').textContent='';
+  if(S.account&&S.account.name)$('find-title').textContent='Welcome, '+S.account.name+'. Let\'s find out who\'s singing at your place.';
+  try{const r=await api('discover',{host:host||''});const c=r.cameras;
+    $('find-sub').textContent=c.length===0?'We didn\'t find a camera on your Wi-Fi.':c.length===1?'Add a camera: we found 1 camera on your Wi-Fi: '+(c[0].name||c[0].host)+'.':'Add a camera: we found '+c.length+' cameras on your Wi-Fi.';
+    if(!r.local_ip)$('e-find').textContent='Connect this computer to the same Wi-Fi as your camera, then try again.';
+    $('cams').classList.toggle('hide',!c.length);
+    $('cams').innerHTML=c.map((x,i)=>'<div class="cam"><div><b>'+esc(x.name||'Camera')+'</b><div class="small muted">'+esc(x.host)+(x.onvif?' · ONVIF':'')+'</div></div><button data-i="'+i+'">Use this one</button></div>').join('');
+    $('cams').querySelectorAll('button').forEach(b=>b.onclick=()=>pick(c[b.dataset.i]))
+  }catch(x){$('find-sub').textContent='';$('e-find').textContent=x.message}}
+function pick(c){cam=c;$('cam-name').textContent=(c.name||'Camera')+' · '+c.host;$('e-connect').textContent='';show('s-camlogin')}
+$('b-manual').onclick=()=>{const h=$('manual').value.trim();if(!/^\d+\.\d+\.\d+\.\d+$/.test(h)){$('e-find').textContent='Type the camera\'s address, like 192.168.1.50.';return}pick({host:h,rtsp_port:null,onvif:null,name:null})};
+$('b-rescan').onclick=()=>scan();
+$('b-back').onclick=()=>{cam=null;show('s-find')};
+$('b-connect').onclick=async e=>{const b=e.target;busy(b,true);$('e-connect').textContent='';
+  $('probe-title').textContent='Listening to your camera for a few seconds…';$('probe-res').classList.add('hide');show('s-probe');
+  try{const r=await api('probe',{host:cam.host,rtsp_port:cam.rtsp_port,onvif:cam.onvif,name:cam.name,user:$('cuser').value,pass:$('cpass').value});probe=r;
+    $('cpass').value='';$('probe-title').textContent='Your camera can listen';$('probe-tier').textContent='Sound quality '+r.probe.tier;$('probe-copy').textContent=r.tier_copy;
+    $('probe-detail').textContent=r.probe.codec+' · '+(r.probe.rate/1000)+' kHz'+(r.probe.noise_db!=null?' · background '+Math.round(r.probe.noise_db)+' dB':'')+(r.probe.video_tracks_skipped?' · video not used':'');
+    $('clabel').value=r.probe.model||'';$('probe-res').classList.remove('hide')
+  }catch(x){show('s-camlogin');$('e-connect').textContent=x.message}busy(b,false)};
+$('b-geo').onclick=()=>{if(!navigator.geolocation){$('geo-state').textContent='Type the numbers below instead.';return}$('geo-state').textContent='Finding…';
+  navigator.geolocation.getCurrentPosition(p=>{$('lat').value=p.coords.latitude.toFixed(5);$('lon').value=p.coords.longitude.toFixed(5);$('geo-state').textContent='Got it.'},()=>{$('geo-state').textContent='Couldn\'t get it. Type the numbers below.'},{timeout:10000})};
+$('b-add').onclick=async e=>{const b=e.target;const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
+  if(!(Math.abs(lat)<=90&&Math.abs(lon)<=180)){$('e-add').textContent='Please set where the camera is.';return}
+  busy(b,true);try{S=await api('station/add',{probe_id:probe.probe_id,label:$('clabel').value,lat,lon,onvif:cam.onvif});probe=null;cam=null;adding=false;scanned=false;route()}catch(x){$('e-add').textContent=x.message}busy(b,false)};
+$('discack').onchange=()=>$('b-start').disabled=!$('discack').checked;
+$('b-start').onclick=async e=>{const b=e.target;busy(b,true);try{await api('disclaimer',{ok:true});S=await api('start',{});route()}catch(x){$('e-start').textContent=x.message}busy(b,false)};
+function home(){
+  let birds=0,voices=0,up=false,err=null;S.stations.forEach(s=>{const l=s.live||{};birds+=l.birds||0;voices+=l.voices_removed||0;if(l.running)up=true;if(l.last_error)err=l.last_error});
+  $('n-birds').textContent=birds;$('n-voices').textContent=voices;
+  $('home-title').textContent=up?'Listening…':'Can\'t reach the camera. Trying again soon.';
+  $('home-sub').textContent=S.recent.length?'Birds heard at your place appear below.':'We\'ll tell you when we hear your first bird.';
+  const cn=$('chain-note');cn.classList.toggle('hide',!S.chain_state);cn.textContent=S.chain_state?(S.chain_state.charAt(0).toUpperCase()+S.chain_state.slice(1)+(S.chain_queued?' ('+S.chain_queued+' report'+(S.chain_queued>1?'s':'')+' waiting)':'')+'.'):'';
+  const mn=$('model-note');mn.classList.toggle('hide',!S.model_error);mn.textContent=S.model_error?'Problem: '+S.model_error:'';
+  if(S.recent.length)$('birds').innerHTML=S.recent.slice(0,12).map(d=>'<div class="bird"><div><b>'+esc(d.common||d.name)+'</b><br><i>'+esc(d.name)+'</i></div><div class="small muted">'+new Date(d.t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+'</div></div>').join('');
+  $('stations').innerHTML=S.stations.map(s=>{const l=s.live||{};return '<div class="cam"><div><b>'+esc(s.label)+'</b> <span class="tier">'+esc(s.tier)+'</span><div class="small muted">'+(l.running?'Listening now':(l.last_error?'Can\'t reach the camera. Trying again soon.':'Starting…'))+' · '+(l.frames||0)+' sounds checked</div></div><button class="ghost" data-id="'+esc(s.id)+'">Remove</button></div>'}).join('');
+  $('stations').querySelectorAll('button').forEach(b=>b.onclick=async()=>{if(confirm('Remove this camera?')){S=await api('station/remove',{id:b.dataset.id});route()}});
+  $('b-toggle').textContent=S.listening?'Pause listening':'Start listening';
+  $('home-disc').textContent=S.disclaimer;
+  $('home-meta').innerHTML='Version '+esc(S.version)+(S.update_state?' · '+esc(S.update_state):'')+'<br>Reports sent from here: '+S.reports_made+(S.last_report_bytes?' (last one '+S.last_report_bytes+' bytes)':'')+(S.map_state?'<br>Bird map: '+esc(S.map_state):'')+'<br>Station key: '+esc(S.station_pub.slice(0,16))+'… ('+(S.secret_store==='keychain'?'kept in this computer\'s keychain':'kept in a locked file')+')';
+}
+$('b-toggle').onclick=async()=>{if(S.listening){S=await api('pause',{})}else{show('s-start');$('disc-text').textContent=S.disclaimer;return}route()};
+$('b-add-cam').onclick=()=>{adding=true;scanned=false;cam=null;probe=null;route()};
+$('b-logout').onclick=async()=>{if(confirm('Sign out? Listening stops until you sign in again.')){S=await api('logout',{});route()}};
+$('b-upd').onclick=async()=>{const r=await api('update',{});alert(r.update_state)};
+refresh();setInterval(()=>{if(!document.hidden&&S&&!$('s-home').classList.contains('hide'))refresh()},5000);
+</script>
+</body>
+</html>

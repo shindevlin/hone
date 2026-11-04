@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+  if ! getent group hone-listener >/dev/null; then groupadd --system hone-listener; fi
+  if ! getent passwd hone-listener >/dev/null; then
+    useradd --system --gid hone-listener --home-dir /var/lib/hone-listener --no-create-home --shell /usr/sbin/nologin hone-listener
+  fi
+  install -d -o hone-listener -g hone-listener -m 0750 /var/lib/hone-listener
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    systemctl enable hone-listener.service hone-listener-update.path >/dev/null 2>&1 || true
+    systemctl restart hone-listener.service || true
+    systemctl start hone-listener-update.path || true
+  fi
+fi
+exit 0

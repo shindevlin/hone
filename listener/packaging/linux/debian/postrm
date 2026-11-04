@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+if [ "$1" = "purge" ]; then
+  rm -rf /var/lib/hone-listener
+  userdel hone-listener >/dev/null 2>&1 || true
+  groupdel hone-listener >/dev/null 2>&1 || true
+fi
+[ -d /run/systemd/system ] && systemctl daemon-reload >/dev/null 2>&1 || true
+exit 0

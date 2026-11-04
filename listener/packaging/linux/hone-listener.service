@@ -1,0 +1,30 @@
+[Unit]
+Description=HONE Birds camera listener
+Documentation=https://honemesh.net/listener/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=hone-listener
+Group=hone-listener
+ExecStart=/usr/lib/hone-listener/hone-listener run
+Environment=HONE_LISTENER_SUPERVISED=1
+Environment=HONE_LISTENER_NO_BROWSER=1
+EnvironmentFile=-/etc/default/hone-listener
+StateDirectory=hone-listener
+StateDirectoryMode=0750
+UMask=0027
+Restart=always
+RestartSec=10
+Nice=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Install verified HONE listener updates
+
+[Path]
+PathExists=/var/lib/hone-listener/update/ready
+
+[Install]
+WantedBy=multi-user.target
