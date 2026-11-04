@@ -176,6 +176,11 @@ pub async fn run_swarm(
     let mut dialed: std::collections::HashMap<PeerId, Multiaddr> = std::collections::HashMap::new();
     let mut reserved: Option<PeerId> = None;
     let mut mdns_dialed: std::collections::HashMap<PeerId, std::time::Instant> = std::collections::HashMap::new();
+    // Redial: every 30 s, dial any bootstrap peer we are not connected to (a seed restart
+    // or a network change must not leave the phone disconnected until the app restarts).
+    let boot_addrs: Vec<Multiaddr> = boot.iter().filter_map(|a| a.parse().ok()).collect();
+    let mut redial = tokio::time::interval(Duration::from_secs(30));
+    redial.tick().await;
 
     // Fetch peers from Hive and honemesh.net concurrently.
     let (hive_peers, hone_net_peers) = tokio::join!(
@@ -194,6 +199,21 @@ pub async fn run_swarm(
     loop {
         tokio::select! {
             _ = shutdown.recv() => break,
+
+            _ = redial.tick() => {
+                for addr in &boot_addrs {
+                    match addr.iter().last() {
+                        Some(Protocol::P2p(id)) => {
+                            if swarm.is_connected(&id) { continue; }
+                            info!("net: redialing bootstrap {}", addr);
+                            let _ = swarm.dial(DialOpts::peer_id(id).addresses(vec![addr.clone()])
+                                .condition(PeerCondition::DisconnectedAndNotDialing).build());
+                        }
+                        // /dnsaddr (no peer id): redial only when we have no peers at all.
+                        _ => if swarm.connected_peers().next().is_none() { let _ = swarm.dial(addr.clone()); },
+                    }
+                }
+            }
 
             // Outbound commands from other subsystems.
             Some(cmd) = cmd_rx.recv() => {
