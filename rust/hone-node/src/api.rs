@@ -260,6 +260,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sensor/vouch", post(post_sensor_vouch))
         .route("/api/coverage/report", post(post_coverage_report))
         .route("/api/sensor/summary", post(post_sensor_summary))
+        .route("/api/sensor/usefulness/:owner", get(get_sensor_usefulness))
         .route("/api/sensor/:id", get(get_sensor))
         .route("/api/sensors/:sensor_id/consensus/:epoch", get(get_sensor_consensus))
         .route("/api/sensors/:sensor_id/strikes", get(get_sensor_strikes))
@@ -4740,6 +4741,14 @@ async fn post_sensor_summary(
         epoch: s.chain.current_epoch(), signed_by: b.owner,
     };
     apply_and_broadcast(&s, entry, non_empty(&b.signature))
+}
+
+/// GET /api/sensor/usefulness/:owner — proven / queued points, trust and newest claims.
+async fn get_sensor_usefulness(
+    State(s): State<AppState>,
+    axum::extract::Path(owner): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    Json(crate::usefulness::owner_view(&s.chain, &owner))
 }
 
 async fn post_coverage_report(

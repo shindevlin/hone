@@ -35,8 +35,13 @@ pub const MAX_METRICS: usize = 32;
 pub const CLAIM_WINDOW_EPOCHS: u64 = 2880;
 /// Data older than this at submit fills the map but carries no claim.
 pub const MAX_CLAIM_AGE_S: u64 = 7 * 86_400;
-/// Payout of proven points: off until its own approved epoch.
-pub const USEFULNESS_PAYOUT_EPOCH: u64 = u64::MAX;
+/// Payout of proven points starts with scoring (volume sensor pay stops then).
+pub const USEFULNESS_PAYOUT_EPOCH: u64 = hone_types::USEFULNESS_SCORING_EPOCH;
+/// A corroborator needs at least this trust (trust starts at 0; contradicted reporters drop).
+pub const TRUST_FLOOR: i64 = 0;
+/// Release cap: proven points paid out per owner per epoch; the rest waits in the owner's
+/// queue for later epochs, so a bulk backlog pays the same total as a spread one.
+pub const RELEASE_CAP_PER_EPOCH: u64 = 1_000;
 /// Wall-clock anchor for epoch -> unix (epoch 352,395 sealed at 2026-11-04T03:37:42Z;
 /// EPOCH_DURATION_S per epoch). A constant, so every node computes the same age.
 const ANCHOR_EPOCH: u64 = 352_395;
@@ -66,6 +71,13 @@ pub fn valid_cell(cell: &str) -> bool {
         && cell.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Context metrics describe effort or location quality, not the environment (scan counts,
+/// sample counts, histograms): accepted in a summary but never scored or paid.
+pub fn scored_metric(m: &str) -> bool {
+    !(m.starts_with("loc.") || m.ends_with(".scans") || m.ends_with(".scan_s") || m.ends_with(".samples")
+      || m.contains(".rssi_hist."))
+}
+
 pub fn valid_metric(m: &str) -> bool {
     !m.is_empty() && m.len() <= 40
         && m.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_' || b == b':')
@@ -87,8 +99,49 @@ fn add_trust(chain: &Chain, owner: &str, d: i64) {
     let _ = chain.store.state_set(&k, (cur + d).clamp(-1000, 1000).to_string().as_bytes());
 }
 
+/// The owner a report counts for: a device seat `owner@<pubkey>` counts as its owner, so
+/// one owner's phones, Flippers and seats are one reporter.
 pub fn owner_of(a: &str) -> String {
     hone_types::parse_device_clock_id(a).map(|(o, _)| o.to_owned()).unwrap_or_else(|| a.to_owned())
+}
+
+pub fn trust(chain: &Chain, owner: &str) -> i64 {
+    chain.store.state_get(&format!("utrust:{owner}")).and_then(|b| String::from_utf8(b).ok())
+        .and_then(|s| s.parse().ok()).unwrap_or(0)
+}
+
+/// The H3 cells within 1 ring of `cell`, excluding it (empty for an invalid index).
+pub fn ring1(cell: &str) -> Vec<String> {
+    let Some(c) = u64::from_str_radix(cell, 16).ok().and_then(|v| h3o::CellIndex::try_from(v).ok()) else { return Vec::new() };
+    let mut out: Vec<String> = c.grid_disk::<Vec<_>>(1).into_iter()
+        .filter(|n| *n != c).map(|n| format!("{:x}", u64::from(n))).collect();
+    out.sort();
+    out
+}
+
+/// A report by `owner` of (`metric`, `value`) in `cell`/`window` proves pending claims of
+/// other owners in the 1-ring neighbourhood within ±VERIFY_WINDOWS whose value it matches.
+/// Returns the verification points earned (near 0).
+fn corroborate_ring(chain: &Chain, owner: &str, cell: &str, window: u64, m: &str, v: i64, epoch: u64) -> u64 {
+    if trust(chain, owner) < TRUST_FLOOR { return 0; }
+    let mut pts = 0;
+    for n in ring1(cell) {
+        for w in window.saturating_sub(VERIFY_WINDOWS)..=window + VERIFY_WINDOWS {
+            let ck = claim_key(&n, m, w);
+            let Some(c) = get_json(chain, &ck) else { continue };
+            if c["status"] != "pending" || c["owner"].as_str() == Some(owner) { continue; }
+            let Some(cv) = c["value"].as_i64() else { continue };
+            if (v - cv).abs() > band(m, cv) { continue; }
+            let vkey = format!("uver:{n}:{m}:{w}:{owner}");
+            if chain.store.state_get(&vkey).is_some() { continue; }
+            let _ = chain.store.state_set(&vkey, b"1");
+            if let Some(co) = c["owner"].as_str() { add_trust(chain, co, 1); }
+            settle(chain, &n, m, w, true, epoch);
+            credit(chain, owner, VERIFY_POINTS, epoch);
+            pts += VERIFY_POINTS;
+        }
+    }
+    pts
 }
 
 /// Score one summary. Writes only usefulness state. Returns per-metric verdicts and the
@@ -99,6 +152,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
     let mut out = Vec::new();
     let mut pts = 0u64;
     for (m, &v) in metrics {
+        if !scored_metric(m) { continue; }
         let dev_key = format!("usum:{sensor_id}:{window}:{m}");
         let own_key = format!("usum_o:{owner}:{cell}:{window}:{m}");
         if chain.store.state_get(&dev_key).is_some() || chain.store.state_get(&own_key).is_some() {
@@ -119,7 +173,8 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                 let same = (v - ev).abs() <= band(m, ev);
                 let near = window.abs_diff(ew) <= VERIFY_WINDOWS;
                 if eo != owner && near {
-                    if same { Verdict::Verify } else { Verdict::Contradict }
+                    if trust(chain, &owner) < TRUST_FLOOR { Verdict::Repeat }
+                    else if same { Verdict::Verify } else { Verdict::Contradict }
                 } else if window > ew && (!same || bucket != ew / BUCKET_WINDOWS) {
                     Verdict::Novel
                 } else {
@@ -142,7 +197,8 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                     let ck = claim_key(cell, m, window);
                     if chain.store.state_get(&ck).is_none() {
                         set_json(chain, &ck, &serde_json::json!({ "owner": owner, "points": NOVEL_POINTS,
-                            "epoch": epoch, "status": "pending" }));
+                            "epoch": epoch, "status": "pending", "value": v, "sensor": sensor_id }));
+                        let _ = chain.store.state_set(&format!("uclaim_o:{owner}:{cell}:{m}:{window}"), b"1");
                         let _ = chain.store.state_set(&format!("uclaim_due:{:016x}:{cell}:{m}:{window}", epoch + CLAIM_WINDOW_EPOCHS), b"1");
                         pts += NOVEL_POINTS;
                     }
@@ -168,6 +224,8 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
             }
             _ => {}
         }
+        // Neighbouring cells: this report may corroborate other owners' pending claims.
+        pts += corroborate_ring(chain, &owner, cell, window, m, v, epoch);
         out.push((m.clone(), verdict));
     }
     (out, pts)
@@ -179,11 +237,56 @@ fn read_u64(chain: &Chain, k: &str) -> u64 {
     chain.store.state_get(k).and_then(|b| String::from_utf8(b).ok()).and_then(|s| s.parse().ok()).unwrap_or(0)
 }
 
-/// Proven points: per owner in total and per proving epoch (payout input, once enabled).
-fn credit(chain: &Chain, owner: &str, pts: u64, epoch: u64) {
-    for k in [format!("uproven:{owner}"), format!("uproven_e:{epoch}:{owner}")] {
+/// Proven points: added to the owner's total and payout queue; release_due pays the queue
+/// out at most RELEASE_CAP_PER_EPOCH per owner per epoch.
+fn credit(chain: &Chain, owner: &str, pts: u64, _epoch: u64) {
+    for k in [format!("uproven:{owner}"), format!("uqueue:{owner}")] {
         let _ = chain.store.state_set(&k, (read_u64(chain, &k) + pts).to_string().as_bytes());
     }
+}
+
+/// Move up to the cap from every owner's queue into `uproven_e:{epoch}:{owner}`.
+fn release_queues(chain: &Chain, epoch: u64) {
+    for (k, v) in chain.store.state_scan_prefix("uqueue:") {
+        let owner = &k["uqueue:".len()..];
+        let q: u64 = String::from_utf8(v).ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+        if q == 0 { continue; }
+        let pay = q.min(RELEASE_CAP_PER_EPOCH);
+        let ek = format!("uproven_e:{epoch}:{owner}");
+        let _ = chain.store.state_set(&ek, (read_u64(chain, &ek) + pay).to_string().as_bytes());
+        if q == pay { let _ = chain.store.state_delete(&k); }
+        else { let _ = chain.store.state_set(&k, (q - pay).to_string().as_bytes()); }
+    }
+}
+
+/// Paid out (released) points of an owner at `epoch`.
+pub fn released_at(chain: &Chain, owner: &str, epoch: u64) -> u64 { read_u64(chain, &format!("uproven_e:{epoch}:{owner}")) }
+/// Proven points still waiting for release.
+pub fn queued(chain: &Chain, owner: &str) -> u64 { read_u64(chain, &format!("uqueue:{owner}")) }
+
+/// GET /api/sensor/usefulness/:owner — totals and the newest claims of an owner.
+pub fn owner_view(chain: &Chain, owner: &str) -> serde_json::Value {
+    let owner = owner_of(owner);
+    let pre = format!("uclaim_o:{owner}:");
+    let mut counts = BTreeMap::<String, u64>::new();
+    let mut claims = Vec::new();
+    for (k, _) in chain.store.state_scan_prefix(&pre) {
+        let rest = &k[pre.len()..];
+        let mut p = rest.splitn(3, ':');
+        let (Some(cell), Some(m), Some(w)) = (p.next(), p.next(), p.next()) else { continue };
+        let Ok(w) = w.parse::<u64>() else { continue };
+        let Some(c) = get_json(chain, &claim_key(cell, m, w)) else { continue };
+        let st = c["status"].as_str().unwrap_or("pending").to_owned();
+        *counts.entry(st.clone()).or_default() += 1;
+        claims.push(serde_json::json!({ "cell": cell, "metric": m, "window": w, "status": st,
+            "points": c["points"], "claimed_epoch": c["epoch"], "settled_epoch": c["settled_epoch"] }));
+    }
+    claims.sort_by_key(|c| std::cmp::Reverse(c["claimed_epoch"].as_u64().unwrap_or(0)));
+    claims.truncate(50);
+    serde_json::json!({ "owner": owner, "active_from_epoch": hone_types::USEFULNESS_SCORING_EPOCH,
+        "proven_points": proven_points(chain, &owner), "queued_points": queued(chain, &owner),
+        "trust": trust(chain, &owner), "counts": counts, "claims": claims,
+        "claim_window_epochs": CLAIM_WINDOW_EPOCHS, "release_cap_per_epoch": RELEASE_CAP_PER_EPOCH })
 }
 
 /// Prove (true) or void (false) a pending claim. Settled claims never change again.
@@ -204,6 +307,10 @@ fn settle(chain: &Chain, cell: &str, m: &str, window: u64, proven: bool, epoch: 
 pub fn scoring_epoch() -> u64 {
     if cfg!(test) { 352_700 } else { hone_types::USEFULNESS_SCORING_EPOCH }
 }
+/// The payout gate: the same epoch as scoring.
+pub fn payout_epoch() -> u64 {
+    if cfg!(test) { 352_700 } else { USEFULNESS_PAYOUT_EPOCH }
+}
 
 /// Per quorum seal (deterministic): claims whose window passed with no contradiction are
 /// proven. Called from epoch_sync::epoch_tick.
@@ -219,6 +326,7 @@ pub fn release_due(chain: &Chain, epoch: u64) -> usize {
         if let Ok(w) = w.parse::<u64>() { settle(chain, cell, m, w, true, epoch); n += 1; }
         let _ = chain.store.state_delete(&k);
     }
+    release_queues(chain, epoch);
     n
 }
 
@@ -228,7 +336,7 @@ pub fn proven_points(chain: &Chain, owner: &str) -> u64 { read_u64(chain, &forma
 /// Proven points per owner released at `epoch`: the deferred payout input. Empty until
 /// USEFULNESS_PAYOUT_EPOCH (off), so nothing is paid by the epoch a summary lands in.
 pub fn points_for_epoch(chain: &Chain, epoch: u64) -> Vec<(String, u64)> {
-    if epoch < USEFULNESS_PAYOUT_EPOCH { return Vec::new(); }
+    if epoch < payout_epoch() { return Vec::new(); }
     let pre = format!("uproven_e:{epoch}:");
     chain.store.state_scan_prefix(&pre).into_iter().filter_map(|(k, v)| {
         let owner = k.strip_prefix(&pre)?.to_owned();
@@ -373,8 +481,10 @@ mod tests {
         // The crowd claim survives the window with no contradiction: proven then.
         release_due(&c, E0 + CLAIM_WINDOW_EPOCHS);
         assert_eq!(proven_points(&c, "josh"), 2 * NOVEL_POINTS);
-        // Payout is off: no epoch hands out points yet.
-        assert!(points_for_epoch(&c, E0 + CLAIM_WINDOW_EPOCHS).is_empty());
+        // Payout: proven points are released (capped) at the releasing epoch, and only then.
+        let paid: u64 = points_for_epoch(&c, E0 + CLAIM_WINDOW_EPOCHS).iter().filter(|(o, _)| o == "josh").map(|(_, p)| *p).sum();
+        assert_eq!(paid, 2 * NOVEL_POINTS);
+        assert!(points_for_epoch(&c, E0).is_empty(), "nothing is paid in the submit epoch");
     }
 
     #[test]
@@ -411,6 +521,73 @@ mod tests {
         };
         assert_eq!(run(false), run(true));
         assert_eq!(run(false), 12 * NOVEL_POINTS);
+        // Paid out (released) totals match too.
+        let paid = |spread: bool| {
+            let (c, _d) = chain();
+            for (i, (w, v)) in rows.iter().enumerate() {
+                let e = if spread { E0 + i as u64 * 7 } else { E0 };
+                score(&c, "phone-a", "josh", C, *w, &m(&[("wifi.ap_count", *v)]), e);
+            }
+            (E0 + CLAIM_WINDOW_EPOCHS..E0 + CLAIM_WINDOW_EPOCHS + 12 * 7 + 5)
+                .map(|e| { release_due(&c, e); released_at(&c, "josh", e) }).sum::<u64>()
+        };
+        assert_eq!(paid(false), paid(true));
+        assert_eq!(paid(false), 12 * NOVEL_POINTS);
+    }
+
+    #[test]
+    fn release_cap_spreads_a_bulk_backlog() {
+        let (c, _d) = chain();
+        let s: BTreeMap<String, i64> = (0..25).map(|i| (format!("wifi.m{i}"), 10 + i)).collect();
+        let (_, p) = score(&c, "phone-a", "josh", C, W0, &s, E0);
+        assert_eq!(p, 25 * NOVEL_POINTS);
+        let e = E0 + CLAIM_WINDOW_EPOCHS;
+        release_due(&c, e);
+        assert_eq!(proven_points(&c, "josh"), 2_500);
+        assert_eq!(released_at(&c, "josh", e), RELEASE_CAP_PER_EPOCH);
+        assert_eq!(queued(&c, "josh"), 1_500);
+        release_due(&c, e + 1);
+        release_due(&c, e + 2);
+        assert_eq!(released_at(&c, "josh", e + 1), 1_000);
+        assert_eq!(released_at(&c, "josh", e + 2), 500);
+        assert_eq!(queued(&c, "josh"), 0);
+    }
+
+    #[test]
+    fn ring_neighbour_corroborates_only_for_another_trusted_owner() {
+        let (c, _d) = chain();
+        let n = ring1(C);
+        assert_eq!(n.len(), 6, "a res-9 cell has 6 neighbours");
+        score(&c, "phone-a", "josh", C, W0, &m(&[("wifi.ap_count", 20)]), E0);
+        // The same owner's other device / seat next door: never corroborates.
+        let seat = format!("josh@{}", "cd".repeat(32));
+        score(&c, "seat", &seat, &n[0], W0 + 1, &m(&[("wifi.ap_count", 20)]), E0 + 1);
+        assert_eq!(claim(&c, W0, "wifi.ap_count").unwrap()["status"], "pending");
+        // Another owner, but 3 windows away: no.
+        score(&c, "fl-b", "natoshisakamoto", &n[1], W0 + 3, &m(&[("wifi.ap_count", 20)]), E0 + 1);
+        assert_eq!(claim(&c, W0, "wifi.ap_count").unwrap()["status"], "pending");
+        // Another owner with trust below the floor: no.
+        c.store.state_set("utrust:lowtrust", b"-3").unwrap();
+        score(&c, "x", "lowtrust", &n[2], W0 + 1, &m(&[("wifi.ap_count", 20)]), E0 + 1);
+        assert_eq!(claim(&c, W0, "wifi.ap_count").unwrap()["status"], "pending");
+        // Another owner, outside the band: no.
+        score(&c, "fl-c", "shindevlin", &n[3], W0 - 1, &m(&[("wifi.ap_count", 90)]), E0 + 2);
+        assert_eq!(claim(&c, W0, "wifi.ap_count").unwrap()["status"], "pending");
+        // Another trusted owner next door, within ±2 windows and the band: proven.
+        score(&c, "fl-d", "bob", &n[4], W0 + 2, &m(&[("wifi.ap_count", 21)]), E0 + 3);
+        assert_eq!(claim(&c, W0, "wifi.ap_count").unwrap()["status"], "proven");
+        // (josh's seat claim in n[0] may be proven by the same report: still josh's own data.)
+        assert!(proven_points(&c, "josh") >= NOVEL_POINTS);
+        assert!(proven_points(&c, "bob") >= VERIFY_POINTS);
+    }
+
+    #[test]
+    fn context_metrics_are_never_paid() {
+        let (c, _d) = chain();
+        let (v, p) = score(&c, "phone-a", "josh", C, W0,
+            &m(&[("loc.samples", 40), ("wifi.scans", 9), ("ble.scan_s", 30), ("wifi.rssi_hist.3", 5), ("wifi.ap_count", 7)]), E0);
+        assert_eq!(p, NOVEL_POINTS);
+        assert_eq!(v.len(), 1);
     }
 
     #[test]

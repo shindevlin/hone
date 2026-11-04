@@ -43,6 +43,8 @@ fn entry_fee_payer(entry: &LedgerEntry) -> Option<String> {
         LedgerEntry::Stake     { account, .. } => Some(account.clone()),
         LedgerEntry::Unstake   { account, .. } => Some(account.clone()),
         LedgerEntry::Mine      { miner,   .. } => Some(miner.clone()),
+        // A device seat's summaries are paid by its owner (the seat holds no balance).
+        LedgerEntry::SensorSummary { owner, .. } => Some(crate::usefulness::owner_of(owner)),
         _ => serde_json::to_value(entry).ok()
                 .and_then(|v| v["signed_by"].as_str().map(str::to_owned)),
     }
@@ -155,6 +157,13 @@ pub fn decide_device_seats_epoch() -> u64 {
 #[cfg(test)]
 thread_local! {
     pub static TEST_SEATS_EPOCH: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// A device seat holds a role stake (clock or decide) placed by its owner.
+pub fn seat_staked(chain: &Chain, seat: &str, owner: &str) -> bool {
+    ["clock", "decide"].iter().any(|r| chain.store.state_get(&format!("role_stake:{}:{}:{}", r, seat, owner))
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j["amount"].as_u64()).unwrap_or(0) > 0)
 }
 
 /// `signed_by` is a device seat `owner@<pubkey hex>` and `sig_hex` verifies under that key.
@@ -1194,8 +1203,8 @@ pub fn validate_and_apply(
 
         // ── SensorSummary: public (cell, window) summary, scored for usefulness ──
         LedgerEntry::SensorSummary { sensor_id, owner, cell, metrics, epoch, signed_by, .. } => {
-            if *epoch < hone_types::USEFULNESS_SCORING_EPOCH {
-                bail!("SensorSummary is not active before epoch {}", hone_types::USEFULNESS_SCORING_EPOCH);
+            if *epoch < crate::usefulness::scoring_epoch() {
+                bail!("SensorSummary is not active before epoch {}", crate::usefulness::scoring_epoch());
             }
             if signed_by != owner { bail!("signed_by must match owner"); }
             if sensor_id.is_empty() || sensor_id.len() > 128 { bail!("invalid sensor_id"); }
@@ -1204,8 +1213,21 @@ pub fn validate_and_apply(
                 || !metrics.keys().all(|m| crate::usefulness::valid_metric(m)) {
                 bail!("SensorSummary needs 1..={} metrics with lowercase names", crate::usefulness::MAX_METRICS);
             }
-            require_key(chain, owner)?;
-            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            if let Some((seat_owner, _)) = hone_types::parse_device_clock_id(signed_by) {
+                // A device seat `owner@<pubkey>` (a phone) signs with its own seat key. The
+                // seat must be staked by its owner (clock or decide role), so a made-up
+                // `owner@<any key>` cannot report in someone else's name.
+                if !seat_staked(chain, signed_by, seat_owner) {
+                    bail!("device seat '{}' has no stake by '{}'", signed_by, seat_owner);
+                }
+                require_key(chain, seat_owner)?;
+                if !seat_key_signed(chain, signed_by, entry, sig_hex) {
+                    bail!("SensorSummary signature does not verify under seat key '{}'", signed_by);
+                }
+            } else {
+                require_key(chain, owner)?;
+                check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            }
             chain.apply_entry(entry)?;
         }
 
@@ -3723,6 +3745,39 @@ mod tests {
     fn seat_stake(node: &str, staker: &str, epoch: u64) -> LedgerEntry {
         LedgerEntry::NodeRoleStake { node: node.into(), role: "decide".into(), staker: staker.into(),
             amount: 100_000_000_000, epoch, nonce: 1, signed_by: staker.into() }
+    }
+
+    #[test]
+    fn sensor_summary_seat_key_needs_a_staked_seat_and_owner_pays() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "josh", 10_000_000_000_000); // posting key seed b'j'
+        let seat_sk = SigningKey::from_bytes(&[0x5e; 32]);
+        let seat = format!("josh@{}", hex::encode(seat_sk.verifying_key().to_bytes()));
+        let mk = |owner: &str, w: u64| LedgerEntry::SensorSummary {
+            sensor_id: "moto".into(), owner: owner.into(), batch_hash: String::new(),
+            cell: "896d75d960bffff".into(), window: w,
+            metrics: [("wifi.ap_count".to_string(), 12i64 + w as i64 * 10)].into_iter().collect(),
+            epoch: 352_700, signed_by: owner.into() };
+        let e = mk(&seat, 1);
+        assert!(validate_and_apply(&chain, &e, Some(&sign(&seat_sk, &e))).is_err(), "unstaked seat is refused");
+        chain.store.state_set(&format!("role_stake:clock:{}:josh", seat), br#"{"amount":1}"#).unwrap();
+        assert!(validate_and_apply(&chain, &e, Some(&sign(&SigningKey::from_bytes(&[0x5f; 32]), &e))).is_err(), "wrong key");
+        assert!(validate_and_apply(&chain, &e, None).is_err(), "unsigned");
+        let before = chain.get_balance("josh", NATIVE_TOKEN);
+        validate_and_apply(&chain, &e, Some(&sign(&seat_sk, &e))).unwrap();
+        assert!(chain.get_balance("josh", NATIVE_TOKEN) <= before, "the owner pays the seat's fee");
+        // A stake by someone else does not make another owner's seat valid.
+        let seat2 = format!("josh@{}", hex::encode(SigningKey::from_bytes(&[0x60; 32]).verifying_key().to_bytes()));
+        chain.store.state_set(&format!("role_stake:clock:{}:mallory", seat2), br#"{"amount":1}"#).unwrap();
+        let e2 = mk(&seat2, 2);
+        assert!(validate_and_apply(&chain, &e2, Some(&sign(&SigningKey::from_bytes(&[0x60; 32]), &e2))).is_err());
+        // The owner's posting key path still works.
+        let p = mk("josh", 3);
+        validate_and_apply(&chain, &p, Some(&sign(&SigningKey::from_bytes(&[b'j'; 32]), &p))).unwrap();
+        // Before activation: refused.
+        let mut early = mk("josh", 4);
+        if let LedgerEntry::SensorSummary { epoch, .. } = &mut early { *epoch = 352_699; }
+        assert!(validate_and_apply(&chain, &early, Some(&sign(&SigningKey::from_bytes(&[b'j'; 32]), &early))).is_err());
     }
 
     #[test]
