@@ -34,6 +34,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"
 libp2p = { version = "0.56", features = [
     "tcp", "noise", "yamux",
     "gossipsub", "kad", "identify", "ping", "macros", "tokio", "mdns",
+    # Reach the mesh from anywhere: /dns4 + /dnsaddr seeds, circuit relay v2 client and
+    # DCUtR hole punching (same behaviour as hone-node's net.rs).
+    "dns", "relay", "dcutr",
 ] }
 
 # Embedded state store — pure Rust, no C++ build deps
