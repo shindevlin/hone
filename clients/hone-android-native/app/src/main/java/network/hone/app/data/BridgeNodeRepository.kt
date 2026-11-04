@@ -105,6 +105,7 @@ class BridgeNodeRepository(private val context: Context) : NodeRepository {
             val witnessAccount = runCatching {
                 dataDir.resolve("witness_account").readText().trim()
             }.getOrDefault("")
+            if (witnessAccount.isNotEmpty()) network.hone.app.sightings.RoleKeys.materializeWitnessKey(context)
             val cfg = NodeConfig(
                 account = witnessAccount,
                 postingKey = "",

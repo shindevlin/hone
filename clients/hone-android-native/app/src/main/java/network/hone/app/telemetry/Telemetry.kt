@@ -103,6 +103,7 @@ object Telemetry {
         }.getOrNull()
         if (!owner.isNullOrBlank()) return owner
         return runCatching { File(ctx.filesDir, "hone-node/witness_account").readText().trim() }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: network.hone.app.account.AccountStore.handle(ctx)   // app account (volunteers without a wallet)
     }
 
     fun seatAccount(ctx: Context): String? =
@@ -156,8 +157,7 @@ object Telemetry {
     fun seatSeedForChain(ctx: Context): ByteArray = seatSeed(ctx)
 
     private fun seatSeed(ctx: Context): ByteArray {
-        RoleKeys.devicePub(ctx) // creates the seat key if absent
-        return Canonical.unhex(File(ctx.filesDir, "hone-node/witness.key").readText().trim())
+        return RoleKeys.seatSeed(ctx)
     }
 
     /** Sign [payload] (a map) canonically and return the envelope JSON string. */

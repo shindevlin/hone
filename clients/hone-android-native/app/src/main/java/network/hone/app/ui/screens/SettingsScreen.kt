@@ -29,8 +29,9 @@ private val CHANNELS = listOf(
 
 /** Live settings: node connection, what this phone submits, sound, birds privacy, about. */
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSignIn: () -> Unit = {}) {
     val ctx = LocalContext.current
+    var advanced by remember { mutableStateOf(!simple) }
     val file = remember { File(ctx.filesDir, "hone-node/sensor_settings.json") }
     val cur = remember { runCatching { JSONObject(file.readText()) }.getOrDefault(JSONObject()) }
     var nodeUrl by remember { mutableStateOf(cur.optString("node_url", "").ifBlank { network.hone.app.data.ChainHttp.PUBLIC_BASE }) }
@@ -54,7 +55,34 @@ fun SettingsScreen() {
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
 
-        Section("Node") {
+        Section("Account") {
+            val acct = network.hone.app.account.AccountStore
+            if (acct.signedIn(ctx)) {
+                Text(acct.email(ctx) ?: "", style = MaterialTheme.typography.bodyMedium)
+                if (!acct.verified(ctx)) Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.ob_verify_nudge),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                Text(acct.referrer(ctx)?.let { androidx.compose.ui.res.stringResource(network.hone.app.R.string.ob_consent_ref, it) }
+                    ?: androidx.compose.ui.res.stringResource(network.hone.app.R.string.ob_consent_pool),
+                    style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+                TextButton({ acct.logout(ctx); onSignIn() }) { Text("Sign out") }
+            } else OutlinedButton(onSignIn) { Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.ob_sign_in)) }
+            var digest by remember { mutableStateOf(network.hone.app.engage.Engagement.digestEnabled(ctx)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_digest), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Switch(digest, { digest = it; network.hone.app.engage.Engagement.setDigest(ctx, it) })
+            }
+        }
+
+        if (simple) TextButton({ advanced = !advanced }) {
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_advanced) + if (advanced) " ▾" else " ▸")
+        }
+        if (simple && advanced) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton({ onOpen("node") }) { Text("Node") }
+            OutlinedButton({ onOpen("wallet") }) { Text("Wallet") }
+            OutlinedButton({ onOpen("sensors") }) { Text("Sensors") }
+        }
+
+        if (advanced) Section("Node") {
             OutlinedTextField(nodeUrl, { nodeUrl = it.trim() }, label = { Text("Node URL") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth())
             OutlinedTextField(owner, { owner = it.trim() }, label = { Text("Owner account") }, singleLine = true,
@@ -63,7 +91,7 @@ fun SettingsScreen() {
                 modifier = Modifier.fillMaxWidth())
         }
 
-        Section("Submit to chain") {
+        if (advanced) Section("Submit to chain") {
             Text("Each checked sensor commits signed readings every 30 s. Location is never submitted.",
                 style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
             CHANNELS.forEach { (id, label) ->
@@ -94,7 +122,7 @@ fun SettingsScreen() {
         SoundCard()
 
         Section("Birds privacy") {
-            Text(
+            if (advanced) Text(
                 if (network.hone.app.birds.BirdsSync.canSign(ctx)) "Posting key imported: sightings and photos are signed by your account."
                 else "Import your posting key (Sensors > Find my things > keys) to publish sightings and photos.",
                 style = MaterialTheme.typography.labelSmall,

@@ -14,7 +14,10 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_LOCKED_BOOT_COMPLETED,
             // After an app update, so a reinstall does not leave the node down.
-            Intent.ACTION_MY_PACKAGE_REPLACED -> NodeService.start(context.applicationContext)
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                NodeService.start(context.applicationContext)
+                network.hone.app.station.StationService.start(context.applicationContext)
+            }
         }
     }
 }

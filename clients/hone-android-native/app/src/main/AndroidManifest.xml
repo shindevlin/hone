@@ -17,6 +17,8 @@
     <!-- Wi-Fi coverage sensing (spec 2a). BSSIDs are hashed with a RAM-only day key. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- ONVIF WS-Discovery (multicast probe for cameras on the home Wi-Fi). -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Wake at UTC quarter-hours so rid and advertising address rotate on time. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -64,6 +66,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Invite link hand-off from https://honemesh.net/join: hone://join?ref=<code> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hone" android:host="join" />
+            </intent-filter>
         </activity>
 
         <!-- The node lives here, alive in the background as a sensor node. -->
@@ -74,6 +83,16 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Runs a HONE sensor node: continuously signs and submits verified sensor readings to the chain." />
+        </service>
+
+        <!-- Camera bird stations: audio only, while charging and on Wi-Fi. -->
+        <service
+            android:name=".station.StationService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Listens to the audio of the user's own Wi-Fi camera to recognize bird species; no audio is stored or sent." />
         </service>
 
         <!-- Restart the node after reboot so a docked phone self-heals. -->

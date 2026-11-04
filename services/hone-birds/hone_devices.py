@@ -170,6 +170,12 @@ def _row(r, full):
     return out
 
 
+def online(account, device):
+    with _lock:
+        r = _db.execute("SELECT received FROM device_latest WHERE account=? AND device=?", (account, device)).fetchone()
+    return bool(r) and int(time.time()) - r[0] < ONLINE_S
+
+
 def authorized(headers, account, path):
     tok = os.environ.get("HONE_DEVICES_ADMIN_TOKEN", "")
     if tok and hmac.compare_digest(headers.get("X-Hone-Admin", ""), tok):

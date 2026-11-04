@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  All wording of the first-run flow, stations and bird notifications, in one place so Josh
+  can edit it. Keep it free of crypto jargon (no keys, epochs, seats, chain) in this file.
+  %1$s, %2$d ... are filled in by the app. Escape apostrophes as \'.
+-->
+<resources>
+    <!-- Sign up / sign in -->
+    <string name="ob_welcome_title">Hear who\'s singing at your place</string>
+    <string name="ob_welcome_sub">HONE turns your phone, or the security camera you already have, into a nature listener.</string>
+    <string name="ob_name">Your first name</string>
+    <string name="ob_email">Email</string>
+    <string name="ob_password">Password (at least 10 characters)</string>
+    <string name="ob_invite_code">Invite code (optional)</string>
+    <string name="ob_consent_ref">Rewards from this app go to the person who invited you (%1$s) until you create your own wallet.</string>
+    <string name="ob_consent_pool">Rewards from this app go to the HONE community pool until you create your own wallet.</string>
+    <string name="ob_create">Create my account</string>
+    <string name="ob_have_account">I already have an account</string>
+    <string name="ob_sign_in">Sign in</string>
+    <string name="ob_new_account">Create an account instead</string>
+    <string name="ob_skip">Not now</string>
+    <string name="ob_import_key">Already run HONE? Import an existing key</string>
+    <string name="ob_verify_title">Check your email</string>
+    <string name="ob_verify_body">We sent a 6-digit code to %1$s.</string>
+    <string name="ob_verify_code">6-digit code</string>
+    <string name="ob_verify_button">Verify</string>
+    <string name="ob_verify_later">Later</string>
+    <string name="ob_verify_resend">Send a new code</string>
+    <string name="ob_verify_nudge">Please verify your email so you can sign in on another phone.</string>
+    <string name="ob_verified">Email verified</string>
+
+    <!-- First run -->
+    <string name="fr_welcome">Welcome, %1$s. Let\'s find out who\'s singing at your place.</string>
+    <string name="fr_welcome_noname">Welcome. Let\'s find out who\'s singing at your place.</string>
+    <string name="fr_scanning">Looking for cameras on your Wi-Fi…</string>
+    <string name="fr_found_one">Add a camera: we found 1 camera on your Wi-Fi: %1$s.</string>
+    <string name="fr_found_many">Add a camera: we found %1$d cameras on your Wi-Fi.</string>
+    <string name="fr_found_none">We didn\'t find a camera on your Wi-Fi.</string>
+    <string name="fr_needs_wifi">Connect this phone to the same Wi-Fi as your camera, then try again.</string>
+    <string name="fr_use_this">Use this one</string>
+    <string name="fr_scan_again">Look again</string>
+    <string name="fr_use_mic">Use this phone\'s microphone instead</string>
+    <string name="fr_cam_login">Camera username and password</string>
+    <string name="fr_cam_login_hint">The same ones you use in your camera app. They stay on this phone, locked.</string>
+    <string name="fr_cam_user">Camera username</string>
+    <string name="fr_cam_pass">Camera password</string>
+    <string name="fr_connect">Connect</string>
+    <string name="fr_testing">Listening to your camera for a few seconds…</string>
+    <string name="fr_tier_a">Your camera hears everything from tiny songbirds to owls.</string>
+    <string name="fr_tier_b">Your camera hears most birds well.</string>
+    <string name="fr_tier_c">Your camera hears low sounds well, like owls, doves, frogs and nightjars. Perfect for night listening.</string>
+    <string name="fr_no_audio">This camera doesn\'t send sound. Check that its microphone is turned on in your camera app, then try again.</string>
+    <string name="fr_bad_login">That username or password didn\'t work. Try again.</string>
+    <string name="fr_cant_reach">We couldn\'t connect to this camera. Make sure it is on and on the same Wi-Fi.</string>
+    <string name="fr_continue">Continue</string>
+    <string name="fr_privacy">We only use sound, never video. Anyone talking is deleted instantly.</string>
+    <string name="fr_rules_tick">I\'ve checked local rules and want to start.</string>
+    <string name="fr_start">Start listening</string>
+    <string name="fr_listening">Listening… We\'ll tell you when we hear your first bird.</string>
+    <string name="fr_runs_when">Your camera station listens while this phone is charging and on Wi-Fi.</string>
+    <string name="fr_done">Done</string>
+
+    <!-- Stations screen -->
+    <string name="st_title">Listening</string>
+    <string name="st_add">Add a camera</string>
+    <string name="st_paused">Paused: plug in the phone and connect to Wi-Fi to listen.</string>
+    <string name="st_running">Listening now</string>
+    <string name="st_unreachable">Can\'t reach the camera. Trying again soon.</string>
+    <string name="st_stats">%1$d birds heard · %2$d voices deleted</string>
+    <string name="st_checked">%1$d sounds checked</string>
+    <string name="st_remove">Remove</string>
+    <string name="st_mic">This phone\'s microphone</string>
+
+    <!-- Notifications -->
+    <string name="nt_channel">Birds</string>
+    <string name="nt_first_bird">First bird! A %1$s was calling at %2$s.</string>
+    <string name="nt_digest">Last night: %1$d species, %2$d calls. %3$d new to your list.</string>
+    <string name="nt_milestone">%1$d species at your place!</string>
+    <string name="nt_first_area">First in your area: %1$s.</string>
+    <string name="nt_rarest">Rarest this month at your place: %1$s.</string>
+    <string name="nt_station_service">Listening to your camera</string>
+    <string name="set_digest">Morning summary of last night\'s birds</string>
+    <string name="set_advanced">Advanced</string>
+</resources>
