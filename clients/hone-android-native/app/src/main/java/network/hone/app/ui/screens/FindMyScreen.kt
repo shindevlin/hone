@@ -40,7 +40,7 @@ private val ROLE_HELP = mapOf(
     "posting" to "posting key: signs bird uploads from this phone.",
 )
 // The hide key no longer goes on phones (hardware grant below); the active key lives only in the wallet.
-private val PHONE_ROLES = listOf("memo", "posting")
+private val PHONE_ROLES = listOf("hide", "posting", "memo")
 
 private fun ByteArray.hx() = joinToString("") { "%02x".format(it) }
 
@@ -55,7 +55,7 @@ fun FindMyScreen(onBack: () -> Unit) {
     var shared by remember { mutableStateOf(emptyList<SightingStore.Shared>()) }
     var status by remember { mutableStateOf("") }
     var refresh by remember { mutableIntStateOf(0) }
-    var keyRole by remember { mutableStateOf("memo") }
+    var keyRole by remember { mutableStateOf("hide") }
     var keyHex by remember { mutableStateOf("") }
     var keyErr by remember { mutableStateOf<String?>(null) }
     var label by remember { mutableStateOf("") }
@@ -89,7 +89,7 @@ fun FindMyScreen(onBack: () -> Unit) {
         item {
             Text("Wallet keys on this phone", fontWeight = FontWeight.SemiBold)
             Text(PHONE_ROLES.joinToString(" · ") { "$it ${if (RoleKeys.has(ctx, it)) "yes" else "no"}" } +
-                " · hide: never on the phone (hardware grant) · active: Wallet", style = line, color = HoneTextDim)
+                " · active: Wallet", style = line, color = HoneTextDim)
             Row { PHONE_ROLES.forEach { r -> FilterChip(selected = keyRole == r, onClick = { keyRole = r }, label = { Text(r) }, modifier = Modifier.padding(end = 6.dp)) } }
             Text(ROLE_HELP[keyRole] ?: "", style = line, color = HoneTextDim)
             // The key is never logged and never leaves the phone: RoleKeys wraps it with a
@@ -109,6 +109,7 @@ fun FindMyScreen(onBack: () -> Unit) {
                     keyErr = err
                     status = if (err != null) "" else ("$role key imported" + if (chainPub.isNullOrEmpty()) " (not registered on chain)" else " (matches chain)")
                     if (err == null && role == "memo") withContext(Dispatchers.IO) { runCatching { FindMy.refreshShared(ctx, store) } }
+                    if (err == null && role == "hide") withContext(Dispatchers.IO) { network.hone.app.sightings.HwKeys.forgetGrant(ctx); SightingsEngine.reloadIdentity() }
                     refresh++
                 }
             }
