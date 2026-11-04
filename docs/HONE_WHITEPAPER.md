@@ -454,7 +454,27 @@ sightings back. **Live:** the indexer and app sync. **Planned:** reference call 
 needs an upstream API key), per-bird voice fingerprints, and public publishing of the bird,
 Flipper and coverage data sets.
 
-### 5.6 The coverage map: two layers
+### 5.6 Fixed listening stations (planned)
+
+Many homes already have IP security cameras with microphones. A **`hone-listener`** add-on,
+packaged for Docker, Raspberry Pi, Home Assistant and Frigate, turns the audio track of a
+user's **own** cameras into fixed bird and sound stations.
+
+- **Same pipeline as the phone.** First the speech gate, then Perch, then one report per
+  15-minute window. No audio is stored or sent; only species, noise levels and listening time
+  leave the add-on.
+- **One seat per camera.** Each camera is a sensor seat `owner@<station key>` under the
+  owner's account. It is paid under the usefulness rules with deferred payout (Section 6.4).
+- **Quality tiers A, B and C** are set by the camera's audio sample rate.
+- **Low trust until corroborated.** A new station's claims stay at low trust until
+  independent owners corroborate them.
+- **Owned cameras only.** The add-on connects only to cameras the user owns. Access to other
+  people's cameras, or to unsecured cameras found on a network, is never supported.
+
+A fixed station complements phones: it listens from the same place every day, so arrivals,
+departures and changes stand out against a stable baseline.
+
+### 5.7 The coverage map: two layers
 
 | | Public layer | Private layer |
 |---|---|---|
@@ -793,6 +813,7 @@ As of 2026-11-04, branch `v2.1-live-identity`.
 | | Flipper signed v2 frames, BLE observer, sealed seed, SD archive | live |
 | | Signed device status every 15 minutes | planned (app side in development) |
 | | Public bird, Flipper and coverage data sets | planned |
+| | Fixed listening stations (`hone-listener` on owned IP cameras) | planned |
 | | Two-layer coverage map | private layer live on device; public summaries queued for the summary commit |
 | Rewards | Volume sensor scoring | live until usefulness activates |
 | | Usefulness scoring, verification near 0, 7-day limit | gated |
@@ -837,6 +858,9 @@ As of 2026-11-04, branch `v2.1-live-identity`.
 - Add claw-back, location fingerprint checks, teleport voiding and rare-event escrow.
 - Publish the public bird, Flipper and coverage data sets, and bird voice fingerprints.
 - Verifiable speech removal with a public test, before mic data earns.
+- Fixed listening stations: the `hone-listener` add-on (Docker, Pi, Home Assistant,
+  Frigate) for the user's own IP cameras, one sensor seat per camera, tiered A/B/C by
+  sample rate.
 - Attested hardware tiers. The on-chain model registry. Wiiv ledger entries.
 - The Bitcoin height oracle.
 
