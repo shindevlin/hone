@@ -10,6 +10,7 @@ public class Voiceprints {
     static native String nativeQuery(long h, int kind, int arg, String id);
     static native String nativeName(long h, String id, String name);
     static native byte[] nativeSave(long h);
+    static native String nativeLink(long h, String a, String b);
 
     public static void main(String[] a) {
         System.load(a[0]);
@@ -31,6 +32,7 @@ public class Voiceprints {
         System.out.println("candidates: " + nativeQuery(h, 1, 0, null));
         System.out.println("report: " + nativeQuery(h, 2, 4096, null));
         System.out.println("name unknown: " + nativeName(h, "00", "Ruben"));
+        System.out.println("link unknown: " + nativeLink(h, "00", "11"));
         byte[] s = nativeSave(h);
         System.out.println("state bytes: " + s.length);
         long h2 = nativeNew("{}", s);

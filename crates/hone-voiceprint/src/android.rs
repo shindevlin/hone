@@ -130,6 +130,15 @@ pub extern "system" fn Java_network_hone_app_sound_Voiceprints_nativeName(mut en
     out(&mut env, r)
 }
 
+/// User link ("this is also Ruben"). Returns the surviving id, or null.
+#[no_mangle]
+pub extern "system" fn Java_network_hone_app_sound_Voiceprints_nativeLink(mut env: JNIEnv, _c: JClass, p: jlong, a: JString, b: JString) -> jstring {
+    let Some(h) = h(p) else { return std::ptr::null_mut() };
+    let (Some(a), Some(b)) = (s(&mut env, &a), s(&mut env, &b)) else { return std::ptr::null_mut() };
+    let r = h.lock().unwrap_or_else(|e| e.into_inner()).link(&a, &b).ok();
+    out(&mut env, r)
+}
+
 #[no_mangle]
 pub extern "system" fn Java_network_hone_app_sound_Voiceprints_nativeSave(env: JNIEnv, _c: JClass, p: jlong) -> jbyteArray {
     let Some(h) = h(p) else { return std::ptr::null_mut() };

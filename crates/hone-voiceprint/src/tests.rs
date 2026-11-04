@@ -197,3 +197,18 @@ fn night_boundary_is_local_noon() {
     // same instant, a night 6 h west (tz -360) is still the earlier night
     assert_eq!(night_of(b, -360), night_of(a, 0));
 }
+
+#[test]
+fn user_link_keeps_earliest_name() {
+    let (mut v, _) = run(5, true);
+    let c = v.candidates();
+    let (a, b) = (c[0].bird_id.clone(), c[1].bird_id.clone());
+    v.name(&a, "Ruben").unwrap();
+    v.drain_events();
+    let into = v.link(&b, &a).unwrap();
+    assert_eq!(into, a);
+    assert_eq!(v.resolve(&b), a);
+    assert_eq!(v.candidates().len(), 1);
+    assert!(matches!(v.drain_events()[0], Event::Merged { .. }));
+    assert_eq!(v.link(&a, "nope"), Err(VpError::UnknownBird));
+}
