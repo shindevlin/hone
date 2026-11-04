@@ -449,6 +449,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
     {
         let clock_ref = clock.clone();
         let chain_ref = chain.clone();
+        let fin_sync_peers = epoch_sync::peers(&cfg.bootstrap_peers);
         tokio::spawn(async move {
             // Track the last epoch we've seeded so empty epochs are only tracked once.
             let mut last_tracked: u64 = 0;
@@ -789,6 +790,12 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         last_rewarded = e; // contiguous through e
                     }
                     state_healer::driver_exit(last_rewarded);
+                    // Stalled well behind the tip on an epoch with no local finalize: peers
+                    // finalized it while this node was cut off. Ask them for the meta.
+                    if last_rewarded < stop && safe_tip > last_rewarded.saturating_add(40) {
+                        epoch_sync::request_finalize_backfill(&chain_ref, &fin_sync_peers,
+                            last_rewarded.saturating_add(1), safe_tip);
+                    }
                 }
             }
         });
@@ -853,20 +860,21 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // Reserved-name migration (inert until NAME_NFT_MIGRATION_EPOCH):
                         // once, at the first quorum seal at/after activation, before any of
                         // that epoch's entries.
+                        // Restart-loss fix: commit what peers committed at the quorum seals
+                        // this node missed (down, booting, transplanted, partitioned), BEFORE
+                        // this epoch's entries — they may depend on those nonces. The backfill
+                        // runs the name migration at its own epoch if the gap crosses it.
+                        if sealed.quorum >= 2 {
+                            let prev = epoch_sync::last_committed(&chain_ref);
+                            if prev > 0 && sealed_epoch > prev + 1 {
+                                epoch_sync::backfill(&chain_ref, &sync_peers, prev + 1, sealed_epoch - 1).await;
+                            }
+                        }
                         if sealed.quorum >= 2 {
                             match identity_nft::migrate_reserved(&chain_ref, sealed_epoch) {
                                 Ok(0) => {}
                                 Ok(n) => info!("[epoch {}] reserved-name migration: {} names", sealed_epoch, n),
                                 Err(e) => error!("[epoch {}] reserved-name migration failed: {}", sealed_epoch, e),
-                            }
-                        }
-                        // Restart-loss fix: commit what peers committed at the quorum seals
-                        // this node missed (down, booting, transplanted), BEFORE this epoch's
-                        // entries — they may depend on those nonces. See epoch_sync.rs.
-                        if sealed.quorum >= 2 {
-                            let prev = epoch_sync::last_committed(&chain_ref);
-                            if prev > 0 && sealed_epoch > prev + 1 {
-                                epoch_sync::backfill(&chain_ref, &sync_peers, prev + 1, sealed_epoch - 1).await;
                             }
                         }
                         let pending = if sealed.quorum >= 2 {

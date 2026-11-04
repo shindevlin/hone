@@ -54,7 +54,75 @@ pub fn serve(chain: &Chain, from: u64, to: u64) -> serde_json::Value {
             }
         }
     }
-    serde_json::json!({ "epochs": out, "last_quorum_seal": last_committed(chain) })
+    // The finalized epoch meta for the range too: a node cut off from gossip misses the
+    // EpochFinalize of every epoch it did not seal, and the reward driver will not pass an
+    // unfinalized epoch (contiguity), so without these it stalls forever (2026-11-03).
+    let mut fin = Vec::new();
+    for e in from..=to {
+        if let Ok(Some(m)) = chain.store.get_epoch_meta(e) {
+            if m["finalized"].as_bool().unwrap_or(false) { fin.push(m); }
+        }
+    }
+    serde_json::json!({ "epochs": out, "finalized": fin, "last_quorum_seal": last_committed(chain) })
+}
+
+/// Apply peer EpochFinalize meta for epochs this node has not finalized. Goes through the
+/// normal EpochFinalize apply (same fork-choice rule as gossip), so it can only fill a gap
+/// or be outvoted by a higher-quorum finalization, never silently rewrite one. Returns
+/// the number of epochs newly finalized.
+pub fn apply_finalized(chain: &Chain, v: &serde_json::Value) -> usize {
+    let mut n = 0;
+    for m in v["finalized"].as_array().into_iter().flatten() {
+        let Some(epoch) = m["epoch"].as_u64() else { continue };
+        let local_final = chain.store.get_epoch_meta(epoch).ok().flatten()
+            .map(|x| x["finalized"].as_bool().unwrap_or(false)).unwrap_or(false);
+        if local_final { continue; }
+        let entry = LedgerEntry::EpochFinalize {
+            epoch,
+            node_id: "epoch-sync".into(),
+            rewards_hash: m["rewards_hash"].as_str().unwrap_or_default().to_owned(),
+            quorum: m["quorum"].as_u64().unwrap_or(0),
+            sealed_by: m["sealed_by"].as_array().into_iter().flatten()
+                .filter_map(|s| s.as_str().map(str::to_owned)).collect(),
+            state_root: m["state_root"].as_str().unwrap_or_default().to_owned(),
+            timestamp: m["finalized_at"].as_u64().unwrap_or(0),
+        };
+        if entry_ok(&entry) && chain.apply_entry(&entry).is_ok() { n += 1; }
+    }
+    n
+}
+
+fn entry_ok(e: &LedgerEntry) -> bool {
+    matches!(e, LedgerEntry::EpochFinalize { rewards_hash, quorum, .. } if !rewards_hash.is_empty() && *quorum > 0)
+}
+
+static FIN_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FIN_LAST_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The reward driver is stuck behind an epoch peers finalized while this node was cut
+/// off. Fetch the finalized meta for from..=to from peers, at most once a minute.
+pub fn request_finalize_backfill(chain: &Arc<Chain>, peers: &[String], from: u64, to: u64) {
+    use std::sync::atomic::Ordering::*;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64).unwrap_or(0);
+    if from > to || peers.is_empty() || now.saturating_sub(FIN_LAST_MS.load(Relaxed)) < 60_000 { return; }
+    if FIN_BUSY.swap(true, AcqRel) { return; }
+    FIN_LAST_MS.store(now, Relaxed);
+    let (chain, peers, to) = (chain.clone(), peers.to_vec(), to.min(from.saturating_add(MAX_GAP)));
+    tokio::spawn(async move {
+        let http = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build();
+        if let Ok(http) = http {
+            for p in &peers {
+                let url = format!("{p}/api/sync/epoch_entries?from={from}&to={to}");
+                let Ok(r) = http.get(&url).send().await else { continue };
+                let Ok(v) = r.json::<serde_json::Value>().await else { continue };
+                let n = apply_finalized(&chain, &v);
+                info!("[epoch-sync] reward driver stalled at {from}: {n} finalized epoch(s) in {from}..{to} from {p}");
+                if n > 0 { break; }
+            }
+        }
+        FIN_BUSY.store(false, Release);
+    });
 }
 
 /// Multi-pass apply of one epoch's entry set (hash order, retry until no progress) — the
@@ -111,6 +179,10 @@ pub fn apply_backfill(chain: &Chain, mut sets: Vec<(u64, Vec<(LedgerEntry, Optio
     sets.sort_by_key(|(e, _)| *e);
     let mut n = 0;
     for (e, mut entries) in sets {
+        // The reserved-name migration runs at the first quorum seal at/after activation,
+        // before that epoch's entries. A node backfilling across activation must do the
+        // same at the same epoch, not later at the seal that triggered the backfill.
+        let _ = crate::identity_nft::migrate_reserved(chain, e);
         entries.sort_by_key(|(x, _)| x.hash());
         let applied = apply_set(chain, e, entries, Some(e));
         n += applied.len();
@@ -153,11 +225,12 @@ pub async fn backfill(chain: &Arc<Chain>, peers: &[String], from: u64, to: u64) 
     }
     let http = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build() { Ok(h) => h, Err(_) => return };
     let mut got: std::collections::BTreeMap<u64, Vec<(LedgerEntry, Option<String>)>> = Default::default();
+    let mut fins: Vec<serde_json::Value> = Vec::new();
     for p in peers {
         let url = format!("{p}/api/sync/epoch_entries?from={from}&to={to}");
         match http.get(&url).send().await {
             Ok(r) => match r.json::<serde_json::Value>().await {
-                Ok(v) => for (e, s) in parse(&v) { got.entry(e).or_insert(s); },
+                Ok(v) => { for (e, s) in parse(&v) { got.entry(e).or_insert(s); } fins.push(v); },
                 Err(e) => warn!("[epoch-sync] {url}: {e}"),
             },
             Err(e) => warn!("[epoch-sync] {url}: {e}"),
@@ -166,6 +239,8 @@ pub async fn backfill(chain: &Arc<Chain>, peers: &[String], from: u64, to: u64) 
     }
     let missing: Vec<u64> = (from..=to).filter(|e| !got.contains_key(e)).collect();
     let n = apply_backfill(chain, got.into_iter().collect());
+    let f: usize = fins.iter().map(|v| apply_finalized(chain, v)).sum();
+    if f > 0 { info!("[epoch-sync] {} finalized epoch(s) taken from peers for {}..{}", f, from, to); }
     info!("[epoch-sync] backfilled epochs {}..{}: {} entries applied; no peer record for {} epoch(s){}",
         from, to, n, missing.len(), if missing.is_empty() { String::new() } else { format!(" {:?}", &missing[..missing.len().min(8)]) });
 }
@@ -288,5 +363,60 @@ mod tests {
     fn sync_peers_from_env_or_bootstrap() {
         std::env::remove_var("HONE_SYNC_PEERS");
         assert_eq!(peers(&["/ip4/192.168.68.72/tcp/6942/p2p/12D3".into()]), vec!["http://192.168.68.72:4242"]);
+    }
+
+    /// 2026-11-03 partition: A (grouchly) could not publish, so N (nebra) saw 2 of 5 seals
+    /// and resolved nothing for 101..=110, while A heard every clock and sealed and
+    /// finalized them. The gap crosses the name migration (105). N's first quorum seal
+    /// after the fix is 111: the backfill must commit A's entries, run the migration inside
+    /// the gap, and take A's finalize meta, or N's reward driver stalls at 101 for good.
+    #[test]
+    fn partitioned_node_backfills_entries_finalizes_and_migration() {
+        crate::identity_nft::TEST_MIGRATION_EPOCH.with(|c| c.set(Some(105)));
+        let sk = SigningKey::from_bytes(&[0x43; 32]);
+        let (a, _da) = chain("a");
+        let (n, _dn) = chain("n");
+        for c in [&a, &n] { setup(c, &sk); seal(c, 100); }
+        for c in [&a, &n] { let ap = apply_set(c, 100, vec![xfer(&sk, 1, 100)], None); record(c, 100, &ap); }
+        let fin = |c: &Chain, e: u64| c.apply_entry(&LedgerEntry::EpochFinalize {
+            epoch: e, node_id: "natoshisakamoto".into(), rewards_hash: format!("h{e}"), quorum: 3,
+            sealed_by: vec!["josh".into(), "natoshisakamoto".into(), "shindevlin".into()],
+            state_root: format!("r{e}"), timestamp: e }).unwrap();
+        fin(&a, 100); fin(&n, 100);
+        // Partition: A commits and finalizes 101..=110; N commits and finalizes nothing.
+        for ep in 101..=110u64 {
+            seal(&a, ep);
+            if ep == 105 { crate::identity_nft::migrate_reserved(&a, ep).unwrap(); }
+            let ap = apply_set(&a, ep, vec![xfer(&sk, ep - 99, ep)], None);
+            assert_eq!(ap.len(), 1);
+            record(&a, ep, &ap);
+            epoch_tick(&a, ep, ap.iter().map(|(x, _)| hone_types::entry_weight(x)).sum());
+            fin(&a, ep);
+        }
+        assert!(a.store.state_get("name_migration_done").is_some());
+        // N reconnects: first quorum seal is 111.
+        seal(&n, 111); seal(&a, 111);
+        assert_eq!(last_committed(&n), 100);
+        assert!(n.store.get_epoch_meta(101).unwrap().is_none());
+        let v = serve(&a, 101, 110);
+        assert_eq!(apply_backfill(&n, parse(&v)), 10);
+        assert!(n.store.state_get("name_migration_done").is_some(), "migration must run inside the gap");
+        assert_eq!(apply_finalized(&n, &v), 10);
+        for ep in 101..=110u64 {
+            let (ma, mn) = (a.store.get_epoch_meta(ep).unwrap().unwrap(), n.store.get_epoch_meta(ep).unwrap().unwrap());
+            for k in ["finalized", "rewards_hash", "quorum", "sealed_by", "state_root", "finalized_at"] {
+                assert_eq!(ma[k], mn[k], "epoch {ep} field {k}");
+            }
+        }
+        assert_eq!(a.store.balance_merkle_root(), n.store.balance_merkle_root());
+        assert_eq!(last_committed(&n), 110);
+        // Idempotent: nothing new on a second pass, and a finalize is never rewritten.
+        assert_eq!(apply_backfill(&n, parse(&v)), 0);
+        assert_eq!(apply_finalized(&n, &v), 0);
+        // An empty or zero-quorum peer row is ignored rather than finalizing an epoch.
+        let bogus = serde_json::json!({ "finalized": [ { "epoch": 120, "rewards_hash": "", "quorum": 0 } ] });
+        assert_eq!(apply_finalized(&n, &bogus), 0);
+        assert!(n.store.get_epoch_meta(120).unwrap().is_none());
+        crate::identity_nft::TEST_MIGRATION_EPOCH.with(|c| c.set(None));
     }
 }
