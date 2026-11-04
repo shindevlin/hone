@@ -75,6 +75,13 @@ class NodeService : Service() {
         capture.start()
         // Keep listening for HONE device announces while the node runs in the background.
         network.hone.app.data.HoneAnnounceScanner.start(applicationContext)
+        // Coverage sensing + rotating-id advert (spec 1a/1b/2a).
+        network.hone.app.sightings.SightingsEngine.start(applicationContext)
+        // Bring the witness clock seat back after a reboot or app update.
+        if (File(dataDir(), "witness_account").exists()) scope.launch {
+            (network.hone.app.data.NodeRepositories.get(applicationContext)
+                as? network.hone.app.data.BridgeNodeRepository)?.ensureStarted()
+        }
         if (loop?.isActive != true) loop = scope.launch { runLoop() }
         return START_STICKY
     }
@@ -161,6 +168,7 @@ class NodeService : Service() {
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
     override fun onDestroy() {
+        network.hone.app.sightings.SightingsEngine.stop()
         capture.stop()
         loop?.cancel()
         scope.cancel()
@@ -171,7 +179,16 @@ class NodeService : Service() {
 
     private fun startForegroundCompat(n: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            // Add the location type only when it is allowed; otherwise run without it
+            // (readings are then kept unlocated) rather than failing to start.
+            val loc = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                (if (loc) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
+            runCatching { startForeground(NOTIF_ID, n, types) }.onFailure {
+                Log.w(TAG, "location FGS type refused (${it.message}); running without it")
+                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            }
         } else {
             startForeground(NOTIF_ID, n)
         }

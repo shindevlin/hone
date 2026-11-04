@@ -94,6 +94,12 @@ class BridgeNodeRepository(private val context: Context) : NodeRepository {
         }
     }
 
+    /** Start the seat if it is not running (NodeService calls this after boot/update). */
+    suspend fun ensureStarted() {
+        val running = withContext(Dispatchers.IO) { runCatching { node.status().running }.getOrDefault(true) }
+        if (!running) start(isMiner = false, isClock = true)
+    }
+
     override suspend fun stop() {
         withContext(Dispatchers.IO) { runCatching { node.stop() } }
     }

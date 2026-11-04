@@ -114,6 +114,7 @@ object HoneAnnounceScanner {
                 parse(frame, result.rssi)?.let {
                     addrToId[result.device.address] = it.deviceId
                     publish(it)
+                    network.hone.app.sightings.SightingsEngine.onFlipperFrame(it.deviceId, "announce", result.rssi)
                 }
             }
         }
@@ -156,6 +157,8 @@ object HoneAnnounceScanner {
         }
         if (data.size != 107) return
         val devId = data.copyOfRange(0, 8).hex()
+        // Stamp the frame with this phone's location (private layer; relay unchanged).
+        network.hone.app.sightings.SightingsEngine.onFlipperFrame(devId, "commit", result.rssi)
         val group = data[8].toInt() and 0xFF
         val count = (data[9].toInt() and 0xFF) or ((data[10].toInt() and 0xFF) shl 8)
         val hash = data.copyOfRange(11, 43).hex()

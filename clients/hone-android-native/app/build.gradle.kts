@@ -72,7 +72,34 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.14.0@aar")
     // Ed25519 verify of HONE BLE announces (lightweight API only, no JCA provider).
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    // H3 cells for the coverage map (ships an android-arm64 JNI build).
+    implementation("com.uber:h3:4.5.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }
+
+// h3-java ships its Android JNI builds as jar resources, which AGP does not package as
+// native libs. Copy them into a generated jniLibs dir; Cells loads them with
+// H3Core.newSystemInstance(). The other platforms' binaries are dropped from the APK.
+val h3Jni: Configuration by configurations.creating { isTransitive = false }
+dependencies { h3Jni("com.uber:h3:4.5.1") }
+val extractH3Jni by tasks.registering(Copy::class) {
+    from({ zipTree(h3Jni.singleFile) }) {
+        include("android-arm64/libh3-java.so", "android-arm/libh3-java.so")
+        eachFile { path = path.replace("android-arm64/", "arm64-v8a/").replace("android-arm/", "armeabi-v7a/") }
+        includeEmptyDirs = false
+    }
+    into(layout.buildDirectory.dir("h3jni"))
+}
+android {
+    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("h3jni"))
+    packaging {
+        resources.excludes += listOf(
+            "android-arm/**", "android-arm64/**", "darwin-arm64/**", "darwin-x64/**",
+            "linux-arm64/**", "linux-armv5/**", "linux-armv7/**", "linux-ppc64le/**",
+            "linux-s390x/**", "linux-x64/**", "linux-x86/**", "windows-x64/**", "windows-x86/**",
+        )
+    }
+}
+tasks.named("preBuild") { dependsOn(extractH3Jni) }
