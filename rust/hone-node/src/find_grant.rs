@@ -323,4 +323,34 @@ mod tests {
         assert!(submit(&chain, &hide, &grant(&chain, &[(1, 0), (1, 0)])).is_err());
         assert!(submit(&chain, &hide, &grant(&chain, &[])).is_err());
     }
+
+    /// Cross-implementation fixture: a FIND_GRANT signed by the Android granting tool
+    /// (hone_findgrant.py, hone-sound 2403830a) with a throwaway TEST hide key.
+    #[test]
+    fn android_tool_fixture_verifies() {
+        TEST_FIND_EPOCH.with(|c| c.set(Some(E)));
+        let dir = tempfile::Builder::new().prefix("hone_find_fx_").tempdir().unwrap();
+        let chain = Chain::new(crate::store::Store::open(dir.path()).unwrap(), "test-node".into(), "hone".into());
+        let fx: serde_json::Value = serde_json::from_str(r#"{"owner":"findtest1","hw_key":"94a57e7e6b88ec334b57d31545e20b465f97a9d2349e218496ba2dd8be040948","attestation_digest":"5040d3a54f81461a82a34227f8c51ad1b0ce1035ab6e1ad078e4f8dcfb87ddf8","devices":[{"device_pubkey":"ada95c12956497f29b29dd768acc0f862fdc5fc54c1ac59b6b272dac6a12a1da","generation":0}],"nonce":1,"signature":"11d8dab9467cadf73568c5d0325ef527b9a05df659ba36b3703b8c3d7f1538e279997556af2c50efc0236f5fc34b47eb3347ddf54ccd75be42542c285ca91906"}"#).unwrap();
+        let entry = LedgerEntry::FindGrant {
+            owner: "findtest1".into(), hw_key: fx["hw_key"].as_str().unwrap().into(),
+            attestation_digest: fx["attestation_digest"].as_str().unwrap().into(),
+            devices: serde_json::from_value(fx["devices"].clone()).unwrap(),
+            nonce: 1, epoch: E, signed_by: "findtest1".into(),
+        };
+        let sig = fx["signature"].as_str().unwrap();
+        assert!(validate_and_apply(&chain, &entry, Some(sig)).is_err(), "unknown owner");
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: "findtest1".into(), keys: Default::default(), chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        }).unwrap();
+        for (role, pk) in [("posting", hex::encode(SigningKey::from_bytes(&[0x21; 32]).verifying_key().to_bytes())),
+                           ("hide", "de37762f5c31d85e91c51c696a088d302feb66ca91874a4210894d30b97a513d".to_string())] {
+            chain.apply_entry(&LedgerEntry::AccountUpdateKey {
+                account: "findtest1".into(), role: role.into(), new_public_key: pk, epoch: 0, signed_by: "findtest1".into(),
+            }).unwrap();
+        }
+        chain.apply_entry(&LedgerEntry::GenesisAlloc { account: "findtest1".into(), amount: 1_000_000_000_000, token: NATIVE_TOKEN.into() }).unwrap();
+        validate_and_apply(&chain, &entry, Some(sig)).unwrap();
+        assert_eq!(grants_view(&chain, "findtest1")["grants"][0]["active"], true);
+    }
 }
