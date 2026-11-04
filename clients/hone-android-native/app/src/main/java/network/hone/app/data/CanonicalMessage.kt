@@ -57,6 +57,33 @@ object CanonicalMessage {
         append('}')
     }
 
+    /** TRANSFER — order: chain_id, type, from, to, amount, token, nonce (tx.rs). Signed with the active key. */
+    fun transfer(chainId: String, from: String, to: String, amount: Long, token: String, nonce: Long): String = buildString {
+        append('{')
+        appendStr("chain_id", chainId); append(',')
+        appendStr("type", "TRANSFER"); append(',')
+        appendStr("from", from); append(',')
+        appendStr("to", to); append(',')
+        appendNum("amount", amount); append(',')
+        appendStr("token", token); append(',')
+        appendNum("nonce", nonce)
+        append('}')
+    }
+
+    /** NODE_ROLE_STAKE / NODE_ROLE_UNSTAKE — order: chain_id, type, node, role, staker, amount, nonce. */
+    fun nodeRoleStake(chainId: String, unstake: Boolean, node: String, role: String, staker: String,
+                      amount: Long, nonce: Long): String = buildString {
+        append('{')
+        appendStr("chain_id", chainId); append(',')
+        appendStr("type", if (unstake) "NODE_ROLE_UNSTAKE" else "NODE_ROLE_STAKE"); append(',')
+        appendStr("node", node); append(',')
+        appendStr("role", role); append(',')
+        appendStr("staker", staker); append(',')
+        appendNum("amount", amount); append(',')
+        appendNum("nonce", nonce)
+        append('}')
+    }
+
     // serde_json string escaping: quotes, backslash, and control chars. Sensor ids/types
     // here are ASCII, but escape defensively so a location string can't break the format.
     private fun StringBuilder.appendStr(key: String, value: String) {

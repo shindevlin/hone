@@ -42,6 +42,8 @@ fun WalletScreen(vm: WalletViewModel = viewModel()) {
     val history by vm.history.collectAsStateWithLifecycle()
     var showReceive by remember { mutableStateOf(false) }
     var showSend by remember { mutableStateOf(false) }
+    var showStake by remember { mutableStateOf(false) }
+    var showKey by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(top = 24.dp)) {
         Text("Wallet", style = MaterialTheme.typography.headlineMedium,
@@ -57,6 +59,11 @@ fun WalletScreen(vm: WalletViewModel = viewModel()) {
             ActionButton("Receive", Icons.Filled.CallReceived, Modifier.weight(1f)) { showReceive = true }
             ActionButton("Send", Icons.Filled.CallMade, Modifier.weight(1f), primary = true) { showSend = true }
         }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ActionButton("Stake", Icons.Filled.Hub, Modifier.weight(1f)) { showStake = true }
+            ActionButton("Active key", Icons.Filled.Key, Modifier.weight(1f)) { showKey = true }
+        }
 
         Spacer(Modifier.height(24.dp))
         Text("ACTIVITY", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
@@ -67,7 +74,16 @@ fun WalletScreen(vm: WalletViewModel = viewModel()) {
     }
 
     if (showReceive) ReceiveSheet(identity.name, identity.address) { showReceive = false }
-    if (showSend) SendSheet(vm) { showSend = false }
+    if (showSend) ActionSheet({ showSend = false }) { SendFlow(identity.address) }
+    if (showStake) ActionSheet({ showStake = false }) { DelegateFlow(identity.address) }
+    if (showKey) ActionSheet({ showKey = false }) { Column(Modifier.padding(24.dp)) { ActiveKeyCard(identity.address) } }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ActionSheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface) { content() }
 }
 
 @Composable
@@ -176,70 +192,6 @@ private fun ReceiveSheet(name: String, address: String, onDismiss: () -> Unit) {
                 Text(if (copied) "Copied" else "Copy address")
             }
             Spacer(Modifier.height(24.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SendSheet(vm: WalletViewModel, onDismiss: () -> Unit) {
-    val send by vm.send.collectAsStateWithLifecycle()
-    val ctx = LocalContext.current
-
-    // Close the sheet automatically on a successful submit.
-    LaunchedEffect(send.lastResult) { if (send.lastResult != null) { vm.clearResult(); onDismiss() } }
-
-    ModalBottomSheet(onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Send HONE", style = MaterialTheme.typography.titleLarge)
-
-            OutlinedTextField(
-                value = send.recipient, onValueChange = vm::setRecipient,
-                label = { Text("Recipient (@name or hh1…)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(
-                value = send.amount, onValueChange = vm::setAmount,
-                label = { Text("Amount (HONE)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(
-                value = send.memo, onValueChange = vm::setMemo,
-                label = { Text("Memo (optional)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
-
-            send.error?.let { Text(it, color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium) }
-
-            Button(
-                onClick = {
-                    // Biometric gate BEFORE the sign-request. Never auto-sign.
-                    val activity = ctx as? FragmentActivity
-                    if (activity != null && BiometricGate.canAuthenticate(activity)) {
-                        BiometricGate.authenticate(activity,
-                            title = "Confirm send",
-                            subtitle = "Authorize sending ${send.amount} HONE",
-                            onSuccess = { vm.confirmSend() },
-                            onError = { /* surfaced by keeping sheet open; PIN fallback later */ })
-                    } else {
-                        // No biometric available: in Phase 2 this routes to a
-                        // password/PIN unlock. For the mock, proceed to confirm.
-                        vm.confirmSend()
-                    }
-                },
-                enabled = vm.canSend(),
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-            ) {
-                if (send.sending) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                } else {
-                    Icon(Icons.Filled.Fingerprint, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Confirm & sign", fontWeight = FontWeight.SemiBold)
-                }
-            }
-            Spacer(Modifier.height(12.dp))
         }
     }
 }
