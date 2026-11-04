@@ -19,6 +19,7 @@ RSA-OAEP/AES-GCM ciphertext that only the phone's hardware can open.
   grant   --hwkey hone-hwkey.json (--dry-run --test-owner NAME | --wallet W --account A)
           [--device PUB[:label] ...] [--generation PUB=G ...] [--package P] [--app-cert SHA256HEX ...]
           [--out hone-grant.json] [--grant-out find_grant_entry.json] [--allow-unlocked] [--selftest]
+  generation --device-pubkey PUB --generation G (same owner options)   (SEED_GENERATION)
   revoke  --hwkey-id HEX (--dry-run --test-owner NAME | --wallet W --account A) [--grant-out F]
 
 --dry-run uses a deterministic TEST hide key derived from --test-owner (never a real key),
@@ -223,11 +224,11 @@ def cmd_grant(a):
         pub, _, label = d.partition(":"); pub = pub.lower()
         devs[pub] = label or ("this phone" if pub == hw["device"] else pub[:8])
     order = sorted(devs)
-    dl = [{"device": d, "generation": gens.get(d, 0)} for d in order]
+    dl = [{"device_pubkey": d, "generation": gens.get(d, 0)} for d in order]
     msg = json.dumps({"chain_id": "hone", "type": "FIND_GRANT", "owner": owner, "hw_key": att["hw_key"],
                       "attestation_digest": att["attestation_digest"], "devices": dl, "nonce": nonce}, separators=(",", ":"))
     entry = {"owner": owner, "hw_key": att["hw_key"], "attestation_digest": att["attestation_digest"], "devices": dl,
-             "epoch": 0, "nonce": nonce, "signed_by": owner, "signature": sign(hide, msg)}
+             "nonce": nonce, "signature": sign(hide, msg)}   # POST /api/find/grant (epoch defaults to current)
     bundle = {"v": 1, "owner": owner, "hw_key": att["hw_key"], "dry_run": bool(a.dry_run), "grant": entry, "devices": []}
     for i, d in enumerate(order):
         g = gens.get(d, 0); s = seed_g(hide, bytes.fromhex(d), g)
@@ -250,16 +251,27 @@ def cmd_revoke(a):
     owner, hide, nonce = owner_keys(a)
     msg = json.dumps({"chain_id": "hone", "type": "FIND_REVOKE", "owner": owner, "hw_key": a.hwkey_id, "nonce": nonce},
                      separators=(",", ":"))
-    json.dump({"owner": owner, "hw_key": a.hwkey_id, "epoch": 0, "nonce": nonce, "signed_by": owner,
-               "signature": sign(hide, msg)}, open(a.grant_out, "w"), indent=1)
+    json.dump({"owner": owner, "hw_key": a.hwkey_id, "nonce": nonce, "signature": sign(hide, msg)},
+              open(a.grant_out, "w"), indent=1)   # POST /api/find/revoke
     print(f"signed FIND_REVOKE for {a.hwkey_id[:16]}… -> {a.grant_out} (not submitted)")
+
+
+def cmd_generation(a):
+    """SEED_GENERATION: bump a device's seed generation (must be > the current one)."""
+    owner, hide, nonce = owner_keys(a)
+    dev = a.device_pubkey.lower()
+    msg = json.dumps({"chain_id": "hone", "type": "SEED_GENERATION", "owner": owner, "device_pubkey": dev,
+                      "generation": a.generation, "nonce": nonce}, separators=(",", ":"))
+    json.dump({"owner": owner, "device_pubkey": dev, "generation": a.generation, "nonce": nonce,
+               "signature": sign(hide, msg)}, open(a.grant_out, "w"), indent=1)   # POST /api/find/generation
+    print(f"signed SEED_GENERATION {dev[:16]}… -> g{a.generation} -> {a.grant_out} (not submitted)")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--node", default=os.environ.get("HONE_NODE", "http://127.0.0.1:4242"))
     sp = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("grant", "revoke"):
+    for name in ("grant", "revoke", "generation"):
         p = sp.add_parser(name)
         p.add_argument("--dry-run", action="store_true"); p.add_argument("--test-owner")
         p.add_argument("--wallet"); p.add_argument("--account")
@@ -270,8 +282,10 @@ def main():
     g.add_argument("--app-cert", action="append", default=[]); g.add_argument("--out", default="hone-grant.json")
     g.add_argument("--allow-unlocked", action="store_true"); g.add_argument("--selftest", action="store_true")
     sp.choices["revoke"].add_argument("--hwkey-id", required=True)
+    sp.choices["generation"].add_argument("--device-pubkey", required=True)
+    sp.choices["generation"].add_argument("--generation", type=int, required=True)
     a = ap.parse_args()
-    {"grant": cmd_grant, "revoke": cmd_revoke}[a.cmd](a)
+    {"grant": cmd_grant, "revoke": cmd_revoke, "generation": cmd_generation}[a.cmd](a)
 
 
 if __name__ == "__main__":
