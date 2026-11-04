@@ -53,8 +53,10 @@ fun CoverageCard(c: LiveCoverage, onFindMy: () -> Unit) {
         }
         Spacer(Modifier.height(6.dp))
         val line = MaterialTheme.typography.labelSmall
-        Text("Cell ${c.cell ?: "unknown (no fix)"}" +
-            (c.locAccM?.let { " · ±${it.toInt()} m" } ?: "") + (c.locAgeS?.let { " · fix ${it}s old" } ?: ""),
+        Text("Cell ${c.cell?.let { "$it (r${c.cellRes})" } ?: "unknown (no fix)"}" +
+            (c.locAccM?.let { " · ±${it.toInt()} m" } ?: "") + (c.locAgeS?.let { " · ${it}s old" } ?: "") +
+            (if (c.locSrc.isNotEmpty()) " · ${c.locSrc}" else "") +
+            (if (c.fingerprintCells > 0) " · ${c.fingerprintCells} fp cells" else ""),
             style = line, color = if (c.cell != null) HoneGreen else HoneTextFaint)
         val bands = listOf("2g" to "2.4", "5g" to "5", "6g" to "6").joinToString(" · ") { (k, n) ->
             if (k in c.bandsSupported) "$n GHz ${c.apByBand[k] ?: 0}" else "$n GHz n/a"
@@ -64,7 +66,8 @@ fun CoverageCard(c: LiveCoverage, onFindMy: () -> Unit) {
             (if (c.mobileAps > 0) " · mobile APs ${c.mobileAps}" else ""), style = line, color = HoneTextDim)
         Text("Wi-Fi scans ${c.wifiScansOk} ok / ${c.wifiScansRefused} throttled · throttling " +
             when (c.wifiThrottled) { true -> "on"; false -> "off"; null -> "?" }, style = line, color = HoneTextFaint)
-        Text("Advertising rid ${c.ridPrefix}… ${if (c.advertising) "on" else "off"} · summaries ${c.summariesStored} (${c.summariesQueued} queued)",
+        Text("Advertising key ${c.lidPrefix}… ${if (c.advertising) "on (${c.advertMode})" else "off"} · " +
+            "${if (c.seedDerived) "from hide key" else "provisional"} · summaries ${c.summariesStored} (${c.summariesQueued} queued)",
             style = line, color = HoneTextFaint)
         c.issues.forEach { Text(it, style = line, color = MaterialTheme.colorScheme.error) }
         (routerCode ?: c.routerPending)?.let {

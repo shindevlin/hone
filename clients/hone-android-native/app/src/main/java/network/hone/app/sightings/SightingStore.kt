@@ -6,39 +6,51 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /**
- * Local store (app-private SQLite, files never leave the device).
+ * Local store (app-private SQLite; nothing here leaves the device except queued public
+ * summaries, once the chain's summary commit exists). Schema: docs/SIGHTINGS.md §4.
  *
- * Public layer:   public_summary  — one row per (cell res 9, window), JSON per
- *                 docs/SIGHTINGS.md. queued=1 rows wait for the chain's summary commit
- *                 (not built yet: nothing is submitted).
- * Private layer:  rid_sighting    — rids of other HONE devices this phone heard (find-my).
- *                 flipper_frame   — Flipper announces/commits heard, location-stamped.
- *                 owned_device    — seeds of the owner's other devices (find-my input).
- *                 own_router      — owner's routers registered by SSID-code proof, keyed
- *                                   by HMAC(K_priv, bssid); the BSSID itself is not stored.
- *                 own_router_cov  — per-window coverage of those routers.
+ * v2 (2026-11-02): rid_sighting (plaintext cells) replaced by enc_sighting (cells sealed to
+ * the advertiser's pk_w); owned_device keyed by device pubkey (seeds are derived, never
+ * stored); shared_device (grants received); fingerprint (private Wi-Fi positioning).
  */
-class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 1) {
+class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE public_summary(cell TEXT NOT NULL, window INTEGER NOT NULL,
             json TEXT NOT NULL, queued INTEGER NOT NULL DEFAULT 1, submitted_at INTEGER,
             PRIMARY KEY(cell, window))""")
-        db.execSQL("""CREATE TABLE rid_sighting(rid TEXT NOT NULL, window INTEGER NOT NULL,
-            cell9 TEXT, cellf TEXT, rssi INTEGER, ts INTEGER NOT NULL,
-            PRIMARY KEY(rid, window, cellf))""")
         db.execSQL("""CREATE TABLE flipper_frame(dev TEXT NOT NULL, kind TEXT NOT NULL,
             window INTEGER NOT NULL, cell9 TEXT, cellf TEXT, acc REAL,
             rssi INTEGER, ts INTEGER NOT NULL)""")
         db.execSQL("CREATE INDEX flipper_frame_w ON flipper_frame(window)")
-        db.execSQL("CREATE TABLE owned_device(label TEXT PRIMARY KEY, seed TEXT NOT NULL)")
         db.execSQL("CREATE TABLE own_router(tag TEXT PRIMARY KEY, label TEXT, registered_at INTEGER)")
         db.execSQL("""CREATE TABLE own_router_cov(tag TEXT NOT NULL, window INTEGER NOT NULL,
             cellf TEXT NOT NULL, rssi INTEGER, PRIMARY KEY(tag, window, cellf))""")
+        createV2(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    private fun createV2(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE enc_sighting(lid TEXT NOT NULL, window INTEGER NOT NULL,
+            blob BLOB NOT NULL, ts INTEGER NOT NULL)""")
+        db.execSQL("CREATE INDEX enc_sighting_lid ON enc_sighting(lid)")
+        db.execSQL("CREATE TABLE owned_device(label TEXT PRIMARY KEY, pub TEXT NOT NULL)")
+        db.execSQL("""CREATE TABLE shared_device(grantor TEXT NOT NULL, device TEXT NOT NULL,
+            label TEXT, keys TEXT NOT NULL, fetched_at INTEGER, PRIMARY KEY(grantor, device))""")
+        db.execSQL("""CREATE TABLE fingerprint(cellf TEXT NOT NULL, tag TEXT NOT NULL,
+            rssi_sum REAL NOT NULL, n INTEGER NOT NULL, updated INTEGER,
+            PRIMARY KEY(cellf, tag))""")
+        db.execSQL("CREATE INDEX fingerprint_tag ON fingerprint(tag)")
+    }
 
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("DROP TABLE IF EXISTS rid_sighting")
+            db.execSQL("DROP TABLE IF EXISTS owned_device")   // held raw seeds (incl. a test seed)
+            createV2(db)
+        }
+    }
+
+    // ── public layer ─────────────────────────────────────────────────────────────
     fun putSummary(cell: String, window: Long, json: String, queue: Boolean) {
         writableDatabase.insertWithOnConflict("public_summary", null, ContentValues().apply {
             put("cell", cell); put("window", window); put("json", json); put("queued", if (queue) 1 else 0)
@@ -49,34 +61,31 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
         "SELECT COUNT(*), COALESCE(SUM(queued),0) FROM public_summary", null,
     ).use { c -> c.moveToFirst(); c.getInt(0) to c.getInt(1) }
 
-    fun recentSummaries(limit: Int = 8): List<String> = readableDatabase.rawQuery(
-        "SELECT json FROM public_summary ORDER BY window DESC LIMIT ?", arrayOf(limit.toString()),
-    ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
-
-    // Plain REPLACE (not UPSERT) so it also runs on pre-API-30 SQLite: keeps the latest rssi.
-    fun putRidSighting(rid: String, window: Long, cell9: String?, cellf: String?, rssi: Int, ts: Long) {
-        writableDatabase.insertWithOnConflict("rid_sighting", null, ContentValues().apply {
-            put("rid", rid); put("window", window); put("cell9", cell9); put("cellf", cellf ?: "")
-            put("rssi", rssi); put("ts", ts)
-        }, SQLiteDatabase.CONFLICT_REPLACE)
+    // ── sightings of other HONE devices (sealed) ────────────────────────────────
+    fun putEncSighting(lid: String, window: Long, blob: ByteArray, ts: Long) {
+        writableDatabase.insert("enc_sighting", null, ContentValues().apply {
+            put("lid", lid); put("window", window); put("blob", blob); put("ts", ts)
+        })
     }
 
-    data class Sighting(val rid: String, val window: Long, val cell9: String?, val cellf: String?, val rssi: Int, val ts: Long)
+    class Enc(val lid: String, val window: Long, val blob: ByteArray, val ts: Long)
 
-    fun ridSightings(rids: Collection<String>): List<Sighting> {
-        val out = ArrayList<Sighting>()
-        for (chunk in rids.chunked(400)) {
+    fun encSightings(lids: Collection<String>): List<Enc> {
+        val out = ArrayList<Enc>()
+        for (chunk in lids.chunked(400)) {
             val q = chunk.joinToString(",") { "?" }
-            readableDatabase.rawQuery(
-                "SELECT rid,window,cell9,cellf,rssi,ts FROM rid_sighting WHERE rid IN ($q)", chunk.toTypedArray(),
-            ).use { c ->
-                while (c.moveToNext()) out += Sighting(c.getString(0), c.getLong(1), c.getString(2),
-                    c.getString(3), c.getInt(4), c.getLong(5))
+            readableDatabase.rawQuery("SELECT lid,window,blob,ts FROM enc_sighting WHERE lid IN ($q)",
+                chunk.toTypedArray()).use { c ->
+                while (c.moveToNext()) out += Enc(c.getString(0), c.getLong(1), c.getBlob(2), c.getLong(3))
             }
         }
-        return out.sortedByDescending { it.ts }
+        return out
     }
 
+    fun encCount(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM enc_sighting", null)
+        .use { it.moveToFirst(); it.getInt(0) }
+
+    // ── flipper frames ───────────────────────────────────────────────────────────
     fun putFlipperFrame(dev: String, kind: String, window: Long, cell9: String?, cellf: String?,
                         acc: Float?, rssi: Int, ts: Long) {
         writableDatabase.insert("flipper_frame", null, ContentValues().apply {
@@ -85,21 +94,40 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
         })
     }
 
-    fun flipperFrameCount(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM flipper_frame", null)
-        .use { it.moveToFirst(); it.getInt(0) }
-
+    // ── owned + shared devices ───────────────────────────────────────────────────
     fun ownedDevices(): List<Pair<String, String>> = readableDatabase.rawQuery(
-        "SELECT label, seed FROM owned_device ORDER BY label", null,
+        "SELECT label, pub FROM owned_device ORDER BY label", null,
     ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0) to c.getString(1)) } }
 
-    fun putOwnedDevice(label: String, seedHex: String) {
+    fun putOwnedDevice(label: String, pubHex: String) {
         writableDatabase.insertWithOnConflict("owned_device", null, ContentValues().apply {
-            put("label", label); put("seed", seedHex)
+            put("label", label); put("pub", pubHex)
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
     fun removeOwnedDevice(label: String) { writableDatabase.delete("owned_device", "label=?", arrayOf(label)) }
 
+    class Shared(val grantor: String, val device: String, val label: String, val keysJson: String)
+
+    fun sharedDevices(): List<Shared> = readableDatabase.rawQuery(
+        "SELECT grantor, device, label, keys FROM shared_device ORDER BY grantor, label", null,
+    ).use { c -> buildList { while (c.moveToNext()) add(Shared(c.getString(0), c.getString(1), c.getString(2) ?: "", c.getString(3))) } }
+
+    /** Replace everything received from [grantor] with [items] (a revoked grant disappears). */
+    fun replaceShared(grantor: String, items: List<Shared>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("shared_device", "grantor=?", arrayOf(grantor))
+            for (s in items) db.insert("shared_device", null, ContentValues().apply {
+                put("grantor", s.grantor); put("device", s.device); put("label", s.label)
+                put("keys", s.keysJson); put("fetched_at", System.currentTimeMillis())
+            })
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    // ── own routers ──────────────────────────────────────────────────────────────
     fun ownRouterTags(): Set<String> = readableDatabase.rawQuery("SELECT tag FROM own_router", null)
         .use { c -> buildSet { while (c.moveToNext()) add(c.getString(0)) } }
 
@@ -115,14 +143,48 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
-    fun routerCoverageCount(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM own_router_cov", null)
+    // ── Wi-Fi fingerprints (private positioning) ─────────────────────────────────
+    fun addFingerprint(cellf: String, obs: Map<String, Int>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val now = System.currentTimeMillis()
+            for ((tag, rssi) in obs) {
+                db.execSQL("INSERT OR IGNORE INTO fingerprint(cellf,tag,rssi_sum,n,updated) VALUES(?,?,0,0,?)",
+                    arrayOf(cellf, tag, now))
+                db.execSQL("UPDATE fingerprint SET rssi_sum=rssi_sum+?, n=n+1, updated=? WHERE cellf=? AND tag=?",
+                    arrayOf(rssi, now, cellf, tag))
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    /** cellf -> (tag -> mean rssi) for cells that share at least one tag with [tags]. */
+    fun fingerprintsFor(tags: Collection<String>): Map<String, Map<String, Double>> {
+        if (tags.isEmpty()) return emptyMap()
+        val cells = HashSet<String>()
+        for (chunk in tags.chunked(400)) {
+            val q = chunk.joinToString(",") { "?" }
+            readableDatabase.rawQuery("SELECT DISTINCT cellf FROM fingerprint WHERE tag IN ($q)", chunk.toTypedArray())
+                .use { c -> while (c.moveToNext()) cells.add(c.getString(0)) }
+        }
+        val out = HashMap<String, HashMap<String, Double>>()
+        for (chunk in cells.chunked(400)) {
+            val q = chunk.joinToString(",") { "?" }
+            readableDatabase.rawQuery("SELECT cellf, tag, rssi_sum / n FROM fingerprint WHERE cellf IN ($q)", chunk.toTypedArray())
+                .use { c -> while (c.moveToNext()) out.getOrPut(c.getString(0)) { HashMap() }[c.getString(1)] = c.getDouble(2) }
+        }
+        return out
+    }
+
+    fun fingerprintCells(): Int = readableDatabase.rawQuery("SELECT COUNT(DISTINCT cellf) FROM fingerprint", null)
         .use { it.moveToFirst(); it.getInt(0) }
 
-    /** Private-layer retention: 30 days. Unsubmitted public summaries are kept 30 days too. */
+    /** Private-layer retention: 30 days. Fingerprints are kept (they are the map). */
     fun prune(nowWindow: Long) {
         val keep = (nowWindow - 30 * 96).toString()
         val db = writableDatabase
-        db.delete("rid_sighting", "window < ?", arrayOf(keep))
+        db.delete("enc_sighting", "window < ?", arrayOf(keep))
         db.delete("flipper_frame", "window < ?", arrayOf(keep))
         db.delete("own_router_cov", "window < ?", arrayOf(keep))
         db.delete("public_summary", "window < ?", arrayOf(keep))

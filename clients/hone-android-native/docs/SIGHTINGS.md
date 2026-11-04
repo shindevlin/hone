@@ -1,191 +1,237 @@
-# Sightings and coverage (Android)
+# Sightings, coverage and location sharing (Android)
 
 Phone side of the HONE sightings/coverage spec (2026-11-02 draft):
-§1a seeded rotating IDs, §1b keyed hashes for non-HONE devices, §2a phone as a
-sensor, and the phone side of §2c (private layer). Code: `app/src/main/java/network/hone/app/sightings/`.
+§1a seeded rotating IDs, §1b keyed hashes for non-HONE devices, §2a phone as a sensor,
+the phone side of §2c (private layer), plus owner-encrypted sightings and location sharing.
+Code: `app/src/main/java/network/hone/app/sightings/`. Reference implementation and host
+CLI: `tools/hone_locshare.py` (unit test `IdKeysTest` pins Kotlin to its vectors).
 
-Nothing here is submitted to the chain. The chain's summary-carrying commit and
-usefulness scoring do not exist yet. Summaries are stored and queued locally.
+No new chain entry type. Public summaries are stored and queued locally for the future
+summary commit. Grants use the existing Memory service (MemorySet / MemoryDelete).
 
-## 1. Rotating ID (§1a)
+## 1. Keys
 
-- `id_seed`: 32 random bytes, created on first run at `files/hone-node/id_seed`
-  (app-private, mode 600, next to `witness.key`). Never logged, never sent.
-  **TODO(backup):** the spec backs the seed up to the owner's wallet. The app has no
-  owner backup path yet, so there is no export of any kind.
-- `window = floor(unix_utc / 900)` (UTC quarter-hours, the same instant on every device).
-- `rid = HMAC-SHA256(id_seed, "hone-rid" || window as 8-byte big-endian)[0..16]`.
+### 1.1 Where the root comes from
 
-### Advert format
+The wallet has six SLIP-10 ed25519 role keys (`rust/hone-node/src/wallet.rs`): owner,
+active, posting, memo, hide, seek. Nodes hold posting keys, so posting must not be able to
+track anyone. The device root is the **hide** key ("encrypt private content for your own
+eyes only"); sharing uses the **memo** key ("encrypted messages / selective disclosure").
 
-Legacy, non-connectable, non-scannable BLE advert, ~1 s interval (`INTERVAL_HIGH`),
-`TX_POWER_MEDIUM`, no flags, no name, no TX power field. One AD structure:
+```
+id_seed(device) = HKDF-SHA256(ikm = hide_private, salt = "", info = "hone-id-seed" || device_pubkey)
+period          = UTC calendar month of the window start: year*12 + (month-1)
+share_k(period) = HKDF(id_seed, info = "hone-share" || period_be32)
+sk_w            = HKDF(share_k, info = "hone-pkw" || window_be64)       X25519 scalar
+pk_w            = X25519(sk_w, 9)                                        in the advert
+lid             = SHA-256(pk_w)[0..16]                                   lookup id
+tag             = HKDF(share_k, info = "hone-tag" || window_be64)[0..2]  joins legacy fragments
+window          = floor(unix_utc / 900)
+```
 
-| bytes | value |
-|---|---|
-| 0 | `0x17` length |
-| 1 | `0xFF` manufacturer specific data |
-| 2-3 | `0xFFFF` company id (little-endian `FF FF`) |
-| 4 | `'h'` (0x68) |
-| 5 | `'R'` (0x52) |
-| 6 | version `0x01` |
-| 7 | `win8` = `window & 0xFF` (lets the owner match a sighting from an observer whose clock is slightly off) |
-| 8-23 | `rid` (16 bytes) |
+- The seed is not stored or backed up: the wallet mnemonic is the backup. Lose a phone,
+  lose nothing; any device holding the hide key recomputes every owned device's keys.
+- `device_pubkey` is the device's ed25519 key: for a phone its witness seat key
+  (`files/hone-node/witness.key`, seat `josh@<pubkey>`), for a Flipper its device key.
 
-The lower-case `'h'` keeps it apart from the Flipper's `'H'` frames (`'HA'` announce, `'HC'` commit).
-Observers filter on manufacturer data `FF FF 68 52` with mask `FF FF`.
+### 1.2 What is on the phone
 
-Not yet in the advert: the owner key that observers would encrypt the cell to (spec §1a,
-the Find My model). 32 bytes do not fit next to the rid in a legacy advert. Options:
-a short key id plus key lookup, or an extended advert.
+`RoleKeys.kt` imports hide / memo / (optional) active private keys (64 hex) in Find my
+things > Wallet keys. Each is checked against the account's on-chain role key when one is
+registered, then stored wrapped by a non-exportable AndroidKeyStore AES-GCM key
+(`files/hone-node/role_<role>.wrapped`). Never logged or exported.
 
-### Address rotation
+State on 2026-11-02 (`/api/account/<a>`):
 
-The rid and the BLE advertising address must change at the same instant.
+| account | on-chain keys | wallet file |
+|---|---|---|
+| josh | posting, active | not on the phone; no hide/memo registered |
+| shindevlin | posting, active | not found on grouchly (beastly?); no hide/memo registered |
+| natoshisakamoto | all six | grouchly `~/.hone/natoshisakamoto.wallet.key` |
 
-- Android apps cannot set the advertising address. `AdvertisingSetParameters.setOwnAddressType`
-  is a system API and is not in the public SDK (compile error on compileSdk 36).
-- **What works:** each new `AdvertisingSet` gets a fresh random address from the stack.
-  At every quarter-hour the app stops the old set and starts a new one with the new rid.
-  An exact alarm (`SCHEDULE_EXACT_ALARM`, `setExactAndAllowWhileIdle`) wakes the CPU at
-  the boundary + 250 ms. A 5 s loop re-asserts the advert if Bluetooth was off.
-  Without the exact-alarm permission it falls back to an inexact alarm.
-- **Verified 2026-11-02** on the moto g power 2025 (Android 16, API 36), with grouchly's
-  BlueZ adapter as the second scanner (`/tmp/andr_sight_scan.py`):
+Until a hide key is imported the phone runs on a **provisional** random seed (the old
+`id_seed` file) and says so on the Sensors screen. Importing hide switches to the derived
+seed (one-time key change) and deletes `id_seed`.
+
+### 1.3 Provisioning other devices (Flipper, later)
+
+At claim time the phone derives the device's seed and seals it to the device:
+`blob = ECIES(X25519(device ed25519 pubkey), info "hone-seed-provision-v1", id_seed)`
+(`FindMy.provisionBlob`, or `hone_locshare.py device-seed-provision`). The device opens it
+with `x_sk = SHA-512(ed25519 seed)[0..32]` (standard ed25519 -> X25519 conversion), stores
+`id_seed`, and from then on derives `share_k`, `sk_w/pk_w`, `tag` exactly as above. The
+firmware side is a separate task; the interface is the blob above, delivered over the
+claim channel.
+
+## 2. Advert and owner-encrypted sightings (§1a, Find My style)
+
+### 2.1 Advert format (v2)
+
+Manufacturer data, company `0xFFFF`, non-connectable, non-scannable:
+
+```
+'h' 'K' | ver=0x02 | win8 | frag | tag[2] | payload
+frag = idx<<4 | total
+extended advert (BLE 5): total=1, payload = pk_w[32]                    39 bytes
+legacy fallback:        two adverts, total=2, pk_w[0..16] / pk_w[16..32]  23 bytes each
+```
+
+- Extended advertising is used when `isLeExtendedAdvertisingSupported()` and the max data
+  length allows; otherwise two legacy advertising sets. Each set has its own random
+  address, so observers join fragments by `(win8, tag)`, not by address.
+- Observers scan with `setLegacy(false)` (when supported) so they hear both kinds.
+  A legacy-only observer (old phone) does not hear extended adverts.
+- `'h' 'R'` v1 (plain 16-byte rid) is retired.
+
+### 2.2 Address rotation
+
+Apps cannot set the advertising address (`setOwnAddressType` is a system API). Every new
+`AdvertisingSet` gets a fresh random address, so at each UTC quarter-hour (exact alarm,
+boundary + 250 ms) all sets are stopped and new ones started with the new `pk_w`.
+Verified for v1 on 2026-11-02 with grouchly's BlueZ adapter as a second scanner: three
+boundaries (16:30, 16:45, 17:00 UTC), each address carried exactly one key.
+
+### 2.3 Observer side
+
+On a complete `pk_w` the observer seals one record and stores it under the lid:
+
+```
+record = JSON {w, w8, t, r (rssi), c (res-11 cell), cp (accuracy-matched cell), a (accuracy m), s (source)}
+blob   = epk(32) || nonce(12) || AES-256-GCM(key, nonce, record, aad = lid)
+key    = HKDF(X25519(esk, pk_w), salt = epk || pk_w, info = "hone-sighting-v1")
+```
+
+Stored in `enc_sighting(lid, window, blob, ts)`. A new record is written per lid when the
+cell changes or RSSI improves by 3 dB. The observer keeps no plaintext location of anyone
+else's device; to anyone without `sk_w` the lid is random and unlinkable across windows.
+
+### 2.4 Owner side (Find my things)
+
+For each owned device (this phone, devices added by public key) and each shared device,
+recompute the lids of the last 7 days (96 per device per day), query a `SightingIndex`
+(today the local store; later an indexer, same lids-in/blobs-out query) and open the
+blobs with `sk_w`. Host equivalent: `hone_locshare.py find --wallet W --device PUB --db sightings.db`.
+
+## 3. Location sharing
+
+- **Grant** = the owner's `share_k` for the current and next month, sealed to the
+  grantee's on-chain **memo** pubkey (ed25519 -> X25519), stored in the grantor's Memory:
 
   ```
-  60:37:51:B0:47:6F (random) rid=352d4759.. win8=225  first 16:25:08Z last 16:30:01Z
-  45:FA:B2:B1:B8:FB (random) rid=104d7782.. win8=226  first 16:30:02Z
+  key   = "ls1-" + SHA-256("hone-locshare|" + grantee + "|" + device_pub_hex)[0..16].hex()
+  value = base64(ECIES(memo_x25519(grantee), info "hone-locshare-v1",
+                       JSON{v:1, from, to, device, label, keys:{period: share_k_hex}}, aad = grantor))
   ```
-  Phone log: `window 1992929 closed` and `rid advert started w=1992930` at 16:30:00.28Z.
-  Each address carried exactly one rid. Address and rid changed together.
-- Caveat: the stack may also rotate the address mid-window on its own private-address
-  timer. That is harmless: it never carries a rid across a boundary.
+  About 500 bytes (limit 4096). The key name does not show who shares with whom.
+- **Grantee:** lists `ls1-*` entries of known grantors (default shindevlin, natoshisakamoto;
+  `files/hone-node/share_from`), trial-decrypts with its memo key, keeps grants whose
+  `to`, `from` and key name match, and shows those devices under "Shared with me" with
+  their sightings next to its own. Refreshed every 30 min and on demand.
+- **Revoke** = MemoryDelete; the grantee's next refresh drops it. **Limit, stated plainly:**
+  a grantee who already fetched a month key keeps it, so access ends at the end of the
+  granted months, not instantly. The grantor re-issues next month's key monthly (or not).
+  Shorter periods narrow that window; the format allows it.
+- **Grantor tools:**
+  - accounts whose wallets live on node hosts (natoshisakamoto on grouchly, shindevlin):
+    `tools/hone_locshare.py grant|revoke|list|inbox` on that host. Keys are read from the
+    wallet file into memory and never printed or copied off the host.
+  - on the phone: Find my things > Share / Revoke, signed with an imported active key.
+- **Signing:** MemorySet/MemoryDelete need the account's active key (posting fallback).
+  The tools sign `{"account","chain_id","key","nonce","type":"MEMORY_SET","value"}`
+  (sorted, compact; same as hone-cli's `sign_entry`).
 
-## 2. Observing (§1b, §2a)
+**Chain blocker (found 2026-11-02):** `canonical_signing_message` has no arm for
+MemorySet/MemoryDelete, so they fall to the generic arm, which serialises the whole entry
+including the server-set `epoch` and the `signature` field itself. No client can produce
+a valid signature; a test grant from natoshisakamoto was accepted by the HTTP handler and
+never applied. Fix (chain owner): add explicit arms
 
-All of it runs in `NodeService` (foreground service, started by the Sensors switch and,
-from now on, after boot or app update).
+```rust
+LedgerEntry::MemorySet { account, key, value, nonce, .. } =>
+    json!({"chain_id": chain_id, "type": "MEMORY_SET", "account": account, "key": key, "value": value, "nonce": nonce}),
+LedgerEntry::MemoryDelete { account, key, nonce, .. } =>
+    json!({"chain_id": chain_id, "type": "MEMORY_DELETE", "account": account, "key": key, "nonce": nonce}),
+```
+(serde_json maps sort keys, which matches the tools). Gate it behind an activation epoch
+like the other signing changes.
 
-- `K_day`: 32 random bytes per UTC day, RAM only, replaced at UTC midnight. Never persisted.
-- `oid = HMAC-SHA256(K_day, mac)[0..8]` for Wi-Fi BSSIDs and BLE addresses.
-- **Wi-Fi:** per AP `(oid, rssi max, channel, band)`; bands 2.4 / 5 / 6 GHz from the
-  frequency. 6 GHz is reported only when `WifiManager.is6GHzBandSupported()` (the moto: no).
-  Scan requests:
-  - throttling disabled (Developer options, `isScanThrottleEnabled() == false`): every 2 min;
-  - throttled, Sensors screen open: every 30 s (foreground allowance, 4 per 2 min);
-  - throttled, background: every 30 min (background allowance).
-  A refused `startScan()` is counted, not an error. Every 15 s the app also reads any
-  results that other apps' or the system's scans left behind. Only results less than
-  2 min old are used, and each scan is used once.
-- **BLE crowd:** unfiltered scan, low latency, 8 s every 60 s. Distinct advertiser oids per
-  window. Android withholds unfiltered results while the screen is off, so this is a
-  screen-on or docked metric.
-- **HONE rids:** hardware-filtered scan (`hR`), low power, always on. It works with the
-  screen off. Each sighting `(rid, window, cell9, cell11, rssi, ts)` goes to `rid_sighting`.
-- **Flipper frames:** `HoneAnnounceScanner` calls `SightingsEngine.onFlipperFrame()` for
-  every verified announce and every commit it hears. The frame is stamped with this phone's
-  cells in `flipper_frame`. The relay itself is unchanged.
-- **Mobile APs:** the same oid seen in a second res-9 cell within the UTC day sets
-  "mobile AP present in cell X" for the current window (counted in the summary). It uses
-  K_day, so it is RAM only, and the oid never leaves the device.
+## 4. Observing (§1b, §2a)
 
-## 3. Location stamping
+- `K_day`: 32 random bytes per UTC day, RAM only. `oid = HMAC-SHA256(K_day, mac)[0..8]`.
+- **Wi-Fi:** per AP `(oid, rssi max, channel, band)`, bands 2.4 / 5 / 6 GHz (6 GHz only when
+  `is6GHzBandSupported()`). Scan cadence: every 2 min with throttling disabled, 30 s with
+  the Sensors screen open, 30 min in the background; results of other apps' scans are read
+  every 15 s.
+- **BLE crowd** (filter v1): Android drops unfiltered scan results with the screen off, so
+  the crowd scan (low latency, 8 s per 60 s) uses broad hardware filters, the same with
+  the screen on so counts stay comparable:
+  - manufacturer IDs: Apple 0x004C, Microsoft 0x0006, Samsung 0x0075, Google 0x00E0,
+    Garmin 0x0087, Huami 0x0157, Xiaomi 0x038F, Amazon 0x0171;
+  - service UUID / service data: 0xFE2C (Fast Pair), 0xFEAA (Eddystone, Find Hub),
+    0xFD6F (Exposure Notification), 0xFD5A (SmartTag), 0xFEED/0xFEEC (Tile), 0x180D
+    (heart rate), 0xFE07 (Sonos), 0xFE9F (Google), 0xFD44 (Find My accessories).
+- `BLUETOOTH_SCAN` no longer declares `neverForLocation`: BLE results are now location
+  stamped, and with the flag Android also strips beacon results. Fine location is already
+  granted, so the Flipper relay is unaffected.
+- **Flipper frames** are stamped with the phone's cells (`flipper_frame`); relay unchanged.
+- **Mobile APs:** the same oid in two cells (res 9 or finer) within the UTC day.
 
-- `LocationManager` `fused` provider (API 31+, no Play services dependency), balanced
-  power, 60 s / 10 m. Plus `PASSIVE` to reuse any GPS fix another component already pays
-  for. A fix older than 5 min is ignored, and readings are then kept unlocated.
-- Cells: H3 via `com.uber:h3:4.5.1`. Its `android-arm64` and `android-arm` JNI builds are
-  extracted from the jar into a generated `jniLibs` dir by `app/build.gradle.kts` (AGP does
-  not package `.so` files from jar resources), and loaded with `H3Core.newSystemInstance()`.
-  - Public: res 9 (~174 m edge).
-  - Private: res 11 (~25 m edge, matching phone GPS error).
-- Permissions: fine + coarse location, background location (optional), and the
-  `location` foreground-service type next to `specialUse`. If the location type is refused,
-  the service runs without it. If location is denied, everything still runs, readings are
-  stored as `"unlocated"`, and nothing is queued.
+## 5. Location and accuracy
 
-## 4. Local store (`databases/sightings.db`)
+- **Source:** Play services `FusedLocationProviderClient`, `PRIORITY_HIGH_ACCURACY`, 60 s
+  (20 s min) when GMS is present; otherwise `LocationManager` fused/network. Plus PASSIVE.
+  Each reading carries its accuracy radius and source (`fused-gms`, `fused`, `gps`, `wifi-fp`).
+- **Every reading is kept.** It goes to the finest H3 resolution whose average edge is at
+  least its accuracy radius: res 11 (29 m) for good fixes, res 10 (76 m), res 9 (201 m),
+  res 8 (531 m), down to res 5 (9.9 km). Worse than that: unlocated.
+- **Wi-Fi fingerprints (private):** a scan taken with a fix of <= 20 m trains the res-11
+  cell's `(AP tag -> mean RSSI)` fingerprint (`fingerprint` table; AP tag =
+  HMAC(K_priv, bssid), persistent private key). A scan without such a fix is matched
+  (>= 3 shared APs, mean |dRSSI| plus a missing-AP penalty, threshold 10 dB); a match
+  becomes a 35 m `wifi-fp` fix. Only GPS-grade fixes are ground truth. Never exported.
 
-Public layer:
+## 6. Local store (`databases/sightings.db`, schema v2)
 
-- `public_summary(cell, window, json, queued, submitted_at)`: one row per (res-9 cell, window).
-  `queued=1` = waiting for the chain's summary commit. Unlocated rows have `queued=0`.
+Public layer: `public_summary(cell, window, json, queued, submitted_at)`.
+Private layer (30-day retention except fingerprints): `enc_sighting`, `flipper_frame`,
+`owned_device(label, pub)`, `shared_device(grantor, device, label, keys)`, `own_router`,
+`own_router_cov`, `fingerprint`. The v1 -> v2 upgrade drops `rid_sighting` (plaintext
+cells) and `owned_device` (raw seeds, incl. the grouchly test seed).
 
-Private layer (never leaves the phone, 30-day retention):
+### Public summary JSON (v2)
 
-- `rid_sighting(rid, window, cell9, cellf, rssi, ts)`: other HONE devices heard.
-- `flipper_frame(dev, kind, window, cell9, cellf, acc, rssi, ts)`: Flipper frames with
-  the phone's cells. No raw lat/lon is stored.
-- `owned_device(label, seed)`: seeds of the owner's other devices (Find my things input).
-- `own_router(tag, label, registered_at)`, `own_router_cov(tag, window, cellf, rssi)`:
-  the owner's routers. `tag = HMAC-SHA256(K_priv, bssid)[0..8]`, where `K_priv` is a
-  persistent private-layer key in `files/hone-node/priv_layer_key`. Registration is by
-  proof of control: "Add my router" shows a code, and the router is registered when the
-  phone sees an SSID containing it within 10 min. The SSID and BSSID are not stored.
-
-### Public summary JSON (v1)
+One row per (cell, window), the cell at the resolution its readings supported:
 
 ```json
 {
-  "v": 1,
-  "cell": "896d75d960bffff",     // H3 res 9
-  "res": 9,
-  "window": 1992929,             // floor(unix_utc / 900)
-  "wifi": {
-    "ap_count": 27,              // distinct APs (oids) heard in this cell+window
-    "by_band": {"2g": 11, "5g": 16, "6g": 0},
-    "bands_supported": ["2g", "5g"],   // so "6g: 0" can be told apart from "can't hear 6 GHz"
-    "rssi_hist": [0, 2, 7, 8, 3, 0, 7],// per-AP max rssi: <-90, -90..-81, -80..-71, -70..-61, -60..-51, -50..-41, >=-40 dBm
-    "rssi_p50": -64,
-    "rssi_max": -17,
-    "channels": {"2g:6": 1, "5g:44": 15},  // AP count per band:channel (congestion)
-    "scans": 2                   // Wi-Fi scan results ingested
-  },
-  "ble": {"crowd": 20, "scan_s": 48},  // distinct BLE advertisers; seconds of crowd scanning
-  "hone": {"devices": 1},        // distinct rids + Flipper ids heard
-  "mobile_ap": 0,                // APs flagged as mobile in this cell+window
-  "loc_acc_m": 100               // best fix accuracy in the window (m)
+  "v": 2, "cell": "8a6d75d96097fff", "res": 10, "window": 1992931,
+  "loc": {"samples": 14, "acc_m_min": 14, "acc_m_p50": 40, "weight": 0.0127,
+          "src": {"fused-gms": 12, "wifi-fp": 2}},
+  "wifi": {"ap_count": 20, "by_band": {"2g": 6, "5g": 14, "6g": 0}, "bands_supported": ["2g", "5g"],
+           "rssi_hist": [0, 2, 5, 5, 3, 0, 5], "rssi_p50": -65, "rssi_max": -17,
+           "channels": {"2g:6": 1, "5g:44": 13}, "scans": 1},
+  "ble": {"crowd": 36, "scan_s": 120, "filter": "v1"},
+  "hone": {"devices": 2},
+  "mobile_ap": 0
 }
 ```
 
-There are no identities, MACs, BSSIDs, SSIDs, oids or rids in it. Signing, the batch hash
-and the observer identity are added at submission time by the (future) chain commit. The
-`(cell, window, metric, value)` tuples of spec §3 map one-to-one onto these fields.
+- `loc.weight = sum(1 / acc_m^2)` over the readings: the aggregator combines rows of the
+  same and of parent/child cells with inverse-variance weights, so the estimate tightens
+  as better readings arrive and a poor reading still contributes, just less.
+- No identities: no MAC, BSSID, SSID, oid, lid or rid. Signing and the observer identity
+  are added by the future chain commit.
 
-Known gap: a window cut short by an app restart (e.g. an update) loses the part before the
-restart. The summary written at the boundary covers only the rest of the window.
+## 7. Battery (estimate, 5000 mAh)
 
-## 5. Find my things
+| piece | est. average |
+|---|---|
+| id advert (1 extended or 2 legacy sets, 1 s) | ~0.03-0.06 mA |
+| id scan, LOW_POWER, HW filter | ~0.4 mA |
+| BLE crowd, filtered, 8 s / 60 s (now also screen off) | ~1 mA |
+| Wi-Fi throttled background + passive reads | <0.1 mA |
+| Play services HIGH_ACCURACY, 60 s | ~2 mA indoors (no GPS lock), up to ~8-15 mA outdoors with GPS |
+| sealing sightings, fingerprints | negligible |
 
-Sensors → Coverage → **Find my things**. It recomputes the rids of every owned seed
-(this phone's, plus any added by hand) for the last 7 days (96 per device per day) and
-looks them up through a `SightingIndex`. Today the only index is the local
-`rid_sighting` table. The same query (a rid list in, sightings out) is meant for a chain
-indexer later (`TODO(indexer)` in `FindMy.kt`). A phone cannot hear its own advert, so
-this phone shows sightings only once other observers report them.
-
-Verified on 2026-11-02 with a test advertiser on grouchly (`/tmp/andr_sight_adv2.py`,
-fixed test seed `sha256("hone-find-my-test")`). Python computed the rid, the phone sighted
-it, and Find my things matched it from the seed (Python and Kotlin give the same rid):
-`grouchly-test · cell 8b6d75d96098fff · -50 dBm · window 1992930`.
-
-## 6. Battery (estimate, moto g power 2025, 5000 mAh)
-
-Measured duty cycles (from `dumpsys bluetooth_manager`) combined with typical radio
-currents:
-
-| piece | duty | est. average |
-|---|---|---|
-| rid advert, legacy, 1 s, non-connectable | ~3 x 0.4 ms TX per second | ~0.03 mA |
-| rid scan, LOW_POWER, HW filter | ~10 % RX, CPU asleep | ~0.4 mA |
-| BLE crowd, LOW_LATENCY 8 s / 60 s | 13 % RX + CPU while results arrive | ~1 mA screen on, ~0 screen off (results withheld) |
-| Wi-Fi, throttled background (1 / 30 min) + passive reads | | <0.1 mA |
-| Wi-Fi, throttling off (1 / 2 min) | ~3 s at ~150 mA per scan | ~3-4 mA |
-| fused location, balanced, 60 s | network-based | ~0.3-0.5 mA |
-| boundary alarm (96 / day), 5 s tick | | negligible |
-
-That is about **0.8 mA (~0.4 %/day)** with the screen off and Wi-Fi throttled, and
-**~2 mA screen on**. Add **~4 mA (~2 %/day)** if Wi-Fi throttling is turned off. For
-comparison, the existing pieces already cost more: the Flipper `'HA'/'HC'` scan runs
-continuously in BALANCED mode, and `SensorCapture` requests GPS every 10 s.
+About 3.5 mA (~1.7 %/day) indoors screen off, more outdoors while GPS is used.
+Switching to BALANCED priority when on battery and moving slowly is the obvious knob.
