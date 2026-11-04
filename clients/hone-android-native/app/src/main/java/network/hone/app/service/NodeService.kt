@@ -77,6 +77,7 @@ class NodeService : Service() {
         network.hone.app.data.HoneAnnounceScanner.start(applicationContext)
         // Coverage sensing + rotating-id advert (spec 1a/1b/2a).
         network.hone.app.sightings.SightingsEngine.start(applicationContext)
+        network.hone.app.decide.JurorEngine.start(applicationContext)
         // Bring the witness clock seat back after a reboot or app update.
         if (File(dataDir(), "witness_account").exists()) scope.launch {
             (network.hone.app.data.NodeRepositories.get(applicationContext)
@@ -169,6 +170,7 @@ class NodeService : Service() {
 
     override fun onDestroy() {
         network.hone.app.sightings.SightingsEngine.stop()
+        network.hone.app.decide.JurorEngine.stop()
         capture.stop()
         loop?.cancel()
         scope.cancel()

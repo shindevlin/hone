@@ -105,3 +105,18 @@ android {
     }
 }
 tasks.named("preBuild") { dependsOn(extractH3Jni) }
+
+// hone-decide juror sidecar (rust/hone-decide, built with `cargo ndk -t arm64-v8a -P 26 build --release`).
+// It is an executable, packaged as libhone_decide.so so Android extracts it to nativeLibraryDir
+// (legacy packaging) where JurorEngine can exec it. Missing binary = juror simply unavailable.
+val honeDecideBin = (findProperty("honeDecideBin") as String?)
+    ?: "${System.getProperty("user.home")}/hone-decide-target-android/aarch64-linux-android/release/hone-decide"
+val copyHoneDecide by tasks.registering(Copy::class) {
+    from(honeDecideBin) { rename { "libhone_decide.so" } }
+    into(layout.buildDirectory.dir("decidejni/arm64-v8a"))
+}
+android {
+    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("decidejni"))
+    packaging { jniLibs.useLegacyPackaging = true }
+}
+tasks.named("preBuild") { dependsOn(copyHoneDecide) }
