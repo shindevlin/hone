@@ -626,6 +626,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                     // Seqlock for state checkpoints: balances may change from here until exit.
                     state_healer::driver_enter();
                     for e in start..=stop {
+                        if !state_healer::driver_may_pay(e, cur) { break; }
                         let done_key = format!("epoch_finalized_done:{}", e);
                         if chain_ref.store.state_get(&done_key).is_some() {
                             // Already applied — contiguous, keep going.
@@ -1044,7 +1045,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             && state_healer::mode() != state_healer::Mode::Off
                         {
                             if let Some(sk) = ckpt_sk.as_ref().as_ref() {
-                                match state_healer::take(&chain_ref, sealed_epoch) {
+                                let taken = state_healer::take(&chain_ref, sealed_epoch);
+                                state_healer::mark_checkpoint_taken(sealed_epoch);
+                                match taken {
                                     Some(snap) => {
                                         if let Err(e) = state_healer::save(&ckpt_dir, &snap) {
                                             warn!("[healer] saving checkpoint {} failed: {}", sealed_epoch, e);

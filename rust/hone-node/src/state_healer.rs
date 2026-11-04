@@ -111,6 +111,25 @@ pub fn mode() -> Mode {
 
 pub fn checkpoint_due(epoch: u64) -> bool { epoch > 0 && epoch % CHECKPOINT_INTERVAL == 0 }
 
+/// The reward cursor every node checkpoints epoch E at: E - REWARD_FINALITY_DEPTH - 1.
+/// Before this, the cursor was whatever the driver had reached when the seal landed, so
+/// honest nodes often attested E at different cursors and could never agree (352,200).
+pub fn checkpoint_cursor(epoch: u64) -> u64 {
+    epoch.saturating_sub(hone_types::REWARD_FINALITY_DEPTH + 1)
+}
+
+static CKPT_TAKEN: AtomicU64 = AtomicU64::new(0);
+pub fn mark_checkpoint_taken(epoch: u64) { CKPT_TAKEN.fetch_max(epoch, Ordering::SeqCst); }
+
+/// May the reward driver pay epoch `e` now? It holds at checkpoint_cursor(E) until the
+/// checkpoint for E is taken, but only while E's seal is at most 3 epochs away, so a node
+/// that missed the seal (restart) never stalls.
+pub fn driver_may_pay(e: u64, current_epoch: u64) -> bool {
+    let ce = e + hone_types::REWARD_FINALITY_DEPTH + 1; // the checkpoint e would cross
+    if !checkpoint_due(ce) || mode() == Mode::Off { return true; }
+    CKPT_TAKEN.load(Ordering::SeqCst) >= ce || current_epoch > ce + 3
+}
+
 pub fn message(chain_id: &str, node: &str, epoch: u64, cursor: u64, root: &str) -> String {
     format!("hone-checkpoint:{}:{}:{}:{}:{}", chain_id, node, epoch, cursor, root)
 }
@@ -257,6 +276,7 @@ pub fn take(chain: &Chain, epoch: u64) -> Option<Snapshot> {
     let seq = DRIVER_SEQ.load(Ordering::SeqCst);
     let cursor = REWARD_CURSOR.load(Ordering::SeqCst);
     if seq % 2 == 1 || cursor == 0 { return None; }
+    if cursor != checkpoint_cursor(epoch) { return None; }
     let rows = chain.store.sorted_balance_entries();
     if DRIVER_SEQ.load(Ordering::SeqCst) != seq { return None; }
     Some(Snapshot::from_rows(epoch, cursor, &rows))
@@ -558,7 +578,9 @@ mod tests {
         REWARD_CURSOR.store(77, Ordering::SeqCst);
         assert!(take(&c, 120).is_none(), "driver mid-walk");
         driver_exit(77);
-        assert_eq!(take(&c, 120).unwrap().cursor, 77);
+        assert!(take(&c, 120).is_none(), "cursor 77 is not checkpoint_cursor(120)");
+        driver_enter(); driver_exit(checkpoint_cursor(120));
+        assert_eq!(take(&c, 120).unwrap().cursor, checkpoint_cursor(120));
     }
 
     #[test]
