@@ -161,8 +161,12 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
         }
         item {
             if (bmp != null) {
-                Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)))
+                // Whole photo (no crop): box follows the photo's aspect, clamped so very tall
+                // portraits stay on screen; Fit letterboxes anything outside the clamp.
+                val ratio = (bmp.width.toFloat() / bmp.height.coerceAtLeast(1)).coerceIn(0.75f, 2.5f)
+                Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(ratio).clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant))
                 img?.let {
                     Text("Photo: ${it.credit} · ${it.license}" + if (it.pageUrl.contains("wikimedia")) " · Wikimedia Commons" else "",
                         style = MaterialTheme.typography.labelSmall, color = HoneTextFaint,
@@ -205,11 +209,8 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
             Text("Only answer if you're sure. Not sure? Leave it blank, or play its call to compare. " +
                 "Answers train HONE's local model and keep wrong ones off the map. $yes yes · $no no so far.",
                 style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
-            TextButton(onClick = {
-                ctx.startActivity(Intent(Intent.ACTION_VIEW,
-                    Uri.parse("https://xeno-canto.org/explore?query=" + Uri.encode(s.latin))))
-            }) { Text("Play its call (xeno-canto)") }
         }
+        item { CallPlayer(s.latin) }
         items(s.history.take(200), key = { "h-${it.t}" }) { h ->
             val v = verdicts["${h.t}|${h.name}"]
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -331,12 +332,17 @@ private fun PublicDetail(latin: String, onBack: () -> Unit) {
         }
         item {
             if (bmp != null) {
-                Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)))
+                // Whole photo (no crop): box follows the photo's aspect, clamped so very tall
+                // portraits stay on screen; Fit letterboxes anything outside the clamp.
+                val ratio = (bmp.width.toFloat() / bmp.height.coerceAtLeast(1)).coerceIn(0.75f, 2.5f)
+                Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(ratio).clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant))
                 img?.let { Text("Photo: ${it.credit} · ${it.license}" + if (it.pageUrl.contains("wikimedia")) " · Wikimedia Commons" else "",
                     style = MaterialTheme.typography.labelSmall, color = HoneTextFaint) }
             }
         }
+        item { CallPlayer(latin) }
         val photos = data?.optJSONArray("photos")
         if (photos != null && photos.length() > 0) {
             item { Text("Community photos (UFL)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
