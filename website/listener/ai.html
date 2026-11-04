@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install With AI · HONE</title>
+<meta name="description" content="Let Claude or another AI assistant set up the HONE camera listener for you and tell you when your birds come back.">
+<link rel="icon" href="/favicon-32.png">
+<style>
+:root{--bg:#0a0e17;--surface:#121826;--hi:#1b2233;--line:#2a3346;--text:#e8ecf4;--dim:#aeb6c6;--faint:#6b7488;--accent:#f7931a;--green:#3ddc84}
+:root[data-theme="light"]{--bg:#f6f4ef;--surface:#fff;--hi:#f0ede6;--line:#e2ddd3;--text:#1d2230;--dim:#4a5163;--faint:#7b8294;--accent:#c96f00;--green:#1b8f4e}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f4ef;--surface:#fff;--hi:#f0ede6;--line:#e2ddd3;--text:#1d2230;--dim:#4a5163;--faint:#7b8294;--accent:#c96f00;--green:#1b8f4e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px 56px}
+header.top{display:flex;justify-content:space-between;align-items:center;padding:14px 0}
+.brand{font-weight:800;letter-spacing:.08em;color:var(--text);text-decoration:none}
+.top nav a{color:var(--dim);text-decoration:none;margin-left:18px;font-size:15px}
+h1{font-size:36px;line-height:1.1;letter-spacing:-.02em;margin:18px 0 12px}
+.lead{font-size:18px;color:var(--dim);margin:0 0 20px}
+h2{font-size:22px;margin:36px 0 10px}
+h3{font-size:17px;margin:22px 0 6px}
+p,li{color:var(--dim)}
+b,strong{color:var(--text)}
+.chat{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;display:grid;gap:10px}
+.msg{max-width:88%;border-radius:14px;padding:10px 14px;font-size:15px}
+.me{justify-self:end;background:var(--accent);color:#000}
+.ai{background:var(--hi);color:var(--text)}
+.ai small{display:block;color:var(--faint);font-size:12px;margin-top:4px}
+.safe{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0;padding:0;list-style:none}
+.safe li{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;font-size:15px}
+.safe b{display:block;margin-bottom:2px}
+.cmd{display:flex;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 12px;margin:8px 0}
+.cmd pre{flex:1;min-width:0;margin:0;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;align-self:center;padding:4px 0}
+.cp{flex:none;align-self:flex-start;border:0;border-radius:9px;background:var(--accent);color:#000;font-weight:700;font-size:14px;padding:8px 14px;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:15px}
+td,th{text-align:left;padding:10px 8px;border-top:1px solid var(--line);vertical-align:top;color:var(--dim)}
+th{color:var(--faint);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.06em}
+td code{color:var(--text)}
+code{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.priv{border:1px solid var(--green);background:var(--surface);border-radius:14px;padding:14px 16px;color:var(--text)}
+.note{font-size:14px;color:var(--faint)}
+footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+footer a{color:var(--dim)}
+@media (max-width:640px){h1{font-size:28px}.safe{grid-template-columns:1fr}.top nav a.hide-sm{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/">HONE</a>
+    <nav><a class="hide-sm" href="/listener">Listener</a><a href="/me">My birds</a></nav>
+  </header>
+
+  <h1>Let your AI assistant set it up</h1>
+  <p class="lead">Add HONE to Claude or any assistant that supports MCP. It installs the camera listener for you, step by step, and then answers questions like "is the owl back?"</p>
+
+  <div class="chat" aria-label="Example conversation">
+    <div class="msg me">Set up the HONE bird listener on this computer.</div>
+    <div class="msg ai">I downloaded the listener from honemesh.net and checked it: the signature matches HONE's release key and the file matches its fingerprint. Nothing has run yet. One thing to know: human conversation is automatically deleted, and no audio is ever saved or sent. Shall I install it?<small>install_listener: checks only</small></div>
+    <div class="msg me">Yes, go ahead.</div>
+    <div class="msg ai">Done. A setup page opened in your browser: sign in with your email and pick your camera there.<small>install_listener: confirm</small></div>
+    <div class="msg me">A week later: is the cardinal back?</div>
+    <div class="msg ai">Yes! Your backyard camera heard a northern cardinal at 6:41 this morning, after 9 days away.<small>is_back</small></div>
+  </div>
+
+  <h2>Built so it can't be tricked</h2>
+  <ul class="safe">
+    <li><b>Only from honemesh.net</b>The assistant can't hand it a download link. Every file comes from honemesh.net/app/listener/.</li>
+    <li><b>Checked before anything runs</b>The release list must be signed by HONE's release key, which is built into the tool, and the installer must match its sha256 fingerprint.</li>
+    <li><b>You say yes first</b>The first call only checks and explains. The installer runs only after you agree.</li>
+    <li><b>Read-only account key</b>To read your birds it uses a key that can't change anything on your account.</li>
+  </ul>
+  <p class="priv">Human conversation is automatically deleted. The listener only keeps a count of voices it removed. No audio is ever saved or sent; only a short bird report every 15 minutes.</p>
+
+  <h2>Set it up</h2>
+  <h3>1. Get your AI key (optional, for your birds)</h3>
+  <p>Open <a href="/me">honemesh.net/me</a>, sign in, and tap <b>Make an AI key</b>. It starts with <code>w_</code> and can only read your birds and listeners. You can skip this to just install the listener; the setup page will sign you in.</p>
+
+  <h3>2a. Claude Desktop</h3>
+  <p>Needs <a href="https://nodejs.org/" rel="noopener">Node.js</a> 18 or newer. In Claude Desktop open Settings, Developer, Edit Config, and add:</p>
+  <div class="cmd"><pre id="c1">{
+  "mcpServers": {
+    "hone-listener": {
+      "command": "npx",
+      "args": ["-y", "https://honemesh.net/app/mcp/hone-listener-mcp-0.1.0.tgz"],
+      "env": { "HONE_TOKEN": "paste your w_ key here" }
+    }
+  }
+}</pre><button class="cp" data-for="c1" type="button">Copy</button></div>
+  <p>Restart Claude Desktop, then ask: <b>"Set up the HONE bird listener on this computer."</b></p>
+
+  <h3>2b. Claude Code</h3>
+  <div class="cmd"><pre id="c2">claude mcp add hone-listener -e HONE_TOKEN=w_your_key -- npx -y https://honemesh.net/app/mcp/hone-listener-mcp-0.1.0.tgz</pre><button class="cp" data-for="c2" type="button">Copy</button></div>
+
+  <h3>2c. Just ask about your birds (no install)</h3>
+  <p>A read-only version runs at <code>https://honemesh.net/listener/mcp</code>. It can't install anything; it answers <code>my_birds</code>, <code>is_back</code> and <code>listener_status</code> with your key:</p>
+  <div class="cmd"><pre id="c3">claude mcp add --transport http hone-birds https://honemesh.net/listener/mcp --header "Authorization: Bearer w_your_key"</pre><button class="cp" data-for="c3" type="button">Copy</button></div>
+
+  <h2>What the assistant can do</h2>
+  <table>
+    <tr><th>Tool</th><th>What it does</th></tr>
+    <tr><td><code>install_listener</code></td><td>Finds your operating system, downloads the signed release from honemesh.net, checks the signature and fingerprint, and tells you. With your OK it installs. An invite code (<code>ref</code>) is passed to the setup.</td></tr>
+    <tr><td><code>listener_status</code></td><td>Is the listener running on this computer, and is each of your listeners "Listening now" or when did it last report?</td></tr>
+    <tr><td><code>my_birds</code></td><td>The birds your listeners heard, newest first. Narrow it with "today", "week", "48h" or a date.</td></tr>
+    <tr><td><code>is_back</code></td><td>Has this bird come back? When it was last heard, and how long it was away before that.</td></tr>
+  </table>
+  <p class="note">Coming later: named birds. When your listener recognizes the same bird returning, you'll be able to name it and ask about it by name.</p>
+
+  <h2>For the curious</h2>
+  <p>The tool is one small file with no dependencies: <a href="https://github.com/shindevlin/hone/tree/main/clients/hone-listener-mcp" rel="noopener">source on GitHub</a>. HONE's listener release key is <code style="overflow-wrap:anywhere">27ef54588674c3391e660056d873b89136e75125b5a433de0747191baa94a10d</code> (ed25519). The release list is <code>/app/listener/version.json</code> with its signature in <code>version.json.sig</code>.</p>
+
+  <footer>
+    <a href="/">Get paid for your birds → full HONE</a>
+    <span>Questions? <a href="mailto:shindevlin@proton.me">shindevlin@proton.me</a></span>
+  </footer>
+</div>
+<script>
+document.querySelectorAll(".cp").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var t = document.getElementById(b.dataset.for).textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () {
+      b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1600);
+    }, function () { b.textContent = "Select and copy"; });
+  });
+});
+</script>
+</body>
+</html>
