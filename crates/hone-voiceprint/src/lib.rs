@@ -178,6 +178,8 @@ pub enum VpError {
     BadName,
     BadCell,
     BadState(String),
+    /// link(): the two ids are different species or places.
+    NotSamePlace,
 }
 
 impl std::fmt::Display for VpError {
@@ -188,6 +190,7 @@ impl std::fmt::Display for VpError {
             VpError::BadName => write!(f, "name must be 1-24 letters, spaces, apostrophes or hyphens"),
             VpError::BadCell => write!(f, "not an H3 cell at resolution 7 or finer"),
             VpError::BadState(e) => write!(f, "saved state unreadable: {e}"),
+            VpError::NotSamePlace => write!(f, "only birds of one species at one place can be linked"),
         }
     }
 }
@@ -580,7 +583,9 @@ impl Voiceprinter {
                     for a in 0..cents.len() {
                         for b in a + 1..cents.len() {
                             let s = cosine(&cents[a], &cents[b]);
-                            if s >= params.merge_tau && best.map(|x| s > x.2).unwrap_or(true) {
+                            let one_candidate = pop.clusters[a].bird_id.is_some() != pop.clusters[b].bird_id.is_some();
+                            let tau = if one_candidate { params.back_tau.max(params.join_tau) } else { params.merge_tau };
+                            if s >= tau && best.map(|x| s > x.2).unwrap_or(true) {
                                 best = Some((a, b, s));
                             }
                         }
@@ -713,6 +718,44 @@ impl Voiceprinter {
         Err(VpError::UnknownBird)
     }
 
+    /// The user says two candidates are one bird ("this is also Ruben"). Merged by the usual rule
+    /// (earliest name, then earlier candidate, then earlier first night); returns the surviving id.
+    pub fn link(&mut self, a: &str, b: &str) -> Result<String, VpError> {
+        let (a, b) = (self.resolve(a), self.resolve(b));
+        if a == b {
+            return Ok(a);
+        }
+        let max_members = self.cfg.max_members_per_cluster;
+        let key = self
+            .st
+            .pops
+            .iter()
+            .find(|(_, p)| p.clusters.iter().any(|c| c.bird_id.as_deref() == Some(&a)))
+            .map(|(k, _)| k.clone())
+            .ok_or(VpError::UnknownBird)?;
+        let pop = self.st.pops.get_mut(&key).unwrap();
+        let ia = pop.clusters.iter().position(|c| c.bird_id.as_deref() == Some(&a)).unwrap();
+        let Some(ib) = pop.clusters.iter().position(|c| c.bird_id.as_deref() == Some(&b)) else {
+            let known = self.st.pops.values().any(|p| p.clusters.iter().any(|c| c.bird_id.as_deref() == Some(&b)));
+            return Err(if known { VpError::NotSamePlace } else { VpError::UnknownBird });
+        };
+        let (keep, gone) = if pop.clusters[ia].survivor_key() <= pop.clusters[ib].survivor_key() { (ia, ib) } else { (ib, ia) };
+        let g = pop.clusters.remove(gone);
+        let keep = if gone < keep { keep - 1 } else { keep };
+        let into = pop.clusters[keep].bird_id.clone().unwrap();
+        let from = g.bird_id.clone().unwrap();
+        let dropped = g.name.clone();
+        absorb(&mut pop.clusters[keep], g, max_members);
+        for v in self.st.aliases.values_mut() {
+            if *v == from {
+                *v = into.clone();
+            }
+        }
+        self.st.aliases.insert(from.clone(), into.clone());
+        self.st.events.push(Event::Merged { from, into: into.clone(), dropped_name: dropped });
+        Ok(into)
+    }
+
     /// Summary for the 4 KB device report: bird ids and counts only, no voiceprints, no names,
     /// no cell (the report carries its own coarse cell). Trimmed to `max_bytes`.
     pub fn report(&self, max_bytes: usize) -> String {
@@ -787,6 +830,11 @@ fn promote(pop: &mut Population, i: usize, p: &SpeciesParams, min_nights: u32, _
         if cosine(&sub(&nm, &m), &cent) < p.back_tau {
             return None;
         }
+    }
+    // looks like a bird we already know: it will be absorbed at the next maintain(), no new id
+    let tau = p.back_tau.max(p.join_tau);
+    if pop.clusters.iter().any(|o| o.bird_id.is_some() && cosine(&sub(&o.centroid(), &m), &cent) >= tau) {
+        return None;
     }
     let mut id = bird_id(&pop.species, &pop.cell7, &cent, c.first_night);
     let mut k = 1;

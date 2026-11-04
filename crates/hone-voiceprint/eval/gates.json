@@ -1,1 +1,70 @@
-{"species": {}}
+{
+ "species": {
+  "Athene noctua": {
+   "naming_allowed": true,
+   "join_tau": 0.62,
+   "back_tau": 0.6,
+   "k_min": 5,
+   "merge_tau": 0.75,
+   "split_tau": 0.2,
+   "logit_a": 5.738,
+   "logit_b": 0.109,
+   "source": "littleowl: AUC 0.8165; replay gap P 1.0 R 0.202 n 22"
+  },
+  "Anthus trivialis": {
+   "naming_allowed": false,
+   "join_tau": 0.62,
+   "back_tau": 0.6,
+   "k_min": 5,
+   "merge_tau": 0.75,
+   "split_tau": 0.2,
+   "logit_a": 1.688,
+   "logit_b": 0.027,
+   "source": "pipit: AUC 0.6; replay gap P 0.692 R 0.095 n 13"
+  },
+  "Phylloscopus collybita": {
+   "naming_allowed": false,
+   "join_tau": 0.62,
+   "back_tau": 0.6,
+   "k_min": 5,
+   "merge_tau": 0.75,
+   "split_tau": 0.2,
+   "logit_a": 0.631,
+   "logit_b": -0.001,
+   "source": "chiffchaff_year: AUC 0.5303; replay gap P None R 0.0 n 0"
+  },
+  "Parus major": {
+   "naming_allowed": false,
+   "join_tau": 0.62,
+   "back_tau": 0.6,
+   "k_min": 5,
+   "merge_tau": 0.75,
+   "split_tau": 0.2,
+   "logit_a": 3.592,
+   "logit_b": 0.06,
+   "source": "greattit_days: AUC 0.6864; replay gap P None R 0.0 n 0"
+  },
+  "Apteryx haastii": {
+   "naming_allowed": false,
+   "join_tau": 0.62,
+   "back_tau": 0.6,
+   "k_min": 5,
+   "merge_tau": 0.75,
+   "split_tau": 0.2,
+   "logit_a": 4.788,
+   "logit_b": 0.283,
+   "source": "kiwi_seasons: AUC 0.8813; replay gap P 0.788 R 0.434 n 838"
+  },
+  "Pitangus sulphuratus": {
+   "naming_allowed": false,
+   "join_tau": 0.62,
+   "back_tau": 0.6,
+   "k_min": 5,
+   "merge_tau": 0.75,
+   "split_tau": 0.2,
+   "logit_a": 15.166,
+   "logit_b": 0.22,
+   "source": "kiskadee_halves: AUC 0.9742; same-recording halves only (upper bound), no cross-night data"
+  }
+ }
+}

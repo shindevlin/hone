@@ -45,6 +45,7 @@ vp.candidates();            // Vec<Candidate{bird_id, species, cell7, nights_see
                             //   detections, name, naming_allowed, heard_tonight, back_likelihood}>
 vp.is_back(&id); vp.nights_seen(&id); vp.last_heard(&id); vp.status(&id); vp.resolve(&id);
 vp.name(&id, "Ruben")?;     // local label; Err(NamingNotAllowed) for gated-off species
+vp.link(&a, &b)?;        // user: "this is also Ruben"; returns the survivor (earliest name wins)
 vp.report(4096);            // {"v":1,"night":N,"birds":[{"id","sp","nights","last_night","tonight","back_q8"}]}
 let bytes = vp.save();      // full state incl. raw voiceprints: device only
 let vp = Voiceprinter::load(cfg, &bytes)?;
@@ -58,7 +59,7 @@ let vp = Voiceprinter::load(cfg, &bytes)?;
 |---|---|
 | `Nameable{bird_id}` (first time a candidate passes the naming gate) | submit `BIRD_OBSERVE {bird_id}` with the seat key; offer "Name this bird" |
 | `Back{bird_id, name, nights_seen, likelihood}` | show "Ruben is back, night 14 (very likely, 92%)" |
-| `Merged{from, into, dropped_name}` | re-point UI; propose a merge on chain (see below) |
+| `Merged{from, into, dropped_name}` | re-point UI; file BIRD_MERGE per eval/MERGE_AUTHORITY.md |
 | `Candidate`, `Split` | informational |
 
 Names: same rule as BIRD_NAME (1-24 letters, spaces, apostrophes, hyphens). The naming account is
@@ -73,4 +74,4 @@ the device owner's account.
   `libhone_voiceprint.so` in jniLibs; Kotlin wrapper `network.hone.app.sound.Voiceprints`.
 - JNI host check: `tools/jni-smoke.sh`.
 - Evaluation replay of the real crate: `cargo build --release --example vp_sim`, then
-  `eval/scripts/sim.py`.
+  `eval/scripts/sim.py (paths in the scripts point at ~/voiceprint-eval on beastly)`.

@@ -49,6 +49,10 @@ class Voiceprints private constructor(private val file: File, private var h: Lon
     @Synchronized
     fun name(birdId: String, name: String): String? = if (h == 0L) "closed" else nativeName(h, birdId, name)
 
+    /** User says two candidates are one bird. Returns the surviving id (earliest name wins). */
+    @Synchronized
+    fun link(a: String, b: String): String? = if (h == 0L) null else nativeLink(h, a, b)
+
     @Synchronized
     fun save() {
         if (h == 0L) return
@@ -91,6 +95,7 @@ class Voiceprints private constructor(private val file: File, private var h: Lon
         @JvmStatic private external fun nativeObserve(h: Long, species: String, emb: FloatArray, t: Long, conf: Float): String?
         @JvmStatic private external fun nativeQuery(h: Long, kind: Int, arg: Int, id: String?): String?
         @JvmStatic private external fun nativeName(h: Long, id: String, name: String): String?
+        @JvmStatic private external fun nativeLink(h: Long, a: String, b: String): String?
         @JvmStatic private external fun nativeSave(h: Long): ByteArray?
     }
 }
