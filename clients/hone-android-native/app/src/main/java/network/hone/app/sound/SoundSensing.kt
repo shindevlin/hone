@@ -166,7 +166,15 @@ object SoundSensing {
         var framesHuman = 0
         val blockDb = ArrayList<Double>()                   // 100 ms block levels, non-human frames
         var peak = -200.0
+        /** Distinct vocal events: successive frames of one call count once; a gap starts a new one. */
+        val events = HashMap<String, Int>()
+        val lastSeq = HashMap<String, Long>()
+        var silenced = 0
     }
+
+    /** Frame sequence: +1 per analysed frame, +2 across any gap (burst end, pause), so a call
+     *  that continues into the next contiguous frame is one event and anything after a gap is new. */
+    @Volatile private var frameSeq = 0L
 
     private suspend fun loop(ctx: Context) {
         if (!hasMic(ctx)) { _live.value = _live.value.copy(status = "microphone permission needed"); return }
@@ -218,12 +226,14 @@ object SoundSensing {
                         status = if (noMicType) "microphone silenced by Android: open HONE to resume"
                             else "paused: microphone in use by another app")
                     if (noMicType) MicAlerts.silenced(ctx)
+                    win.silenced++
                     frame.fill(0f); pauseMs = if (noMicType) 20_000 else 30_000; break
                 }
                 if (_live.value.mic != "ok") { _live.value = _live.value.copy(mic = "ok"); MicAlerts.clearSilenced(ctx) }
                 processFrame(p, frame, win)
                 frame.fill(0f)
             }
+            frameSeq += 2
             if (pauseMs > 0) { delay(pauseMs); continue }
             _live.value = _live.value.copy(listening = false, status = "waiting")
             if (!plugged) delay(max(0L, BURST_EVERY_MS - (System.currentTimeMillis() - started)))
@@ -233,6 +243,7 @@ object SoundSensing {
     private fun processFrame(p: Perch, frame: FloatArray, win: Window) {
         val probs = p.classify(frame)
         win.frames++
+        val seq = ++frameSeq
         val human = p.humanIdx.maxOfOrNull { probs[it] } ?: 0f
         if (human > HUMAN_MAX) {
             win.framesHuman++
@@ -267,6 +278,9 @@ object SoundSensing {
         for (d in top) {
             val prev = win.species[d.name]
             win.species[d.name] = Pair(max(prev?.first ?: 0f, d.conf), (prev?.second ?: 0) + 1)
+            val ls = win.lastSeq[d.name]
+            if (ls == null || seq - ls > 1) win.events[d.name] = (win.events[d.name] ?: 0) + 1
+            win.lastSeq[d.name] = seq
         }
         if (top.isNotEmpty()) logDetections(top, p.lastEmbedding)
         val s = _live.value
@@ -280,7 +294,7 @@ object SoundSensing {
     }
 
     private fun closeWindow(ctx: Context, w: Window) {
-        if (w.frames == 0) return
+        if (w.frames == 0 && w.silenced == 0) return
         val sorted = w.blockDb.sorted()
         fun pct(q: Double) = if (sorted.isEmpty()) null else sorted[((1 - q) * (sorted.size - 1)).toInt()]
         val leq = if (w.blockDb.isEmpty()) null
@@ -296,9 +310,12 @@ object SoundSensing {
             put("listen_seconds", w.frames * 5)
             put("frames", w.frames)
             put("frames_discarded_human", w.framesHuman)
+            put("silenced_frames", w.silenced)
+            put("tz_min", java.util.TimeZone.getDefault().getOffset(w.index * WINDOW_MS) / 60_000)
             put("species", JSONArray().apply {
                 w.species.entries.sortedByDescending { it.value.first }.forEach { (k, v) ->
-                    put(JSONObject().put("name", k).put("conf_q8", (v.first * 255).toInt()).put("frames", v.second))
+                    put(JSONObject().put("name", k).put("conf_q8", (v.first * 255).toInt()).put("frames", v.second)
+                        .put("events", w.events[k] ?: 1))
                 }
             })
             put("noise", JSONObject().apply {
@@ -314,7 +331,7 @@ object SoundSensing {
             val dir = File(ctx.filesDir, "hone-node/sound").apply { mkdirs() }
             File(dir, "reports.jsonl").appendText(r.toString() + "\n")
         }
-        synchronized(this) { pending.addLast(r); while (pending.size > 96) pending.removeFirst() }
+        if (w.frames > 0) synchronized(this) { pending.addLast(r); while (pending.size > 96) pending.removeFirst() }
         _live.value = _live.value.copy(reportsStored = _live.value.reportsStored + 1)
         Log.i(TAG, "window ${w.index}: ${w.frames} frames, ${w.framesHuman} dropped, ${w.species.size} species")
     }

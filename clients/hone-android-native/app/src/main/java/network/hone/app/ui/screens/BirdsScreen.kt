@@ -73,14 +73,18 @@ fun BirdsScreen() {
         )
         Spacer(Modifier.height(12.dp))
         TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
-            listOf("Mine", "Everyone", "Map").forEachIndexed { i, t ->
+            listOf(androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_tab_mine),
+                androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_tab_around),
+                androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_tab_everyone),
+                androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_tab_map)).forEachIndexed { i, t ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) })
             }
         }
         Spacer(Modifier.height(12.dp))
         when (tab) {
             0 -> MineList(mine, enabled = live.enabled) { open = it }
-            1 -> EveryoneList { open = it }
+            1 -> AroundHere { open = it }
+            2 -> EveryoneList { open = it }
             else -> BirdMap()
         }
     }
@@ -111,6 +115,42 @@ private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -
                     Names(s.latin, s.english)
                     Text((if (s.rare) "rare here · " else "") + "heard ${s.count}× · last ${ago(s.last)} · best ${s.bestConf.toInt()}%",
                         style = MaterialTheme.typography.labelSmall, color = if (s.rare) HoneGreen else HoneTextDim)
+                }
+            }
+        }
+    }
+}
+
+/** Shared scores for this area: every phone and camera nearby adds to them. */
+@Composable
+private fun AroundHere(onOpen: (String) -> Unit) {
+    val ctx = LocalContext.current
+    var rows by remember { mutableStateOf<List<BirdsSync.Around>?>(null) }
+    var loaded by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { rows = withContext(Dispatchers.IO) { BirdsSync.around(ctx.applicationContext) }; loaded = true }
+    val r = rows
+    if (!loaded) { Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_around_loading), color = HoneTextFaint); return }
+    if (r == null) { Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_around_offline), color = HoneTextFaint); return }
+    if (r.isEmpty()) { Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_around_empty), color = HoneTextFaint); return }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_around_intro),
+                style = MaterialTheme.typography.bodySmall, color = HoneTextDim)
+        }
+        items(r, key = { it.latin }) { s ->
+            Row(
+                Modifier.fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    .clickable { onOpen(s.latin) }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SpeciesThumb(s.latin, 48)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Names(s.latin, runCatching { Birds.english(ctx, s.latin) }.getOrNull())
+                    Text(s.status, style = MaterialTheme.typography.labelMedium,
+                        color = if (s.status == "Regular here" || s.status == "Heard recently") HoneGreen else HoneTextDim)
                 }
             }
         }

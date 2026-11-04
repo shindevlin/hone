@@ -136,6 +136,17 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
                 }
                 Switch(showName, { showName = it; prefs.edit().putBoolean("show_name", it).apply() })
             }
+            run {
+                var share by remember { mutableStateOf(network.hone.app.birds.BirdsSync.labelsOptIn(ctx)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_labels_share), style = MaterialTheme.typography.bodyMedium)
+                        Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_labels_share_sub),
+                            style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+                    }
+                    Switch(share, { share = it; network.hone.app.birds.BirdsSync.setLabelsOptIn(ctx, it) })
+                }
+            }
             if (advanced) {
                 var tiered by remember { mutableStateOf(network.hone.app.birds.BirdsSync.tiered(ctx)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {

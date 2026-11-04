@@ -26,7 +26,7 @@ format exists.
 Privacy: listening-effort windows arrive at res 7 (or the home-area cell); detection cells
 are kept at res 9 at most. Nothing here stores audio or exact positions.
 """
-import json, math, re, threading, time
+import json, math, os, re, threading, time
 
 import h3
 
@@ -52,6 +52,16 @@ NOCTURNAL = re.compile(r"^(Strix|Bubo|Megascops|Tyto|Glaucidium|Ciccaba|Pulsatri
                        r"Pseudoscops|Aegolius|Nyctibius|Nyctidromus|Caprimulgus|Antrostomus|Chordeiles|"
                        r"Hydropsalis|Nyctiphrynus|Nycticorax|Nyctanassa)\b")
 STATUS_WORDS = ["Regular here", "Heard recently", "Possible", "Fading", "Gone for the season", "No longer heard"]
+
+# Independent listeners are owners, not devices: a phone and its camera station are one listener,
+# and accounts of one person can be joined: HONE_OCC_OWNER_ALIASES="shindevlin:josh,other:owner".
+ALIASES = dict(x.split(":", 1) for x in os.environ.get("HONE_OCC_OWNER_ALIASES", "").split(",") if ":" in x)
+
+
+def listener_of(account):
+    a = str(account)
+    return "acct:" + ALIASES.get(a, a)
+
 
 _db = _lock = None  # the indexer's lock must be an RLock (scores call back into range lookups)
 _in_range = _months = _photo_near = None
@@ -312,8 +322,7 @@ def ingest_window(p, account, verified, now=None):
     cell7 = p["cell"]
     if not h3.is_valid_cell(cell7) or h3.get_resolution(cell7) > 7:
         raise ValueError("effort cell must be res 7 or coarser")
-    station = str(p.get("station") or "")
-    listener = f"station:{station}" if re.fullmatch(r"[0-9a-f]{16}", station) else f"acct:{account}"
+    listener = listener_of(account)
     frames, human, silenced = int(p.get("frames", 0)), int(p.get("human", 0)), int(p.get("silenced", 0))
     tz = int(p.get("tz_min", 0))
     t = (w + 1) * WINDOW_S

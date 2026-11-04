@@ -89,4 +89,14 @@
     <string name="nt_battery_weak">Battery is at %1$d%% even though it is charging. Try a stronger charger so HONE can keep listening.</string>
     <string name="set_publish_tiered">Publish by local range</string>
     <string name="set_publish_tiered_sub">On: 60%% for local birds, 70%% when the local list is unknown, 85%% for rare ones. Off: 70%% for all. Heard twice in 15 minutes always publishes.</string>
+    <string name="bd_tab_mine">Mine</string>
+    <string name="bd_tab_around">Around here</string>
+    <string name="bd_tab_everyone">Everyone</string>
+    <string name="bd_tab_map">Map</string>
+    <string name="bd_around_intro">Birds in your area, from every phone and camera listening nearby.</string>
+    <string name="bd_around_loading">Looking up birds around here…</string>
+    <string name="bd_around_offline">Can\'t load birds around here right now. Check your internet, or turn on location.</string>
+    <string name="bd_around_empty">Nothing here yet. Keep listening: birds show up after a few days.</string>
+    <string name="set_labels_share">Help improve bird ID: share your yes/no answers.</string>
+    <string name="set_labels_share_sub">Off unless you turn it on. Only the bird, the score and your answer are sent, never sound.</string>
 </resources>

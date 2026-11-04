@@ -335,7 +335,7 @@ if not db.execute("SELECT 1 FROM occ_state LIMIT 1").fetchone():
     # First start with occupancy: score the sightings already stored (positive evidence only).
     for _r in db.execute("SELECT cell, latin, conf_q8, frames, window, account, station, verified FROM sightings"
                          " WHERE verified IN (1,3,4) ORDER BY window").fetchall():
-        occupancy.ingest_sighting(_r[0], _r[1], _r[2], _r[3], _r[4], f"station:{_r[6]}" if _r[6] else f"acct:{_r[5]}", _r[7])
+        occupancy.ingest_sighting(_r[0], _r[1], _r[2], _r[3], _r[4], occupancy.listener_of(_r[5]), _r[7])
 
 
 def add_window(body):
@@ -392,8 +392,7 @@ def add_sighting(body):
         # phones and camera stations feed it from sightings (positive evidence only).
         if not p.get("occ"):
             for r in rows:
-                listener = f"station:{station}" if station else f"acct:{r[8]}"
-                occupancy.ingest_sighting(r[2], r[4], r[5], r[6], r[1], listener, r[11])
+                occupancy.ingest_sighting(r[2], r[4], r[5], r[6], r[1], occupancy.listener_of(r[8]), r[11])
         # A rare report is confirmed (4) when a different account reports the same species
         # in the same res-3 area within 72 h (288 windows).
         for r in rows:
