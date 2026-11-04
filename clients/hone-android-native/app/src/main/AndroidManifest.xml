@@ -1,14 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Node participation: networking + keep-alive -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- BLE: hear HONE device announces (e.g. the Flipper). Not used for location. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" tools:targetApi="s" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- specialUse, NOT dataSync: on Android 15+ a dataSync FGS is capped at ~6h/24h then
+         force-stopped, taking the node offline daily. specialUse has no such cap. HONE ships
+         a signed APK by hash (no Play review), so the justification is declared on the
+         <service> below. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Ask for Doze/App Standby exemption so a carried phone keeps sensing. No effect while
+         docked/charging (Doze needs on-battery); matters when carried. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Sensor node roles (requested at runtime, Phase 2) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -19,6 +32,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.HONE">
 
         <activity
@@ -31,11 +45,26 @@
             </intent-filter>
         </activity>
 
-        <!-- The node lives here, alive in the background. -->
+        <!-- The node lives here, alive in the background as a sensor node. -->
         <service
             android:name=".service.NodeService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs a HONE sensor node: continuously signs and submits verified sensor readings to the chain." />
+        </service>
+
+        <!-- Restart the node after reboot so a docked phone self-heals. -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>
