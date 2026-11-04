@@ -174,7 +174,7 @@ pub const DECIDE_DEVICE_SEATS_EPOCH: u64 = 352_440;
 
 /// Usefulness scoring (spec 2026-11-02 §3): SensorSummary entries are accepted and scored
 /// from here, and volume-based sensor_score() for SensorDataCommit stops paying.
-pub const USEFULNESS_SCORING_EPOCH: u64 = 352_700;
+pub const USEFULNESS_SCORING_EPOCH: u64 = u64::MAX; // proposed 352_700, awaiting approval
 
 pub const NAME_NFT_MIGRATION_EPOCH: u64 = 352_000;
 
