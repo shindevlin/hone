@@ -129,6 +129,25 @@ object SoundSensing {
         _live.value = _live.value.copy(enabled = false, listening = false, status = "off")
     }
 
+    // ── reference-call playback: the mic must not hear the phone's own speaker ──
+    @Volatile private var playbackPaused = false
+    @Volatile private var quietUntilMs = 0L
+    @Volatile private var pauseEpoch = 0L
+
+    /** The bird detail player is about to play audio: stop listening until resumed. */
+    fun pauseForPlayback() {
+        playbackPaused = true; pauseEpoch++
+        if (_live.value.enabled) _live.value = _live.value.copy(listening = false, status = "paused: playing a reference call")
+    }
+
+    /** Playback stopped: resume after a short tail so the speaker's last sound is not heard. */
+    fun resumeAfterPlayback() {
+        if (!playbackPaused) return
+        playbackPaused = false; quietUntilMs = System.currentTimeMillis() + 1_500; pauseEpoch++
+    }
+
+    private fun playbackHold() = playbackPaused || System.currentTimeMillis() < quietUntilMs
+
     /** NodeService takes finished window reports to commit. */
     @Synchronized fun drainReports(): List<JSONObject> = pending.toList().also { pending.clear() }
 
@@ -156,8 +175,15 @@ object SoundSensing {
             for (i in 0 until burst) {
                 val now = System.currentTimeMillis()
                 if (now / WINDOW_MS != win.index) { closeWindow(ctx, win); win = Window(now / WINDOW_MS) }
+                if (playbackHold()) {
+                    _live.value = _live.value.copy(listening = false, status = "paused: playing a reference call")
+                    while (playbackHold() && currentCoroutineContext().isActive) delay(300)
+                }
                 _live.value = _live.value.copy(listening = true, status = "listening")
+                val epoch = pauseEpoch
                 if (!record(frame)) { _live.value = _live.value.copy(status = "mic busy or blocked"); break }
+                // Playback started (or just ended) while this frame was recording: drop it.
+                if (epoch != pauseEpoch || playbackHold()) { frame.fill(0f); continue }
                 if (frame.all { it == 0f }) {
                     _live.value = _live.value.copy(listening = false, status = "microphone silenced by Android: open HONE to resume")
                     break

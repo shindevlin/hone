@@ -71,6 +71,10 @@ dependencies {
 
     // Biometric wallet unlock (Phase 2)
     implementation("androidx.biometric:biometric:1.1.0")
+    // In-app reference calls (xeno-canto), streamed with a small phone cache.
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-datasource:1.5.1")
+    implementation("androidx.media3:media3-database:1.5.1")
 
     // QR generation for receive flow (Phase 2) — no copy-paste; show/scan a code.
     implementation("com.google.zxing:core:3.5.3")
