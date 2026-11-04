@@ -307,6 +307,7 @@ object SoundSensing {
                 sb.append(j.toString()).append('\n')
             }
             f.appendText(sb.toString())
+            network.hone.app.telemetry.Telemetry.birdDetection()
         }
     }
 

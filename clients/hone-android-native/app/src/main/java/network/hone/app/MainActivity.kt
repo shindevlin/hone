@@ -12,6 +12,9 @@ import network.hone.app.ui.theme.HoneTheme
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        network.hone.app.telemetry.Telemetry.installCrashHandler(this)
+        // Signed status every 15 min even when the sensor service is not running.
+        runCatching { network.hone.app.telemetry.StatusWorker.schedule(this) }
         enableEdgeToEdge()
         setContent {
             HoneTheme {

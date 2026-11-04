@@ -12,8 +12,13 @@ android {
         applicationId = "network.hone.app"   // HONE brand — matches the Rust JNI/uniffi package
         minSdk = 26                            // 8.0+ (foreground services, notification channels)
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
+        // Commit shown in the signed device status.
+        buildConfigField("String", "GIT_COMMIT", "\"" + (runCatching {
+            ProcessBuilder("git", "rev-parse", "--short=8", "HEAD").directory(rootDir).start()
+                .inputStream.bufferedReader().readText().trim()
+        }.getOrNull()?.ifEmpty { null } ?: "unknown") + "\"")
         // The Rust core is loaded per-ABI as libhone_miner.so (Phase 0b/uniffi).
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
@@ -35,7 +40,7 @@ android {
         }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     androidResources { noCompress += "tflite" }
 
     compileOptions {

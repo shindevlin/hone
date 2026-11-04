@@ -542,6 +542,7 @@ object SightingsEngine {
     private val crowdCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, r: ScanResult) {
             crowdResults++
+            network.hone.app.telemetry.Telemetry.bleAdvert()
             val now = System.currentTimeMillis()
             val s = stamp()
             synchronized(this@SightingsEngine) {
@@ -552,6 +553,7 @@ object SightingsEngine {
     }
 
     fun onFlipperFrame(devId: String, kind: String, rssi: Int) {
+        network.hone.app.telemetry.Telemetry.flipperFrame()
         if (appCtx == null) return
         val s = stamp()
         val now = System.currentTimeMillis()
@@ -624,6 +626,7 @@ object SightingsEngine {
         var mobileNew = 0
         val a = acc(s)
         a.wifiScans++
+        network.hone.app.telemetry.Telemetry.wifiScan()
         val kd = dayKey(now)
         for ((r, mac, tag) in tagged) {
             val oid = hmac8(kd, mac)

@@ -218,6 +218,10 @@ object HoneAnnounceScanner {
             pending.add(body)
             savePending()
         }
+        appCtx?.let { c ->
+            network.hone.app.telemetry.FlipperPublisher.record(c, sensorId, owner, hash, count, GROUP_TYPE[group],
+                sig.hex(), pubkey, null)
+        }
         Log.i(TAG, "commit $sensorId x$count heard, queued")
         updateCounts(devId)
         scope.launch { flush() }

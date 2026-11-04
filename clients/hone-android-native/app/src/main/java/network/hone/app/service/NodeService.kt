@@ -68,10 +68,14 @@ class NodeService : Service() {
     override fun onCreate() {
         super.onCreate()
         capture = SensorCapture(applicationContext)
+        network.hone.app.telemetry.Telemetry.installCrashHandler(applicationContext)
+        runCatching { network.hone.app.telemetry.StatusWorker.schedule(applicationContext) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat(buildNotification("Starting sensor node…"))
+        if (network.hone.app.telemetry.Telemetry.serviceStartedMs == 0L)
+            network.hone.app.telemetry.Telemetry.serviceStartedMs = System.currentTimeMillis()
         capture.start()
         // Keep listening for HONE device announces while the node runs in the background.
         network.hone.app.data.HoneAnnounceScanner.start(applicationContext)
@@ -97,13 +101,29 @@ class NodeService : Service() {
         val settings = SensorNodeSettings(
             chainId = j.getString("chain_id"),
             owner = j.getString("owner"),
-            nodeUrl = j.getString("node_url"),
+            nodeUrl = publicNodeUrl(j.getString("node_url")),
             sensorIdPrefix = j.getString("sensor_id_prefix"),
         )
         val chans = j.optJSONArray("channels")
         val set = buildSet { if (chans != null) for (i in 0 until chans.length()) add(chans.getString(i)) }
         Submission(settings, j.optString("sensor_type", "continuous"), set)
     }.onFailure { Log.w(TAG, "sensor_settings.json invalid: ${it.message}") }.getOrNull()
+
+    /** LAN / tailscale node URLs from older settings only work at home: use the public node API. */
+    private fun publicNodeUrl(u: String): String {
+        val host = runCatching { java.net.URI(u).host }.getOrNull() ?: return network.hone.app.data.ChainHttp.PUBLIC_BASE
+        val private = host == "localhost" || host.endsWith(".local") || host.endsWith(".ts.net") ||
+            Regex("^(10|127)\\..*|^192\\.168\\..*|^172\\.(1[6-9]|2[0-9]|3[01])\\..*|^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\..*").matches(host)
+        return if (private) network.hone.app.data.ChainHttp.PUBLIC_BASE else u
+    }
+
+    /** Public publishing (birds, Flipper frames, device status): runs every loop, with or without chain settings. */
+    private fun publishPublic() {
+        val c = applicationContext
+        runCatching { network.hone.app.birds.BirdsSync.syncNow(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "birds", it) }
+        runCatching { network.hone.app.telemetry.FlipperPublisher.maybeFlush(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "flipper", it) }
+        runCatching { network.hone.app.telemetry.DeviceStatus.maybeSend(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "status", it) }
+    }
 
     private suspend fun runLoop() {
         val sub = loadSubmission()
@@ -122,6 +142,7 @@ class NodeService : Service() {
 
         while (scope.isActive) {
             delay(COMMIT_INTERVAL_MS)
+            publishPublic()
             val avail = capture.availableCount()
             if (sub == null || keystore == null || coordinator == null) {
                 updateNotification("$avail sensors · read-only capture")
@@ -173,9 +194,9 @@ class NodeService : Service() {
                 }
             }
             writePubkeys(identities)
-            // Public bird sightings + shared photos to the HONE birds indexer (anonymous by default).
-            if (network.hone.app.sound.SoundSensing.isEnabled(applicationContext))
-                runCatching { network.hone.app.birds.BirdsSync.syncNow(applicationContext) }
+            network.hone.app.telemetry.Telemetry.sensorAccepted.set(accepted)
+            network.hone.app.telemetry.Telemetry.sensorRejected.set(rejected)
+            network.hone.app.telemetry.Telemetry.sensorLastError = lastError
             updateNotification("$avail sensors · $accepted accepted · $rejected rejected")
         }
     }

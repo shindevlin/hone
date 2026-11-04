@@ -20,6 +20,9 @@ API (all JSON):
   POST /api/birds/photos      {"payload": "<json>", "jpeg_b64", "pub"?, "sig"?}
        payload = {"v":1,"latin","t","license":"UFL","account"?}
   GET  /api/birds/photos/<id>.jpg
+  Envelopes may also carry "key": "seat" (device seat key): such rows are held back
+  (verified=0) until the seat is bound to the account (see hone_devices.py).
+  Device status and Flipper frames: hone_devices.py (/api/devices/*, /api/flipper/*).
 """
 import base64, hashlib, hmac, io, json, os, re, sqlite3, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from PIL import Image
@@ -29,6 +32,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import h3
 from nacl.signing import VerifyKey
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hone_devices as devices  # noqa: E402  device status + Flipper frames
 
 DATA = os.environ.get("HONE_BIRDS_DATA", "/var/lib/hone-birds")
 PORT = int(os.environ.get("HONE_BIRDS_PORT", "9460"))
@@ -236,6 +242,9 @@ def posting_key(account):
 
 
 def verify(body):
+    if body.get("key") == "seat":
+        p, _ps, _k, pub, verified = devices.verify_env(body)
+        return p, pub, verified
     """Every submission must be signed by the account's posting key (Josh, 2026-11-03).
     Returns (payload, pub, verified): verified=1 when pub matches the account's posting key
     on chain; otherwise the row is held back (not public) until the key table catches up."""
@@ -249,6 +258,9 @@ def verify(body):
     if known is not None and known.lower() != pub.lower():
         raise ValueError("pub is not this account's posting key")
     return payload, pub, 1 if known else 0
+
+
+devices.init(db, lock, posting_key)
 
 
 def add_sighting(body):
@@ -451,6 +463,14 @@ class H(BaseHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(n))
             path = urlparse(self.path).path
+            if path == "/api/devices/status":
+                return self._send(200, devices.post_status(body, n))
+            if path == "/api/flipper/frames":
+                return self._send(200, devices.post_frames(body))
+            if path == "/api/devices/admin/seat-keys":
+                if not devices.admin(self.headers):
+                    return self._send(403, {"error": "forbidden"})
+                return self._send(200, devices.admin_bind(body))
             if path == "/api/birds/sightings":
                 return self._send(200, add_sighting(body))
             if path == "/api/birds/photos":
@@ -475,7 +495,12 @@ class H(BaseHTTPRequestHandler):
                     db.commit()
                 return self._send(200, {"ok": True, "accounts": len(keys)})
             return self._send(404, {"error": "not found"})
+        except PermissionError as e:
+            return self._send(429, {"error": str(e)[:200]})
         except Exception as e:
+            # Rejects are logged (path + reason only, no IPs) so a silent phone can be told
+            # apart from a refused one.
+            sys.stderr.write("REJECT %s: %s\n" % (urlparse(self.path).path, str(e)[:160]))
             return self._send(400, {"error": str(e)[:200]})
 
     def do_GET(self):
@@ -545,6 +570,17 @@ class H(BaseHTTPRequestHandler):
                 c3, names = species_range(a["cell"])
                 return self._send(200, {"cell": c3, "radius_km": RANGE_KM, "source": "GBIF.org occurrences",
                                         "species": names})
+            if path == "/api/devices/status" or path.startswith("/api/devices/status/"):
+                out = devices.get_status(path, a, self.headers)
+                return self._send(200, out) if out is not None else self._send(404, {"error": "not found"})
+            if path == "/api/devices/admin/unbound":
+                if not devices.admin(self.headers):
+                    return self._send(403, {"error": "forbidden"})
+                return self._send(200, devices.unbound())
+            if path == "/api/flipper/frames":
+                return self._send(200, devices.get_frames(a))
+            if path == "/api/flipper/map":
+                return self._send(200, devices.get_frames_map(a))
             if path == "/api/birds/health":
                 return self._send(200, {"ok": True, "sightings": q("SELECT COUNT(*) n FROM sightings")[0]["n"],
                                         "photos": q("SELECT COUNT(*) n FROM photos")[0]["n"]})
