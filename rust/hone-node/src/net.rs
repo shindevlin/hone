@@ -24,10 +24,10 @@ use libp2p::{
     gossipsub, identify, kad, mdns,
     kad::store::MemoryStore,
     noise, ping,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, Multiaddr, SwarmBuilder,
+    swarm::{dial_opts::{DialOpts, PeerCondition}, NetworkBehaviour, SwarmEvent},
+    tcp, yamux, Multiaddr, PeerId, SwarmBuilder,
 };
-use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -337,7 +337,7 @@ impl Network {
             info!("peer store: {} cached peers", stored_peers.len());
         }
         for addr in &stored_peers {
-            let _ = swarm.dial(addr.clone());
+            dial_once(&mut swarm, addr.clone());
         }
 
         // Layer 2: Cloudflare DNS seeds (bootstrap_peers from config — already dialed below
@@ -369,7 +369,7 @@ impl Network {
             match addr_str.parse::<Multiaddr>() {
                 Ok(addr) => {
                     info!("Dialing bootstrap peer: {}", addr);
-                    let _ = swarm.dial(addr);
+                    dial_once(&mut swarm, addr);
                 }
                 Err(e) => warn!("Invalid bootstrap addr '{}': {}", addr_str, e),
             }
@@ -411,6 +411,14 @@ impl Network {
         let mut peer_flush    = tokio::time::interval(Duration::from_secs(300));
         rebootstrap.tick().await; // discard immediate first tick
         peer_flush.tick().await;
+        // Gossip watchdog: a peer we are connected to but whose topic subscriptions we
+        // never learned (its hello went out on a duplicate connection that then closed)
+        // is invisible to gossipsub forever, so publishes fail NoPeersSubscribedToTopic
+        // and the mesh partitions. Drop such a peer so the redial exchanges hellos again.
+        let mut gossip_watch = tokio::time::interval(Duration::from_secs(20));
+        gossip_watch.tick().await;
+        let mut gossip_strikes: HashMap<PeerId, u8> = HashMap::new();
+        let mut gossip_redial: HashSet<PeerId> = HashSet::new();
 
         // In-memory peer cache: peer_id_str → listen addrs.
         // Populated by Identify events; flushed to RocksDB every 5 minutes.
@@ -436,6 +444,9 @@ impl Network {
                             debug!("Kademlia re-bootstrap: {}", e);
                         }
                     }
+                }
+                _ = gossip_watch.tick() => {
+                    gossip_watchdog(&mut swarm, &peer_cache, &mut gossip_strikes, &mut gossip_redial);
                 }
                 _ = peer_flush.tick() => {
                     save_peer_store(&self.store, &peer_cache);
@@ -532,7 +543,12 @@ impl Network {
                     for (peer_id, addr) in peers {
                         info!("mDNS: discovered {} at {}", peer_id, addr);
                         swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
-                        let _ = swarm.dial(addr);
+                        let _ = swarm.dial(
+                            DialOpts::peer_id(peer_id)
+                                .addresses(vec![addr])
+                                .condition(PeerCondition::DisconnectedAndNotDialing)
+                                .build(),
+                        );
                     }
                 }
             }
@@ -800,6 +816,69 @@ const PEER_STORE_KEY: &str = "peer_addrs";
 const MAX_STORED_PEERS: usize = 100;
 
 /// Load cached peer multiaddrs from RocksDB.  Returns an empty list on miss or error.
+
+/// Dial `addr` unless we are already connected to (or dialing) the peer it names.
+/// Stored peers carry one address per interface; dialing them all at once opened
+/// several parallel connections per peer, which is what loses gossipsub hellos.
+fn dial_once(swarm: &mut libp2p::Swarm<HoneBehaviour>, addr: Multiaddr) {
+    let pid = addr.iter().find_map(|p| match p {
+        libp2p::multiaddr::Protocol::P2p(id) => Some(id),
+        _ => None,
+    });
+    let _ = match pid {
+        Some(id) => swarm.dial(
+            DialOpts::peer_id(id)
+                .addresses(vec![addr])
+                .condition(PeerCondition::DisconnectedAndNotDialing)
+                .build(),
+        ),
+        None => swarm.dial(addr),
+    };
+}
+
+/// Peers gossipsub knows no topics for after two checks (20-40 s) are disconnected
+/// and redialed on the next check from their identified addresses.
+fn gossip_watchdog(
+    swarm: &mut libp2p::Swarm<HoneBehaviour>,
+    peer_cache: &HashMap<String, Vec<Multiaddr>>,
+    strikes: &mut HashMap<PeerId, u8>,
+    redial: &mut HashSet<PeerId>,
+) {
+    for pid in std::mem::take(redial) {
+        if swarm.is_connected(&pid) { continue; }
+        if let Some(addrs) = peer_cache.get(&pid.to_string()) {
+            info!("gossip watchdog: redialing {}", pid);
+            let _ = swarm.dial(
+                DialOpts::peer_id(pid)
+                    .addresses(addrs.clone())
+                    .condition(PeerCondition::DisconnectedAndNotDialing)
+                    .build(),
+            );
+        }
+    }
+    let subscribed: HashSet<PeerId> = swarm.behaviour().gossipsub.all_peers()
+        .filter(|(_, t)| !t.is_empty())
+        .map(|(p, _)| *p)
+        .collect();
+    let connected: Vec<PeerId> = swarm.connected_peers().cloned().collect();
+    strikes.retain(|p, _| connected.contains(p));
+    for pid in connected {
+        // Only hone peers (identified with listen addrs) are expected to gossip.
+        if subscribed.contains(&pid) || !peer_cache.contains_key(&pid.to_string()) {
+            strikes.remove(&pid);
+            continue;
+        }
+        let n = strikes.entry(pid).or_insert(0);
+        *n += 1;
+        if *n >= 2 {
+            warn!("gossip watchdog: connected to {} but no topic subscriptions known; reconnecting", pid);
+            strikes.remove(&pid);
+            let _ = swarm.disconnect_peer_id(pid);
+            redial.insert(pid);
+        }
+    }
+}
+
 fn load_peer_store(store: &Store) -> Vec<Multiaddr> {
     store
         .get_meta(PEER_STORE_KEY)
