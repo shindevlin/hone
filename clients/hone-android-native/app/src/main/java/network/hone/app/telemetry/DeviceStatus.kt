@@ -166,6 +166,21 @@ object DeviceStatus {
                 "sensor_last_error" to Telemetry.sensorLastError.take(120).ifEmpty { null },
                 "node_url_public" to nodeUrl.startsWith("https://")),
             "posting_key" to posting,
+            "stations" to network.hone.app.station.StationStore.list(ctx).map { s ->
+                val l = network.hone.app.station.Stations.live.value[s.id]
+                mapOf("id" to s.id, "tier" to s.tier, "codec" to s.codec, "rate" to s.rate, "enabled" to s.enabled,
+                    "has_cell" to (s.cell != null), "running" to (l?.running ?: false), "reachable" to l?.reachable,
+                    "frames" to (l?.frames ?: 0L), "birds" to (l?.birds ?: 0L), "speech_dropped" to (l?.speechDropped ?: 0L),
+                    "busy_dropped" to (l?.busyDropped ?: 0L), "kbps" to (l?.kbps ?: 0), "last_frame_s" to ageS(l?.lastFrameMs ?: 0L, now),
+                    "last_error" to l?.lastError)
+            },
+            "station_conditions" to mapOf("charging" to network.hone.app.station.StationService.charging(ctx),
+                "wifi" to network.hone.app.station.StationService.onWifi(ctx)),
+            "station_chain_gate" to network.hone.app.station.StationChain.state(ctx),
+            "station_uploads" to Telemetry.uploadStats(ctx, "stations", now),
+            "app_account" to mapOf("signed_in" to network.hone.app.account.AccountStore.signedIn(ctx),
+                "verified" to network.hone.app.account.AccountStore.verified(ctx),
+                "referrer" to network.hone.app.account.AccountStore.referrer(ctx)),
             "battery" to mapOf("pct" to pct, "charging" to plugged, "optimization_exempt" to optExempt),
             "permissions" to perms,
             "last_crash" to Telemetry.lastCrash(ctx, now),

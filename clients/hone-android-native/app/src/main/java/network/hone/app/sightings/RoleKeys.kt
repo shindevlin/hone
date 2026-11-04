@@ -89,15 +89,34 @@ object RoleKeys {
 
     /** This phone's device pubkey: the witness seat key (josh@<pubkey>), created if absent
      *  in the same format the Rust core uses (hex secret, mode 600). */
-    fun devicePub(ctx: Context): ByteArray {
+    fun devicePub(ctx: Context): ByteArray = IdKeys.ed25519Pub(seatSeed(ctx))
+
+    /**
+     * This device's key. New installs keep it sealed by a non-exportable Keystore key
+     * (hone-node/seat.sealed); phones that already had the Rust core's witness.key keep that
+     * file, so their identity does not change. Never logged or exported.
+     */
+    @Synchronized
+    fun seatSeed(ctx: Context): ByteArray {
+        val sealed = File(ctx.filesDir, "hone-node/seat.sealed")
+        if (sealed.exists()) network.hone.app.telemetry.Vault.open("hone.seat.wrap", sealed.readBytes())?.let { return it }
+            ?: error("device key unwrap failed")
+        val legacy = File(ctx.filesDir, "hone-node/witness.key")
+        if (legacy.exists()) return legacy.readText().trim().unhex()
+        val sk = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        sealed.parentFile?.mkdirs()
+        val tmp = File(sealed.parentFile, sealed.name + ".tmp")
+        tmp.writeBytes(network.hone.app.telemetry.Vault.seal("hone.seat.wrap", sk)); tmp.renameTo(sealed)
+        return sk
+    }
+
+    /** The Rust core reads hone-node/witness.key; write it from the sealed key only when a witness seat starts. */
+    fun materializeWitnessKey(ctx: Context) {
         val f = File(ctx.filesDir, "hone-node/witness.key")
-        if (!f.exists()) {
-            f.parentFile?.mkdirs()
-            val sk = ByteArray(32).also { SecureRandom().nextBytes(it) }
-            f.writeText(sk.hex())
-            f.setReadable(false, false); f.setReadable(true, true)
-        }
-        return IdKeys.ed25519Pub(f.readText().trim().unhex())
+        if (f.exists()) return
+        f.parentFile?.mkdirs()
+        f.writeText(seatSeed(ctx).hex())
+        f.setReadable(false, false); f.setReadable(true, true)
     }
 
     /** id_seed for a device of this owner: derived from hide when imported, else null. */

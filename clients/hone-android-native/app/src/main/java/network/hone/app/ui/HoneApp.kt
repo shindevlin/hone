@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FlutterDash
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -30,6 +31,7 @@ private enum class Dest(val route: String, val label: String, val icon: ImageVec
     Sensors("sensors", "Sensors", Icons.Filled.Sensors),
     Birds("birds", "Birds", Icons.Filled.FlutterDash),
     Settings("settings", "Settings", Icons.Filled.Settings),
+    Listen("listen", "Listening", Icons.Filled.Hearing),
 }
 
 @Composable
@@ -37,12 +39,27 @@ fun HoneApp() {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // Simple mode: no wallet seat on this phone (a volunteer). Node and Wallet live under Settings > Advanced.
+    val simple = remember { !java.io.File(ctx.filesDir, "hone-node/witness_account").exists() }
+    var firstRun by remember { mutableStateOf(simple && !network.hone.app.account.AccountStore.onboarded(ctx)) }
+    var importKey by remember { mutableStateOf(false) }
+    if (importKey) { network.hone.app.ui.screens.FindMyScreen(onBack = { importKey = false }); return }
+    if (firstRun) {
+        Scaffold(topBar = { network.hone.app.update.UpdateBanner() }) { inner ->
+            androidx.compose.foundation.layout.Box(Modifier.padding(inner)) {
+                network.hone.app.ui.screens.FirstRunScreen(onDone = { firstRun = false }, onImportKey = { importKey = true })
+            }
+        }
+        return
+    }
+    val tabs = if (simple) listOf(Dest.Birds, Dest.Listen, Dest.Settings) else Dest.entries.filter { it != Dest.Listen }
 
     Scaffold(
         topBar = { network.hone.app.update.UpdateBanner() },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                Dest.entries.forEach { dest ->
+                tabs.forEach { dest ->
                     val selected = current?.hierarchy?.any { it.route == dest.route } == true
                     NavigationBarItem(
                         selected = selected,
@@ -62,14 +79,15 @@ fun HoneApp() {
     ) { inner ->
         NavHost(
             navController = nav,
-            startDestination = Dest.Node.route,
+            startDestination = if (simple) Dest.Birds.route else Dest.Node.route,
             modifier = Modifier.padding(inner),
         ) {
             composable(Dest.Node.route) { NodeScreen() }
             composable(Dest.Wallet.route) { WalletScreen() }
             composable(Dest.Sensors.route) { SensorsScreen() }
             composable(Dest.Birds.route) { BirdsScreen() }
-            composable(Dest.Settings.route) { SettingsScreen() }
+            composable(Dest.Settings.route) { SettingsScreen(simple = simple, onOpen = { nav.navigate(it) }, onSignIn = { firstRun = true }) }
+            composable(Dest.Listen.route) { network.hone.app.ui.screens.ListenScreen() }
         }
     }
 }

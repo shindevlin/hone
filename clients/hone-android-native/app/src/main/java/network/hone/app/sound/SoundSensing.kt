@@ -75,8 +75,8 @@ object SoundSensing {
         Some places restrict recording, even when no voice is kept. You are responsible for checking the law where you use HONE.
     """.trimIndent()
 
-    private const val SPECIES_MIN = 0.50f      // softmax prob to count a species (raised from 0.30, Josh)
-    private const val HUMAN_MAX = 0.05f        // any human class above this drops the frame
+    internal const val SPECIES_MIN = 0.50f      // softmax prob to count a species (raised from 0.30, Josh)
+    internal const val HUMAN_MAX = 0.05f        // any human class above this drops the frame
     private const val FRAMES_PER_BURST = 2     // 10 s of listening …
     private const val BURST_EVERY_MS = 60_000L // … every minute on battery; continuous on power
     private const val WINDOW_MS = 900_000L     // UTC quarter-hours, same as sightings
@@ -308,6 +308,7 @@ object SoundSensing {
             }
             f.appendText(sb.toString())
             network.hone.app.telemetry.Telemetry.birdDetection()
+            for (d in top) network.hone.app.engage.Engagement.onDetection(ctx, d.name, d.atMs, d.conf)
         }
     }
 

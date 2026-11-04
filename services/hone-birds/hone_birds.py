@@ -35,6 +35,7 @@ from nacl.signing import VerifyKey
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hone_devices as devices  # noqa: E402  device status + Flipper frames
+import hone_accounts as accounts  # noqa: E402  app accounts (email sign-in)
 
 DATA = os.environ.get("HONE_BIRDS_DATA", "/var/lib/hone-birds")
 PORT = int(os.environ.get("HONE_BIRDS_PORT", "9460"))
@@ -261,6 +262,12 @@ def verify(body):
 
 
 devices.init(db, lock, posting_key)
+accounts.init(db, lock, devices.bind)
+for col in ("source TEXT", "tier TEXT", "station TEXT"):
+    try:
+        db.execute("ALTER TABLE sightings ADD COLUMN " + col)
+    except sqlite3.OperationalError:
+        pass  # already there
 if os.environ.get("HONE_SEALS", "1") == "1":
     devices.start_seals()
 
@@ -272,6 +279,9 @@ def add_sighting(body):
         raise ValueError("bad cell")
     res = h3.get_resolution(cell)
     sid = str(p["sid"])[:64]
+    source = p.get("source") if p.get("source") in ("phone", "station") else "phone"
+    tier = p.get("tier") if p.get("tier") in ("A", "B", "C") else None
+    station = str(p.get("station", ""))[:16] if re.fullmatch(r"[0-9a-f]{16}", str(p.get("station", ""))) else None
     rows = []
     for i, s in enumerate(p["species"][:20]):
         name = s["name"]
@@ -284,9 +294,20 @@ def add_sighting(body):
             v = 3 if int(s["conf_q8"]) >= RARE_MIN_Q8 else 2
         rows.append((f"{sid}:{i}", int(p["window"]), cell, res, name, int(s["conf_q8"]),
                      int(s.get("frames", 1)), str(p.get("model", ""))[:64],
-                     p["account"], pub, int(time.time()), v, 1 if p.get("show_name") else 0))
+                     p["account"], pub, int(time.time()), v, 1 if p.get("show_name") else 0, source, tier, station))
+    first = []
+    a5 = h3.cell_to_parent(cell, 5) if res > 5 else cell
     with lock:
-        db.executemany("INSERT OR IGNORE INTO sightings VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        for r in rows:
+            if r[11] not in (1, 3, 4):
+                continue
+            prior = db.execute("SELECT cell, res FROM sightings WHERE latin=? AND verified IN (1,3,4) AND account<>? LIMIT 5000",
+                               (r[4], r[8])).fetchall()
+            mine = db.execute("SELECT 1 FROM sightings WHERE latin=? AND account=? LIMIT 1", (r[4], r[8])).fetchone()
+            if not mine and not any((h3.cell_to_parent(c, 5) if rs > 5 else c) == a5 for c, rs in prior):
+                first.append(r[4])
+        db.executemany("INSERT OR IGNORE INTO sightings(sid,window,cell,res,latin,conf_q8,frames,model,account,pub,received,"
+                       "verified,show_name,source,tier,station) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         # A rare report is confirmed (4) when a different account reports the same species
         # in the same res-3 area within 72 h (288 windows).
         for r in rows:
@@ -300,7 +321,7 @@ def add_sighting(body):
             if others:
                 db.executemany("UPDATE sightings SET verified=4 WHERE sid=?", [(o[0],) for o in others] + [(r[0],)])
         db.commit()
-    return {"ok": True, "stored": len(rows)}
+    return {"ok": True, "stored": len(rows), "first_in_area": first}
 
 
 def add_photo(body):
@@ -435,6 +456,9 @@ def public_sighting(r):
     out = {k: r[k] for k in ("window", "cell", "res", "latin", "conf_q8", "frames")}
     out["account"] = r["account"] if r["show_name"] else None   # verified either way; name only on opt-in
     out["rare"] = {3: "unconfirmed", 4: "confirmed"}.get(r["verified"])
+    out["source"] = r.get("source") or "phone"
+    if r.get("tier"):
+        out["tier"] = r["tier"]
     return out
 
 
@@ -465,6 +489,8 @@ class H(BaseHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(n))
             path = urlparse(self.path).path
+            if path.startswith("/api/accounts/"):
+                return self._send(200, self._accounts_post(path, body))
             if path == "/api/devices/status":
                 return self._send(200, devices.post_status(body, n))
             if path == "/api/flipper/frames":
@@ -499,11 +525,45 @@ class H(BaseHTTPRequestHandler):
                     db.commit()
                 return self._send(200, {"ok": True, "accounts": len(keys)})
             return self._send(404, {"error": "not found"})
+        except accounts.AuthError as e:
+            return self._send(401, {"error": str(e)[:200]})
         except PermissionError as e:
             return self._send(429, {"error": str(e)[:200]})
         except Exception as e:
             # Rejects are logged (path + reason only, no IPs) so a silent phone can be told
             # apart from a refused one.
+            sys.stderr.write("REJECT %s: %s\n" % (urlparse(self.path).path, str(e)[:160]))
+            return self._send(400, {"error": str(e)[:200]})
+
+    def _accounts_post(self, path, body):
+        if path == "/api/accounts/signup":
+            return accounts.signup(body)
+        if path == "/api/accounts/login":
+            return accounts.login(body)
+        if path == "/api/accounts/admin/outbox/ack":
+            if not devices.admin(self.headers):
+                raise accounts.AuthError("forbidden")
+            return accounts.ack(body.get("ids") or [])
+        h = accounts.auth(self.headers)
+        if path == "/api/accounts/verify":
+            return accounts.verify(h, body)
+        if path == "/api/accounts/resend":
+            return accounts.resend(h)
+        if path == "/api/accounts/logout":
+            return accounts.logout(self.headers)
+        raise ValueError("not found")
+
+    def do_PUT(self):
+        n = int(self.headers.get("Content-Length", 0))
+        if n <= 0 or n > 512 * 1024:
+            return self._send(413, {"error": "body size"})
+        try:
+            if urlparse(self.path).path != "/api/accounts/me":
+                return self._send(404, {"error": "not found"})
+            return self._send(200, accounts.put_me(accounts.auth(self.headers), json.loads(self.rfile.read(n))))
+        except accounts.AuthError as e:
+            return self._send(401, {"error": str(e)})
+        except Exception as e:
             sys.stderr.write("REJECT %s: %s\n" % (urlparse(self.path).path, str(e)[:160]))
             return self._send(400, {"error": str(e)[:200]})
 
@@ -574,6 +634,18 @@ class H(BaseHTTPRequestHandler):
                 c3, names = species_range(a["cell"])
                 return self._send(200, {"cell": c3, "radius_km": RANGE_KM, "source": "GBIF.org occurrences",
                                         "species": names})
+            if path == "/api/accounts/me":
+                try:
+                    return self._send(200, accounts.me(accounts.auth(self.headers), devices.online))
+                except accounts.AuthError as e:
+                    return self._send(401, {"error": str(e)})
+            if path == "/api/accounts/admin/outbox":
+                if not devices.admin(self.headers):
+                    return self._send(403, {"error": "forbidden"})
+                return self._send(200, accounts.outbox())
+            m = re.match(r"^/api/accounts/ref/([a-z0-9._-]{1,32})$", path)
+            if m:
+                return self._send(200, {"ok": accounts.ref_ok(m.group(1)), "ref": m.group(1)})
             if path == "/api/devices/status" or path.startswith("/api/devices/status/"):
                 out = devices.get_status(path, a, self.headers)
                 return self._send(200, out) if out is not None else self._send(404, {"error": "not found"})
