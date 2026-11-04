@@ -19,6 +19,8 @@ API:
   POST /api/flipper/frames                       signed batch of Flipper-signed commits
   GET  /api/flipper/frames?since=<t_min>&limit=&owner=
   GET  /api/flipper/map?res=5|7
+  POST /api/coverage/summaries                  signed coverage rows (map; any age)
+  GET  /api/coverage/map?res=5|7|9&since=&metric=
   GET  /api/devices/seals/<node id>              sealed epochs today (from finalized sealed_by)
 """
 import hmac, json, os, re, time, urllib.error, urllib.request
@@ -54,6 +56,8 @@ def init(db, lock, posting_key):
     CREATE INDEX IF NOT EXISTS ds_recv ON device_status(received);
     CREATE TABLE IF NOT EXISTS device_latest(account TEXT, device TEXT, received INTEGER, ts INTEGER,
       keytype TEXT, pub TEXT, verified INTEGER, payload TEXT, PRIMARY KEY(account, device));
+    CREATE TABLE IF NOT EXISTS seal_counts(day TEXT, node TEXT, n INTEGER, PRIMARY KEY(day, node));
+    CREATE TABLE IF NOT EXISTS seal_cursor(k TEXT PRIMARY KEY, epoch INTEGER);
     CREATE TABLE IF NOT EXISTS seat_seen(account TEXT, pub TEXT, device TEXT, last INTEGER,
       PRIMARY KEY(account, pub));
     CREATE TABLE IF NOT EXISTS flipper_frames(batch_hash TEXT PRIMARY KEY, sensor_id TEXT, owner TEXT,
@@ -408,3 +412,71 @@ def get_seals(node_id):
     return {"node": node_id, "day": today, "sealed_today": r[0] if r else 0,
             "counted_to_epoch": _seal_state["cursor"], "chain_tip": _seal_state["tip"],
             "source": "sealed_by of finalized epochs"}
+
+
+# ── coverage map (phone public_summary rows, any age; the chain only gets <= 7-day rows) ──
+# POST /api/coverage/summaries  signed {"kind":"coverage","account","device","items":[{cell,window,metrics}]}
+# GET  /api/coverage/map?res=5|7|9[&since=<window>][&metric=<name>]
+METRIC = re.compile(r"^[a-z0-9._:]{1,40}$")
+
+
+def _coverage_table():
+    with _lock:
+        _db.execute("""CREATE TABLE IF NOT EXISTS coverage(cell TEXT, window INTEGER, account TEXT, device TEXT,
+            verified INTEGER, metrics TEXT, received INTEGER, PRIMARY KEY(cell, window, device))""")
+        _db.execute("CREATE INDEX IF NOT EXISTS cov_w ON coverage(window)")
+        _db.commit()
+
+
+def post_coverage(body):
+    _coverage_table()
+    p, ps, keytype, pub, verified = verify_env(body)
+    if p.get("kind") != "coverage":
+        raise ValueError("kind must be coverage")
+    acct, dev = p["account"], str(p.get("device", ""))
+    if not DEV.match(dev):
+        raise ValueError("device must be 16 hex")
+    if _limited("cov:" + dev, 12):
+        raise PermissionError("slow down")
+    items = p.get("items") or []
+    if not isinstance(items, list) or len(items) > 500:
+        raise ValueError("items: list of at most 500")
+    now = int(time.time()); now_w = now // 900
+    rows, bad = [], 0
+    for it in items:
+        try:
+            cell, w, m = it["cell"], int(it["window"]), it["metrics"]
+            if not h3.is_valid_cell(cell) or h3.get_resolution(cell) > 9 or not (now_w - 60 * 96 <= w <= now_w):
+                raise ValueError
+            if not isinstance(m, dict) or len(m) > 32 or not all(METRIC.match(k) and isinstance(v, int) for k, v in m.items()):
+                raise ValueError
+            rows.append((cell, w, acct, dev, verified, json.dumps(m, sort_keys=True), now))
+        except Exception:
+            bad += 1
+    with _lock:
+        _db.executemany("INSERT OR REPLACE INTO coverage VALUES(?,?,?,?,?,?,?)", rows)
+        _db.commit()
+    return {"ok": True, "stored": len(rows), "rejected": bad, "verified": bool(verified)}
+
+
+def get_coverage_map(args):
+    _coverage_table()
+    res = int(args.get("res", 7))
+    if res not in (5, 7, 9):
+        raise ValueError("res must be 5, 7 or 9")
+    metric = args.get("metric")
+    if metric and not METRIC.match(metric):
+        raise ValueError("bad metric")
+    with _lock:
+        rows = _db.execute("SELECT cell, device, verified, metrics FROM coverage WHERE window>=?",
+                           (int(args.get("since", 0)),)).fetchall()
+    agg = {}
+    for cell, dev, ver, mj in rows:
+        c = h3.cell_to_parent(cell, res) if h3.get_resolution(cell) > res else cell
+        e = agg.setdefault(c, {"cell": c, "reports": 0, "verified_reports": 0, "devices": set(), "metric_max": None})
+        e["reports"] += 1; e["verified_reports"] += 1 if ver else 0; e["devices"].add(dev)
+        if metric:
+            v = json.loads(mj).get(metric)
+            if isinstance(v, int) and (e["metric_max"] is None or v > e["metric_max"]):
+                e["metric_max"] = v
+    return [dict(e, devices=len(e["devices"])) for e in agg.values()]

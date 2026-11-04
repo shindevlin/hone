@@ -61,6 +61,25 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
         "SELECT COUNT(*), COALESCE(SUM(queued),0) FROM public_summary", null,
     ).use { c -> c.moveToFirst(); c.getInt(0) to c.getInt(1) }
 
+    /** Rows not yet handled for the chain, oldest first: (cell, window, json). */
+    fun queuedSummaries(limit: Int): List<Triple<String, Long, String>> = readableDatabase.rawQuery(
+        "SELECT cell, window, json FROM public_summary WHERE queued=1 ORDER BY window LIMIT ?", arrayOf(limit.toString()),
+    ).use { c -> buildList { while (c.moveToNext()) add(Triple(c.getString(0), c.getLong(1), c.getString(2))) } }
+
+    /** Chain handling done: submitted_at = accept time (ms), or a negative marker (map only / refused). */
+    fun markSummary(cell: String, window: Long, submittedAt: Long) {
+        writableDatabase.update("public_summary", ContentValues().apply { put("queued", 0); put("submitted_at", submittedAt) },
+            "cell=? AND window=?", arrayOf(cell, window.toString()))
+    }
+
+    /** All rows after [rowid] (for the indexer map): (rowid, cell, window, json). */
+    fun summariesAfter(rowid: Long, limit: Int): List<SummaryRow> = readableDatabase.rawQuery(
+        "SELECT rowid, cell, window, json FROM public_summary WHERE rowid > ? ORDER BY rowid LIMIT ?",
+        arrayOf(rowid.toString(), limit.toString()),
+    ).use { c -> buildList { while (c.moveToNext()) add(SummaryRow(c.getLong(0), c.getString(1), c.getLong(2), c.getString(3))) } }
+
+    data class SummaryRow(val rowid: Long, val cell: String, val window: Long, val json: String)
+
     // ── sightings of other HONE devices (sealed) ────────────────────────────────
     fun putEncSighting(lid: String, window: Long, blob: ByteArray, ts: Long) {
         writableDatabase.insert("enc_sighting", null, ContentValues().apply {

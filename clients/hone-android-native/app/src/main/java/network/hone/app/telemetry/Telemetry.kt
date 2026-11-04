@@ -152,6 +152,9 @@ object Telemetry {
         return ok
     }
 
+    /** Seat key seed for chain entries the seat signs (SENSOR_SUMMARY). Never logged or exported. */
+    fun seatSeedForChain(ctx: Context): ByteArray = seatSeed(ctx)
+
     private fun seatSeed(ctx: Context): ByteArray {
         RoleKeys.devicePub(ctx) // creates the seat key if absent
         return Canonical.unhex(File(ctx.filesDir, "hone-node/witness.key").readText().trim())

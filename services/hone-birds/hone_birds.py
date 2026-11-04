@@ -469,6 +469,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, devices.post_status(body, n))
             if path == "/api/flipper/frames":
                 return self._send(200, devices.post_frames(body))
+            if path == "/api/coverage/summaries":
+                return self._send(200, devices.post_coverage(body))
             if path == "/api/devices/admin/seat-keys":
                 if not devices.admin(self.headers):
                     return self._send(403, {"error": "forbidden"})
@@ -584,6 +586,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, devices.unbound())
             if path == "/api/flipper/frames":
                 return self._send(200, devices.get_frames(a))
+            if path == "/api/coverage/map":
+                return self._send(200, devices.get_coverage_map(a))
             if path == "/api/flipper/map":
                 return self._send(200, devices.get_frames_map(a))
             if path == "/api/birds/health":

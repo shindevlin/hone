@@ -33,6 +33,9 @@ object Cells {
     /** Finest res (<= PRIVATE_RES) whose edge covers [accM]; null if worse than res COARSEST. */
     fun resFor(accM: Float): Int? = (PRIVATE_RES downTo COARSEST).firstOrNull { EDGE_M[it] >= accM }
 
+    fun parent(cell: String, res: Int): String? =
+        runCatching { h3?.cellToParentAddress(cell, res) }.getOrNull()
+
     fun res(cell: String): Int = runCatching { h3?.getResolution(cell) }.getOrNull() ?: -1
 
     /** Hexagon corners as (lat, lng). */

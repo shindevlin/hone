@@ -21,6 +21,7 @@ class StatusWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         val c = applicationContext
         runCatching { DeviceStatus.maybeSend(c) }.onFailure { Telemetry.error(c, "worker status", it) }
         runCatching { BirdsSync.syncNow(c) }.onFailure { Telemetry.error(c, "worker birds", it) }
+        runCatching { CoverageSubmitter.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker coverage", it) }
         runCatching { FlipperPublisher.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker flipper", it) }
         return Result.success()
     }

@@ -98,6 +98,14 @@ def main():
         # 8. sealed-epoch counts endpoint (node unreachable in the test: zero, but well-formed)
         c, r = call("GET", "/api/devices/seals/testacct@" + seat_pub); assert c == 200 and r["sealed_today"] == 0, r
         c, r = call("GET", "/api/devices/seals/Bad%20Id"); assert c == 400, r
+        # 9. coverage map: signed rows, res <= 9, integer metrics only
+        c9 = h3.latlng_to_cell(13.68, -89.24, 9)
+        cb = {"v": 1, "kind": "coverage", "account": "testacct", "device": dev, "ts": now,
+              "items": [{"cell": c9, "window": now // 900 - 800, "metrics": {"wifi.ap_count": 27, "ble.crowd": 4}},
+                        {"cell": h3.latlng_to_cell(13.68, -89.24, 11), "window": now // 900, "metrics": {"x": 1}},
+                        {"cell": c9, "window": now // 900, "metrics": {"wifi.ap_count": 2.5}}]}
+        c, r = call("POST", "/api/coverage/summaries", env(cb, seat, "seat")); assert r["stored"] == 1 and r["rejected"] == 2, r
+        c, r = call("GET", "/api/coverage/map?res=7&metric=wifi.ap_count"); assert r[0]["metric_max"] == 27 and r[0]["devices"] == 1, r
         print("ALL INDEXER TESTS PASSED")
     finally:
         srv.terminate()
