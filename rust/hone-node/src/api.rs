@@ -318,6 +318,7 @@ pub fn router(state: AppState) -> Router {
         // ── Node dashboard ────────────────────────────────────────────────
         .route("/api/node/list", get(get_node_list))
         .route("/api/node/info", get(get_node_info))
+        .route("/api/net/peers", get(get_net_peers))
         .route("/api/node/models", get(get_node_models))
         // Integration manifest — self-updating consumer contract (hone sync --node)
         .route("/api/integration/manifest", get(get_integration_manifest))
@@ -1322,6 +1323,14 @@ async fn get_node_list(State(s): State<AppState>) -> Json<serde_json::Value> {
 }
 
 // GET /api/node/info — node identity and active roles
+/// GET /api/net/peers — connected peers and their signed self-identification
+/// (peer_ident.rs). Unidentified or badly signed peers are listed with verified=false.
+async fn get_net_peers() -> Json<serde_json::Value> {
+    let peers = crate::peer_ident::list();
+    let unverified = peers.iter().filter(|p| !p.verified).count();
+    Json(serde_json::json!({ "count": peers.len(), "unverified": unverified, "peers": peers }))
+}
+
 async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let account  = std::env::var("HONE_ACCOUNT").unwrap_or_default();
     let chain_id = std::env::var("HONE_CHAIN_ID").unwrap_or_else(|_| "hone".to_owned());

@@ -254,10 +254,18 @@ impl Network {
                 );
                 kademlia.set_mode(Some(kad::Mode::Server));
 
+                let mut roles = Vec::new();
+                if self.config.is_clock { roles.push("clock".to_string()); }
+                if self.config.is_miner { roles.push("miner".to_string()); }
+                if matches!(std::env::var("DECIDE_JURY_SHADOW").as_deref(), Ok("1") | Ok("true")) {
+                    roles.push("decide".to_string());
+                }
+                let agent = crate::peer_ident::agent_version(
+                    &key.public().to_peer_id().to_string(), &self.config.account, roles);
                 let identify = identify::Behaviour::new(identify::Config::new(
                     "/hone/1.0.0".to_string(),
                     key.public(),
-                ));
+                ).with_agent_version(agent));
 
                 let ping = ping::Behaviour::new(
                     ping::Config::new()
@@ -473,12 +481,14 @@ impl Network {
             }
 
             // Peer lifecycle
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+            SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                 info!("Peer connected: {}", peer_id);
+                crate::peer_ident::connected(&peer_id.to_string(), &endpoint.get_remote_address().to_string());
                 self.emit(NetworkEvent::PeerConnected { peer_id: peer_id.to_string() });
             }
-            SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
+            SwarmEvent::ConnectionClosed { peer_id, cause, num_established, .. } => {
                 debug!("Peer disconnected: {} ({:?})", peer_id, cause);
+                if num_established == 0 { crate::peer_ident::disconnected(&peer_id.to_string()); }
                 self.emit(NetworkEvent::PeerDisconnected { peer_id: peer_id.to_string() });
             }
 
@@ -493,6 +503,12 @@ impl Network {
             SwarmEvent::Behaviour(HoneBehaviourEvent::Identify(
                 identify::Event::Received { peer_id, info, .. }
             )) => {
+                let pid = peer_id.to_string();
+                let v = crate::peer_ident::verify(&pid, &info.agent_version,
+                    |a| crate::peer_ident::chain_keys(&self.store, a));
+                if let Some(line) = crate::peer_ident::identified(&pid, &info.agent_version, v) {
+                    info!("{}", line);
+                }
                 let cache_entry = peer_cache
                     .entry(peer_id.to_string())
                     .or_default();

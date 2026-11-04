@@ -42,6 +42,7 @@ mod chain;
 mod clock;
 mod config;
 mod mem_profile;
+mod peer_ident;
 mod inference_sidecar;
 mod state_audit;
 mod state_correct;

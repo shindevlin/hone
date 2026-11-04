@@ -39,6 +39,12 @@ pub fn sign(entry: &LedgerEntry, chain_id: &str) -> Option<String> {
     Some(hex::encode(sk.sign(msg.as_bytes()).to_bytes()))
 }
 
+/// Sign raw bytes with the node's posting key (peer self-identification; not an entry).
+pub fn sign_bytes(msg: &[u8]) -> Option<String> {
+    use ed25519_dalek::Signer;
+    Some(hex::encode(SIGNER.get()?.sign(msg).to_bytes()))
+}
+
 /// Gossip envelope carrying the signature, the shape the receive path expects.
 pub fn envelope(entry: &LedgerEntry, sig: Option<&str>) -> Option<Vec<u8>> {
     let mut v = serde_json::json!({ "entry": entry });
