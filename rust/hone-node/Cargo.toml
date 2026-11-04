@@ -51,6 +51,8 @@ everscale-types = { version = "0.1", default-features = false, features = ["sync
 libp2p = { version = "0.57", features = [
     "tcp", "quic", "noise", "yamux", "websocket", "dns",
     "gossipsub", "kad", "identify", "ping", "macros", "tokio", "mdns",
+    # NAT traversal: circuit relay v2 (client + optional server), AutoNAT, hole punching, UPnP.
+    "relay", "dcutr", "autonat", "upnp",
 ] }
 # Optional: Matrix alt-transport (Phase-5 transport cascade). Off by default —
 # matrix-sdk 0.17 forces rustc >=1.93, which currently triggers a rustc ICE on

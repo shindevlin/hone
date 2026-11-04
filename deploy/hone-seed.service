@@ -1,0 +1,26 @@
+[Unit]
+Description=HONE public seed / relay node (non-clock)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hone
+WorkingDirectory=/var/lib/hone/node
+EnvironmentFile=/var/lib/hone/node/env
+# Pin the binary: replace SHA256 with the sha256 of /opt/hone-node/hone-node.
+ExecStartPre=/bin/sh -c 'echo "SHA256  /opt/hone-node/hone-node" | sha256sum -c --quiet -'
+ExecStart=/opt/hone-node/hone-node
+StandardOutput=append:/var/lib/hone/node/run.log
+StandardError=append:/var/lib/hone/node/run.log
+Restart=always
+RestartSec=10
+MemoryHigh=450M
+MemoryMax=550M
+OOMScoreAdjust=500
+LimitNOFILE=65536
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -4,9 +4,17 @@ use hone_types::{AccountId, MAINNET_CHAIN_ID};
 
 /// Cloudflare DNS seeds — update the A record when a machine changes, no code change needed.
 /// Add more entries here as the network grows.
+/// Public seeds every non-isolated node dials, appended to HONE_BOOTSTRAP_PEERS.
+/// `/dnsaddr/bootstrap.honemesh.net` reads `_dnsaddr.bootstrap.honemesh.net` TXT records
+/// (libp2p dnsaddr), so seeds are added or removed in DNS with no release. The /dns4 line
+/// is the ferryvps seed itself, so a node finds the mesh even before the TXT seed exists.
+/// HONE_NO_DEFAULT_BOOTSTRAP=1 drops them (lab / private test networks).
 pub const DEFAULT_BOOTSTRAP_PEERS: &[&str] = &[
-    "/dns4/bootstrap1.honemesh.net/tcp/6942",
-    "/dns4/bootstrap2.honemesh.net/tcp/6942",
+    "/dnsaddr/bootstrap.honemesh.net",
+    // QUIC first: a UDP connection to the seed gives the node its real UDP mapping, the
+    // most reliable hole punch. TCP is the fallback where UDP is blocked.
+    "/dns4/honemesh.net/udp/6942/quic-v1/p2p/12D3KooWQnJPfAYbktWXv1zFoGCQAz4v7qWthLTdrD7ey5JPDCUt",
+    "/dns4/honemesh.net/tcp/6942/p2p/12D3KooWQnJPfAYbktWXv1zFoGCQAz4v7qWthLTdrD7ey5JPDCUt",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,15 +76,8 @@ impl Config {
                 .ok().and_then(|s| s.parse().ok()).unwrap_or(6942),
             bootstrap_peers: {
                 let raw = std::env::var("HONE_BOOTSTRAP_PEERS").unwrap_or_default();
-                let peers: Vec<String> = if raw.trim().is_empty() {
-                    // Isolated mode dials nothing by default — no public seed fallback, so
-                    // the node stays confined to explicitly-listed peers. Otherwise fall
-                    // back to the Cloudflare DNS seeds (updated via DNS A record).
-                    if isolated {
-                        Vec::new()
-                    } else {
-                        DEFAULT_BOOTSTRAP_PEERS.iter().map(|s| s.to_string()).collect()
-                    }
+                let mut peers: Vec<String> = if raw.trim().is_empty() {
+                    Vec::new()
                 } else {
                     raw.split(',')
                         .filter(|s| !s.is_empty())
@@ -92,6 +93,14 @@ impl Config {
                         })
                         .collect()
                 };
+                // Isolated mode dials only the listed peers. Every other node always
+                // appends the public seeds, so it finds the mesh from anywhere.
+                let no_default = matches!(std::env::var("HONE_NO_DEFAULT_BOOTSTRAP").as_deref(), Ok("1") | Ok("true"));
+                if !isolated && !no_default {
+                    for d in DEFAULT_BOOTSTRAP_PEERS {
+                        if !peers.iter().any(|p| p == d) { peers.push(d.to_string()); }
+                    }
+                }
                 peers
             },
             is_miner: std::env::var("HONE_MINER")

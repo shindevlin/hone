@@ -21,10 +21,11 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use libp2p::futures::StreamExt;
 use libp2p::{
-    gossipsub, identify, kad, mdns,
+    autonat, core::ConnectedPoint, dcutr, gossipsub, identify, kad, mdns, relay, upnp,
     kad::store::MemoryStore,
+    multiaddr::Protocol,
     noise, ping,
-    swarm::{dial_opts::{DialOpts, PeerCondition}, NetworkBehaviour, SwarmEvent},
+    swarm::{behaviour::toggle::Toggle, dial_opts::{DialOpts, PeerCondition}, NetworkBehaviour, SwarmEvent},
     tcp, yamux, Multiaddr, PeerId, SwarmBuilder,
 };
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
@@ -100,6 +101,48 @@ struct HoneBehaviour {
     identify:  identify::Behaviour,
     ping:      ping::Behaviour,
     mdns:      mdns::tokio::Behaviour,
+    // NAT traversal (networking only; no consensus effect).
+    relay_client: relay::client::Behaviour,
+    /// Circuit relay v2 server, only with HONE_RELAY_SERVER=1 (public seeds).
+    relay_server: Toggle<relay::Behaviour>,
+    dcutr:     dcutr::Behaviour,
+    autonat:   autonat::Behaviour,
+    /// UPnP-IGD port mapping on the home router; HONE_UPNP=0 turns it off.
+    upnp:      Toggle<upnp::tokio::Behaviour>,
+}
+
+fn env_on(k: &str) -> bool { matches!(std::env::var(k).as_deref(), Ok("1") | Ok("true")) }
+fn env_off(k: &str) -> bool { matches!(std::env::var(k).as_deref(), Ok("0") | Ok("false")) }
+
+/// NAT-traversal state kept by the swarm task.
+#[derive(Default)]
+struct NatState {
+    /// AutoNAT says our address is publicly reachable.
+    public: bool,
+    /// Relays we hold (or are requesting) a reservation on.
+    reserved: HashSet<PeerId>,
+    /// The address we dialed each outbound peer on (used as its relay address).
+    dialed: HashMap<PeerId, Multiaddr>,
+    /// LAN peers seen by mDNS: peer -> one dialable address.
+    lan: HashMap<PeerId, Multiaddr>,
+    /// Relays we hold a reservation on: relay -> its circuit base address
+    /// (`.../p2p/<relay>/p2p-circuit`). Peers reserved on the same relay are reachable as
+    /// `<base>/p2p/<peer>`, which is how two NAT'd nodes behind one seed first meet.
+    relays: HashMap<PeerId, Multiaddr>,
+}
+
+/// Loopback / unspecified addresses are never useful to another host.
+fn is_local_only(a: &Multiaddr) -> bool {
+    a.iter().any(|p| match p {
+        Protocol::Ip4(ip) => ip.is_loopback() || ip.is_unspecified(),
+        Protocol::Ip6(ip) => ip.is_loopback() || ip.is_unspecified(),
+        _ => false,
+    })
+}
+
+/// `addr` ends with /p2p/<id>; append it if missing.
+fn with_peer(addr: &Multiaddr, id: PeerId) -> Multiaddr {
+    if addr.iter().any(|p| matches!(p, Protocol::P2p(_))) { addr.clone() } else { addr.clone().with(Protocol::P2p(id)) }
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +266,8 @@ impl Network {
                 yamux::Config::default,
             )
             .await?
-            .with_behaviour(|key| {
+            .with_relay_client(noise::Config::new, yamux::Config::default)?
+            .with_behaviour(|key, relay_client| {
                 // Gossipsub — content-hash message dedup
                 let msg_id_fn = |msg: &gossipsub::Message| {
                     let mut h = DefaultHasher::new();
@@ -265,7 +309,7 @@ impl Network {
                 let identify = identify::Behaviour::new(identify::Config::new(
                     "/hone/1.0.0".to_string(),
                     key.public(),
-                ).with_agent_version(agent));
+                ).with_agent_version(agent).with_push_listen_addr_updates(true));
 
                 let ping = ping::Behaviour::new(
                     ping::Config::new()
@@ -278,7 +322,34 @@ impl Network {
                     key.public().to_peer_id(),
                 ).map_err(|e| anyhow::anyhow!("mDNS init failed: {}", e))?;
 
-                Ok(HoneBehaviour { gossipsub, kademlia, identify, ping, mdns })
+                let pid = key.public().to_peer_id();
+                // Relay server: small limits for a small VPS. Circuits coordinate a direct
+                // (DCUtR) upgrade; gossip between NAT'd nodes otherwise flows through the
+                // seed's own gossipsub.
+                let relay_server = env_on("HONE_RELAY_SERVER").then(|| relay::Behaviour::new(pid, relay::Config {
+                    max_reservations: 64,
+                    max_reservations_per_peer: 2,
+                    reservation_duration: Duration::from_secs(3600),
+                    max_circuits: 16,
+                    max_circuits_per_peer: 2,
+                    max_circuit_duration: Duration::from_secs(300),
+                    max_circuit_bytes: 4 << 20,
+                    ..Default::default()
+                }));
+                let autonat = autonat::Behaviour::new(pid, autonat::Config {
+                    // Lab networks use private addresses; production keeps global-only.
+                    only_global_ips: !env_on("HONE_AUTONAT_ALLOW_PRIVATE"),
+                    ..Default::default()
+                });
+                let upnp = (!env_off("HONE_UPNP") && !self.config.isolated).then(upnp::tokio::Behaviour::default);
+                Ok(HoneBehaviour {
+                    gossipsub, kademlia, identify, ping, mdns,
+                    relay_client,
+                    relay_server: Toggle::from(relay_server),
+                    dcutr: dcutr::Behaviour::new(pid),
+                    autonat,
+                    upnp: Toggle::from(upnp),
+                })
             })?
             .with_swarm_config(|cfg| {
                 cfg.with_idle_connection_timeout(Duration::from_secs(60))
@@ -335,9 +406,40 @@ impl Network {
             warn!("QUIC listener failed (UDP/{} unavailable): {}", quic_port, e);
         }
 
+        // HONE_EXTERNAL_ADDRS: addresses this node is known to be reachable on (a public
+        // seed sets its own IP / DNS name); advertised via identify and in relay reservations.
+        for a in std::env::var("HONE_EXTERNAL_ADDRS").unwrap_or_default().split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            match a.parse::<Multiaddr>() {
+                Ok(m) => { info!("external address {}", m); swarm.add_external_address(m); }
+                Err(e) => warn!("HONE_EXTERNAL_ADDRS '{}': {}", a, e),
+            }
+        }
+
         // ------------------------------------------------------------------
         // 5. Load stored peers + run discovery, then dial all
         // ------------------------------------------------------------------
+
+        // In-memory peer cache: peer_id_str → listen addrs.
+        // Populated by Identify events; flushed to RocksDB every 5 minutes.
+        let mut peer_cache: HashMap<String, Vec<Multiaddr>> = HashMap::new();
+        let mut nat = NatState::default();
+
+        // Let the listeners bind before the first dials: an outbound TCP dial then reuses
+        // the listen port, so the NAT mapping a peer observes (and DCUtR punches to) is the
+        // real one rather than an ephemeral port. Bounded at 2 s.
+        {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            let mut bound = 0usize;
+            while bound < 2 {
+                tokio::select! {
+                    ev = swarm.select_next_some() => {
+                        if matches!(ev, SwarmEvent::NewListenAddr { .. }) { bound += 1; }
+                        self.handle_swarm_event(ev, &mut swarm, &mut peer_cache, &mut nat);
+                    }
+                    _ = tokio::time::sleep_until(deadline) => break,
+                }
+            }
+        }
 
         // Layer 1: peers from RocksDB peer store (instant, no network).
         let stored_peers = load_peer_store(&self.store);
@@ -377,6 +479,11 @@ impl Network {
             match addr_str.parse::<Multiaddr>() {
                 Ok(addr) => {
                     info!("Dialing bootstrap peer: {}", addr);
+                    // Known to Kademlia too, so peer fill retries the seed's other
+                    // addresses (e.g. TCP when UDP/QUIC is blocked) if this dial fails.
+                    if let Some(Protocol::P2p(id)) = addr.iter().last() {
+                        swarm.behaviour_mut().kademlia.add_address(&id, addr.clone());
+                    }
                     dial_once(&mut swarm, addr);
                 }
                 Err(e) => warn!("Invalid bootstrap addr '{}': {}", addr_str, e),
@@ -427,10 +534,11 @@ impl Network {
         gossip_watch.tick().await;
         let mut gossip_strikes: HashMap<PeerId, u8> = HashMap::new();
         let mut gossip_redial: HashSet<PeerId> = HashSet::new();
+        // Peer fill: dial peers Kademlia knows (direct or relay-circuit addresses) so NAT'd
+        // nodes meet and DCUtR can upgrade; also redial mDNS LAN peers not connected.
+        let mut peer_fill = tokio::time::interval(Duration::from_secs(30));
+        peer_fill.tick().await;
 
-        // In-memory peer cache: peer_id_str → listen addrs.
-        // Populated by Identify events; flushed to RocksDB every 5 minutes.
-        let mut peer_cache: HashMap<String, Vec<Multiaddr>> = HashMap::new();
 
         // ------------------------------------------------------------------
         // 7. Event loop
@@ -438,7 +546,7 @@ impl Network {
         loop {
             tokio::select! {
                 event = swarm.select_next_some() => {
-                    self.handle_swarm_event(event, &mut swarm, &mut peer_cache);
+                    self.handle_swarm_event(event, &mut swarm, &mut peer_cache, &mut nat);
                 }
                 Some(cmd) = self.cmd_rx.recv() => {
                     self.handle_cmd(cmd, &mut swarm,
@@ -452,6 +560,9 @@ impl Network {
                             debug!("Kademlia re-bootstrap: {}", e);
                         }
                     }
+                }
+                _ = peer_fill.tick() => {
+                    peer_fill_tick(&mut swarm, &nat);
                 }
                 _ = gossip_watch.tick() => {
                     gossip_watchdog(&mut swarm, &peer_cache, &mut gossip_strikes, &mut gossip_redial);
@@ -473,6 +584,7 @@ impl Network {
         event: SwarmEvent<HoneBehaviourEvent>,
         swarm: &mut libp2p::Swarm<HoneBehaviour>,
         peer_cache: &mut HashMap<String, Vec<Multiaddr>>,
+        nat: &mut NatState,
     ) {
         match event {
             // Listeners
@@ -482,7 +594,11 @@ impl Network {
 
             // Peer lifecycle
             SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
-                info!("Peer connected: {}", peer_id);
+                let relayed = endpoint.get_remote_address().iter().any(|p| matches!(p, Protocol::P2pCircuit));
+                info!("Peer connected: {}{}", peer_id, if relayed { " (relayed)" } else { "" });
+                if let ConnectedPoint::Dialer { address, .. } = &endpoint {
+                    if !relayed { nat.dialed.insert(peer_id, address.clone()); }
+                }
                 crate::peer_ident::connected(&peer_id.to_string(), &endpoint.get_remote_address().to_string());
                 self.emit(NetworkEvent::PeerConnected { peer_id: peer_id.to_string() });
             }
@@ -512,7 +628,7 @@ impl Network {
                 let cache_entry = peer_cache
                     .entry(peer_id.to_string())
                     .or_default();
-                for addr in &info.listen_addrs {
+                for addr in info.listen_addrs.iter().filter(|a| !is_local_only(a)) {
                     swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                     if !cache_entry.contains(addr) {
                         cache_entry.push(addr.clone());
@@ -523,6 +639,68 @@ impl Network {
                     .find_map(|a| multiaddr_to_http(a))
                 {
                     self.peer_http_cache.lock().insert(peer_id.to_string(), http_url);
+                }
+                // A peer offering circuit relay v2: unless we are publicly reachable (or a
+                // relay ourselves), reserve a slot on it so NAT'd peers can reach us and
+                // DCUtR can punch a direct connection. At most 2 relays.
+                let is_relay = info.protocols.iter().any(|p| *p == relay::HOP_PROTOCOL_NAME);
+                if is_relay && !nat.public && !env_on("HONE_RELAY_SERVER")
+                    && !nat.reserved.contains(&peer_id) && nat.reserved.len() < 2
+                {
+                    if let Some(a) = nat.dialed.get(&peer_id) {
+                        let circuit = with_peer(a, peer_id).with(Protocol::P2pCircuit);
+                        match swarm.listen_on(circuit.clone()) {
+                            Ok(_) => {
+                                info!("relay: requesting reservation on {}", circuit);
+                                nat.reserved.insert(peer_id);
+                                nat.relays.insert(peer_id, circuit);
+                            }
+                            Err(e) => warn!("relay: listen on {} failed: {}", circuit, e),
+                        }
+                    }
+                }
+            }
+
+            SwarmEvent::Behaviour(HoneBehaviourEvent::RelayClient(e)) => match e {
+                relay::client::Event::ReservationReqAccepted { relay_peer_id, renewal, .. } => {
+                    if !renewal { info!("relay: reservation accepted by {}", relay_peer_id); }
+                }
+                other => debug!("relay client: {:?}", other),
+            },
+            SwarmEvent::Behaviour(HoneBehaviourEvent::RelayServer(e)) => match e {
+                relay::Event::ReservationReqAccepted { src_peer_id, renewed, .. } if !renewed =>
+                    info!("relay server: reservation for {}", src_peer_id),
+                relay::Event::CircuitReqAccepted { src_peer_id, dst_peer_id } =>
+                    info!("relay server: circuit {} -> {}", src_peer_id, dst_peer_id),
+                other => debug!("relay server: {:?}", other),
+            },
+            SwarmEvent::Behaviour(HoneBehaviourEvent::Dcutr(e)) => match &e.result {
+                Ok(_) => info!("dcutr: direct connection to {} (hole punch ok)", e.remote_peer_id),
+                Err(err) => info!("dcutr: hole punch to {} failed, staying relayed: {}", e.remote_peer_id, err),
+            },
+            SwarmEvent::Behaviour(HoneBehaviourEvent::Autonat(autonat::Event::StatusChanged { old, new })) => {
+                info!("autonat: {:?} -> {:?}", old, new);
+                nat.public = matches!(new, autonat::NatStatus::Public(_));
+            }
+            SwarmEvent::Behaviour(HoneBehaviourEvent::Upnp(e)) => match e {
+                e @ upnp::Event::NewExternalAddr { .. } => info!("upnp: {:?}", e),
+                other => debug!("upnp: {:?}", other),
+            },
+            SwarmEvent::ExternalAddrConfirmed { address } => {
+                info!("external address confirmed: {}", address);
+            }
+            SwarmEvent::ListenerClosed { addresses, .. }
+                if addresses.iter().any(|a| a.iter().any(|p| matches!(p, Protocol::P2pCircuit))) =>
+            {
+                // Reservation lost (relay restarted / went away): allow a new one.
+                for a in &addresses {
+                    let relay_id = a.iter().take_while(|p| !matches!(p, Protocol::P2pCircuit))
+                        .filter_map(|p| if let Protocol::P2p(id) = p { Some(id) } else { None }).last();
+                    if let Some(id) = relay_id {
+                        nat.reserved.remove(&id);
+                        nat.relays.remove(&id);
+                        info!("relay: reservation on {} closed", id);
+                    }
                 }
             }
 
@@ -556,13 +734,26 @@ impl Network {
                 if self.config.isolated {
                     debug!("[isolated] ignoring {} mDNS-discovered peer(s)", peers.len());
                 } else {
+                    let mut best: HashMap<PeerId, Multiaddr> = HashMap::new();
                     for (peer_id, addr) in peers {
                         info!("mDNS: discovered {} at {}", peer_id, addr);
                         swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                        let plain_tcp = addr.iter().any(|p| matches!(p, Protocol::Tcp(_)))
+                            && !addr.iter().any(|p| matches!(p, Protocol::Ws(_) | Protocol::Wss(_)));
+                        if plain_tcp || !best.contains_key(&peer_id) { best.insert(peer_id, addr); }
+                    }
+                    // One dial per peer on its LAN TCP address, with `Disconnected` rather
+                    // than `DisconnectedAndNotDialing`: a hung dial to another address of the
+                    // same peer (stale tailscale / WAN) must not block the LAN dial. That left
+                    // grouchly and beastly unlinked on 2026-11-04.
+                    for (peer_id, addr) in best {
+                        nat.lan.insert(peer_id, addr.clone());
+                        if swarm.is_connected(&peer_id) { continue; }
+                        info!("mDNS: dialing {} at {}", peer_id, addr);
                         let _ = swarm.dial(
                             DialOpts::peer_id(peer_id)
                                 .addresses(vec![addr])
-                                .condition(PeerCondition::DisconnectedAndNotDialing)
+                                .condition(PeerCondition::Disconnected)
                                 .build(),
                         );
                     }
@@ -572,6 +763,7 @@ impl Network {
                 mdns::Event::Expired(peers)
             )) => {
                 for (peer_id, _addr) in peers {
+                    nat.lan.remove(&peer_id);
                     if !swarm.is_connected(&peer_id) {
                         swarm.behaviour_mut().kademlia.remove_peer(&peer_id);
                     }
@@ -850,6 +1042,45 @@ fn dial_once(swarm: &mut libp2p::Swarm<HoneBehaviour>, addr: Multiaddr) {
         ),
         None => swarm.dial(addr),
     };
+}
+
+/// Every 30 s: redial mDNS LAN peers that are not connected, and dial up to 4
+/// Kademlia-known peers we are not connected to (their addresses may be relay circuit
+/// addresses), up to 24 connections. Two NAT'd nodes that share only a seed meet this
+/// way, and DCUtR then upgrades the relayed link to a direct one when it can.
+fn peer_fill_tick(swarm: &mut libp2p::Swarm<HoneBehaviour>, nat: &NatState) {
+    for (pid, addr) in &nat.lan {
+        if !swarm.is_connected(pid) {
+            debug!("peer fill: LAN redial {}", pid);
+            let _ = swarm.dial(DialOpts::peer_id(*pid).addresses(vec![addr.clone()])
+                .condition(PeerCondition::Disconnected).build());
+        }
+    }
+    if swarm.connected_peers().count() >= 24 { return; }
+    let me = *swarm.local_peer_id();
+    let mut todo: Vec<(PeerId, Vec<Multiaddr>)> = Vec::new();
+    for bucket in swarm.behaviour_mut().kademlia.kbuckets() {
+        for e in bucket.iter() {
+            let pid = *e.node.key.preimage();
+            if pid != me { todo.push((pid, e.node.value.iter().cloned().collect())); }
+        }
+    }
+    let mut n = 0;
+    for (pid, addrs) in todo {
+        if n >= 4 { break; }
+        if swarm.is_connected(&pid) || nat.relays.contains_key(&pid) { continue; }
+        let mut addrs: Vec<Multiaddr> = addrs.into_iter().filter(|a| !is_local_only(a)).collect();
+        // Also try it through every relay we are reserved on (it likely shares the seed).
+        for base in nat.relays.values() {
+            let c = base.clone().with(Protocol::P2p(pid));
+            if !addrs.contains(&c) { addrs.push(c); }
+        }
+        if addrs.is_empty() { continue; }
+        info!("peer fill: dialing {} ({} address(es))", pid, addrs.len());
+        let _ = swarm.dial(DialOpts::peer_id(pid).addresses(addrs)
+            .condition(PeerCondition::DisconnectedAndNotDialing).build());
+        n += 1;
+    }
 }
 
 /// Peers gossipsub knows no topics for after two checks (20-40 s) are disconnected
