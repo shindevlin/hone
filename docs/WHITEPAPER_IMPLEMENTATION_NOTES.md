@@ -1,5 +1,70 @@
 # HONE Whitepaper Implementation Notes
 
+## 2026-11-04: white paper v2.0 rewrite, docs vs code discrepancies
+
+What I checked: `docs/HONE_WHITEPAPER.md` v1.1 (July 2026), the old `HONE_WHITEPAPER.pdf`, and
+`docs/index.html`. I compared them against `v2.1-live-identity` at 4ed83bf2 (`rust/hone-node`,
+`crates/hone-types`), the uncommitted working tree on grouchly (branch `net-nat`),
+`CHAIN_AGENT_PROGRESS.md`, `docs/spec-sightings-coverage-rewards.md`, hone-sound
+`android/sound-sensing` (SIGHTINGS.md, APP_AGENT_PROGRESS.md), hone-firmware `hone`
+(SIGHTINGS.md), hone-decide (JURY.md), and the live honemesh.net (Caddyfile, endpoints, DNS).
+
+Rule applied: where docs and code disagreed, the code won. The v2.0 paper describes the
+code and labels each mechanism live, gated or planned.
+
+| # | Topic | Docs said | Code / reality | Resolution |
+|---|---|---|---|---|
+| 1 | Inference | v1.1: inference runs in-process (candle) so verifiers can re-run it | f767c022: the node never loads a model in-process; `hone-node inference-serve` sidecar or any Ollama/OpenAI-compatible server at `INFERENCE_URL`; a light node never runs a model | Paper describes the sidecar. In-process determinism claim removed |
+| 2 | Model registry | `ModelManifestPublish` / `ModelUsageAttest` described as live chain primitives | No such ledger entries | Marked planned |
+| 3 | Bitcoin oracle | `BtcHeightReport` entries with validity rules | Only comments in `emission.rs`; no entry variant | Marked planned; compile-time projection is used |
+| 4 | Wiiv | Native ledger entries from genesis | `rust/wiiv` holds types and the state machine only, "no chain wiring yet" | Marked planned; reserved accounts noted |
+| 5 | Typed addresses | `hh1…` bech32 addresses, rejected at parse time | No `hh` HRP in the node; bech32 only for the Cosmos-style external wallet | Marked planned |
+| 6 | Peer discovery | `bootstrap1/2.honemesh.net`, `_hone._udp.honemesh.net` TXT | None of these names resolve (checked against 1.1.1.1). Public node `/dns4/honemesh.net/tcp/6942` is in node env configs and the app (hone-sound 31121b1e, 7b0237e5). Code default `/dnsaddr/bootstrap.honemesh.net` + VPS is uncommitted on `net-nat` | Public-first: live via configs. DNS seed: planned. Old names dropped |
+| 7 | NAT traversal | Not covered | libp2p `relay`, `dcutr`, `autonat`, `upnp` features are uncommitted on `net-nat` | Marked planned / in development |
+| 8 | `MAX_PEERS = 50` | Stated | Not found in node code | Removed |
+| 9 | Links | Explorer `scan.honemesh.net`, Telegram `@honebot` | scan.honemesh.net has no DNS record; the Telegram bot is unverified | Removed from the paper's links. The website still lists the Telegram bot; not changed |
+| 10 | Role keys | Brief listed five (owner, active, posting, memo, hide) | `wallet.rs` derives six, including `seek` | Paper keeps all six |
+| 11 | Key display | "Seed phrase displayed once and never stored" (contradicts the keystore section) | Recoverable keystore is mandatory | Contradiction removed |
+| 12 | Sensor rewards | Baseline per reading plus purchase premium | Volume `sensor_score(reading_count)` still pays. `USEFULNESS_SCORING_EPOCH = u64::MAX` (352,700 withdrawn, 878c8aa8). `USEFULNESS_PAYOUT_EPOCH = u64::MAX`. Deferred claim: corroboration or `CLAIM_WINDOW_EPOCHS = 2880`. `MAX_CLAIM_AGE_S` = 7 days. NOVEL 100, VERIFY 1 | Paper describes the gated usefulness model and states that volume scoring is live until activation |
+| 13 | Decide stake | Spec: 100 HONE per voting device | `NodeRoleStake` accepts any amount > 0; `decide_nodes()` counts any non-zero stake | Paper: "intended, not enforced yet". Enforcement is a code TODO |
+| 14 | decide_jury.rs comment | `decide_nodes` doc says "device seats excluded" | The body includes device seats (by design from 352,440) | Code wins. Stale comment flagged for the chain agent |
+| 15 | Identity NFT | `IDENTITY_NFT_ACTIVATION_EPOCH = 333_333` commented "PLACEHOLDER / PROPOSED" | The epoch has passed, and the 352,000 migration created 1,162 `NameNft`s | Treated as live. Stale comment flagged |
+| 16 | Hardware tiers | Implied attested tiers | Tier from `HONE_HW_TIER` env, weights 1/4/8/16/32, no attestation | Paper says self-declared; attestation planned |
+| 17 | Reserved names | Website: "420 reserved names at genesis" | 1,162 names migrated at 352,000 (CHAIN_AGENT_PROGRESS) | Website updated |
+| 18 | Website security cards | "Four-key hierarchy", "72-hour recovery" time-lock | Six role keys; no 72-hour recovery found. Recovery is identity-NFT guardian recovery to a pinned destination | Website cards rewritten |
+| 19 | PDF | The PDF should match the .md | The old PDF was "BTCPC v0.3, March 2026" (pandoc/xelatex), never rebuilt from v1.1 | Rebuilt from v2.0 with pandoc + xelatex |
+| 20 | Licence | Brief: keep UFL references as in the current doc | v1.1 had no UFL reference. Repo `LICENSE` says "UFL Version 1.1"; the project notes say Hone is adopting UFL 3.4 (Operational Scope: Decentralized) | Added a version-less pointer to `LICENSE`. `LICENSE` itself was not touched and needs the owner's update |
+| 21 | Device status | Brief: signed status every 15 min (planned) | `DeviceStatus.kt` exists but is uncommitted in hone-sound; `POST /api/devices/status` returns 404 | Planned, with the 15-minute cadence stated |
+| 22 | Healer | Deterministic cursor | 9be59e7b (E−21) is merged on the branch but not deployed | "merged, not deployed" |
+| 23 | Speech removal | Spec: verifiable removal, public test missing under 1% | The app drops any frame where Perch sees a human class; the public test is not built | Live (drop-frame), with verifiable test planned before mic data earns |
+| 24 | Find-My on phones | SIGHTINGS.md: "no hide key on phones" | hone-sound 36ea6958 restored hide-key import (owner's choice); importing hide clears a hardware grant. `FIND_GRANT_EPOCH = u64::MAX` | Paper states both: grants gated; hide import is the interim option |
+| 25 | Genesis accounts | "17 founding accounts" | `genesis-required-accounts.txt` has 32 lines | Count removed |
+| 26 | Pools | April notes: fixed 55/10/5/12/8/10 split | Rust emission: dynamic pools, `LAYER_A_POOL_COUNT = 9` | Paper lists the pools without fixed percentages |
+| 27 | Site source | Brief: is `docs/index.html` the source? | No. `docs/index.html` is a docsify shell. honemesh.net serves `/opt/hone-site/website` on ferryvps, a sparse clone of `shindevlin/hone` **main** `website/` | Live files edited in place (see the website section below) |
+| 28 | `/app/` | Expected 200 | 404 (no index file); `HEAD /api/birds/health` returns 501 (GET returns 200) | Added `/var/www/hone-app/index.html`. Caddy unchanged |
+
+Not reviewed directly: the Hone project docs (`claude/hone-*.md`). This session had no Projects tool. I used the repo copy of the sightings spec and the code. Where the decide-jury, birds, identity, hardware-tiers, passage, ledger-split, flipper and ops docs add detail beyond the code, someone with project access should cross-check the paper against them. The Passage vertical is not covered in the paper.
+
+### Website (honemesh.net) changes, 2026-11-04
+
+- Backup: `/root/hone-site-backup-20261104-<time>/` on ferryvps (copy of `website/index.html` and `/var/www/hone-app` listing).
+- `website/index.html`:
+  - hero buttons for the white paper and the app;
+  - a new "What runs today" status section;
+  - phone role and sensor text updated (usefulness rewards gated);
+  - reward box sensor line;
+  - security cards (six role keys, name NFTs with recovery, private by design);
+  - 420 changed to 1,162 names;
+  - APK links pointed to `/app/hone-latest.apk`;
+  - white paper link in the footer.
+- `website/HONE_WHITEPAPER.pdf`: new file.
+- `/var/www/hone-app/index.html`: new install page with the sha256.
+- The clone at `/opt/hone-site` now has local changes. A `git pull` there will refuse to overwrite them until the same edits land on `main` `website/`.
+
+---
+
+## History: April 2026 (JS prototype era)
+
 Created: 2026-04-14
 
 ## Current State
