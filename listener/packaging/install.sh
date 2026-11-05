@@ -1,5 +1,5 @@
 #!/bin/sh
-# HONE Birds camera listener installer: Linux (x86_64, Raspberry Pi arm64) and macOS.
+# Ornigo (HONE bird listener) installer: Linux (x86_64, Raspberry Pi arm64) and macOS.
 #   curl -fsSL https://honemesh.net/app/listener/install.sh | sh
 #   curl -fsSL https://honemesh.net/app/listener/install.sh | HONE_REF=invitecode sh
 # Trust: version.json must carry a valid ed25519 signature (version.json.sig) by the pinned
@@ -12,10 +12,14 @@ set -eu
 BASE="https://honemesh.net/app/listener"
 PUBKEY_B64="MCowBQYDK2VwAyEAJ+9UWIZ0wzkeZgBW2HO4kTbnUSW1pDPeB0cZG6qUoQ0="
 REF=$(printf '%s' "${HONE_REF:-}" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9._-' | cut -c1-32)
+# Sponsor voucher from the invite link (?v=). Kept on this computer only (owner-only file);
+# the listener moves it into secure storage and uses it only for the seat claim.
+VOUCHER=$(printf '%s' "${HONE_VOUCHER:-}" | tr -cd 'A-Za-z0-9_-' | cut -c1-128)
+[ ${#VOUCHER} -ge 16 ] || VOUCHER=""
 NONINT="${HONE_NONINTERACTIVE:-0}"
 
 say() { printf '%s\n' "$*"; }
-die() { printf 'HONE listener: %s\n' "$*" >&2; exit 1; }
+die() { printf 'Ornigo: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "this needs '$1' (please install it and run again)"; }
 need curl
 OS=$(uname -s); ARCH=$(uname -m)
@@ -49,7 +53,7 @@ else
   say "Checked: the release is signed by HONE."
 fi
 FLAT=$(tr -d ' \r\n\t' < "$TMP/version.json")
-printf '%s' "$FLAT" | grep -q '"name":"hone-listener"' || die "the release manifest isn't for the HONE listener"
+printf '%s' "$FLAT" | grep -q '"name":"hone-listener"' || die "the release manifest isn't for Ornigo"
 VER=$(printf '%s' "$FLAT" | grep -o '"version":"[0-9][0-9.]*"' | head -1 | cut -d'"' -f4)
 [ -n "$VER" ] || die "the release manifest has no version"
 want_sha() { printf '%s' "$FLAT" | grep -o "\"$(printf '%s' "$1" | sed 's/\./\\./g')\":{[^}]*}" | grep -o '"sha256":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4; }
@@ -59,7 +63,7 @@ fetch() { # name -> $TMP/name, checked against the signed sha256
   [ "$(sha256 "$TMP/$1")" = "$W" ] || die "$1 didn't match its signed checksum; nothing was installed"
 }
 
-say "Installing the HONE listener $VER..."
+say "Installing Ornigo $VER..."
 if [ "$OS" = Linux ]; then
   DEB="hone-listener_${VER}_${DEBARCH}.deb"
   SUDO=""; CANROOT=0
@@ -71,6 +75,7 @@ if [ "$OS" = Linux ]; then
     chmod 0755 "$TMP"; chmod 0644 "$TMP/$DEB"
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$TMP/$DEB" </dev/null
     if [ -n "$REF" ]; then printf '%s\n' "$REF" | $SUDO tee /var/lib/hone-listener/ref >/dev/null; $SUDO chown hone-listener:hone-listener /var/lib/hone-listener/ref; fi
+    if [ -n "$VOUCHER" ]; then (umask 077; printf '%s\n' "$VOUCHER" | $SUDO tee /var/lib/hone-listener/voucher >/dev/null); $SUDO chmod 600 /var/lib/hone-listener/voucher; $SUDO chown hone-listener:hone-listener /var/lib/hone-listener/voucher; fi
     U="${SUDO_USER:-${USER:-}}"; if [ -n "$U" ] && [ "$U" != root ]; then $SUDO usermod -aG hone-listener "$U" || true; fi
     HEADLESS=0; [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && HEADLESS=1
     # No screen here: let the setup page open from a phone on the same Wi-Fi (still needs its private link).
@@ -78,7 +83,7 @@ if [ "$OS" = Linux ]; then
     $SUDO systemctl restart hone-listener.service
     i=0; URL=""
     while [ $i -lt 20 ] && [ -z "$URL" ]; do sleep 1; i=$((i+1)); URL=$($SUDO hone-listener url $([ $HEADLESS = 1 ] && echo --lan) 2>/dev/null || true); done
-    say ""; say "The HONE listener is installed and starts by itself whenever this computer starts."
+    say ""; say "Ornigo is installed and starts by itself whenever this computer starts."
   else
     # No admin rights here: install for this user only (systemd user service).
     command -v ffmpeg >/dev/null 2>&1 || die "this needs ffmpeg; ask the computer's owner to run: sudo apt-get install ffmpeg"
@@ -88,10 +93,11 @@ if [ "$OS" = Linux ]; then
     systemctl --user stop hone-listener.service 2>/dev/null || true
     dpkg-deb -x "$TMP/$DEB" "$TMP/x"; mkdir -p "$APP"; cp -f "$TMP"/x/usr/lib/hone-listener/* "$APP/"
     [ -n "$REF" ] && printf '%s\n' "$REF" > "$STATE/ref"
+    [ -n "$VOUCHER" ] && (umask 077; printf '%s\n' "$VOUCHER" > "$STATE/voucher")
     mkdir -p "$HOME/.config/systemd/user"
     cat > "$HOME/.config/systemd/user/hone-listener.service" <<UNIT
 [Unit]
-Description=HONE Birds camera listener
+Description=Ornigo bird listener (HONE)
 After=network-online.target
 [Service]
 ExecStart=$APP/hone-listener run
@@ -104,7 +110,7 @@ UNIT
     systemctl --user daemon-reload; systemctl --user enable --now hone-listener.service
     loginctl enable-linger "$(id -un)" 2>/dev/null || say "(It starts when you log in. To start with the computer, ask an admin to run: sudo loginctl enable-linger $(id -un))"
     i=0; URL=""; while [ $i -lt 20 ] && [ -z "$URL" ]; do sleep 1; i=$((i+1)); URL=$("$APP/hone-listener" url 2>/dev/null || true); done
-    say ""; say "The HONE listener is installed for you and runs in the background."
+    say ""; say "Ornigo is installed for you and runs in the background."
   fi
   if [ -n "$URL" ]; then
     say "Finish setup on this page (keep the link private, it opens your listener):"; say "  $URL"
@@ -124,6 +130,7 @@ launchctl bootout "gui/$(id -u)/net.honemesh.listener" 2>/dev/null || true
 mkdir -p "$APP"; tar -xzf "$TMP/$TGZ" -C "$APP"
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 [ -n "$REF" ] && printf '%s\n' "$REF" > "$STATE/ref"
+[ -n "$VOUCHER" ] && (umask 077; printf '%s\n' "$VOUCHER" > "$STATE/voucher")
 PL="$HOME/Library/LaunchAgents/net.honemesh.listener.plist"; mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PL" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -139,5 +146,5 @@ cat > "$PL" <<PLIST
 </dict></plist>
 PLIST
 launchctl bootstrap "gui/$(id -u)" "$PL"
-say "The HONE listener is installed and starts when you log in."
+say "Ornigo is installed and starts when you log in."
 say "Its setup page opens in your browser; it's also in the menu bar."

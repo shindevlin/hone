@@ -1,4 +1,4 @@
-# HONE Birds camera listener installer for Windows 10/11 (no admin needed).
+# Ornigo (HONE bird listener) installer for Windows 10/11 (no admin needed).
 #   irm https://honemesh.net/app/listener/install.ps1 | iex
 #   $env:HONE_REF='invitecode'; irm https://honemesh.net/app/listener/install.ps1 | iex
 # Trust: version.json must carry a valid ed25519 signature (version.json.sig) by the pinned
@@ -14,7 +14,7 @@ $Base = 'https://honemesh.net/app/listener'
 $ReleasePub = '27ef54588674c3391e660056d873b89136e75125b5a433de0747191baa94a10d'
 $TaskName = 'HONE Listener'
 
-function Fail($m) { Write-Host "HONE listener: $m" -ForegroundColor Red; throw "HONE listener: $m" }
+function Fail($m) { Write-Host "Ornigo: $m" -ForegroundColor Red; throw "Ornigo: $m" }
 function Hex($s) { $b = New-Object byte[] ($s.Length / 2); for ($i = 0; $i -lt $b.Length; $i++) { $b[$i] = [Convert]::ToByte($s.Substring(2 * $i, 2), 16) }; return ,$b }
 
 # -- Ed25519 verify (RFC 8032 section 6 reference algorithm; .NET has no Ed25519) --
@@ -90,12 +90,12 @@ try {
     Write-Host 'Checked: the release is signed by HONE.'
   }
   $man = [Text.Encoding]::UTF8.GetString($manBytes) | ConvertFrom-Json
-  if ($man.name -ne 'hone-listener') { Fail "the release manifest isn't for the HONE listener" }
+  if ($man.name -ne 'hone-listener') { Fail "the release manifest isn't for Ornigo" }
   $ver = [string]$man.version
   $zip = "hone-listener-$ver-windows-x86_64.zip"
   $want = [string]$man.files.$zip.sha256
   if ($want -notmatch '^[0-9a-f]{64}$') { Fail "this release isn't available for Windows yet" }
-  Write-Host "Downloading the HONE listener $ver..."
+  Write-Host "Downloading Ornigo $ver..."
   $zipPath = Join-Path $Tmp $zip
   Invoke-WebRequest -UseBasicParsing "$Base/$zip" -OutFile $zipPath
   $fs = [IO.File]::OpenRead($zipPath); try { $got = (([Security.Cryptography.SHA256]::Create().ComputeHash($fs)) | ForEach-Object { $_.ToString('x2') }) -join '' } finally { $fs.Dispose() }
@@ -115,6 +115,10 @@ try {
   $ref = ([string]$env:HONE_REF).ToLower() -replace '[^a-z0-9._-]', ''
   if ($ref.Length -gt 32) { $ref = $ref.Substring(0, 32) }
   if ($ref) { Set-Content -Path (Join-Path $State 'ref') -Value $ref -Encoding ASCII }
+  # Sponsor voucher (?v= in the invite link): stays on this computer (per-user folder); used only for the seat claim.
+  $voucher = ([string]$env:HONE_VOUCHER) -replace '[^A-Za-z0-9_-]', ''
+  if ($voucher.Length -gt 128) { $voucher = $voucher.Substring(0, 128) }
+  if ($voucher.Length -ge 16) { Set-Content -Path (Join-Path $State 'voucher') -Value $voucher -Encoding ASCII }
 
   # start at sign-in: a per-user scheduled task (no admin), else the Run key
   $started = $false
@@ -128,11 +132,11 @@ try {
   } catch {
     Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'HONE Listener' -Value "`"$exe`" tray"
   }
-  $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'HONE Birds Listener.lnk'
+  $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Ornigo.lnk'
   $sh = New-Object -ComObject WScript.Shell; $s = $sh.CreateShortcut($lnk); $s.TargetPath = $exe; $s.Arguments = 'open'; $s.Description = "Hear who's singing at your place"; $s.Save()
   if ($started) { Start-ScheduledTask -TaskName $TaskName } else { Start-Process -FilePath $exe -ArgumentList 'tray' -WindowStyle Hidden }
   Write-Host ''
-  Write-Host 'The HONE listener is installed and starts when you sign in to Windows.'
+  Write-Host 'Ornigo is installed and starts when you sign in to Windows.'
   Write-Host 'Its setup page opens in your browser. It also sits in the system tray (near the clock).'
 } finally {
   Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue

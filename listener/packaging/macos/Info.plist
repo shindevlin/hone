@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleName</key><string>HONE Birds Listener</string>
-  <key>CFBundleDisplayName</key><string>HONE Birds Listener</string>
+  <key>CFBundleName</key><string>Ornigo</string>
+  <key>CFBundleDisplayName</key><string>Ornigo</string>
   <key>CFBundleIdentifier</key><string>net.honemesh.listener</string>
   <key>CFBundleExecutable</key><string>hone-listener</string>
   <key>CFBundleVersion</key><string>@VERSION@</string>
@@ -11,5 +11,6 @@
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>LSUIElement</key><true/>
   <key>NSLocalNetworkUsageDescription</key><string>HONE looks for your security camera on your Wi-Fi and listens to its microphone for birds.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Ornigo listens for birds. Anyone talking is deleted instantly; no sound is saved or sent.</string>
   <key>NSBonjourServices</key><array><string>_rtsp._tcp</string></array>
 </dict></plist>

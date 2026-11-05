@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
-pub const DEVICE_LABEL: &str = "HONE camera listener";
+pub const DEVICE_LABEL: &str = "Ornigo listener";
 
 pub fn consent_text(r#ref: Option<&str>) -> String {
     match r#ref {

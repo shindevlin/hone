@@ -4,8 +4,8 @@
 # AppxManifest.xml: -IdentityName, -Publisher (CN=...), -PublisherDisplayName, -AppName.
 # Without them the MSIX builds with obvious placeholders (valid syntax, NOT submittable).
 param([string]$Tfl, [string]$Assets, [string]$Ffmpeg, [string]$Out,
-      [string]$IdentityName = 'HONE.BirdsListener.Placeholder', [string]$Publisher = 'CN=PLACEHOLDER-PUBLISHER-ID',
-      [string]$PublisherDisplayName = 'PLACEHOLDER Publisher', [string]$AppName = 'HONE Birds Listener')
+      [string]$IdentityName = 'Honemesh.Ornigo', [string]$Publisher = 'CN=9E748860-DF8B-4055-86EF-DA65354033EC',
+      [string]$PublisherDisplayName = 'Honemesh', [string]$AppName = 'Ornigo')
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $crate = Resolve-Path "$here\..\.."
@@ -35,7 +35,7 @@ Copy-Item -Recurse $stage $m
 Copy-Item -Recurse "$here\Assets" "$m\Assets"
 (Get-Content "$here\AppxManifest.xml" -Raw).Replace('__VERSION__', $ver).Replace('__PACKAGE_IDENTITY_NAME__', $IdentityName).Replace('__PUBLISHER_CN__', $Publisher).Replace('__PUBLISHER_DISPLAY_NAME__', $PublisherDisplayName).Replace('__APP_DISPLAY_NAME__', $AppName) | Set-Content -Encoding UTF8 "$m\AppxManifest.xml"
 $makeappx = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe' | Sort-Object FullName | Select-Object -Last 1).FullName
-$msix = Join-Path $Out "HONE-Birds-Listener-$ver-x64.msix"
+$msix = Join-Path $Out "Ornigo-$ver-x64.msix"
 $ErrorActionPreference = 'Continue'
 & $makeappx pack /o /d $m /p $msix 2>&1 | Out-Host
 $code = $LASTEXITCODE

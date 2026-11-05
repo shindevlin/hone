@@ -14,6 +14,7 @@ mod canonical;
 mod config;
 mod discovery;
 mod live;
+mod mic;
 mod perch;
 mod pipeline;
 mod relay;
@@ -28,6 +29,7 @@ mod tray;
 mod update;
 mod voicegate;
 mod voiceprint;
+mod voucher;
 mod web;
 
 use config::{state_dir, Config, DEFAULT_PORT};
@@ -98,6 +100,7 @@ fn run(tray: bool) {
         log::error!("station key: {e}");
     }
     let cfg = Config::load();
+    voucher::import_from_disk();
     let (tx, rx) = mpsc::channel();
     let engine = pipeline::Engine::start(tx);
     submit::spawn(rx);
@@ -117,7 +120,7 @@ fn run(tray: bool) {
     engine.sync(&cfg);
     let app = web::App::new(engine, cfg, port_now);
     web::serve(app.clone(), server);
-    log::info!("HONE listener {} on http://127.0.0.1:{} (state {})", env!("CARGO_PKG_VERSION"), port_now, state_dir().display());
+    log::info!("Ornigo (HONE listener) {} on http://127.0.0.1:{} (state {})", env!("CARGO_PKG_VERSION"), port_now, state_dir().display());
     let url = web::url(app.port, &app.token, "127.0.0.1");
     if first_run && std::env::var("HONE_LISTENER_NO_BROWSER").is_err() && (tray || std::env::var("DISPLAY").is_ok()) {
         let _ = open::that(&url);

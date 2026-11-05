@@ -11,9 +11,9 @@ pub const DEVICE_KIND: &str = "camera listener";
 
 pub fn label(cfg: &Config) -> String {
     match cfg.stations.first() {
-        Some(s) if cfg.stations.len() == 1 => format!("{} (camera listener)", s.label).chars().take(40).collect(),
-        Some(_) => format!("{} cameras (listener)", cfg.stations.len()),
-        None => "HONE camera listener".into(),
+        Some(s) if cfg.stations.len() == 1 => format!("{} (Ornigo)", s.label).chars().take(40).collect(),
+        Some(_) => format!("Ornigo, {} sources", cfg.stations.len()),
+        None => "Ornigo listener".into(),
     }
 }
 
@@ -62,6 +62,11 @@ pub fn spawn() {
                 if cfg.account.is_some() {
                     if let Err(e) = send(&cfg) {
                         log::warn!("device status: {e}");
+                    }
+                    match crate::voucher::try_claim(&cfg) {
+                        Ok(true) => log::info!("sponsor voucher: seat claimed"),
+                        Ok(false) => {}
+                        Err(e) => log::warn!("sponsor voucher: {e}"),
                     }
                 }
                 std::thread::sleep(Duration::from_secs(15 * 60));

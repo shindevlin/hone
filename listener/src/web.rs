@@ -87,13 +87,14 @@ impl App {
             "account": c.account, "pending_ref": c.pending_ref, "referral_ack": c.referral_ack,
             "consent_text": account::consent_text(c.account.as_ref().and_then(|a| a.referrer()).or(c.pending_ref.as_deref())),
             "disclaimer": DISCLAIMER, "disclaimer_ack": c.disclaimer_ack_ms.is_some(),
-            "stations": c.stations.iter().map(|s| json!({"id": s.id, "label": s.label, "host": s.host, "codec": s.codec, "rate": s.rate, "tier": s.tier,
+            "stations": c.stations.iter().map(|s| json!({"id": s.id, "kind": if s.kind == "mic" { "mic" } else { "camera" }, "label": s.label, "host": s.host, "codec": s.codec, "rate": s.rate, "tier": s.tier,
                 "tier_copy": setup::tier_copy(&s.tier), "enabled": s.enabled, "live": l.stations.get(&s.id)})).collect::<Vec<_>>(),
             "located": c.cell9.is_some(), "listening": c.listening, "ready": c.ready(),
             "recent": recent, "reports_made": l.reports_made, "last_report_ms": l.last_report_ms, "last_report_bytes": l.last_report_bytes,
             "map_state": l.map_state, "chain_state": l.chain_state, "chain_queued": l.chain_queued, "chain_accepted": l.chain_accepted,
             "update_state": l.update_state, "model_error": l.model_error, "secret_store": secrets::backend(),
             "station_pub": key_pub, "summary": live::summary(c.listening),
+            "voucher_state": crate::voucher::state(),
             "individuals": crate::voiceprint::view(&|sp| self.names.get(sp).cloned()),
         })
     }
@@ -169,7 +170,8 @@ impl App {
                     return fail(400, "Only cameras on your own Wi-Fi can be added (use its 192.168.x.x or 10.x.x.x address).");
                 }
                 let (me, cams) = discovery::discover(&extra);
-                j(json!({"local_ip": me.map(|i| i.to_string()), "cameras": cams}))
+                let mics = crate::mic::list();
+                j(json!({"local_ip": me.map(|i| i.to_string()), "cameras": cams, "mics": mics}))
             }
             "/api/probe" => {
                 let cam = FoundCamera { host: s("host"), rtsp_port: b["rtsp_port"].as_u64().map(|p| p as u16), onvif: b["onvif"].as_str().map(String::from), name: b["name"].as_str().map(String::from) };
@@ -184,10 +186,55 @@ impl App {
                     Err(e) => fail(400, setup::friendly(&e)),
                 }
             }
+            "/api/location" => {
+                let (Some(lat), Some(lon)) = (b["lat"].as_f64(), b["lon"].as_f64()) else { return fail(400, "Please set where you are.") };
+                let Some((c9, c7)) = cells(lat, lon) else { return fail(400, "That location doesn't look right.") };
+                self.update_cfg(|c| {
+                    c.cell9 = Some(c9);
+                    c.cell7 = Some(c7);
+                    c.lon_hint = Some(lon);
+                });
+                j(self.state())
+            }
+            "/api/mic/add" => {
+                let spec = s("spec");
+                if !crate::mic::list().iter().any(|m| m.spec == spec) {
+                    return fail(400, "That microphone isn't connected any more.");
+                }
+                if self.cfg.lock().unwrap().cell9.is_none() {
+                    return fail(400, "Please set where you are first.");
+                }
+                let noise = match crate::mic::probe(&spec) {
+                    Ok(n) => n,
+                    Err(e) => return fail(400, &e),
+                };
+                let key = match secrets::station_key() {
+                    Ok(k) => k,
+                    Err(e) => return fail(500, &e),
+                };
+                let id = setup::station_id("mic", &spec, &canonical::pub_hex(&key));
+                let label = if s("label").is_empty() { s("name") } else { s("label") };
+                let st = Station { id: id.clone(), kind: "mic".into(), label: label.chars().take(40).collect(), host: String::new(), port: 0, path: spec,
+                    onvif: None, codec: "mic".into(), rate: crate::mic::RATE, tier: crate::audio::tier(crate::mic::RATE).into(), id_source: "mic".into(),
+                    noise_db: noise, enabled: true, added_ms: now_ms() };
+                self.update_cfg(|c| {
+                    c.stations.retain(|x| x.id != id);
+                    c.stations.push(st);
+                });
+                let mut out = self.state();
+                out["added"] = json!({"label": label, "tier": "A", "tier_copy": setup::tier_copy("A")});
+                j(out)
+            }
             "/api/station/add" => {
                 let Some((p, u, pw)) = self.probes.lock().unwrap().remove(&s("probe_id")) else { return fail(400, "Please test the camera again.") };
-                let (Some(lat), Some(lon)) = (b["lat"].as_f64(), b["lon"].as_f64()) else { return fail(400, "Please set where the camera is.") };
-                let Some((c9, c7)) = cells(lat, lon) else { return fail(400, "That location doesn't look right.") };
+                let loc = match (b["lat"].as_f64(), b["lon"].as_f64()) {
+                    (Some(lat), Some(lon)) => match cells(lat, lon) {
+                        Some((c9, c7)) => Some((c9, c7, lon)),
+                        None => return fail(400, "That location doesn't look right."),
+                    },
+                    _ if self.cfg.lock().unwrap().cell9.is_some() => None,
+                    _ => return fail(400, "Please set where the camera is."),
+                };
                 let key = match secrets::station_key() {
                     Ok(k) => k,
                     Err(e) => return fail(500, &e),
@@ -197,14 +244,16 @@ impl App {
                     return fail(500, &e);
                 }
                 let label = if s("label").is_empty() { p.model.clone().unwrap_or("My camera".into()) } else { s("label") };
-                let st = Station { id: id.clone(), label: label.chars().take(40).collect(), host: p.host, port: p.port, path: p.path, onvif: b["onvif"].as_str().map(String::from),
+                let st = Station { id: id.clone(), kind: "rtsp".into(), label: label.chars().take(40).collect(), host: p.host, port: p.port, path: p.path, onvif: b["onvif"].as_str().map(String::from),
                     codec: p.codec, rate: p.rate, tier: p.tier, id_source: p.id_source, noise_db: p.noise_db, enabled: true, added_ms: now_ms() };
                 self.update_cfg(|c| {
                     c.stations.retain(|x| x.id != id);
                     c.stations.push(st);
-                    c.cell9 = Some(c9);
-                    c.cell7 = Some(c7);
-                    c.lon_hint = Some(lon);
+                    if let Some((c9, c7, lon)) = loc {
+                        c.cell9 = Some(c9);
+                        c.cell7 = Some(c7);
+                        c.lon_hint = Some(lon);
+                    }
                 });
                 j(self.state())
             }
@@ -299,7 +348,7 @@ impl App {
                 }
             }
             if !self.authed(&req) {
-                let _ = req.respond(Response::from_string("Open the HONE listener from its menu (or run: hone-listener open).").with_status_code(403));
+                let _ = req.respond(Response::from_string("Open Ornigo from its menu (or run: hone-listener open).").with_status_code(403));
                 return;
             }
             let _ = req.respond(Response::from_string(INDEX).with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap())

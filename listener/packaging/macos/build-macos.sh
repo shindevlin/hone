@@ -33,7 +33,7 @@ cp "$W/hone-listener" "$W/libtensorflowlite_c.dylib" "$FFMPEG" "$F/"; chmod +x "
 for f in perch_v2_8bit.tflite class_names.json names_en.json NOTICE.txt; do cp "$ASSETS/$f" "$F/"; done
 tar -czf "$OUT/hone-listener-$VER-macos-universal.tar.gz" -C "$F" .
 # .app (menu-bar only) + .dmg
-APP="$W/HONE Birds Listener.app"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+APP="$W/Ornigo.app"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$W/hone-listener" "$APP/Contents/MacOS/"
 cp "$W/libtensorflowlite_c.dylib" "$FFMPEG" "$ASSETS"/{perch_v2_8bit.tflite,class_names.json,names_en.json,NOTICE.txt} "$APP/Contents/Resources/"
 sed "s/@VERSION@/$VER/g" "$HERE/Info.plist" > "$APP/Contents/Info.plist"
@@ -41,8 +41,8 @@ if [ -n "${DEVELOPER_ID:-}" ]; then
   codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP/Contents/Resources/libtensorflowlite_c.dylib" "$APP/Contents/Resources/ffmpeg"
   codesign --force --options runtime --timestamp --entitlements "$HERE/entitlements.plist" --sign "$DEVELOPER_ID" "$APP"
 fi
-DMG="$OUT/HONE-Birds-Listener-$VER.dmg"
-hdiutil create -volname "HONE Birds Listener" -srcfolder "$APP" -ov -format UDZO "$DMG"
+DMG="$OUT/Ornigo-$VER.dmg"
+hdiutil create -volname "Ornigo" -srcfolder "$APP" -ov -format UDZO "$DMG"
 if [ -n "${DEVELOPER_ID:-}" ] && [ -n "${NOTARY_PROFILE:-}" ]; then
   codesign --force --timestamp --sign "$DEVELOPER_ID" "$DMG"
   xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait

@@ -46,7 +46,7 @@ fn lines(s: &str, width: usize) -> Vec<String> {
 pub fn run(app: Arc<App>) -> ! {
     let event_loop = EventLoopBuilder::new().build();
     let status = MenuItem::new("Starting…", false, None);
-    let open = MenuItem::new("Open HONE listener", true, None);
+    let open = MenuItem::new("Open Ornigo", true, None);
     let toggle = MenuItem::new("Pause listening", true, None);
     let quit = MenuItem::new("Quit", true, None);
     let menu = Menu::new();
@@ -65,7 +65,7 @@ pub fn run(app: Arc<App>) -> ! {
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(500));
         if let Event::NewEvents(StartCause::Init) = event {
-            tray = TrayIconBuilder::new().with_menu(Box::new(menu.clone())).with_tooltip("HONE listener").with_icon(icon([120, 120, 120])).build().ok();
+            tray = TrayIconBuilder::new().with_menu(Box::new(menu.clone())).with_tooltip("Ornigo").with_icon(icon([120, 120, 120])).build().ok();
         }
         while let Ok(ev) = MenuEvent::receiver().try_recv() {
             if ev.id == open.id() {

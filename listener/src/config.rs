@@ -67,6 +67,9 @@ impl Account {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Station {
     pub id: String,
+    /// "rtsp" (camera or LAN audio source; also when empty, for older configs) or "mic".
+    #[serde(default)]
+    pub kind: String,
     pub label: String,
     pub host: String,
     pub port: u16,

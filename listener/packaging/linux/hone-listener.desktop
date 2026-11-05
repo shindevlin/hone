@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=HONE Birds Listener
+Name=Ornigo
 Comment=Hear who's singing at your place
 Exec=hone-listener open
 Icon=hone-listener

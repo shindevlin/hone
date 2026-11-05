@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HONE listener</title>
+<title>Ornigo</title>
 <style>
 :root{--bg:#f7f3ea;--card:#fffdf8;--ink:#23251f;--muted:#6b6a60;--line:#e4dccb;--accent:#2f6b4a;--accent-ink:#fff;--warn:#9a5b12;--bad:#a23b2c;--chip:#eef3ea}
 @media (prefers-color-scheme:dark){:root{--bg:#171a16;--card:#20241f;--ink:#ecebe4;--muted:#a3a497;--line:#343a31;--accent:#6fb58c;--accent-ink:#0f1a13;--warn:#e0a85a;--bad:#e5806f;--chip:#263027}}
@@ -49,11 +49,11 @@ footer{color:var(--muted);font-size:13px;margin-top:24px}
 </head>
 <body>
 <main>
-<div class="brand"><span class="dot"></span>HONE listener</div>
+<div class="brand"><span class="dot"></span>Ornigo</div>
 
 <section id="s-account" class="hide">
   <h1>Hear who's singing at your place</h1>
-  <p class="sub">HONE turns the security camera you already have into a nature listener.</p>
+  <p class="sub">Ornigo turns this computer's microphone, or the security camera you already have, into a bird listener.</p>
   <div class="card" id="signup">
     <label class="f" for="name">Your first name</label><input id="name" type="text" autocomplete="given-name">
     <label class="f" for="email">Email</label><input id="email" type="email" autocomplete="email">
@@ -90,10 +90,26 @@ footer{color:var(--muted);font-size:13px;margin-top:24px}
   </div>
 </section>
 
+<section id="s-where" class="hide">
+  <h1>Where are you?</h1>
+  <p class="sub">Birds are shared on the map by area, never your exact address.</p>
+  <div class="card">
+    <div class="row" style="margin-top:0"><button class="line" id="b-geo">Use my location</button><span class="small muted" id="geo-state"></span></div>
+    <div class="row"><input id="lat" type="number" step="any" placeholder="Latitude, e.g. 13.68" style="flex:1;min-width:140px"><input id="lon" type="number" step="any" placeholder="Longitude, e.g. -89.24" style="flex:1;min-width:140px"></div>
+    <div class="row"><button id="b-where">Continue</button></div>
+    <div class="err" id="e-where"></div>
+  </div>
+</section>
+
 <section id="s-find" class="hide">
   <h1 id="find-title">Let's find out who's singing at your place.</h1>
-  <p class="sub" id="find-sub">Looking for cameras on your Wi-Fi…</p>
-  <div class="card" id="cams"></div>
+  <p class="sub" id="find-sub">Looking for microphones and cameras…</p>
+  <div class="card hide" id="srcs-card">
+    <div id="srcs"></div>
+    <p id="ask" style="margin-top:14px"><b>Listen with all of them, or pick which ones?</b></p>
+    <div class="row" id="ask-row"><button id="b-all">Listen with all of them</button><button class="line" id="b-pick">Pick which ones</button></div>
+    <div class="row hide" id="pick-row"><button id="b-picked">Listen with these</button></div>
+  </div>
   <div class="card">
     <p class="small muted">Know your camera's address? Type it here (for example 192.168.1.50).</p>
     <div class="row" style="margin-top:0"><input id="manual" type="text" placeholder="192.168.1.50" style="flex:1;min-width:160px"><button class="line" id="b-manual">Use this address</button></div>
@@ -121,11 +137,7 @@ footer{color:var(--muted);font-size:13px;margin-top:24px}
     <p id="probe-copy" style="font-size:18px"></p>
     <p class="small muted" id="probe-detail"></p>
     <p class="small">We only use sound, never video. Anyone talking is deleted instantly.</p>
-    <label class="f" for="clabel">Name this camera</label><input id="clabel" type="text" maxlength="40" placeholder="Back garden">
-    <label class="f">Where is this camera?</label>
-    <p class="small muted">Birds are shared on the map by area, never your exact address.</p>
-    <div class="row" style="margin-top:4px"><button class="line" id="b-geo">Use my location</button><span class="small muted" id="geo-state"></span></div>
-    <div class="row"><input id="lat" type="number" step="any" placeholder="Latitude, e.g. 13.68" style="flex:1;min-width:140px"><input id="lon" type="number" step="any" placeholder="Longitude, e.g. -89.24" style="flex:1;min-width:140px"></div>
+    <label class="f" for="clabel">Name this source</label><input id="clabel" type="text" maxlength="40" placeholder="Back garden">
     <div class="row"><button id="b-add">Continue</button></div>
     <div class="err" id="e-add"></div>
   </div>
@@ -151,18 +163,18 @@ footer{color:var(--muted);font-size:13px;margin-top:24px}
   </div>
   <div class="card hide" id="indiv"><h2>Birds that come back</h2><p class="small muted">The listener recognises some birds by their voice. Only a short voice summary stays on this computer, never sound.</p><div id="indiv-list"></div></div>
   <div class="card"><h2>Heard recently</h2><div id="birds"><p class="muted small">Nothing yet. Owls and nightjars usually call after dark.</p></div></div>
-  <div class="card"><h2>Cameras</h2><div id="stations"></div>
-    <div class="row"><button class="line" id="b-add-cam">Add a camera</button><button class="line" id="b-toggle">Pause listening</button></div></div>
+  <div class="card"><h2>Listening with</h2><div class="notice hide" id="voucher-note"></div><div id="stations"></div>
+    <div class="row"><button class="line" id="b-add-cam">Add a microphone or camera</button><button class="line" id="b-toggle">Pause listening</button></div></div>
   <div class="card disc" id="home-disc"></div>
   <div class="card small muted" id="home-meta"></div>
   <div class="row"><button class="ghost" id="b-logout">Sign out</button><button class="ghost" id="b-upd">Check for updates</button></div>
 </section>
 
-<footer>Your camera sends sound to this computer only. Only short bird reports leave it.</footer>
+<footer>Ornigo, a HONE app. Sound is checked on this computer only; only short bird reports leave it. <a href="https://honemesh.net/ornigo/privacy" target="_blank" rel="noopener">Privacy</a></footer>
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let S=null, cam=null, probe=null, adding=false, verifyLater=false, scanned=false;
+let S=null, cam=null, probe=null, adding=false, verifyLater=false, scanned=false, queue=[], found=null;
 async function api(p,b){const r=await fetch('/api/'+p,{method:b?'POST':'GET',headers:b?{'Content-Type':'application/json','X-Hone':'1'}:{},body:b?JSON.stringify(b):undefined});const j=await r.json().catch(()=>({error:'Something went wrong. Try again.'}));if(!r.ok)throw new Error(j.error||'Something went wrong.');return j}
 function show(id){document.querySelectorAll('main>section').forEach(s=>s.classList.toggle('hide',s.id!==id))}
 function busy(btn,on,txt){btn.disabled=on;if(on){btn.dataset.t=btn.textContent;btn.innerHTML='<span class="spin"></span>'+(txt||btn.textContent)}else if(btn.dataset.t)btn.textContent=btn.dataset.t}
@@ -172,7 +184,7 @@ function route(){
   if(!S.account){show('s-account');if(!$('ref').value&&S.pending_ref){$('ref').value=S.pending_ref;refText()}else if(!$('consent-text').textContent)refText();return}
   if(!S.account.verified&&!verifyLater){$('verify-body').textContent='We sent a 6-digit code to '+S.account.email+'.';show('s-verify');return}
   if(!S.referral_ack){$('refack-text').textContent=S.consent_text;show('s-referral');return}
-  if(adding||!S.stations.length){if(!probe&&!cam){show('s-find');if(!scanned)scan()}return}
+  if(adding||!S.stations.length){if(!S.located){show('s-where');return}if(queue.length){next();return}if(!probe&&!cam){show('s-find');if(!scanned)scan()}return}
   if(!S.listening){$('disc-text').textContent=S.disclaimer;$('discack').checked=false;$('b-start').disabled=true;show('s-start');return}
   home();show('s-home')
 }
@@ -191,42 +203,63 @@ $('b-resend').onclick=async()=>{try{await api('resend',{});$('e-verify').textCon
 $('b-later').onclick=()=>{verifyLater=true;route()};
 $('refack').onchange=()=>$('b-refack').disabled=!$('refack').checked;
 $('b-refack').onclick=async()=>{try{S=await api('referral_ack',{ok:true});route()}catch(x){$('e-refack').textContent=x.message}};
-async function scan(host){scanned=true;$('find-sub').innerHTML='<span class="spin"></span>Looking for cameras on your Wi-Fi…';$('cams').innerHTML='';$('e-find').textContent='';
+async function scan(host){scanned=true;$('find-sub').innerHTML='<span class="spin"></span>Looking for microphones and cameras…';$('srcs').innerHTML='';$('e-find').textContent='';$('srcs-card').classList.add('hide');
   if(S.account&&S.account.name)$('find-title').textContent='Welcome, '+S.account.name+'. Let\'s find out who\'s singing at your place.';
-  try{const r=await api('discover',{host:host||''});const c=r.cameras;
-    $('find-sub').textContent=c.length===0?'We didn\'t find a camera on your Wi-Fi.':c.length===1?'Add a camera: we found 1 camera on your Wi-Fi: '+(c[0].name||c[0].host)+'.':'Add a camera: we found '+c.length+' cameras on your Wi-Fi.';
-    if(!r.local_ip)$('e-find').textContent='Connect this computer to the same Wi-Fi as your camera, then try again.';
-    $('cams').classList.toggle('hide',!c.length);
-    $('cams').innerHTML=c.map((x,i)=>'<div class="cam"><div><b>'+esc(x.name||'Camera')+'</b><div class="small muted">'+esc(x.host)+(x.onvif?' · ONVIF':'')+'</div></div><button data-i="'+i+'">Use this one</button></div>').join('');
-    $('cams').querySelectorAll('button').forEach(b=>b.onclick=()=>pick(c[b.dataset.i]))
+  try{const r=await api('discover',{host:host||''});
+    const have=new Set(S.stations.map(x=>x.kind==='mic'?'mic:'+x.label:x.host));
+    found=[...r.mics.map(m=>({kind:'mic',spec:m.spec,name:m.name,label:m.name})),...r.cameras.map(c=>({kind:'camera',cam:c,name:c.name||'Camera',label:(c.name||'Camera')+' · '+c.host}))];
+    const n=found.length;
+    $('find-sub').textContent=n===0?'We didn\'t find a microphone or camera.':n===1?'We found 1 thing that can listen: '+found[0].label+'.':'We found '+n+' things that can listen.';
+    if(!r.local_ip&&!r.mics.length)$('e-find').textContent='Connect this computer to the same Wi-Fi as your camera, then try again.';
+    $('srcs-card').classList.toggle('hide',!n);$('ask').classList.toggle('hide',n<2);$('ask-row').classList.remove('hide');$('pick-row').classList.add('hide');
+    $('b-pick').classList.toggle('hide',n<2);$('b-all').textContent=n<2?'Use this one':'Listen with all of them';
+    $('srcs').innerHTML=found.map((x,i)=>'<label class="cam" style="cursor:pointer"><div><b>'+esc(x.kind==='mic'?'Microphone: '+x.name:x.name)+'</b><div class="small muted">'+esc(x.kind==='mic'?'on this computer':x.cam.host+(x.cam.onvif?' · ONVIF':''))+'</div></div><input type="checkbox" class="pick hide" data-i="'+i+'" checked style="width:22px;height:22px;accent-color:var(--accent)"></label>').join('');
   }catch(x){$('find-sub').textContent='';$('e-find').textContent=x.message}}
-function pick(c){cam=c;$('cam-name').textContent=(c.name||'Camera')+' · '+c.host;$('e-connect').textContent='';show('s-camlogin')}
+function start(list){queue=list.slice();adding=true;next()}
+$('b-all').onclick=()=>start(found);
+$('b-pick').onclick=()=>{document.querySelectorAll('.pick').forEach(c=>c.classList.remove('hide'));$('ask-row').classList.add('hide');$('pick-row').classList.remove('hide')};
+$('b-picked').onclick=()=>{const l=[...document.querySelectorAll('.pick')].filter(c=>c.checked).map(c=>found[c.dataset.i]);if(!l.length){$('e-find').textContent='Tick at least one.';return}start(l)};
+async function next(){
+  const x=queue[0];if(!x){adding=false;scanned=false;found=null;route();return}
+  $('probe-res').classList.add('hide');show('s-probe');
+  if(x.kind==='mic'){
+    $('probe-title').textContent='Listening to your microphone for a few seconds…';
+    try{S=await api('mic/add',{spec:x.spec,name:x.name});queue.shift();next()}catch(e){queue.shift();$('probe-title').textContent=x.name+': '+e.message;setTimeout(next,3500)}
+    return}
+  cam=x.cam;$('probe-title').textContent='Listening to your camera for a few seconds…';
+  try{const r=await api('probe',{host:cam.host,rtsp_port:cam.rtsp_port,onvif:cam.onvif,name:cam.name,user:'',pass:''});showProbe(r)}
+  catch(e){$('cam-name').textContent=(cam.name||'Camera')+' · '+cam.host;$('e-connect').textContent='';show('s-camlogin')}
+}
+function showProbe(r){probe=r;$('probe-title').textContent='Your camera can listen';$('probe-tier').textContent='Sound quality '+r.probe.tier;$('probe-copy').textContent=r.tier_copy;
+  $('probe-detail').textContent=r.probe.codec+' · '+(r.probe.rate/1000)+' kHz'+(r.probe.noise_db!=null?' · background '+Math.round(r.probe.noise_db)+' dB':'')+(r.probe.video_tracks_skipped?' · video not used':'');
+  $('clabel').value=r.probe.model||'';$('probe-res').classList.remove('hide');show('s-probe')}
+function pick(c){queue=[{kind:'camera',cam:c,name:c.name||'Camera'}];adding=true;cam=c;$('cam-name').textContent=(c.name||'Camera')+' · '+c.host;$('e-connect').textContent='';show('s-camlogin')}
 $('b-manual').onclick=()=>{const h=$('manual').value.trim();if(!/^\d+\.\d+\.\d+\.\d+$/.test(h)){$('e-find').textContent='Type the camera\'s address, like 192.168.1.50.';return}pick({host:h,rtsp_port:null,onvif:null,name:null})};
 $('b-rescan').onclick=()=>scan();
-$('b-back').onclick=()=>{cam=null;show('s-find')};
+$('b-back').onclick=()=>{cam=null;queue.shift();next()};
 $('b-connect').onclick=async e=>{const b=e.target;busy(b,true);$('e-connect').textContent='';
   $('probe-title').textContent='Listening to your camera for a few seconds…';$('probe-res').classList.add('hide');show('s-probe');
-  try{const r=await api('probe',{host:cam.host,rtsp_port:cam.rtsp_port,onvif:cam.onvif,name:cam.name,user:$('cuser').value,pass:$('cpass').value});probe=r;
-    $('cpass').value='';$('probe-title').textContent='Your camera can listen';$('probe-tier').textContent='Sound quality '+r.probe.tier;$('probe-copy').textContent=r.tier_copy;
-    $('probe-detail').textContent=r.probe.codec+' · '+(r.probe.rate/1000)+' kHz'+(r.probe.noise_db!=null?' · background '+Math.round(r.probe.noise_db)+' dB':'')+(r.probe.video_tracks_skipped?' · video not used':'');
-    $('clabel').value=r.probe.model||'';$('probe-res').classList.remove('hide')
-  }catch(x){show('s-camlogin');$('e-connect').textContent=x.message}busy(b,false)};
+  try{const r=await api('probe',{host:cam.host,rtsp_port:cam.rtsp_port,onvif:cam.onvif,name:cam.name,user:$('cuser').value,pass:$('cpass').value});$('cpass').value='';showProbe(r)}
+  catch(x){show('s-camlogin');$('e-connect').textContent=x.message}busy(b,false)};
+$('b-where').onclick=async e=>{const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
+  if(!(Math.abs(lat)<=90&&Math.abs(lon)<=180)){$('e-where').textContent='Please set where you are.';return}
+  try{S=await api('location',{lat,lon});route()}catch(x){$('e-where').textContent=x.message}};
 $('b-geo').onclick=()=>{if(!navigator.geolocation){$('geo-state').textContent='Type the numbers below instead.';return}$('geo-state').textContent='Finding…';
   navigator.geolocation.getCurrentPosition(p=>{$('lat').value=p.coords.latitude.toFixed(5);$('lon').value=p.coords.longitude.toFixed(5);$('geo-state').textContent='Got it.'},()=>{$('geo-state').textContent='Couldn\'t get it. Type the numbers below.'},{timeout:10000})};
-$('b-add').onclick=async e=>{const b=e.target;const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
-  if(!(Math.abs(lat)<=90&&Math.abs(lon)<=180)){$('e-add').textContent='Please set where the camera is.';return}
-  busy(b,true);try{S=await api('station/add',{probe_id:probe.probe_id,label:$('clabel').value,lat,lon,onvif:cam.onvif});probe=null;cam=null;adding=false;scanned=false;route()}catch(x){$('e-add').textContent=x.message}busy(b,false)};
+$('b-add').onclick=async e=>{const b=e.target;busy(b,true);
+  try{S=await api('station/add',{probe_id:probe.probe_id,label:$('clabel').value,onvif:cam.onvif});probe=null;cam=null;queue.shift();next()}catch(x){$('e-add').textContent=x.message}busy(b,false)};
 $('discack').onchange=()=>$('b-start').disabled=!$('discack').checked;
 $('b-start').onclick=async e=>{const b=e.target;busy(b,true);try{await api('disclaimer',{ok:true});S=await api('start',{});route()}catch(x){$('e-start').textContent=x.message}busy(b,false)};
 function home(){
   let birds=0,voices=0,up=false,err=null;S.stations.forEach(s=>{const l=s.live||{};birds+=l.birds||0;voices+=l.voices_removed||0;if(l.running)up=true;if(l.last_error)err=l.last_error});
   $('n-birds').textContent=birds;$('n-voices').textContent=voices;
-  $('home-title').textContent=up?'Listening…':'Can\'t reach the camera. Trying again soon.';
+  $('home-title').textContent=up?'Listening…':'Can\'t reach your microphone or camera. Trying again soon.';
   $('home-sub').textContent=S.recent.length?'Birds heard at your place appear below.':'We\'ll tell you when we hear your first bird.';
   const cn=$('chain-note');cn.classList.toggle('hide',!S.chain_state);cn.textContent=S.chain_state?(S.chain_state.charAt(0).toUpperCase()+S.chain_state.slice(1)+(S.chain_queued?' ('+S.chain_queued+' report'+(S.chain_queued>1?'s':'')+' waiting)':'')+'.'):'';
   const mn=$('model-note');mn.classList.toggle('hide',!S.model_error);mn.textContent=S.model_error?'Problem: '+S.model_error:'';
   if(S.recent.length)$('birds').innerHTML=S.recent.slice(0,12).map(d=>'<div class="bird"><div><b>'+esc(d.common||d.name)+'</b><br><i>'+esc(d.name)+'</i></div><div class="small muted">'+new Date(d.t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+'</div></div>').join('');
-  $('stations').innerHTML=S.stations.map(s=>{const l=s.live||{};return '<div class="cam"><div><b>'+esc(s.label)+'</b> <span class="tier">'+esc(s.tier)+'</span><div class="small muted">'+(l.running?'Listening now':(l.last_error?'Can\'t reach the camera. Trying again soon.':'Starting…'))+' · '+(l.frames||0)+' sounds checked</div></div><button class="ghost" data-id="'+esc(s.id)+'">Remove</button></div>'}).join('');
+  const vn=$('voucher-note');vn.classList.toggle('hide',!S.voucher_state);vn.textContent=S.voucher_state?S.voucher_state+'.':'';
+  $('stations').innerHTML=S.stations.map(s=>{const l=s.live||{};return '<div class="cam"><div><b>'+esc(s.label)+'</b> <span class="tier">'+esc(s.tier)+'</span><div class="small muted">'+(l.running?'Listening now':(l.last_error?(s.kind==='mic'?'Can\'t hear the microphone. Trying again soon.':'Can\'t reach the camera. Trying again soon.'):'Starting…'))+' · '+(l.frames||0)+' sounds checked</div></div><button class="ghost" data-id="'+esc(s.id)+'">Remove</button></div>'}).join('');
   $('stations').querySelectorAll('button').forEach(b=>b.onclick=async()=>{if(confirm('Remove this camera?')){S=await api('station/remove',{id:b.dataset.id});route()}});
   $('b-toggle').textContent=S.listening?'Pause listening':'Start listening';
   $('home-disc').textContent=S.disclaimer;
@@ -242,7 +275,7 @@ function indiv(){
   $('indiv-list').querySelectorAll('button').forEach(x=>x.onclick=async()=>{const n=prompt('A name for this bird (letters only):');if(!n)return;try{S=await api('bird/name',{bird_id:x.dataset.id,name:n});route()}catch(e){alert(e.message)}});
 }
 $('b-toggle').onclick=async()=>{if(S.listening){S=await api('pause',{})}else{show('s-start');$('disc-text').textContent=S.disclaimer;return}route()};
-$('b-add-cam').onclick=()=>{adding=true;scanned=false;cam=null;probe=null;route()};
+$('b-add-cam').onclick=()=>{adding=true;scanned=false;cam=null;probe=null;queue=[];route()};
 $('b-logout').onclick=async()=>{if(confirm('Sign out? Listening stops until you sign in again.')){S=await api('logout',{});route()}};
 $('b-upd').onclick=async()=>{const r=await api('update',{});alert(r.update_state)};
 api('tz',{tz_min:-new Date().getTimezoneOffset()}).catch(()=>{});

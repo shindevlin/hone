@@ -1,24 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  HONE Birds camera listener: MSIX for the Microsoft Store (the Store signs it at submission).
-  Paste from Partner Center > Product management > Product identity:
-    __PACKAGE_IDENTITY_NAME__   = "Package/Identity/Name"            (e.g. 12345ShinDevlin.HONEBirdsListener)
-    __PUBLISHER_CN__            = "Package/Identity/Publisher"       (e.g. CN=1A2B3C4D-....)
-    __PUBLISHER_DISPLAY_NAME__  = "Package/Properties/PublisherDisplayName"
-  and the reserved app name for __APP_DISPLAY_NAME__ (default: HONE Birds Listener).
--->
+<!-- Ornigo (a HONE app). Partner Center: PFN Honemesh.Ornigo_fyp1hq4e1t5em, Store ID 9PHS2CNBPWKQ. The Store signs the package. -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap desktop rescap">
-  <Identity Name="__PACKAGE_IDENTITY_NAME__" Publisher="__PUBLISHER_CN__" Version="__VERSION__.0" ProcessorArchitecture="x64" />
+  <Identity Name="Honemesh.Ornigo" Publisher="CN=9E748860-DF8B-4055-86EF-DA65354033EC" Version="__VERSION__.0" ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>__APP_DISPLAY_NAME__</DisplayName>
-    <PublisherDisplayName>__PUBLISHER_DISPLAY_NAME__</PublisherDisplayName>
+    <DisplayName>Ornigo</DisplayName>
+    <PublisherDisplayName>Honemesh</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
-    <Description>Hear who's singing at your place. Turns your home security camera's microphone into a bird listener. Human conversation is automatically deleted; no audio is ever saved or sent.</Description>
+    <Description>Hear who's singing at your place. Ornigo turns your PC's microphone, or your home security camera, into a bird listener. Human conversation is automatically deleted; no audio is ever saved or sent.</Description>
   </Properties>
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
@@ -28,13 +21,13 @@
   </Resources>
   <Applications>
     <Application Id="HoneListener" Executable="hone-listener.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="__APP_DISPLAY_NAME__" Description="Hear who's singing at your place"
+      <uap:VisualElements DisplayName="Ornigo" Description="Hear who's singing at your place"
         BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
       </uap:VisualElements>
       <Extensions>
         <desktop:Extension Category="windows.startupTask" Executable="hone-listener.exe" EntryPoint="Windows.FullTrustApplication">
-          <desktop:StartupTask TaskId="HoneListenerStartup" Enabled="true" DisplayName="__APP_DISPLAY_NAME__" />
+          <desktop:StartupTask TaskId="HoneListenerStartup" Enabled="true" DisplayName="Ornigo" />
         </desktop:Extension>
       </Extensions>
     </Application>
@@ -43,5 +36,6 @@
     <Capability Name="internetClient" />
     <Capability Name="privateNetworkClientServer" />
     <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="microphone" />
   </Capabilities>
 </Package>

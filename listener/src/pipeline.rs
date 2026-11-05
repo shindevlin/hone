@@ -97,7 +97,7 @@ impl Drop for Ring {
 
 // ── ingest ───────────────────────────────────────────────────────────────────
 
-fn ffmpeg_bin() -> std::path::PathBuf {
+pub fn ffmpeg_bin() -> std::path::PathBuf {
     let name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
     let local = res_dir().join(name);
     if local.exists() {
@@ -120,11 +120,18 @@ fn enc(s: &str) -> String {
 /// (`-allowed_media_types audio`, so the camera is never asked for video), first audio
 /// stream mapped, video/subtitle/data disabled, mono float PCM to stdout.
 pub fn ffmpeg_args(url: &str, rate: u32) -> Vec<String> {
-    let mut a: Vec<String> = ["-nostdin", "-hide_banner", "-loglevel", "error"].iter().map(|s| s.to_string()).collect();
+    let mut i: Vec<String> = Vec::new();
     if url.starts_with("rtsp") {
-        a.extend(["-rtsp_transport", "tcp", "-allowed_media_types", "audio", "-timeout", "10000000"].iter().map(|s| s.to_string()));
+        i.extend(["-rtsp_transport", "tcp", "-allowed_media_types", "audio", "-timeout", "10000000"].iter().map(|s| s.to_string()));
     }
-    a.extend(["-i".to_string(), url.to_string()]);
+    i.extend(["-i".to_string(), url.to_string()]);
+    ffmpeg_args_input(i, rate)
+}
+
+/// Same output side for any input (camera URL, microphone, file).
+pub fn ffmpeg_args_input(input: Vec<String>, rate: u32) -> Vec<String> {
+    let mut a: Vec<String> = ["-nostdin", "-hide_banner", "-loglevel", "error"].iter().map(|s| s.to_string()).collect();
+    a.extend(input);
     a.extend(["-map", "0:a:0", "-vn", "-sn", "-dn", "-ac", "1", "-ar"].iter().map(|s| s.to_string()));
     a.push(rate.to_string());
     a.extend(["-f", "f32le", "pipe:1"].iter().map(|s| s.to_string()));
@@ -156,6 +163,31 @@ fn st_ref(s: &Station) -> &Station {
 pub fn run_station(st: Station, stop: Arc<AtomicBool>, q: Arc<FrameQueue>) {
     let mut failures = 0u32;
     while !stop.load(Ordering::Relaxed) {
+        if st.kind == "mic" {
+            let started = std::time::Instant::now();
+            let res = ingest_once(&st, &st.path, &stop, &q, &[]);
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            if started.elapsed() > Duration::from_secs(120) {
+                failures = 0;
+            }
+            failures += 1;
+            let msg = res.err().unwrap_or_else(|| "microphone stopped".into());
+            log::warn!("mic {}: {}", &st.id[..6], msg);
+            live::station(&st.id, |s| {
+                s.running = false;
+                s.reachable = Some(false);
+                s.last_error = Some(msg.clone());
+            });
+            let wait = crate::rtsp::backoff_ms(failures);
+            let mut waited = 0;
+            while waited < wait && !stop.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(500));
+                waited += 500;
+            }
+            continue;
+        }
         let creds = secrets::camera_creds(&st.id);
         // The login never goes on ffmpeg's command line: a loopback relay adds it (relay.rs).
         let url = match creds.as_ref().filter(|(u, _)| !u.is_empty()) {
@@ -205,7 +237,7 @@ pub fn analyze_file(path: &str, rate: u32) -> Result<serde_json::Value, String> 
 }
 
 fn analyze_file_inner(path: &str, rate: u32) -> Result<serde_json::Value, String> {
-    let st = Station { id: "0000000000000000".into(), label: "file".into(), host: String::new(), port: 0, path: String::new(), onvif: None,
+    let st = Station { id: "0000000000000000".into(), kind: "file".into(), label: "file".into(), host: String::new(), port: 0, path: String::new(), onvif: None,
         codec: "file".into(), rate, tier: crate::audio::tier(rate).into(), id_source: "file".into(), noise_db: None, enabled: true, added_ms: 0 };
     let q = Arc::new(FrameQueue::default());
     let stop = AtomicBool::new(false);
@@ -252,7 +284,8 @@ fn analyze_file_inner(path: &str, rate: u32) -> Result<serde_json::Value, String
 
 fn ingest_once(st: &Station, url: &str, stop: &AtomicBool, q: &FrameQueue, sp: &[&str]) -> Result<(), String> {
     let mut cmd = Command::new(ffmpeg_bin());
-    cmd.args(ffmpeg_args(url, st.rate)).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let args = if st.kind == "mic" { ffmpeg_args_input(crate::mic::input_args(url), st.rate) } else { ffmpeg_args(url, st.rate) };
+    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
