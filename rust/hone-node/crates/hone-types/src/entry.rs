@@ -651,6 +651,32 @@ pub enum LedgerEntry {
     BirdName { bird_id: String, name: String, nonce: u64, epoch: Epoch, signed_by: AccountId },
     /// Mint the bird's unique card to its namer (posting key).
     BirdCardClaim { bird_id: String, nonce: u64, epoch: Epoch, signed_by: AccountId },
+    /// Merge bird `from` into `into` (eval/MERGE_AUTHORITY.md). Signed by the key of a
+    /// backed seat that reported both ids. `evidence`: "auto" (crate Event::Merged) or
+    /// "owner" (Voiceprinter::link). `stats`: summary numbers only (nights_overlap,
+    /// centroid_cos_q8, from_nights, into_nights), never voiceprints.
+    BirdMerge {
+        seat: String,
+        from: String,
+        into: String,
+        evidence: String,
+        #[serde(default)]
+        stats: std::collections::BTreeMap<String, u64>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// The other namer consents to a pending merge of two birds named by different accounts.
+    BirdMergeConsent { from: String, into: String, nonce: u64, epoch: Epoch, signed_by: AccountId },
+    /// Reverse a merge (crate Event::Split): re-opens the absorbed id `bird_id`. Seat key of a
+    /// backed seat that reported both ids.
+    BirdSplit {
+        seat: String,
+        bird_id: String,
+        #[serde(default)]
+        stats: std::collections::BTreeMap<String, u64>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
     /// Send a bird card (owner active key).
     BirdCardSend { card: String, to: AccountId, nonce: u64, epoch: Epoch, signed_by: AccountId },
 
@@ -2974,6 +3000,9 @@ impl LedgerEntry {
             Self::BirdName { epoch, .. } => *epoch,
             Self::BirdCardClaim { epoch, .. } => *epoch,
             Self::BirdCardSend { epoch, .. } => *epoch,
+            Self::BirdMerge { epoch, .. } => *epoch,
+            Self::BirdMergeConsent { epoch, .. } => *epoch,
+            Self::BirdSplit { epoch, .. } => *epoch,
             Self::InferenceJobPost { epoch, .. } => *epoch,
             Self::InferenceJobBid { epoch, .. } => *epoch,
             Self::InferenceJobAward { epoch, .. } => *epoch,
@@ -3216,6 +3245,7 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::BirdName { .. }
         | LedgerEntry::BirdCardClaim { .. }
         | LedgerEntry::BirdCardSend { .. }
+        | LedgerEntry::BirdMergeConsent { .. }
         | LedgerEntry::SetKeyPolicy { .. }
         | LedgerEntry::DelegationGrant { .. }
         | LedgerEntry::DelegationRevoke { .. }
@@ -3234,6 +3264,8 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::SensorSeatRegister { .. }
         | LedgerEntry::SensorSeatTransfer { .. }
         | LedgerEntry::BirdObserve { .. }
+        | LedgerEntry::BirdMerge { .. }
+        | LedgerEntry::BirdSplit { .. }
         | LedgerEntry::GatewayHeartbeat { .. }
         | LedgerEntry::ServiceHeartbeat { .. }
         | LedgerEntry::MempoolHeartbeat { .. }

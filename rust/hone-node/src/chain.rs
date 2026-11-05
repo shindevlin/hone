@@ -1629,7 +1629,8 @@ impl Chain {
             LedgerEntry::SensorSeatRegister { .. } | LedgerEntry::SensorSeatTransfer { .. } | LedgerEntry::SensorSeatSet { .. } => {
                 crate::sensor_seat::apply(self, entry)?;
             }
-            LedgerEntry::BirdObserve { .. } | LedgerEntry::BirdName { .. } | LedgerEntry::BirdCardClaim { .. } | LedgerEntry::BirdCardSend { .. } => {
+            LedgerEntry::BirdObserve { .. } | LedgerEntry::BirdName { .. } | LedgerEntry::BirdCardClaim { .. } | LedgerEntry::BirdCardSend { .. }
+            | LedgerEntry::BirdMerge { .. } | LedgerEntry::BirdMergeConsent { .. } | LedgerEntry::BirdSplit { .. } => {
                 crate::bird_cards::apply(self, entry)?;
             }
             LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, .. } => {

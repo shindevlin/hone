@@ -132,7 +132,8 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
 
         // ── Sensor seats & bird cards ────────────────────────────────────────
         E::SensorSeatRegister { .. } | E::SensorSeatTransfer { .. } | E::BirdCardSend { .. } => Value,
-        E::SensorSeatSet { .. } | E::BirdObserve { .. } | E::BirdName { .. } | E::BirdCardClaim { .. } => Operate,
+        E::SensorSeatSet { .. } | E::BirdObserve { .. } | E::BirdName { .. } | E::BirdCardClaim { .. }
+        | E::BirdMerge { .. } | E::BirdMergeConsent { .. } | E::BirdSplit { .. } => Operate,
 
         // ── Service: liveness, heartbeats, proofs, data commits ──────────────
         E::MempoolHeartbeat { .. } | E::GatewayHeartbeat { .. } | E::StorageHeartbeat { .. }

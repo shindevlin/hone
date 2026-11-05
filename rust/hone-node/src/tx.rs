@@ -46,6 +46,7 @@ fn entry_fee_payer(entry: &LedgerEntry) -> Option<String> {
         // A device seat's summaries are paid by its owner (the seat holds no balance).
         LedgerEntry::SensorSummary { owner, .. } => Some(crate::usefulness::owner_of(owner)),
         LedgerEntry::BirdObserve { seat, .. } => Some(crate::usefulness::owner_of(seat)),
+        LedgerEntry::BirdMerge { seat, .. } | LedgerEntry::BirdSplit { seat, .. } => Some(crate::usefulness::owner_of(seat)),
         _ => serde_json::to_value(entry).ok()
                 .and_then(|v| v["signed_by"].as_str().map(str::to_owned)),
     }
@@ -1219,6 +1220,18 @@ pub fn validate_and_apply(
         }
 
         // ── Bird names & cards (gated BIRD_CARDS_EPOCH) ──────────────────────
+        LedgerEntry::BirdMerge { seat, epoch, .. } | LedgerEntry::BirdSplit { seat, epoch, .. } => {
+            let gate = crate::bird_cards::activation_epoch();
+            if *epoch < gate { bail!("bird cards are not active before epoch {}", gate); }
+            crate::bird_cards::check(chain, entry)?;
+            let Some((seat_owner, _)) = hone_types::parse_device_clock_id(seat) else { bail!("bad seat id") };
+            if !seat_staked(chain, seat, seat_owner) && !crate::sensor_seat::backed(chain, seat) {
+                bail!("seat '{}' is not backed", seat);
+            }
+            require_key(chain, seat_owner)?;
+            if !seat_key_signed(chain, seat, entry, sig_hex) { bail!("must be signed by the seat key"); }
+            chain.apply_entry(entry)?;
+        }
         LedgerEntry::BirdObserve { seat, epoch, .. } => {
             let gate = crate::bird_cards::activation_epoch();
             if *epoch < gate { bail!("bird cards are not active before epoch {}", gate); }
@@ -1233,7 +1246,8 @@ pub fn validate_and_apply(
         }
         LedgerEntry::BirdName { signed_by, nonce, epoch, .. }
         | LedgerEntry::BirdCardClaim { signed_by, nonce, epoch, .. }
-        | LedgerEntry::BirdCardSend { signed_by, nonce, epoch, .. } => {
+        | LedgerEntry::BirdCardSend { signed_by, nonce, epoch, .. }
+        | LedgerEntry::BirdMergeConsent { signed_by, nonce, epoch, .. } => {
             let _guard = chain.write_lock.lock();
             let gate = crate::bird_cards::activation_epoch();
             if *epoch < gate { bail!("bird cards are not active before epoch {}", gate); }
@@ -2569,6 +2583,9 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
         LedgerEntry::BirdName            { epoch, .. }      => Some(*epoch),
         LedgerEntry::BirdCardClaim       { epoch, .. }      => Some(*epoch),
         LedgerEntry::BirdCardSend        { epoch, .. }      => Some(*epoch),
+        LedgerEntry::BirdMerge           { epoch, .. }      => Some(*epoch),
+        LedgerEntry::BirdMergeConsent    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::BirdSplit           { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobComplete{ epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobCommit  { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceJobVerify  { epoch, .. }      => Some(*epoch),
@@ -3556,6 +3573,15 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
             serde_json::json!({ "chain_id": chain_id, "type": "BIRD_NAME", "bird_id": bird_id, "name": name, "nonce": nonce }),
         LedgerEntry::BirdCardClaim { bird_id, nonce, .. } =>
             serde_json::json!({ "chain_id": chain_id, "type": "BIRD_CARD_CLAIM", "bird_id": bird_id, "nonce": nonce }),
+        // Seat-signed (no account nonce): the epoch is in the message so a signed merge or
+        // split cannot be replayed at a later epoch.
+        LedgerEntry::BirdMerge { seat, from, into, evidence, stats, epoch, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "BIRD_MERGE", "seat": seat, "from": from, "into": into,
+                "evidence": evidence, "stats": stats, "epoch": epoch }),
+        LedgerEntry::BirdMergeConsent { from, into, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "BIRD_MERGE_CONSENT", "from": from, "into": into, "nonce": nonce }),
+        LedgerEntry::BirdSplit { seat, bird_id, stats, epoch, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "BIRD_SPLIT", "seat": seat, "bird_id": bird_id, "stats": stats, "epoch": epoch }),
         LedgerEntry::BirdCardSend { card, to, nonce, .. } =>
             serde_json::json!({ "chain_id": chain_id, "type": "BIRD_CARD_SEND", "card": card, "to": to, "nonce": nonce }),
         LedgerEntry::SensorSummary { sensor_id, owner, batch_hash, cell, window, metrics, .. } =>
