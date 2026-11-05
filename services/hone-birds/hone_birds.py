@@ -23,6 +23,14 @@ API (all JSON):
   Envelopes may also carry "key": "seat" (device seat key): such rows are held back
   (verified=0) until the seat is bound to the account (see hone_devices.py).
   Device status and Flipper frames: hone_devices.py (/api/devices/*, /api/flipper/*).
+  Occupancy scores (hone_occupancy.py):
+  POST /api/birds/windows     signed listening window: effort at res 7, detections at res <= 9
+       payload = {"v":1,"sid","window","cell","frames","human","silenced","tz_min","source",
+                  "station"?,"species":[{"name","cell","events","conf_q8"}],"account"}
+  POST /api/birds/labels      signed, opt-in yes/no answers: {"v":1,"opt_in":true,"labels":[...],"account"}
+  GET  /api/birds/occupancy?cell=<res<=7 cell>   local view (status words; exact cells for map tiers)
+  GET  /api/birds/occupancy/map?res=5|7          likely/confirmed/rare species per cell
+  GET  /api/birds/occupancy/changes?since=<t>    arrivals/departures (indexer only, no chain)
 """
 import base64, hashlib, hmac, io, json, os, re, sqlite3, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from PIL import Image
@@ -36,6 +44,8 @@ from nacl.signing import VerifyKey
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hone_devices as devices  # noqa: E402  device status + Flipper frames
 import hone_accounts as accounts  # noqa: E402  app accounts (email sign-in)
+import hone_occupancy as occupancy  # noqa: E402  per-cell occupancy scores
+import hone_web as web  # noqa: E402  /me page + listener MCP reads (read-only, owner-scoped)
 
 DATA = os.environ.get("HONE_BIRDS_DATA", "/var/lib/hone-birds")
 PORT = int(os.environ.get("HONE_BIRDS_PORT", "9460"))
@@ -68,7 +78,7 @@ for col in ("dhash TEXT", "evidence TEXT", "evidence_ok INTEGER DEFAULT 0"):
         db.execute("ALTER TABLE photos ADD COLUMN " + col)
     except sqlite3.OperationalError:
         pass  # already there
-lock = threading.Lock()
+lock = threading.RLock()  # re-entrant: occupancy scoring reads ranges under the same lock
 rate = {}  # ip -> [window_start, count]
 
 # ── species range (GBIF occurrences within RANGE_KM of an H3 res-3 cell) ────────────────
@@ -263,6 +273,7 @@ def verify(body):
 
 devices.init(db, lock, posting_key)
 accounts.init(db, lock, devices.bind)
+web.init(db, lock)
 for col in ("source TEXT", "tier TEXT", "station TEXT"):
     try:
         db.execute("ALTER TABLE sightings ADD COLUMN " + col)
@@ -270,6 +281,77 @@ for col in ("source TEXT", "tier TEXT", "station TEXT"):
         pass  # already there
 if os.environ.get("HONE_SEALS", "1") == "1":
     devices.start_seals()
+
+# ── occupancy: season months per (res-3 area, species) from GBIF, cache only on the hot path ──
+db.execute("CREATE TABLE IF NOT EXISTS gbif_months(cell TEXT, latin TEXT, months TEXT, updated INTEGER, PRIMARY KEY(cell, latin))")
+db.commit()
+_months_q = set()
+_months_pool = ThreadPoolExecutor(2)
+
+
+def _fetch_months(c3, latin):
+    try:
+        m = gbif("https://api.gbif.org/v1/species/match?strict=true&name=" + urllib.parse.quote(latin))
+        key = m.get("usageKey")
+        months = None
+        if key:
+            lat, lng = h3.cell_to_latlng(c3)
+            d = gbif(f"https://api.gbif.org/v1/occurrence/search?geo_distance={lat:.4f},{lng:.4f},{RANGE_KM}km"
+                     f"&speciesKey={key}&facet=month&facetLimit=12&limit=0")
+            counts = {int(c["name"]): c["count"] for c in (d["facets"][0]["counts"] if d.get("facets") else [])}
+            if sum(counts.values()) >= 20:
+                top = max(counts.values())
+                months = sorted(k for k, v in counts.items() if v >= 0.1 * top)
+        with lock:
+            db.execute("INSERT OR REPLACE INTO gbif_months VALUES(?,?,?,?)", (c3, latin, json.dumps(months), int(time.time())))
+            db.commit()
+    except Exception as e:
+        sys.stderr.write("months %s: %s\n" % (latin, str(e)[:80]))
+    finally:
+        _months_q.discard((c3, latin))
+
+
+def season_months(cell, latin):
+    c3 = area(cell)
+    with lock:
+        r = db.execute("SELECT months, updated FROM gbif_months WHERE cell=? AND latin=?", (c3, latin)).fetchone()
+    if r and time.time() - r[1] < RANGE_TTL:
+        v = json.loads(r[0])
+        return set(v) if v else None
+    if (c3, latin) not in _months_q:
+        _months_q.add((c3, latin)); _months_pool.submit(_fetch_months, c3, latin)
+    return None
+
+
+def photo_near(cell, latin):
+    """A verified photo of the species by an account that listened in this res-7 area."""
+    c7 = h3.cell_to_parent(cell, 7) if h3.get_resolution(cell) > 7 else cell
+    with lock:
+        return db.execute("SELECT 1 FROM photos p WHERE p.latin=? AND p.verified=1 AND p.hidden=0 AND EXISTS("
+                          "SELECT 1 FROM occ_windows w WHERE w.account=p.account AND w.cell7=?) LIMIT 1",
+                          (latin, c7)).fetchone() is not None
+
+
+occupancy.init(db, lock, in_range, months=season_months, photo_near=photo_near)
+if not db.execute("SELECT 1 FROM occ_state LIMIT 1").fetchone():
+    # First start with occupancy: score the sightings already stored (positive evidence only).
+    for _r in db.execute("SELECT cell, latin, conf_q8, frames, window, account, station, verified FROM sightings"
+                         " WHERE verified IN (1,3,4) ORDER BY window").fetchall():
+        occupancy.ingest_sighting(_r[0], _r[1], _r[2], _r[3], _r[4], occupancy.listener_of(_r[5]), _r[7])
+
+
+def add_window(body):
+    p, pub, verified = verify(body)
+    return occupancy.ingest_window(p, str(p["account"]), verified)
+
+
+def add_labels(body):
+    p, pub, verified = verify(body)
+    if p.get("opt_in") is not True:
+        raise ValueError("labels are shared only after the user opts in")
+    if verified != 1:
+        return {"ok": True, "stored": 0, "held": True}
+    return occupancy.add_labels(str(p["account"]), p.get("labels"))
 
 
 def add_sighting(body):
@@ -308,6 +390,11 @@ def add_sighting(body):
                 first.append(r[4])
         db.executemany("INSERT OR IGNORE INTO sightings(sid,window,cell,res,latin,conf_q8,frames,model,account,pub,received,"
                        "verified,show_name,source,tier,station) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        # Occupancy: phones from v8 send their evidence as listening windows ("occ": 1); older
+        # phones and camera stations feed it from sightings (positive evidence only).
+        if not p.get("occ"):
+            for r in rows:
+                occupancy.ingest_sighting(r[2], r[4], r[5], r[6], r[1], occupancy.listener_of(r[8]), r[11])
         # A rare report is confirmed (4) when a different account reports the same species
         # in the same res-3 area within 72 h (288 windows).
         for r in rows:
@@ -505,6 +592,10 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, add_sighting(body))
             if path == "/api/birds/photos":
                 return self._send(200, add_photo(body))
+            if path == "/api/birds/windows":
+                return self._send(200, add_window(body))
+            if path == "/api/birds/labels":
+                return self._send(200, add_labels(body))
             if path == "/api/birds/admin/posting-keys":
                 # Refreshed by the n8n workflow "HONE: birds posting-key refresh" on grouchly.
                 token = os.environ.get("HONE_BIRDS_ADMIN_TOKEN", "")
@@ -540,6 +631,8 @@ class H(BaseHTTPRequestHandler):
             return accounts.signup(body)
         if path == "/api/accounts/login":
             return accounts.login(body)
+        if path.startswith("/api/accounts/web/"):
+            return web.post(path, body, self.headers)
         if path == "/api/accounts/admin/outbox/ack":
             if not devices.admin(self.headers):
                 raise accounts.AuthError("forbidden")
@@ -572,6 +665,15 @@ class H(BaseHTTPRequestHandler):
         a = {k: v[0] for k, v in parse_qs(u.query).items()}
         path = u.path
         try:
+            if path == "/api/birds/occupancy":
+                return self._send(200, {"cell": a["cell"], "species": occupancy.area_view(a["cell"])})
+            if path == "/api/birds/occupancy/map":
+                res = int(a.get("res", 7))
+                if res not in (5, 7):
+                    raise ValueError("res must be 5 or 7")
+                return self._send(200, occupancy.map_cells(res))
+            if path == "/api/birds/occupancy/changes":
+                return self._send(200, occupancy.changes(int(a.get("since", 0)), int(a.get("limit", 500))))
             if path == "/api/birds/sightings":
                 rows = q("SELECT * FROM sightings WHERE verified IN (1,3,4) AND window>=? ORDER BY window DESC LIMIT ?",
                          (int(a.get("since", 0)), min(int(a.get("limit", 500)), 2000)))
@@ -634,6 +736,13 @@ class H(BaseHTTPRequestHandler):
                 c3, names = species_range(a["cell"])
                 return self._send(200, {"cell": c3, "radius_km": RANGE_KM, "source": "GBIF.org occurrences",
                                         "species": names})
+            if path.startswith("/api/accounts/mine/") or path == "/api/accounts/web/tokens":
+                try:
+                    return self._send(200, web.get(path, a, self.headers))
+                except accounts.AuthError as e:
+                    return self._send(401, {"error": str(e)})
+                except LookupError:
+                    return self._send(404, {"error": "not found"})
             if path == "/api/accounts/me":
                 try:
                     return self._send(200, accounts.me(accounts.auth(self.headers), devices.online))

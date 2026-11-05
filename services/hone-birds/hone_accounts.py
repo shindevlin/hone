@@ -2,7 +2,9 @@
 
 App profile only: name, life list, settings, linked devices. Nothing here goes on chain; the
 email never leaves this database. Passwords: argon2id. Email verification by a 6-digit code,
-sent from an outbox an n8n workflow drains (or a webhook, when HONE_MAIL_WEBHOOK is set).
+sent from an outbox drained by AgentMail (AGENTMAIL_HONEHELP key, inbox HONE_MAIL_INBOX,
+default honehelp@agentmail.to); without a key, by a webhook (HONE_MAIL_WEBHOOK) or the admin outbox API.
+The log names outbox ids and HTTP codes only, never an address or a code.
 Unverified accounts work; sign-in on another phone is the same either way.
 
 API (JSON):
@@ -19,7 +21,7 @@ API (JSON):
 The seat envelope: {"payload": canonical {"kind":"seat_link","seat_pub","email_sha","label","ts"},
 "key":"seat","pub","sig"} signed by the phone's device key; it links that device to the account.
 """
-import hashlib, hmac, json, os, re, secrets, threading, time, urllib.request
+import hashlib, hmac, json, os, re, secrets, threading, time, urllib.error, urllib.parse, urllib.request
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
@@ -33,6 +35,8 @@ NODE = os.environ.get("HONE_NODE_URL", "http://127.0.0.1:4242")
 SESSION_S = 180 * 86400
 CODE_S = 30 * 60
 OUTBOX_KEEP_S = 3600
+AGENTMAIL_API = "https://api.agentmail.to/v0"
+_mail_kick = threading.Event()
 
 _db = _lock = _bind = None
 _ref_cache = {}
@@ -61,6 +65,8 @@ def init(db, lock, bind):
       kind TEXT, created INTEGER, sent INTEGER DEFAULT 0);
     """)
     db.commit()
+    if _agentmail_key():
+        threading.Thread(target=_mail_loop, daemon=True, name="agentmail").start()
 
 
 def _h(s):
@@ -148,14 +154,18 @@ def auth(headers):
 def _queue_code(handle, email, name):
     code = f"{secrets.randbelow(1_000_000):06d}"
     now = int(time.time())
-    body = (f"Hi {name or 'there'},\n\nYour HONE code is {code}\n\nType it in the app to confirm your email. "
-            "It works for 30 minutes.\nIf you didn't sign up for HONE, you can ignore this email.\n\nHONE · https://honemesh.net")
+    body = (f"Hi {name or 'there'},\n\nYour HONE code is {code}. Enter it in the app to finish signing up.\n\n"
+            "The code works for 30 minutes. If you didn't sign up for HONE, you can ignore this email.\n\n"
+            "HONE · https://honemesh.net")
     with _lock:
         _db.execute("INSERT OR REPLACE INTO user_codes VALUES(?,?,?,0)", (handle, _h(handle + code), now + CODE_S))
         _db.execute("DELETE FROM mail_outbox WHERE to_email=? AND kind='verify' AND sent=0", (email,))
         _db.execute("INSERT INTO mail_outbox(to_email,subject,body,kind,created) VALUES(?,?,?,?,?)",
-                    (email, f"Your HONE code: {code}", body, "verify", now))
+                    (email, f"Your HONE code is {code}", body, "verify", now))
         _db.commit()
+    if _agentmail_key():
+        _mail_kick.set()
+        return
     hook = os.environ.get("HONE_MAIL_WEBHOOK", "")
     if hook:
         threading.Thread(target=_push_outbox, args=(hook,), daemon=True).start()
@@ -172,6 +182,56 @@ def _push_outbox(hook):
                     ack([m["id"]])
         except Exception:
             pass
+
+
+def _agentmail_key():
+    # The key was pasted with a BOM and a CR: strip both, plus spaces and quotes.
+    return os.environ.get("AGENTMAIL_HONEHELP", "").replace("\ufeff", "").strip().strip("'\"").strip()
+
+
+def _agentmail_send(m, key, inbox):
+    """POST /v0/inboxes/{inbox}/messages/send. Returns the HTTP status (0 = network error)."""
+    data = json.dumps({"to": [m["to"]], "subject": m["subject"], "text": m["text"]}).encode()
+    req = urllib.request.Request(f"{AGENTMAIL_API}/inboxes/{urllib.parse.quote(inbox)}/messages/send", data=data,
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:
+        return 0
+
+
+def flush_agentmail():
+    """Send every unsent outbox row. 2xx and final 4xx leave the outbox; 429/5xx/network retry later."""
+    key = _agentmail_key()
+    if not key:
+        return {"sent": 0, "refused": 0, "retry": 0}
+    inbox = os.environ.get("HONE_MAIL_INBOX", "honehelp@agentmail.to")
+    n = {"sent": 0, "refused": 0, "retry": 0}
+    for m in outbox():
+        code = _agentmail_send(m, key, inbox)
+        if 200 <= code < 300:
+            ack([m["id"]]); n["sent"] += 1
+            print(f"mail: outbox {m['id']} sent", flush=True)
+        elif 400 <= code < 500 and code != 429:
+            ack([m["id"]]); n["refused"] += 1
+            print(f"mail: outbox {m['id']} refused HTTP {code}", flush=True)
+        else:
+            n["retry"] += 1
+            print(f"mail: outbox {m['id']} retry (HTTP {code})", flush=True)
+    return n
+
+
+def _mail_loop():
+    while True:
+        try:
+            flush_agentmail()
+        except Exception as e:
+            print(f"mail: flush failed: {type(e).__name__}", flush=True)
+        _mail_kick.wait(60)
+        _mail_kick.clear()
 
 
 def outbox():
