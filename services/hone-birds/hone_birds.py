@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hone_devices as devices  # noqa: E402  device status + Flipper frames
 import hone_accounts as accounts  # noqa: E402  app accounts (email sign-in)
 import hone_occupancy as occupancy  # noqa: E402  per-cell occupancy scores
+import hone_web as web  # noqa: E402  /me page + listener MCP reads (read-only, owner-scoped)
 
 DATA = os.environ.get("HONE_BIRDS_DATA", "/var/lib/hone-birds")
 PORT = int(os.environ.get("HONE_BIRDS_PORT", "9460"))
@@ -272,6 +273,7 @@ def verify(body):
 
 devices.init(db, lock, posting_key)
 accounts.init(db, lock, devices.bind)
+web.init(db, lock)
 for col in ("source TEXT", "tier TEXT", "station TEXT"):
     try:
         db.execute("ALTER TABLE sightings ADD COLUMN " + col)
@@ -629,6 +631,8 @@ class H(BaseHTTPRequestHandler):
             return accounts.signup(body)
         if path == "/api/accounts/login":
             return accounts.login(body)
+        if path.startswith("/api/accounts/web/"):
+            return web.post(path, body, self.headers)
         if path == "/api/accounts/admin/outbox/ack":
             if not devices.admin(self.headers):
                 raise accounts.AuthError("forbidden")
@@ -732,6 +736,13 @@ class H(BaseHTTPRequestHandler):
                 c3, names = species_range(a["cell"])
                 return self._send(200, {"cell": c3, "radius_km": RANGE_KM, "source": "GBIF.org occurrences",
                                         "species": names})
+            if path.startswith("/api/accounts/mine/") or path == "/api/accounts/web/tokens":
+                try:
+                    return self._send(200, web.get(path, a, self.headers))
+                except accounts.AuthError as e:
+                    return self._send(401, {"error": str(e)})
+                except LookupError:
+                    return self._send(404, {"error": "not found"})
             if path == "/api/accounts/me":
                 try:
                     return self._send(200, accounts.me(accounts.auth(self.headers), devices.online))
