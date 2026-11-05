@@ -101,7 +101,7 @@ private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -
         return
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(mine, key = { it.latin }) { s ->
+        items(mine.distinctBy { it.latin }, key = { it.latin }) { s ->
             Row(
                 Modifier.fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
@@ -137,7 +137,7 @@ private fun AroundHere(onOpen: (String) -> Unit) {
             Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_around_intro),
                 style = MaterialTheme.typography.bodySmall, color = HoneTextDim)
         }
-        items(r, key = { it.latin }) { s ->
+        items(r.distinctBy { it.latin }, key = { it.latin }) { s ->
             Row(
                 Modifier.fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
@@ -252,7 +252,7 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
                 style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
         }
         item { CallPlayer(s.latin) }
-        items(s.history.take(200), key = { "h-${it.t}" }) { h ->
+        items(s.history.distinctBy { it.t }.take(200), key = { "h-${it.t}" }) { h ->
             val v = verdicts["${h.t}|${h.name}"]
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("${DateUtils.formatDateTime(ctx, h.t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · ${h.conf.toInt()}%" +
@@ -336,7 +336,7 @@ private fun EveryoneList(onOpen: (String) -> Unit) {
         list!!.isEmpty() -> Text("No public sightings yet. Yours appear here after each 15-minute window.",
             style = MaterialTheme.typography.bodyMedium, color = HoneTextFaint)
         else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(list!!, key = { it.latin }) { s ->
+            items(list!!.distinctBy { it.latin }, key = { it.latin }) { s ->
                 Row(
                     Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
                         .clickable { onOpen(s.latin) }.padding(12.dp),
