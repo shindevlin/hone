@@ -156,6 +156,7 @@ pub fn apply_set(chain: &Chain, epoch: u64, mut remaining: Vec<(LedgerEntry, Opt
 pub fn epoch_tick(chain: &Chain, epoch: u64, committed_weight: u64) {
     crate::usefulness::release_due(chain, epoch);
     crate::sensor_seat::tick(chain, epoch);
+    crate::vouchers::tick(chain, epoch);
     crate::bird_cards::tick(chain, epoch);
     crate::inference_daemon::process_epoch(chain, epoch);
     crate::ensemble::sweep_expired(chain, epoch);

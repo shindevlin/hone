@@ -647,6 +647,31 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
+    /// Lock amount_per_seat x max_seats behind a voucher key (sponsor active key).
+    /// claim_until_epoch 0 = 14 days.
+    SponsorVoucherCreate {
+        sponsor: AccountId,
+        voucher_pubkey: String,
+        amount_per_seat: Hunits,
+        max_seats: u64,
+        #[serde(default)]
+        claim_until_epoch: Epoch,
+        nonce: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Close a voucher and refund the unclaimed remainder (sponsor active key).
+    SponsorVoucherCancel { sponsor: AccountId, voucher_pubkey: String, nonce: u64, epoch: Epoch, signed_by: AccountId },
+    /// Claim a sponsored seat: signed by the voucher key (entry signature) over a message
+    /// naming seat_pubkey, plus `seat_sig` by the seat key over the same message. Fee-free.
+    SensorSeatClaim {
+        voucher_pubkey: String,
+        seat_pubkey: String,
+        kind: String,
+        epoch: Epoch,
+        #[serde(default)]
+        seat_sig: String,
+    },
     /// Name a bird (first-reporting seat's owner, posting key). First valid name wins.
     BirdName { bird_id: String, name: String, nonce: u64, epoch: Epoch, signed_by: AccountId },
     /// Mint the bird's unique card to its namer (posting key).
@@ -2997,6 +3022,9 @@ impl LedgerEntry {
             Self::SensorSeatTransfer { epoch, .. } => *epoch,
             Self::SensorSeatSet { epoch, .. } => *epoch,
             Self::BirdObserve { epoch, .. } => *epoch,
+            Self::SponsorVoucherCreate { epoch, .. } => *epoch,
+            Self::SponsorVoucherCancel { epoch, .. } => *epoch,
+            Self::SensorSeatClaim { epoch, .. } => *epoch,
             Self::BirdName { epoch, .. } => *epoch,
             Self::BirdCardClaim { epoch, .. } => *epoch,
             Self::BirdCardSend { epoch, .. } => *epoch,
@@ -3228,7 +3256,9 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::MempoolReward { .. }
         | LedgerEntry::TrackerCoverageReward { .. }
         | LedgerEntry::GenesisAlloc { .. }
-        | LedgerEntry::TestnetReward { .. } => ENTRY_WEIGHT_SYSTEM,
+        | LedgerEntry::TestnetReward { .. }
+        // Fee-free for the claimer (the sponsor already locked the stake).
+        | LedgerEntry::SensorSeatClaim { .. } => ENTRY_WEIGHT_SYSTEM,
 
         // ── Micro (1): lightweight single-field state transitions ─────────────
         LedgerEntry::Transfer { .. }
@@ -3262,6 +3292,8 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::CoverageReport { .. }
         | LedgerEntry::SensorSummary { .. }
         | LedgerEntry::SensorSeatRegister { .. }
+        | LedgerEntry::SponsorVoucherCreate { .. }
+        | LedgerEntry::SponsorVoucherCancel { .. }
         | LedgerEntry::SensorSeatTransfer { .. }
         | LedgerEntry::BirdObserve { .. }
         | LedgerEntry::BirdMerge { .. }

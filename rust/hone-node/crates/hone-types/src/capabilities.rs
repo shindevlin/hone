@@ -131,7 +131,9 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         E::OrderPlace { .. } | E::MemorySet { .. } | E::MemoryDelete { .. } => Message,
 
         // ── Sensor seats & bird cards ────────────────────────────────────────
-        E::SensorSeatRegister { .. } | E::SensorSeatTransfer { .. } | E::BirdCardSend { .. } => Value,
+        E::SensorSeatRegister { .. } | E::SensorSeatTransfer { .. } | E::BirdCardSend { .. }
+        | E::SponsorVoucherCreate { .. } | E::SponsorVoucherCancel { .. } => Value,
+        E::SensorSeatClaim { .. } => Operate,
         E::SensorSeatSet { .. } | E::BirdObserve { .. } | E::BirdName { .. } | E::BirdCardClaim { .. }
         | E::BirdMerge { .. } | E::BirdMergeConsent { .. } | E::BirdSplit { .. } => Operate,
 

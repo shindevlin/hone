@@ -88,6 +88,8 @@ pub fn precheck_submission(chain: &Chain, entry: &LedgerEntry, sig_hex: Option<&
             return check_sensor_signature(chain, sensor_id, owner, entry, sig_hex),
         // Authorised by an external-chain signature inside the entry, not an account key.
         LedgerEntry::VerifyChainLink { .. } => return Ok(()),
+        // Authorised by the voucher key and the seat key, not an account.
+        LedgerEntry::SensorSeatClaim { .. } => return crate::vouchers::check(chain, entry, sig_hex),
         _ => {}
     }
     // Device seats `owner@<pubkey>` are not accounts, so the account-key check below would
@@ -1218,6 +1220,28 @@ pub fn validate_and_apply(
             }
             require_key(chain, reporter)?;
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Sponsor vouchers (gated VOUCHERS_EPOCH) ──────────────────────────
+        LedgerEntry::SponsorVoucherCreate { signed_by, nonce, epoch, .. }
+        | LedgerEntry::SponsorVoucherCancel { signed_by, nonce, epoch, .. } => {
+            let _guard = chain.write_lock.lock();
+            let gate = crate::vouchers::activation_epoch();
+            if *epoch < gate { bail!("vouchers are not active before epoch {}", gate); }
+            crate::vouchers::check(chain, entry, sig_hex)?;
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, signed_by)?;
+        }
+        LedgerEntry::SensorSeatClaim { epoch, .. } => {
+            let _guard = chain.write_lock.lock();
+            let gate = crate::vouchers::activation_epoch();
+            if *epoch < gate { bail!("vouchers are not active before epoch {}", gate); }
+            if *epoch < crate::sensor_seat::activation_epoch() { bail!("sensor seats are not active"); }
+            crate::vouchers::check(chain, entry, sig_hex)?;
             chain.apply_entry(entry)?;
         }
 
@@ -2595,6 +2619,9 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
         LedgerEntry::CoverageReport      { epoch, .. }      => Some(*epoch),
         LedgerEntry::SensorSummary       { epoch, .. }      => Some(*epoch),
         LedgerEntry::SensorSeatRegister  { epoch, .. }      => Some(*epoch),
+        LedgerEntry::SponsorVoucherCreate { epoch, .. }     => Some(*epoch),
+        LedgerEntry::SponsorVoucherCancel { epoch, .. }     => Some(*epoch),
+        LedgerEntry::SensorSeatClaim     { epoch, .. }      => Some(*epoch),
         LedgerEntry::SensorSeatTransfer  { epoch, .. }      => Some(*epoch),
         LedgerEntry::SensorSeatSet       { epoch, .. }      => Some(*epoch),
         LedgerEntry::BirdObserve         { epoch, .. }      => Some(*epoch),
@@ -3577,6 +3604,13 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "job_id": job_id,
                 "nonce": nonce,
             }),
+        LedgerEntry::SponsorVoucherCreate { sponsor, voucher_pubkey, amount_per_seat, max_seats, claim_until_epoch, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SPONSOR_VOUCHER_CREATE", "sponsor": sponsor, "voucher_pubkey": voucher_pubkey,
+                "amount_per_seat": amount_per_seat, "max_seats": max_seats, "claim_until_epoch": claim_until_epoch, "nonce": nonce }),
+        LedgerEntry::SponsorVoucherCancel { sponsor, voucher_pubkey, nonce, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SPONSOR_VOUCHER_CANCEL", "sponsor": sponsor, "voucher_pubkey": voucher_pubkey, "nonce": nonce }),
+        LedgerEntry::SensorSeatClaim { voucher_pubkey, seat_pubkey, kind, .. } =>
+            serde_json::json!({ "chain_id": chain_id, "type": "SENSOR_SEAT_CLAIM", "voucher_pubkey": voucher_pubkey, "seat_pubkey": seat_pubkey, "kind": kind }),
         LedgerEntry::SensorSeatRegister { owner, seat_pubkey, kind, referrer, nonce, .. } =>
             serde_json::json!({ "chain_id": chain_id, "type": "SENSOR_SEAT_REGISTER", "owner": owner,
                 "seat_pubkey": seat_pubkey, "kind": kind, "referrer": referrer, "nonce": nonce }),

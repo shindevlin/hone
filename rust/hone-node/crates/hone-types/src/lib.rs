@@ -183,6 +183,8 @@ pub const NAME_NFT_MIGRATION_EPOCH: u64 = 352_000;
 pub const SENSOR_SEATS_EPOCH: u64 = 355_140; // Josh 2026-11-04 18:44 "turn on sponsorships"
 /// Bird names and cards (BIRD_OBSERVE / BIRD_NAME / BIRD_CARD_CLAIM / BIRD_CARD_SEND). Off.
 pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
+/// Sponsor vouchers (SPONSOR_VOUCHER_CREATE / CANCEL, SENSOR_SEAT_CLAIM). Off.
+pub const VOUCHERS_EPOCH: u64 = u64::MAX;
 
 /// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
 /// PLACEHOLDER — confirm the exact three founder accounts.

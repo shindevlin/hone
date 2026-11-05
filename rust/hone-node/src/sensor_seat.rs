@@ -123,19 +123,26 @@ pub fn check(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     Ok(())
 }
 
+/// Create the seat record `owner@seat_pubkey` (register and voucher claim). Returns the seat id.
+pub fn create_record(chain: &Chain, owner: &str, seat_pubkey: &str, kind: &str, referrer: Option<String>, epoch: u64) -> Result<String> {
+    let seat = format!("{owner}@{seat_pubkey}");
+    set_json(chain, &rec_key(&seat), &json!({ "seat": seat, "owner": owner, "seat_pubkey": seat_pubkey, "kind": kind,
+        "referrer": referrer, "origin_owner": owner, "registered_epoch": epoch, "sponsor": null,
+        "sponsor_amount": 0, "autostake_bps": AUTOSTAKE_DEFAULT_BPS, "transferred_epoch": null }))?;
+    chain.store.state_set(&format!("sensor_seat_pk:{seat_pubkey}"), seat.as_bytes())?;
+    chain.store.state_set(&format!("sensor_seat_by:{owner}:{seat_pubkey}"), b"1")?;
+    chain.store.state_set(&last_key(&seat), epoch.to_string().as_bytes())?;
+    Ok(seat)
+}
+pub fn put_stake(chain: &Chain, seat: &str, staker: &str, amount: u64, epoch: u64) -> Result<()> { set_stake(chain, seat, staker, amount, epoch) }
+
 pub fn apply(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     check(chain, entry)?;
     match entry {
         LedgerEntry::SensorSeatRegister { owner, seat_pubkey, kind, referrer, epoch, .. } => {
-            let seat = format!("{owner}@{seat_pubkey}");
-            set_json(chain, &rec_key(&seat), &json!({ "seat": seat, "owner": owner, "seat_pubkey": seat_pubkey, "kind": kind,
-                "referrer": referrer, "origin_owner": owner, "registered_epoch": epoch, "sponsor": null,
-                "sponsor_amount": 0, "autostake_bps": AUTOSTAKE_DEFAULT_BPS, "transferred_epoch": null }))?;
-            chain.store.state_set(&format!("sensor_seat_pk:{seat_pubkey}"), seat.as_bytes())?;
-            chain.store.state_set(&format!("sensor_seat_by:{owner}:{seat_pubkey}"), b"1")?;
+            create_record(chain, owner, seat_pubkey, kind, referrer.clone(), *epoch)?;
             let rk = format!("sensor_seat_reg:{owner}:{}", epoch / REG_WINDOW_EPOCHS);
             chain.store.state_set(&rk, (read_u64(chain, &rk) + 1).to_string().as_bytes())?;
-            chain.store.state_set(&last_key(&seat), epoch.to_string().as_bytes())?;
         }
         LedgerEntry::SensorSeatTransfer { seat, to_owner, epoch, .. } => {
             let mut rec = get(chain, seat).unwrap_or_default();
