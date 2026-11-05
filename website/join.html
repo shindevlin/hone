@@ -69,6 +69,7 @@
       <div class="heard"><b>Great Kiskadee</b><small>Heard by the garden camera, 6:12 this morning</small></div>
       <div class="back"><b>Lumen is back</b><small>Little Owl · night 14</small></div>
       <button class="ghost" type="button" id="sample">Hear a sample dawn</button>
+      <p class="credit hidden" id="sample-credit" style="font-size:12px;color:var(--dim)">Recording: <a href="https://xeno-canto.org/719823" rel="noopener">Hugo Oliveros-Salas, XC719823</a>, <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noopener">CC0 1.0</a> via <a href="https://xeno-canto.org/" rel="noopener">xeno-canto</a></p>
     </div>
   </section>
 
@@ -139,16 +140,21 @@
   var back = location.origin + location.pathname + location.search;
   document.getElementById("open_app").href = "intent://join?ref=" + encodeURIComponent(ref || "none") + (v ? "&v=" + encodeURIComponent(v) : "") +
     "#Intent;scheme=hone;package=network.hone.app.debug;S.browser_fallback_url=" + encodeURIComponent(back) + ";end";
-  // A real kiskadee call from xeno-canto, played unmodified.
-  var au = null, sb = document.getElementById("sample");
+  // Pinned sample: Great Kiskadee dawn song, XC719823 by Hugo Oliveros-Salas (Colombia), CC0 1.0, via xeno-canto.
+  // Played unmodified from xeno-canto's own file URL; the credit shows while it plays.
+  var SAMPLE = "https://xeno-canto.org/sounds/uploaded/NNHAEBGRDL/XC719823-Pitangus-sulphuratus.mp3";
+  var au = null, sb = document.getElementById("sample"), cr = document.getElementById("sample-credit");
+  function unavailable() { if (au) au.pause(); sb.textContent = "Sample unavailable right now"; sb.disabled = true; sb.style.opacity = ".55"; sb.style.cursor = "default"; cr.classList.add("hidden"); }
   sb.addEventListener("click", function () {
+    if (sb.disabled) return;
     if (au && !au.paused) { au.pause(); sb.textContent = "Hear a sample dawn"; return; }
+    if (!au) {
+      au = new Audio(SAMPLE); au.preload = "auto";
+      au.addEventListener("ended", function () { sb.textContent = "Hear a sample dawn"; });
+      au.addEventListener("error", unavailable);
+    }
     sb.textContent = "Loading…";
-    (au ? Promise.resolve(au) : fetch("/api/birds/call/Pitangus%20sulphuratus").then(function (r) { return r.json(); }).then(function (j) {
-      var x = (j.recordings || [])[0]; if (!x) throw 0;
-      au = new Audio(x.file_url); au.addEventListener("ended", function () { sb.textContent = "Hear a sample dawn"; }); return au;
-    })).then(function (a) { return a.play(); }).then(function () { sb.textContent = "Pause the sample"; })
-      .catch(function () { sb.textContent = "Sample unavailable right now"; });
+    au.play().then(function () { sb.textContent = "Pause the sample"; cr.classList.remove("hidden"); }, unavailable);
   });
 })();
 </script>
