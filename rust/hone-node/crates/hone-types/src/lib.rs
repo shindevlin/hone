@@ -180,7 +180,7 @@ pub const NAME_NFT_MIGRATION_EPOCH: u64 = 352_000;
 
 /// Referral-backed sensor seats (SENSOR_SEAT_REGISTER / TRANSFER / SET, role `sensor`
 /// delegation, autostake, payback). Off until Josh signs off an epoch.
-pub const SENSOR_SEATS_EPOCH: u64 = u64::MAX;
+pub const SENSOR_SEATS_EPOCH: u64 = 355_140; // Josh 2026-11-04 18:44 "turn on sponsorships"
 /// Bird names and cards (BIRD_OBSERVE / BIRD_NAME / BIRD_CARD_CLAIM / BIRD_CARD_SEND). Off.
 pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
 
