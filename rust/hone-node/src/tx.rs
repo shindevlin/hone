@@ -88,6 +88,19 @@ pub fn precheck_submission(chain: &Chain, entry: &LedgerEntry, sig_hex: Option<&
         LedgerEntry::VerifyChainLink { .. } => return Ok(()),
         _ => {}
     }
+    // Device seats `owner@<pubkey>` are not accounts, so the account-key check below would
+    // wave them through ("account may be created in the same seal") and an unstaked seat's
+    // entry was admitted to the pending pool and gossiped for free, to be rejected only at
+    // seal (2026-11-04, seat shindevlin@8a19745a...). Admit a seat-signed entry only if its
+    // owner exists, the seat holds an owner-placed stake, and the seat key signed it.
+    if let Some(signer) = serde_json::to_value(entry).ok().and_then(|v| v["signed_by"].as_str().map(str::to_owned)) {
+        if let Some((seat_owner, _)) = hone_types::parse_device_clock_id(&signer) {
+            if chain.store.get_account(seat_owner)?.is_none() { bail!("seat owner '{}' does not exist", seat_owner); }
+            if !seat_admitted(chain, &signer, seat_owner) { bail!("device seat '{}' is not backed by '{}'", signer, seat_owner); }
+            if !seat_key_signed(chain, &signer, entry, sig_hex) { bail!("signature does not verify under seat key '{}'", signer); }
+            return Ok(());
+        }
+    }
     let signer = match serde_json::to_value(entry).ok()
         .and_then(|v| v["signed_by"].as_str().map(str::to_owned))
     {
@@ -157,6 +170,11 @@ pub fn decide_device_seats_epoch() -> u64 {
 #[cfg(test)]
 thread_local! {
     pub static TEST_SEATS_EPOCH: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Admission (not consensus): may entries signed by this seat enter the pending pool?
+fn seat_admitted(chain: &Chain, seat: &str, owner: &str) -> bool {
+    seat_staked(chain, seat, owner)
 }
 
 /// A device seat holds a role stake (clock or decide) placed by its owner.
@@ -3745,6 +3763,26 @@ mod tests {
     fn seat_stake(node: &str, staker: &str, epoch: u64) -> LedgerEntry {
         LedgerEntry::NodeRoleStake { node: node.into(), role: "decide".into(), staker: staker.into(),
             amount: 100_000_000_000, epoch, nonce: 1, signed_by: staker.into() }
+    }
+
+    #[test]
+    fn unstaked_seat_entries_are_not_admitted_to_the_pool() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "josh", 10_000_000_000_000);
+        let seat_sk = SigningKey::from_bytes(&[0x5e; 32]);
+        let seat = format!("josh@{}", hex::encode(seat_sk.verifying_key().to_bytes()));
+        let e = LedgerEntry::SensorSummary { sensor_id: "st".into(), owner: seat.clone(), batch_hash: String::new(),
+            cell: "896d75d960bffff".into(), window: 1_993_148,
+            metrics: [("wifi.ap_count".to_string(), 3i64)].into_iter().collect(), epoch: 352_700, signed_by: seat.clone() };
+        assert!(precheck_submission(&chain, &e, Some(&sign(&seat_sk, &e))).is_err(), "unstaked seat refused at admission");
+        let ghost = format!("nobody@{}", hex::encode(seat_sk.verifying_key().to_bytes()));
+        let mut g = e.clone();
+        if let LedgerEntry::SensorSummary { owner, signed_by, .. } = &mut g { *owner = ghost.clone(); *signed_by = ghost; }
+        assert!(precheck_submission(&chain, &g, Some(&sign(&seat_sk, &g))).is_err(), "unknown owner refused");
+        chain.store.state_set(&format!("role_stake:clock:{}:josh", seat), br#"{"amount":1}"#).unwrap();
+        assert!(precheck_submission(&chain, &e, Some(&sign(&SigningKey::from_bytes(&[0x5f; 32]), &e))).is_err(), "wrong key");
+        assert!(precheck_submission(&chain, &e, None).is_err(), "unsigned");
+        precheck_submission(&chain, &e, Some(&sign(&seat_sk, &e))).unwrap();
     }
 
     #[test]
