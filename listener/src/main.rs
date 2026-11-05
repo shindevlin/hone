@@ -42,12 +42,13 @@ fn port() -> u16 {
     std::fs::read_to_string(state_dir().join("ui-port")).ok().and_then(|p| p.trim().parse().ok()).unwrap_or_else(preferred_port)
 }
 
-/// Is a HONE listener already answering on this port?
+/// Is THIS install's listener already answering on this port? (Another install, e.g. one in
+/// WSL whose localhost is forwarded, must not count.)
 fn listener_at(port: u16) -> bool {
     ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(2)).build()
         .get(&format!("http://127.0.0.1:{port}/status")).call().ok()
         .and_then(|r| r.into_json::<serde_json::Value>().ok())
-        .map(|j| j["name"] == "hone-listener").unwrap_or(false)
+        .map(|j| j["name"] == "hone-listener" && j["instance"].as_str() == Some(status::instance_id().as_str())).unwrap_or(false)
 }
 
 fn token_from_disk() -> Option<String> {

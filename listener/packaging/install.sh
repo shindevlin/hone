@@ -59,7 +59,7 @@ fetch() { # name -> $TMP/name, checked against the signed sha256
   [ "$(sha256 "$TMP/$1")" = "$W" ] || die "$1 didn't match its signed checksum; nothing was installed"
 }
 
-say "Installing the HONE listener $VER…"
+say "Installing the HONE listener $VER..."
 if [ "$OS" = Linux ]; then
   DEB="hone-listener_${VER}_${DEBARCH}.deb"
   SUDO=""; CANROOT=0
@@ -117,6 +117,7 @@ fi
 
 # macOS: per-user install + launchd agent (starts at login, menu-bar icon).
 TGZ="hone-listener-${VER}-macos-universal.tar.gz"
+[ -n "$(want_sha "$TGZ")" ] || die "the Mac version isn't ready yet. Use a Windows or Linux computer (or a Raspberry Pi), or try again soon."
 fetch "$TGZ"; say "Checked: $TGZ matches the signed checksum."
 STATE="$HOME/Library/Application Support/HONE Listener"; APP="$STATE/app"
 launchctl bootout "gui/$(id -u)/net.honemesh.listener" 2>/dev/null || true

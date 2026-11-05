@@ -7,6 +7,8 @@
 # caller (the HONE MCP) already verified. HONE_NONINTERACTIVE=1: never prompts.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Windows PowerShell started from PowerShell 7 inherits a PSModulePath it cannot use.
+if ($PSVersionTable.PSVersion.Major -lt 6) { $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine') }
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $Base = 'https://honemesh.net/app/listener'
 $ReleasePub = '27ef54588674c3391e660056d873b89136e75125b5a433de0747191baa94a10d'
@@ -15,7 +17,7 @@ $TaskName = 'HONE Listener'
 function Fail($m) { Write-Host "HONE listener: $m" -ForegroundColor Red; throw "HONE listener: $m" }
 function Hex($s) { $b = New-Object byte[] ($s.Length / 2); for ($i = 0; $i -lt $b.Length; $i++) { $b[$i] = [Convert]::ToByte($s.Substring(2 * $i, 2), 16) }; return ,$b }
 
-# ── Ed25519 verify (RFC 8032 section 6 reference algorithm; .NET has no Ed25519) ──
+# -- Ed25519 verify (RFC 8032 section 6 reference algorithm; .NET has no Ed25519) --
 Add-Type -AssemblyName System.Numerics
 $script:P = [Numerics.BigInteger]::Pow(2, 255) - 19
 $script:Q = [Numerics.BigInteger]::Pow(2, 252) + [Numerics.BigInteger]::Parse('27742317777372353535851937790883648493')
@@ -69,7 +71,7 @@ if ($env:HONE_SELFTEST_ED25519 -eq '1') {
   Write-Host "ed25519 selftest: valid=$ok tampered=$bad"; return
 }
 
-# ── manifest ──
+# -- manifest --
 $Tmp = Join-Path ([IO.Path]::GetTempPath()) ('hone-listener-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Tmp | Out-Null
 try {
@@ -83,7 +85,7 @@ try {
     if ($sigTxt -isnot [string]) { $sigTxt = [Text.Encoding]::ASCII.GetString($sigTxt) }
     $sigTxt = $sigTxt.Trim()
     $sig = if ($sigTxt -match '^[0-9a-fA-F]{128}$') { Hex $sigTxt } else { [Convert]::FromBase64String($sigTxt) }
-    Write-Host 'Checking the release signature…'
+    Write-Host 'Checking the release signature...'
     if (-not (Test-Ed25519 (Hex $ReleasePub) $manBytes $sig)) { Fail "version.json's signature didn't match the HONE release key; nothing was installed" }
     Write-Host 'Checked: the release is signed by HONE.'
   }
@@ -93,20 +95,22 @@ try {
   $zip = "hone-listener-$ver-windows-x86_64.zip"
   $want = [string]$man.files.$zip.sha256
   if ($want -notmatch '^[0-9a-f]{64}$') { Fail "this release isn't available for Windows yet" }
-  Write-Host "Downloading the HONE listener $ver…"
+  Write-Host "Downloading the HONE listener $ver..."
   $zipPath = Join-Path $Tmp $zip
   Invoke-WebRequest -UseBasicParsing "$Base/$zip" -OutFile $zipPath
-  $got = (Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLower()
+  $fs = [IO.File]::OpenRead($zipPath); try { $got = (([Security.Cryptography.SHA256]::Create().ComputeHash($fs)) | ForEach-Object { $_.ToString('x2') }) -join '' } finally { $fs.Dispose() }
   if ($got -ne $want) { Fail "the download didn't match its signed checksum; nothing was installed" }
   Write-Host "Checked: $zip matches the signed checksum."
 
-  # ── install (per user) ──
+  # -- install (per user) --
   $State = Join-Path $env:LOCALAPPDATA 'HONE\Listener'
   $App = Join-Path $State 'app'
   New-Item -ItemType Directory -Force -Path $App | Out-Null
   Get-Process -Name 'hone-listener' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$App*" } | Stop-Process -Force -ErrorAction SilentlyContinue
   Start-Sleep -Milliseconds 500
-  Expand-Archive -Path $zipPath -DestinationPath $App -Force
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $za = [IO.Compression.ZipFile]::OpenRead($zipPath)
+  try { foreach ($en in $za.Entries) { if ($en.Name) { $dst = Join-Path $App $en.FullName; New-Item -ItemType Directory -Force (Split-Path -Parent $dst) | Out-Null; [IO.Compression.ZipFileExtensions]::ExtractToFile($en, $dst, $true) } } } finally { $za.Dispose() }
   $exe = Join-Path $App 'hone-listener.exe'
   $ref = ([string]$env:HONE_REF).ToLower() -replace '[^a-z0-9._-]', ''
   if ($ref.Length -gt 32) { $ref = $ref.Substring(0, 32) }

@@ -71,9 +71,16 @@ pub fn spawn() {
 }
 
 /// Local, unauthenticated summary for 127.0.0.1:<port>/status (used by the HONE MCP).
+/// Non-secret id of this install (hash of its page token), to tell two listeners apart.
+pub fn instance_id() -> String {
+    use sha2::{Digest, Sha256};
+    let t = secrets::get("ui_token").unwrap_or_default();
+    hex::encode(Sha256::digest(format!("hone-listener-instance|{t}").as_bytes()))[..16].to_string()
+}
+
 pub fn local(cfg: &Config) -> Value {
     let l = live::snapshot();
-    json!({"name": "hone-listener", "version": env!("CARGO_PKG_VERSION"), "signed_in": cfg.account.is_some(), "ready": cfg.ready(),
+    json!({"name": "hone-listener", "instance": instance_id(), "version": env!("CARGO_PKG_VERSION"), "signed_in": cfg.account.is_some(), "ready": cfg.ready(),
         "listening": cfg.listening, "cameras": cfg.stations.len(),
         "cameras_running": l.stations.values().filter(|s| s.running).count(),
         "birds_heard": l.stations.values().map(|s| s.birds).sum::<u64>(),
