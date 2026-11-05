@@ -1,6 +1,7 @@
 package network.hone.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -33,6 +34,24 @@ fun ListenScreen() {
     val ready = StationService.conditionsMet(ctx)
     Page {
         Title(stringResource(R.string.st_title))
+        val sound by network.hone.app.sound.SoundSensing.live.collectAsStateWithLifecycle()
+        val now = System.currentTimeMillis()
+        val singing = sound.recent.filter { now - it.atMs < 6 * 60_000L }.distinctBy { it.name }.take(3)
+        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
+            .border(1.dp, if (singing.isNotEmpty()) network.hone.app.ui.theme.OrnChorus else network.hone.app.ui.theme.OrnTwig, RoundedCornerShape(18.dp))
+            .padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(if (singing.isNotEmpty()) "SINGING NOW" else if (sound.enabled) "LISTENING" else "NOT LISTENING",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (singing.isNotEmpty()) network.hone.app.ui.theme.OrnChorus else HoneTextDim)
+            if (singing.isEmpty()) Text(if (sound.enabled) "Quiet for now. Birds show up here the moment they sing." else
+                "Turn on Sound sensing in Settings to start.", style = MaterialTheme.typography.bodyMedium, color = HoneTextDim)
+            singing.forEach { d ->
+                Text(network.hone.app.birds.Birds.english(ctx, d.name) ?: d.name, style = MaterialTheme.typography.titleLarge)
+                Text(network.hone.app.ui.screens.confidenceWord(d.conf * 100.0) + " · " +
+                    android.text.format.DateUtils.getRelativeTimeSpanString(d.atMs, now, android.text.format.DateUtils.MINUTE_IN_MILLIS),
+                    style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
+            }
+        }
         if (AccountStore.signedIn(ctx) && !AccountStore.verified(ctx))
             Text(stringResource(R.string.ob_verify_reminder), style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
         stations.forEach { s ->
@@ -59,5 +78,6 @@ fun ListenScreen() {
                 color = HoneGreen, style = MaterialTheme.typography.labelLarge)
         }
         BigButton(stringResource(R.string.st_add)) { adding = true }
+        DisclaimerCard()
     }
 }

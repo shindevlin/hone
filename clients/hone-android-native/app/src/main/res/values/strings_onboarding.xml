@@ -47,9 +47,9 @@
     <string name="fr_cam_pass">Camera password</string>
     <string name="fr_connect">Connect</string>
     <string name="fr_testing">Listening to your camera for a few seconds…</string>
-    <string name="fr_tier_a">Your camera hears everything from tiny songbirds to owls.</string>
-    <string name="fr_tier_b">Your camera hears most birds well.</string>
-    <string name="fr_tier_c">Your camera hears low sounds well, like owls, doves, frogs and nightjars. Perfect for night listening.</string>
+    <string name="fr_tier_a">Great. Your camera hears everything from tiny songbirds to owls.</string>
+    <string name="fr_tier_b">Good. Your camera hears most birds well.</string>
+    <string name="fr_tier_c">Basic. Your camera hears low sounds well, like owls, doves, frogs and nightjars. Perfect for night listening.</string>
     <string name="fr_no_audio">This camera doesn\'t send sound. Check that its microphone is turned on in your camera app, then try again.</string>
     <string name="fr_bad_login">That username or password didn\'t work. Try again.</string>
     <string name="fr_cant_reach">We couldn\'t connect to this camera. Make sure it is on and on the same Wi-Fi.</string>

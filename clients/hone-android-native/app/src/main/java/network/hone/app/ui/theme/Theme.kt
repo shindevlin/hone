@@ -1,67 +1,63 @@
 package network.hone.app.ui.theme
 
 import android.app.Activity
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
-// HONE is a dark-first product; the dark scheme is the real design. A light
-// scheme is provided for completeness/accessibility (some users force light).
-
-private val DarkColors = darkColorScheme(
-    primary = HoneOrange,
-    onPrimary = Color.Black,
-    primaryContainer = HoneOrange.copy(alpha = 0.16f),
-    onPrimaryContainer = HoneOrangeBright,
-    secondary = HoneAmber,
-    onSecondary = Color.Black,
-    background = HoneBg,
-    onBackground = HoneText,
-    surface = HoneSurface,
-    onSurface = HoneText,
-    surfaceVariant = HoneSurfaceHi,
-    onSurfaceVariant = HoneTextDim,
-    outline = HoneOutline,
-    error = HoneRed,
-    onError = Color.Black,
+// Ornigo is dark only for v1 (night canopy).
+private val OrnColors = darkColorScheme(
+    primary = OrnChorus,
+    onPrimary = OrnNight,
+    primaryContainer = OrnChorus.copy(alpha = 0.16f),
+    onPrimaryContainer = OrnChorus,
+    secondary = OrnGold,
+    onSecondary = OrnNight,
+    tertiary = OrnSky,
+    onTertiary = OrnNight,
+    background = OrnNight,
+    onBackground = OrnInk,
+    surface = OrnCanopy,
+    onSurface = OrnInk,
+    surfaceVariant = OrnBough,
+    onSurfaceVariant = OrnInkDim,
+    surfaceContainer = OrnCanopy,
+    surfaceContainerHigh = OrnBough,
+    surfaceContainerHighest = OrnBough,
+    outline = OrnTwig,
+    outlineVariant = OrnTwig,
+    secondaryContainer = OrnBough,
+    onSecondaryContainer = OrnInk,
+    error = OrnAlarm,
+    onError = OrnNight,
 )
 
-private val LightColors = lightColorScheme(
-    primary = HoneOrange,
-    onPrimary = Color.White,
-    secondary = HoneAmber,
-    background = Color(0xFFFAFAFB),
-    surface = Color.White,
-    error = HoneRed,
+private val OrnShapes = Shapes(
+    extraSmall = RoundedCornerShape(12.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 @Composable
-fun HoneTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit,
-) {
-    val colors = if (darkTheme) DarkColors else LightColors
-
+@Suppress("UNUSED_PARAMETER")
+fun HoneTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = HoneBg.toArgb()
-            window.navigationBarColor = HoneBg.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            window.statusBarColor = OrnNight.toArgb()
+            window.navigationBarColor = OrnNight.toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }
-
-    MaterialTheme(
-        colorScheme = colors,
-        typography = HoneTypography,
-        content = content,
-    )
+    MaterialTheme(colorScheme = OrnColors, typography = HoneTypography, shapes = OrnShapes, content = content)
 }

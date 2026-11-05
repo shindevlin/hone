@@ -157,6 +157,15 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
                     }
                     Switch(tiered, { tiered = it; network.hone.app.birds.BirdsSync.setTiered(ctx, it) })
                 }
+                var honeMode by remember { mutableStateOf(network.hone.app.ui.AppMode.hone(ctx)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("HONE mode", style = MaterialTheme.typography.bodyMedium)
+                        Text("Shows the wallet, node, sensors and keys. Off: Ornigo only (Map, Listen, Birds, Today).",
+                            style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+                    }
+                    Switch(honeMode, { honeMode = it; network.hone.app.ui.AppMode.setHone(ctx, it); network.hone.app.ui.AppMode.version.intValue++ })
+                }
                 VoiceprintExport()
             }
             Text("Home area: sightings inside it are shown at about 5 km. Elsewhere, as precise as your GPS.",

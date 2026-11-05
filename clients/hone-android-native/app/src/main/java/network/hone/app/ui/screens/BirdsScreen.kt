@@ -64,7 +64,7 @@ fun BirdsScreen() {
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(top = 24.dp)) {
-        Text("Birds", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+        Text("Birds", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(4.dp))
         Text(
             if (mine.isEmpty()) "Nothing heard yet." else
@@ -95,7 +95,7 @@ private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -
     if (mine.isEmpty()) {
         Text(
             if (enabled) "Listening. Species show up here as soon as they're heard."
-            else "Turn on Sound sensing in the Sensors tab to start hearing birds.",
+            else "Turn on listening (Settings > Sound sensing) to start hearing birds.",
             style = MaterialTheme.typography.bodyMedium, color = HoneTextFaint,
         )
         return
@@ -113,7 +113,7 @@ private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Names(s.latin, s.english)
-                    Text((if (s.rare) "rare here · " else "") + "heard ${s.count}× · last ${ago(s.last)} · best ${s.bestConf.toInt()}%",
+                    Text((if (s.rare) "rare here · " else "") + "heard ${s.count}× · last ${ago(s.last)}",
                         style = MaterialTheme.typography.labelSmall, color = if (s.rare) HoneGreen else HoneTextDim)
                 }
             }
@@ -217,7 +217,7 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
             }
         }
         item {
-            Text("Heard ${s.count}× · first ${ago(s.first)} · last ${ago(s.last)} · best ${s.bestConf.toInt()}%",
+            Text("Heard ${s.count}× · first ${ago(s.first)} · last ${ago(s.last)}",
                 style = MaterialTheme.typography.bodyMedium)
         }
         item { WhereHeard(s) }
@@ -255,7 +255,7 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
         items(s.history.distinctBy { it.t }.take(200), key = { "h-${it.t}" }) { h ->
             val v = verdicts["${h.t}|${h.name}"]
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${DateUtils.formatDateTime(ctx, h.t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · ${h.conf.toInt()}%" +
+                Text("${DateUtils.formatDateTime(ctx, h.t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · ${confidenceWord(h.conf)}" +
                     (if (h.rare) " · rare here" else ""),
                     style = MaterialTheme.typography.bodySmall, color = HoneTextDim, modifier = Modifier.weight(1f))
                 FilterChip(selected = v == true, onClick = {
@@ -468,9 +468,9 @@ private fun BirdMap() {
                 style.getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>("birds")?.setGeoJson(fc) ?: run {
                     style.addSource(org.maplibre.android.style.sources.GeoJsonSource("birds", fc))
                     style.addLayer(org.maplibre.android.style.layers.FillLayer("birds-fill", "birds").withProperties(
-                        org.maplibre.android.style.layers.PropertyFactory.fillColor("#F28C28"),
+                        org.maplibre.android.style.layers.PropertyFactory.fillColor("#B8F06A"),
                         org.maplibre.android.style.layers.PropertyFactory.fillOpacity(0.45f),
-                        org.maplibre.android.style.layers.PropertyFactory.fillOutlineColor("#F28C28"),
+                        org.maplibre.android.style.layers.PropertyFactory.fillOutlineColor("#B8F06A"),
                     ))
                 }
                 val zoom = doubleArrayOf(12.0, 7.0, 1.2)[scale]
@@ -494,7 +494,7 @@ private fun BirdMap() {
     }
 }
 
-private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
+private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/dark"
 
 private fun ago(t: Long): String =
     DateUtils.getRelativeTimeSpanString(t, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
@@ -515,7 +515,7 @@ private fun WhereHeard(s: MySpecies) {
         r.places.forEach { p ->
             Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)).padding(12.dp)) {
                 Text(p.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("${p.count}× · first ${ago(p.first)} · last ${ago(p.last)} · best ${p.bestConf.toInt()}%",
+                Text("${p.count}× · first ${ago(p.first)} · last ${ago(p.last)} · ${confidenceWord(p.bestConf)}",
                     style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
             }
         }
@@ -575,12 +575,12 @@ private fun PlacesMap(places: List<network.hone.app.birds.HeardPlace>) {
                 style.addSource(org.maplibre.android.style.sources.GeoJsonSource("heard-hex", hexes))
                 style.addSource(org.maplibre.android.style.sources.GeoJsonSource("heard-pin", points))
                 style.addLayer(org.maplibre.android.style.layers.FillLayer("heard-fill", "heard-hex").withProperties(
-                    org.maplibre.android.style.layers.PropertyFactory.fillColor("#F28C28"),
+                    org.maplibre.android.style.layers.PropertyFactory.fillColor("#B8F06A"),
                     org.maplibre.android.style.layers.PropertyFactory.fillOpacity(0.40f),
-                    org.maplibre.android.style.layers.PropertyFactory.fillOutlineColor("#F28C28"),
+                    org.maplibre.android.style.layers.PropertyFactory.fillOutlineColor("#B8F06A"),
                 ))
                 style.addLayer(org.maplibre.android.style.layers.CircleLayer("heard-dot", "heard-pin").withProperties(
-                    org.maplibre.android.style.layers.PropertyFactory.circleColor("#F28C28"),
+                    org.maplibre.android.style.layers.PropertyFactory.circleColor("#B8F06A"),
                     org.maplibre.android.style.layers.PropertyFactory.circleRadius(5f),
                     org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor("#FFFFFF"),
                     org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth(1.5f),
