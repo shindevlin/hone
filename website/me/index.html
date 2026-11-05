@@ -3,188 +3,179 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>My Birds · HONE</title>
-<meta name="description" content="The birds your HONE listeners heard, with photos, calls and where you heard them.">
-<meta name="theme-color" content="#0a0e17">
+<title>My Birds · Ornigo</title>
+<meta name="description" content="The birds your Ornigo listeners heard, with photos, songs and where you heard them.">
+<meta name="theme-color" content="#0B1310">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="My Birds">
+<meta name="apple-mobile-web-app-title" content="Ornigo">
 <link rel="manifest" href="/me/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/assets/ornigo.css">
 <style>
-:root{--bg:#0a0e17;--surface:#121826;--hi:#1b2233;--line:#2a3346;--text:#e8ecf4;--dim:#aeb6c6;--faint:#6b7488;--accent:#f7931a;--green:#3ddc84;--rare:#c38cff}
-@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f4ef;--surface:#fff;--hi:#f0ede6;--line:#e2ddd3;--text:#1d2230;--dim:#4a5163;--faint:#7b8294;--accent:#c96f00;--green:#1b8f4e;--rare:#7b3fc4}}
-:root[data-theme="light"]{--bg:#f6f4ef;--surface:#fff;--hi:#f0ede6;--line:#e2ddd3;--text:#1d2230;--dim:#4a5163;--faint:#7b8294;--accent:#c96f00;--green:#1b8f4e;--rare:#7b3fc4}
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{background:var(--bg)}
-body{margin:0;color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-a{color:var(--accent)}
-button{font:inherit}
-.wrap{max-width:640px;margin:0 auto;padding:0 16px 40px}
-header.top{display:flex;align-items:center;justify-content:space-between;padding:14px 0 6px}
-.brand{font-weight:800;letter-spacing:.08em;text-decoration:none;color:var(--text)}
-.brand span{color:var(--faint);font-weight:600;letter-spacing:0;margin-left:6px}
-.iconbtn{border:1px solid var(--line);background:var(--surface);color:var(--dim);border-radius:99px;padding:6px 12px;font-size:14px;cursor:pointer}
-.demo{background:var(--hi);border:1px dashed var(--accent);color:var(--dim);font-size:13px;border-radius:12px;padding:8px 12px;margin:6px 0 0}
-h1{font-size:28px;line-height:1.15;margin:14px 0 4px;letter-spacing:-.01em}
-.lede{color:var(--dim);margin:0 0 16px}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);margin:26px 0 10px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:16px}
-/* sign in */
-.signin{padding:20px;margin-top:10px}
-.signin label{display:block;font-size:14px;color:var(--dim);margin:12px 0 6px}
-.signin input{width:100%;font:inherit;font-size:17px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:13px 14px;outline:none}
-.signin input:focus{border-color:var(--accent)}
-.primary{display:block;width:100%;border:0;background:var(--accent);color:#000;font-weight:800;font-size:18px;border-radius:14px;padding:15px;margin-top:18px;cursor:pointer}
-.primary:disabled{opacity:.6}
-.err{color:#ff7a7a;font-size:15px;margin:12px 0 0;min-height:1px}
-.help{font-size:14px;color:var(--dim);margin:16px 0 0}
-/* stats */
-.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.stat{padding:14px}
-.stat b{display:block;font-size:28px;line-height:1.1}
-.stat span{color:var(--dim);font-size:14px}
-/* listeners */
-.dev{display:flex;gap:12px;align-items:center;padding:12px 14px;border-top:1px solid var(--line)}
-.dev:first-child{border-top:0}
-.dev .ic{flex:none;width:38px;height:38px;border-radius:12px;background:var(--hi);display:grid;place-items:center;color:var(--dim)}
-.dev .ic svg{width:22px;height:22px}
-.dev .nm{flex:1;min-width:0}
-.dev .nm b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dev .nm span{font-size:14px;color:var(--faint)}
-.live{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--green);white-space:nowrap}
-.live i{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(61,220,132,.2);animation:p 2s infinite}
-@keyframes p{50%{box-shadow:0 0 0 7px rgba(61,220,132,0)}}
-.off{font-size:14px;color:var(--faint);white-space:nowrap;text-align:right}
-.empty{padding:16px;color:var(--dim)}
-/* filters */
-.seg{display:flex;gap:6px;margin:0 0 12px}
-.seg button{flex:1;border:1px solid var(--line);background:var(--surface);color:var(--dim);border-radius:99px;padding:8px 0;font-size:14px;cursor:pointer}
-.seg button[aria-pressed="true"]{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:700}
-/* birds */
-.birds{display:grid;gap:10px}
-.bird{display:flex;gap:12px;align-items:center;padding:10px;cursor:pointer;text-align:left;width:100%;color:inherit}
-.bird img,.bird .ph{flex:none;width:68px;height:68px;border-radius:12px;object-fit:cover;background:var(--hi)}
-.bird .ph{display:grid;place-items:center;font-weight:800;color:var(--faint);font-size:22px}
-.bird .tx{flex:1;min-width:0}
-.bird b{display:block;font-size:17px;line-height:1.25}
-.bird i{display:block;color:var(--faint);font-size:14px}
-.bird .meta{font-size:13px;color:var(--dim);margin-top:2px}
-.play{flex:none;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--hi);color:var(--text);display:grid;place-items:center;cursor:pointer}
-.play svg{width:18px;height:18px}
-.play.on{background:var(--accent);color:#000;border-color:var(--accent)}
-.rare{display:inline-block;font-size:11px;font-weight:700;color:var(--rare);border:1px solid var(--rare);border-radius:99px;padding:0 7px;margin-left:6px;vertical-align:2px}
-.soon{padding:16px;color:var(--dim)}
-.soon b{color:var(--text)}
-/* detail sheet */
-.sheet{position:fixed;inset:0;z-index:1000;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch;display:none}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.app{max-width:640px;margin:0 auto;padding:0 16px 32px;display:flex;flex-direction:column;gap:14px}
+.top{display:flex;align-items:center;gap:10px;padding:16px 2px 4px}
+.top .who{margin-left:auto;font-size:13px;color:var(--dim)}
+.sbtn{min-height:36px;border:1px solid var(--twig);background:transparent;color:var(--dim);border-radius:18px;padding:0 12px;font-size:13px;cursor:pointer}
+.demo{border:1px dashed var(--gold);color:var(--gold-ink);font-size:13px;border-radius:14px;padding:8px 12px}
+.demo a{color:var(--gold)}
+h1{font-size:30px;line-height:1.12}
+.lede{margin:0;font-size:15px;line-height:22px;color:var(--ink2)}
+.tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;border-radius:16px;background:var(--canopy)}
+.tabs button{min-height:44px;border-radius:12px;border:0;cursor:pointer;font-weight:700;font-size:14px;background:transparent;color:var(--dim)}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--night)}
+.row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;background:var(--canopy);color:var(--ink);text-decoration:none;min-width:0}
+.row .tx{flex:1;min-width:0}
+.row .tx b{display:block;overflow:hidden;text-overflow:ellipsis}
+.row .tx small{display:block;font-size:13px;color:var(--dim)}
+.row.live{background:var(--chorus-bg);border:1px solid var(--chorus)}
+.row.add{background:transparent;border:1px dashed var(--twig)}
+.row img,.row .ph{flex:none;width:56px;height:56px;border-radius:12px;object-fit:cover;background:var(--bough)}
+.row .ph{display:grid;place-items:center;font:800 22px var(--disp);color:var(--faint)}
+.bird{cursor:pointer;border:0;width:100%;text-align:left;font:inherit}
+.pill{flex:none;width:16px;height:16px}
+.play{flex:none;width:44px;height:44px;border-radius:22px;border:0;background:var(--bough);color:var(--ink);display:grid;place-items:center;cursor:pointer}
+.play svg{width:16px;height:16px}
+.play.on{background:var(--chorus);color:var(--night)}
+.st{font-size:12px;font-weight:700;white-space:nowrap}
+h2{font:700 15px var(--body);margin:6px 0 0}
+.seg{display:flex;gap:6px}
+.seg button{flex:1;min-height:40px;border:1px solid var(--twig);background:transparent;color:var(--dim);border-radius:20px;font-size:14px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--night);border-color:var(--ink);font-weight:700}
+.list{display:flex;flex-direction:column;gap:8px}
+.empty{padding:16px;border-radius:16px;background:var(--canopy);color:var(--ink2)}
+.soon{padding:14px;border-radius:16px;background:var(--gold-bg);border:1px solid var(--gold);color:var(--gold-ink);font-size:14px}
+.soon b{color:var(--gold);display:block}
+.field{display:flex;flex-direction:column;gap:8px}
+.field label{font-size:14px;font-weight:700}
+.field input{min-height:52px;border-radius:16px;border:2px solid var(--twig);background:var(--canopy);color:var(--ink);padding:0 16px;font:16px var(--body);outline:none}
+.field input:focus{border-color:var(--chorus)}
+.wide{width:100%}
+.err{color:var(--alarm);font-size:14px;margin:0;min-height:1px}
+.ok{padding:16px;border-radius:20px;background:#1B2A18;border:1px solid var(--chorus);display:flex;flex-direction:column;gap:6px}
+.link{background:none;border:0;color:var(--chorus);cursor:pointer;padding:6px 0;font-size:14px;text-decoration:underline;text-align:center}
+.ex{padding:14px;border-radius:22px;background:var(--canopy);border:1px solid var(--twig);display:flex;flex-direction:column;gap:8px}
+.ex div{display:flex;justify-content:space-between;gap:8px;padding:10px 12px;border-radius:14px}
+.tip{padding:12px 14px;border-radius:18px;background:var(--canopy);border:1px solid var(--twig);display:flex;gap:12px;align-items:center;font-size:13px;line-height:18px}
+.tip svg{width:28px;height:28px;flex:none}
+.fine{margin:0;font-size:12px;line-height:17px;color:var(--dim)}
+.tok{display:flex;gap:8px}
+.tok code{flex:1;min-width:0;overflow-wrap:anywhere;font:13px var(--mono);background:var(--deep);border:1px solid var(--twig);border-radius:12px;padding:10px}
+/* detail */
+.sheet{position:fixed;inset:0;z-index:1000;background:var(--night);overflow-y:auto;-webkit-overflow-scrolling:touch;display:none}
 .sheet.open{display:block}
-.sheet .bar{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:var(--bg)}
-.hero{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;border-radius:16px;background:var(--hi)}
-.credit{font-size:11px;color:var(--faint);margin:6px 2px 0;text-align:right}
-.credit a{color:inherit}
-#map{height:280px;border-radius:16px;border:1px solid var(--line);margin-top:4px;z-index:0}
-.places{font-size:22px;font-weight:800;margin:0}
-.rec{display:flex;gap:12px;align-items:center;padding:12px 14px;border-top:1px solid var(--line)}
-.rec:first-child{border-top:0}
-.rec .tx{flex:1;font-size:14px;color:var(--dim)}
-.rec .tx b{color:var(--text);font-size:15px}
-.ai{padding:16px}
-.ai p{margin:0 0 10px;color:var(--dim)}
-.tok{display:flex;gap:8px;margin-top:10px}
-.tok code{flex:1;min-width:0;overflow-wrap:anywhere;font:13px ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px}
-.small{font-size:13px;color:var(--faint)}
-.btn2{border:1px solid var(--line);background:var(--hi);color:var(--text);border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:600}
-footer{margin-top:30px;font-size:14px;color:var(--faint);display:grid;gap:6px}
-footer a{color:var(--dim)}
-.hidden{display:none!important}
-@media (min-width:700px){.stats{grid-template-columns:repeat(4,1fr)}h1{font-size:34px}}
+.sheet .bar{position:sticky;top:0;z-index:2;display:flex;align-items:center;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:var(--night)}
+.hero{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;border-radius:22px;background:var(--canopy)}
+#map{height:280px;border-radius:22px;border:1px solid var(--twig);z-index:0}
+.leaflet-container{background:var(--deep)}
+.big{font:800 22px var(--disp);margin:0}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="app">
   <header class="top">
-    <a class="brand" href="/me">HONE<span>My birds</span></a>
-    <button class="iconbtn hidden" id="signout" type="button">Sign out</button>
+    <a class="wm sm" href="/me/" aria-label="ornigo"><svg viewBox="0 0 104 104" aria-hidden="true"><circle cx="52" cy="58" r="34" fill="none" stroke="#B8F06A" stroke-width="16"/><path d="M84 50 l16 6 -16 6z" fill="#B8F06A"/></svg><b>rnigo</b></a>
+    <span class="who" id="who"></span>
+    <button class="sbtn hidden" id="signout" type="button">Sign out</button>
   </header>
-  <div class="demo hidden" id="demo">This is an example. <a href="/me">Sign in</a> to see your own birds.</div>
+  <div class="demo hidden" id="demo">This is an example. <a href="/me/">Sign in</a> to see your own birds.</div>
 
-  <!-- signed out -->
-  <section id="v-signin" class="hidden">
-    <h1>See the birds your camera heard</h1>
-    <p class="lede">Sign in with the email you used when you set up your listener or the HONE app.</p>
-    <form class="card signin" id="f-signin" autocomplete="on">
-      <label for="email">Email</label>
+  <!-- first visit -->
+  <section id="v-start" class="hidden" style="display:flex;flex-direction:column;gap:16px">
+    <h1 id="start-h">Your birds, on your iPhone.</h1>
+    <p class="lede">A computer at home does the listening, through its mic and your cameras. Your birds arrive here, wherever you are.</p>
+    <div class="ex" aria-label="Example of what you will see">
+      <span class="k">Example</span>
+      <div style="background:var(--chorus-bg);border:1px solid var(--chorus)"><b>Great Kiskadee</b><span style="font-size:13px;color:var(--chorus)">Regular here</span></div>
+      <div style="background:var(--gold-bg);border:1px solid var(--gold)"><b>Lumen is back</b><span style="font-size:13px;color:var(--gold)">night 14</span></div>
+    </div>
+    <form id="f-start" class="field" novalidate>
+      <label for="email">Your email</label>
       <input id="email" name="email" type="email" inputmode="email" autocomplete="username" required>
-      <label for="pw">Password</label>
-      <input id="pw" name="password" type="password" autocomplete="current-password" required minlength="10">
-      <button class="primary" id="b-signin" type="submit">Sign in</button>
+      <div id="pw-wrap" class="field hidden">
+        <label for="pw">Password</label>
+        <input id="pw" name="password" type="password" autocomplete="current-password" minlength="10">
+      </div>
+      <button class="go wide" id="b-main" type="submit">Email me the computer setup link</button>
       <p class="err" id="err" role="alert"></p>
-      <p class="help">No account yet? It's made when you set up a listener. <a href="/listener">Set up a camera listener</a> on a computer at home, or <a href="/join">get the Android app</a>.</p>
-      <p class="help">Forgot your password? <a href="mailto:shindevlin@proton.me?subject=HONE%20password%20help">Email us</a>. <a href="/me?demo=1">See an example</a></p>
+      <button class="link" id="b-mode" type="button">Already set up? Sign in with the same email</button>
     </form>
+    <div class="ok hidden" id="sent" role="status">
+      <b style="font-size:17px">Check your email on the computer.</b>
+      <span style="font-size:14px;line-height:20px;color:var(--ink2)">Open the link there to install Ornigo. This page fills in once it hears its first bird.</span>
+    </div>
+    <p class="fine"><a href="/me/?demo=1">See an example</a> · Forgot your password? <a href="mailto:ornigo@honemesh.net?subject=Ornigo%20password%20help">Email us</a></p>
   </section>
 
   <!-- signed in -->
-  <section id="v-home" class="hidden">
-    <h1 id="hello">Your birds</h1>
-    <p class="lede" id="lede"></p>
-    <div class="stats">
-      <div class="card stat"><b id="s-species">0</b><span>kinds of birds</span></div>
-      <div class="card stat"><b id="s-live">0</b><span>listening now</span></div>
-      <div class="card stat"><b id="s-places">0</b><span>places heard</span></div>
-      <div class="card stat"><b id="s-last">–</b><span>last bird</span></div>
+  <section id="v-home" class="hidden" style="display:flex;flex-direction:column;gap:14px">
+    <div class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" type="button" data-t="now" aria-selected="true">Tonight</button>
+      <button role="tab" type="button" data-t="birds" aria-selected="false">Birds</button>
+      <button role="tab" type="button" data-t="lis" aria-selected="false">Listeners</button>
     </div>
 
-    <h2>Your listeners</h2>
-    <div class="card" id="devs"></div>
-
-    <h2>Your birds</h2>
-    <div class="seg" role="group" aria-label="Time range">
-      <button type="button" data-since="0" aria-pressed="true">All time</button>
-      <button type="button" data-since="604800" aria-pressed="false">This week</button>
-      <button type="button" data-since="86400" aria-pressed="false">Today</button>
+    <div id="t-now" class="list">
+      <h1 id="now-h">Your garden tonight</h1>
+      <div id="now-status"></div>
+      <h2>Heard lately</h2>
+      <div class="list" id="now-list"></div>
     </div>
-    <div class="birds" id="birds"></div>
 
-    <h2>Named birds</h2>
-    <div class="card soon"><b>Coming soon: know "your" bird.</b> When your listener hears the same bird come back day after day, you'll be able to give it a name and see when it returns.</div>
+    <div id="t-birds" class="list hidden">
+      <h1 id="birds-h">Your birds</h1>
+      <div class="seg" role="group" aria-label="Time range">
+        <button type="button" data-since="0" aria-pressed="true">All time</button>
+        <button type="button" data-since="604800" aria-pressed="false">This week</button>
+        <button type="button" data-since="86400" aria-pressed="false">Today</button>
+      </div>
+      <div class="list" id="birds"></div>
+      <div class="soon"><b>Soon: name your bird</b>When the same bird keeps coming back, Ornigo will notice, and you'll be able to give it a name.</div>
+    </div>
 
-    <h2>Ask your AI assistant</h2>
-    <div class="card ai">
-      <p>Let Claude or another assistant tell you when your birds come back. Make a read-only key, then follow <a href="/listener/ai">the setup steps</a>. The key can only read your birds and listeners.</p>
-      <button class="btn2" id="b-token" type="button">Make an AI key</button>
-      <div class="tok hidden" id="tok"><code id="tok-v"></code><button class="btn2" id="tok-copy" type="button">Copy</button></div>
-      <p class="small hidden" id="tok-note">Shown once. Paste it into your assistant's setup as HONE_TOKEN.</p>
+    <div id="t-lis" class="list hidden">
+      <h1>Your listeners</h1>
+      <div class="list" id="devs"></div>
+      <a class="row add" id="add" href="/ornigo/"><b style="flex:1">Add a listener</b><span style="font-size:13px;color:var(--chorus)">PC, Mac, Pi, Android</span></a>
+      <h2>Ask your AI assistant</h2>
+      <div class="empty" style="display:flex;flex-direction:column;gap:10px">
+        <span>Let Claude or another assistant tell you when your birds come back. Make a read-only key, then follow <a href="/listener/ai">the setup steps</a>.</span>
+        <button class="ghost" id="b-token" type="button" style="align-self:flex-start">Make an AI key</button>
+        <div class="tok hidden" id="tok"><code id="tok-v"></code><button class="play" id="tok-copy" type="button" aria-label="Copy key" style="width:auto;padding:0 14px;font-size:14px">Copy</button></div>
+        <span class="fine hidden" id="tok-note">Shown once. Paste it into your assistant's setup as HONE_TOKEN. It can only read your birds and listeners.</span>
+      </div>
     </div>
   </section>
 
-  <footer>
-    <a href="/listener">Add another listener</a>
-    <a href="/">Get paid for your birds → full HONE</a>
-    <span>Human conversation is automatically deleted. No audio is ever saved or sent.</span>
-  </footer>
+  <div class="tip hidden" id="tip">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#B8F06A" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 14v6h14v-6"/></svg>
+    <span><b>Keep Ornigo on your Home Screen.</b> Tap Share, then Add to Home Screen.</span>
+  </div>
+  <p class="fine">Human conversation is automatically deleted. No audio is ever saved or sent. <a href="/ornigo/privacy">Privacy</a> · <a class="hone" href="/">Get paid for your birds → HONE</a></p>
 </div>
 
-<!-- bird detail -->
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="d-name">
-  <div class="bar"><button class="iconbtn" id="d-close" type="button">← Back</button><span class="small" id="d-latin2"></span></div>
-  <div class="wrap">
+  <div class="bar"><button class="sbtn" id="d-close" type="button">← Back</button></div>
+  <div class="app">
     <img class="hero" id="d-img" alt="">
-    <p class="credit" id="d-credit"></p>
+    <p class="credit" id="d-credit" style="text-align:right"></p>
     <h1 id="d-name"></h1>
     <p class="lede"><i id="d-latin"></i></p>
+    <div class="row" id="d-pill"></div>
     <p class="lede" id="d-meta"></p>
     <h2>Where you heard it</h2>
-    <p class="places" id="d-places"></p>
+    <p class="big" id="d-places"></p>
     <div id="map"></div>
-    <p class="small">Areas are shown roughly, never as an exact spot.</p>
-    <h2>Its call</h2>
-    <div class="card" id="d-calls"><div class="empty">Loading calls…</div></div>
-    <p class="small">Recordings from xeno-canto.org, played unmodified for listening only.</p>
+    <p class="fine">Areas are shown roughly, never as an exact spot.</p>
+    <h2>Its song</h2>
+    <div class="list" id="d-calls"><div class="empty">Loading songs…</div></div>
+    <p class="fine">Recordings from xeno-canto.org, played unmodified for listening only.</p>
   </div>
 </div>
 
@@ -192,31 +183,52 @@ footer a{color:var(--dim)}
 <script>
 (function () {
   "use strict";
-  var API = "/api/accounts";
-  var TK = "hone_me_token";
+  var API = "/api/accounts", TK = "hone_me_token";
   var qs = new URLSearchParams(location.search);
   var DEMO = qs.get("demo") === "1";
-  var state = { since: 0, birds: [], token: null };
-  var audio = new Audio(); audio.preload = "none";
-  var playing = null;
+  var REF = (qs.get("ref") || "").toLowerCase(); if (!/^[a-z0-9][a-z0-9._-]{0,31}$/.test(REF)) REF = "";
+  var VCH = qs.get("v") || ""; if (!/^[A-Za-z0-9_-]{16,128}$/.test(VCH)) VCH = "";
+  var IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  var state = { since: 0, token: null, mode: "link" };
+  var audio = new Audio(); audio.preload = "none"; var playing = null;
 
   function $(id) { return document.getElementById(id); }
   function show(id, on) { $(id).classList.toggle("hidden", !on); }
   function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
   function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; }); }
+  function plural(n, a, b) { return n + " " + (n === 1 ? a : b); }
   function ago(t) {
     if (!t) return "never";
     var s = Math.max(0, Date.now() / 1000 - t);
     if (s < 90) return "just now";
     if (s < 3600) return Math.round(s / 60) + " min ago";
     if (s < 86400) return Math.round(s / 3600) + " h ago";
+    if (s < 86400 * 2) return "yesterday";
     if (s < 86400 * 14) return Math.round(s / 86400) + " days ago";
-    return new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    return new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
-  function plural(n, a, b) { return n + " " + (n === 1 ? a : b); }
+  function clock(t) { return new Date(t * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); }
+  function when(t) { var s = Date.now() / 1000 - t; return s > 3600 && s < 86400 && new Date(t * 1000).getDate() === new Date().getDate() ? clock(t) : ago(t); }
 
-  // ── API ──────────────────────────────────────────────────────────────────────────
+  // Confidence over time: shape + word (Tokens board).
+  var PILL = {
+    regular: ["Regular here", '<circle cx="8" cy="8" r="7" fill="#B8F06A"/>'],
+    recent: ["Heard recently", '<circle cx="8" cy="8" r="5.5" fill="none" stroke="#B8F06A" stroke-width="3.5"/>'],
+    possible: ["Possible", '<circle cx="8" cy="8" r="6.5" fill="none" stroke="#7CC4FF" stroke-width="2" stroke-dasharray="3 3"/>'],
+    fading: ["Fading", '<path d="M8 1a7 7 0 0 1 0 14z" fill="#FFD36B"/><circle cx="8" cy="8" r="6.5" fill="none" stroke="#FFD36B"/>'],
+    gone: ["Gone for the season", '<circle cx="8" cy="8" r="6.5" fill="none" stroke="#8B9A91" stroke-width="2"/><path d="M4.5 8h7" stroke="#8B9A91" stroke-width="2"/>']
+  };
+  function conf(s) {
+    var d = (Date.now() / 1000 - s.last) / 86400;
+    if (d > 30) return "gone";
+    if (d > 7) return "fading";
+    if (s.heard >= 5) return "regular";
+    if (s.best_conf != null && s.best_conf < 0.6) return "possible";
+    return "recent";
+  }
+  function pill(k) { return '<svg class="pill" viewBox="0 0 16 16" aria-hidden="true">' + PILL[k][1] + "</svg>"; }
+
   function api(path, opts) {
     if (DEMO) return Promise.resolve(demo(path));
     opts = opts || {};
@@ -225,124 +237,113 @@ footer a{color:var(--dim)}
     return fetch(API + path, { method: opts.method || "GET", headers: h, body: opts.body ? JSON.stringify(opts.body) : undefined, cache: "no-store" })
       .then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (j) {
-          if (r.status === 401) { signedOut(); throw new Error(j.error || "Please sign in again."); }
+          if (r.status === 401 && state.token) { signedOut(); throw new Error(j.error || "Please sign in again."); }
           if (!r.ok) throw new Error(j.error || "Something went wrong. Please try again.");
           return j;
         });
-      });
+      }, function () { throw new Error("No connection. Check your internet and try again."); });
   }
 
-  // ── sign in ──────────────────────────────────────────────────────────────────────
+  // ── first visit / sign in ───────────────────────────────────────────────────────
   function signedOut() {
     state.token = null; store(TK, null);
-    show("v-home", false); show("signout", false); show("v-signin", true);
+    show("v-home", false); show("signout", false); show("v-start", true); $("who").textContent = "";
+    $("start-h").textContent = IOS ? "Your birds, on your iPhone." : "Your birds, on any phone.";
   }
-  $("f-signin").addEventListener("submit", function (e) {
+  function setMode(m) {
+    state.mode = m;
+    show("pw-wrap", m === "signin");
+    $("b-main").textContent = m === "signin" ? "Sign in" : "Email me the computer setup link";
+    $("b-mode").textContent = m === "signin" ? "New here? Email me the computer setup link" : "Already set up? Sign in with the same email";
+    $("email").autocomplete = "username"; $("err").textContent = "";
+  }
+  $("b-mode").addEventListener("click", function () { setMode(state.mode === "signin" ? "link" : "signin"); if (state.mode === "signin") $("pw").focus(); });
+  $("f-start").addEventListener("submit", function (e) {
     e.preventDefault();
-    var b = $("b-signin"); b.disabled = true; b.textContent = "Signing in…"; $("err").textContent = "";
-    fetch(API + "/web/login", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: $("email").value, password: $("pw").value }) })
-      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || "Couldn't sign in."); return j; }); })
-      .then(function (j) { state.token = j.token; store(TK, j.token); $("pw").value = ""; home(); })
-      .catch(function (er) { $("err").textContent = er.message === "Failed to fetch" ? "No connection. Check your internet and try again." : er.message; })
-      .then(function () { b.disabled = false; b.textContent = "Sign in"; });
+    var b = $("b-main"), label = b.textContent; b.disabled = true; $("err").textContent = "";
+    var email = $("email").value.trim();
+    var p = state.mode === "signin"
+      ? api("/web/login", { method: "POST", body: { email: email, password: $("pw").value } }).then(function (j) { state.token = j.token; store(TK, j.token); $("pw").value = ""; home(); })
+      : api("/web/setup-link", { method: "POST", body: { email: email, ref: REF, v: VCH } }).then(function () { show("f-start", false); show("sent", true); });
+    p.catch(function (er) { $("err").textContent = er.message; }).then(function () { b.disabled = false; b.textContent = label; });
   });
   $("signout").addEventListener("click", function () {
-    if (DEMO) { location.href = "/me"; return; }
+    if (DEMO) { location.href = "/me/"; return; }
     api("/web/logout", { method: "POST", body: {} }).catch(function () {}).then(signedOut);
   });
 
-  // ── home ─────────────────────────────────────────────────────────────────────────
-  var IC = {
-    phone: '<svg viewBox="0 0 24 24" fill="none"><rect x="7" y="2.5" width="10" height="19" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M11 18.5h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
-    camera: '<svg viewBox="0 0 24 24" fill="none"><path d="M3 7.5h12.5v9H3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="m15.5 11 5-3v8l-5-3" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
-    device: '<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4.5" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16.5V20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-  };
-  function devName(d) {
-    if (d.label) return d.label;
-    if (/camera|listener|station/.test(d.kind)) return "Camera listener";
-    if (d.kind === "phone") return "Phone";
-    return "Device";
-  }
-  function renderDevs(j) {
-    var el = $("devs");
-    $("s-live").textContent = j.listening_now;
-    if (!j.listeners.length) {
-      el.innerHTML = '<div class="empty">No listeners yet. <a href="/listener">Set one up on a computer at home</a>.</div>';
-      return;
-    }
-    el.innerHTML = j.listeners.map(function (d) {
-      var ic = /camera|listener|station/.test(d.kind) ? IC.camera : (d.kind === "phone" ? IC.phone : IC.device);
-      var sub = [];
-      if (d.detections_today != null) sub.push(plural(d.detections_today, "bird call today", "bird calls today"));
-      if (d.version) sub.push("v" + d.version);
-      var st = d.online ? '<span class="live"><i></i>Listening now</span>'
-        : '<span class="off">' + (d.last_report ? "Last report<br>" + esc(ago(d.last_report)) : "Not heard from yet") + "</span>";
-      return '<div class="dev"><div class="ic">' + ic + '</div><div class="nm"><b>' + esc(devName(d)) + "</b><span>" +
-        esc(sub.join(" · ") || (d.online ? "Last report " + ago(d.last_report) : "")) + "</span></div>" + st + "</div>";
-    }).join("");
-  }
-  function renderBirds(j) {
-    state.birds = j.species;
-    var el = $("birds");
-    if (!j.species.length) {
-      el.innerHTML = '<div class="card empty">' + (state.since ? "No birds in this time yet. Try All time." :
-        "No birds yet. Your listener sends a report every 15 minutes, so your first birds usually show up within a day. Dawn is the busiest time.") + "</div>";
-      return;
-    }
-    el.innerHTML = "";
-    j.species.forEach(function (s, i) {
-      var b = document.createElement("div");
-      b.className = "card bird"; b.setAttribute("role", "button"); b.tabIndex = 0;
-      var img = s.photo && s.photo.url ? '<img loading="lazy" alt="" src="' + esc(s.photo.url) + '">' :
-        '<div class="ph">' + esc((s.name || s.latin).charAt(0)) + "</div>";
-      b.innerHTML = img + '<div class="tx"><b>' + esc(s.name || s.latin) + (s.rare ? '<span class="rare">' + (s.rare === "confirmed" ? "rare · confirmed" : "rare") + "</span>" : "") +
-        "</b><i>" + esc(s.latin) + '</i><div class="meta">Heard ' + plural(s.heard, "time", "times") + " · " + plural(s.places, "place", "places") +
-        " · " + esc(ago(s.last)) + '</div></div><button class="play" type="button" aria-label="Play its call"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg></button>';
-      b.querySelector(".play").addEventListener("click", function (e) { e.stopPropagation(); quickPlay(s, this); });
-      b.addEventListener("click", function () { open(s); });
-      b.addEventListener("keydown", function (e) { if (e.key === "Enter") open(s); });
-      el.appendChild(b);
+  // ── tabs ─────────────────────────────────────────────────────────────────────────
+  var tabs = document.querySelectorAll(".tabs button");
+  Array.prototype.forEach.call(tabs, function (b) {
+    b.addEventListener("click", function () {
+      Array.prototype.forEach.call(tabs, function (x) { x.setAttribute("aria-selected", x === b ? "true" : "false"); show("t-" + x.dataset.t, x === b); });
     });
+  });
+
+  // ── rows ─────────────────────────────────────────────────────────────────────────
+  function devName(d) { return d.label || (/camera|listener|station/.test(d.kind) ? "Home listener" : d.kind === "phone" ? "Phone" : "Listener"); }
+  function devRow(d) {
+    var sub = d.online ? "last report " + ago(d.last_report) : (d.last_report ? "Last report " + ago(d.last_report) : "Not heard from yet");
+    if (d.detections_today != null) sub += " · " + plural(d.detections_today, "bird call today", "bird calls today");
+    return '<div class="row' + (d.online ? " live" : "") + '">' + (d.online ? pill("regular") : pill("gone")) + '<span class="tx"><b>' + esc(devName(d)) +
+      "</b><small>" + esc(sub) + '</small></span><span class="st" style="color:' + (d.online ? "var(--chorus)" : "var(--gold)") + '">' + (d.online ? "Listening" : "Quiet") + "</span></div>";
   }
-  function birds() {
+  function birdRow(s, withPhoto) {
+    var k = conf(s);
+    var b = document.createElement("div"); b.className = "row bird"; b.setAttribute("role", "button"); b.tabIndex = 0;
+    b.innerHTML = (withPhoto ? (s.photo && s.photo.url ? '<img loading="lazy" alt="" src="' + esc(s.photo.url) + '">' : '<span class="ph">' + esc((s.name || s.latin).charAt(0)) + "</span>") : pill(k)) +
+      '<span class="tx"><b>' + esc(s.name || s.latin) + "</b><small>" + (withPhoto ? pill(k).replace('class="pill"', 'class="pill" style="width:11px;height:11px;vertical-align:-1px;margin-right:4px"') : "") +
+      esc(PILL[k][0]) + " · " + esc(when(s.last)) + (s.rare ? " · rare here" : "") + '</small></span><button class="play" type="button" aria-label="Play the song of ' + esc(s.name || s.latin) +
+      '"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg></button>';
+    b.querySelector(".play").addEventListener("click", function (e) { e.stopPropagation(); quickPlay(s, this); });
+    b.addEventListener("click", function () { open(s); });
+    b.addEventListener("keydown", function (e) { if (e.key === "Enter") open(s); });
+    return b;
+  }
+
+  function home() {
+    show("v-start", false); show("v-home", true); show("signout", true);
+    if (DEMO) { show("demo", true); $("signout").textContent = "Exit example"; }
+    var hr = new Date().getHours();
+    $("now-h").textContent = hr < 5 || hr >= 18 ? "Your garden tonight" : hr < 12 ? "Your garden this morning" : "Your garden today";
+    api("/mine/summary").then(function (s) { $("who").textContent = s.name || ""; }).catch(function () {});
+    api("/mine/listeners").then(function (j) {
+      $("devs").innerHTML = j.listeners.length ? j.listeners.map(devRow).join("") : '<div class="empty">No listeners yet.</div>';
+      var on = j.listeners.filter(function (d) { return d.online; });
+      $("now-status").innerHTML = on.length ? '<div class="row live">' + pill("regular") + '<span class="tx"><b>' + esc(devName(on[0])) + " is listening</b><small>" +
+        (on.length > 1 ? plural(on.length, "listener", "listeners") + " on · " : "") + "last report " + esc(ago(on[0].last_report)) + "</small></span></div>"
+        : j.listeners.length ? '<div class="row">' + pill("gone") + '<span class="tx"><b>Quiet right now</b><small>No listener has reported in the last half hour. Is the computer on?</small></span></div>'
+        : '<a class="row add" href="/ornigo/"><span class="tx"><b>Set up your first listener</b><small>On a computer that stays on at home</small></span></a>';
+    }).catch(function (e) { $("devs").innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; });
+    loadBirds();
+  }
+  function loadBirds() {
     var since = state.since ? Math.floor(Date.now() / 1000) - state.since : 0;
-    $("birds").innerHTML = '<div class="card empty">Loading your birds…</div>';
+    $("birds").innerHTML = '<div class="empty">Listening for your birds…</div>';
     return api("/mine/birds" + (since ? "?since=" + since : "")).then(function (j) {
-      renderBirds(j);
+      var el = $("birds"); el.innerHTML = "";
+      if (!j.species.length) el.innerHTML = '<div class="empty">' + (state.since ? "Nothing in this time yet. Try All time." : "Quiet so far. Reports arrive every 15 minutes, and dawn is the busiest time.") + "</div>";
+      j.species.forEach(function (s) { el.appendChild(birdRow(s, true)); });
       if (!state.since) {
-        $("s-species").textContent = j.count;
-        $("s-last").textContent = j.species.length ? ago(j.species[0].last).replace(" ago", "") : "–";
-        $("lede").textContent = j.count ? "Your listeners have heard " + plural(j.count, "kind of bird", "kinds of birds") + "." :
-          "Your first birds will show up here.";
+        $("birds-h").textContent = j.count ? plural(j.count, "kind", "kinds") + " so far" : "Your birds";
+        var nl = $("now-list"); nl.innerHTML = "";
+        var recent = j.species.filter(function (s) { return Date.now() / 1000 - s.last < 2 * 86400; });
+        (recent.length ? recent : j.species.slice(0, 5)).slice(0, 8).forEach(function (s) { nl.appendChild(birdRow(s, false)); });
+        if (!j.species.length) nl.innerHTML = '<div class="empty">Quiet so far. Your first bird shows up here within a day or so; dawn is the busiest time.</div>';
       }
-    }).catch(function (e) { $("birds").innerHTML = '<div class="card empty">' + esc(e.message) + "</div>"; });
+    }).catch(function (e) { $("birds").innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; });
   }
   Array.prototype.forEach.call(document.querySelectorAll(".seg button"), function (b) {
     b.addEventListener("click", function () {
       Array.prototype.forEach.call(document.querySelectorAll(".seg button"), function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
-      state.since = +b.dataset.since; birds();
+      state.since = +b.dataset.since; loadBirds();
     });
   });
-  function home() {
-    show("v-signin", false); show("v-home", true); show("signout", true);
-    if (DEMO) { show("demo", true); $("signout").textContent = "Exit example"; }
-    api("/mine/summary").then(function (s) {
-      var hr = new Date().getHours();
-      var g = hr < 5 ? "Good night" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
-      $("hello").textContent = g + (s.name ? ", " + s.name : "");
-      $("s-places").textContent = s.places != null ? s.places : "–";
-    }).catch(function () {});
-    api("/mine/listeners").then(renderDevs).catch(function (e) { $("devs").innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; });
-    birds();
-  }
 
-  // ── calls ────────────────────────────────────────────────────────────────────────
+  // ── songs ────────────────────────────────────────────────────────────────────────
   var callCache = {};
   function calls(latin) {
-    if (callCache[latin]) return callCache[latin];
-    callCache[latin] = (DEMO ? Promise.resolve({ recordings: [] }) :
-      fetch("/api/birds/call/" + encodeURIComponent(latin)).then(function (r) { return r.ok ? r.json() : { recordings: [] }; }))
+    if (!callCache[latin]) callCache[latin] = fetch("/api/birds/call/" + encodeURIComponent(latin)).then(function (r) { return r.ok ? r.json() : { recordings: [] }; })
       .then(function (j) { return j.recordings || []; }).catch(function () { return []; });
     return callCache[latin];
   }
@@ -353,12 +354,7 @@ footer a{color:var(--dim)}
     audio.play().catch(function () { stop(); });
   }
   audio.addEventListener("ended", stop);
-  function quickPlay(s, btn) {
-    calls(s.latin).then(function (r) {
-      if (!r.length) { btn.title = "No recording yet"; btn.style.opacity = ".4"; return; }
-      playUrl(r[0].file_url, btn);
-    });
-  }
+  function quickPlay(s, btn) { calls(s.latin).then(function (r) { if (!r.length) { btn.style.opacity = ".4"; btn.setAttribute("aria-label", "No recording yet"); return; } playUrl(r[0].file_url, btn); }); }
 
   // ── detail ───────────────────────────────────────────────────────────────────────
   var map = null, layer = null;
@@ -366,29 +362,26 @@ footer a{color:var(--dim)}
     stop();
     $("sheet").classList.add("open"); document.body.style.overflow = "hidden";
     history.pushState({ bird: s.latin }, "", "#" + encodeURIComponent(s.latin));
-    $("d-name").textContent = s.name || s.latin;
-    $("d-latin").textContent = s.latin; $("d-latin2").textContent = "";
+    $("d-name").textContent = s.name || s.latin; $("d-latin").textContent = s.latin;
+    var k = conf(s);
+    $("d-pill").innerHTML = pill(k) + '<span class="tx"><b>' + esc(PILL[k][0]) + "</b><small>" + (s.rare ? (s.rare === "confirmed" ? "Rare here, confirmed by another listener" : "Rare here, not yet confirmed by another listener") : "Last heard " + esc(when(s.last))) + "</small></span>";
     var img = $("d-img");
     if (s.photo && s.photo.url) { img.src = s.photo.url.replace("/330px-", "/960px-"); img.onerror = function () { img.onerror = null; img.src = s.photo.url; }; img.classList.remove("hidden"); }
     else img.classList.add("hidden");
     var c = $("d-credit"); c.innerHTML = "";
-    if (s.photo) {
-      if (s.photo.page) c.innerHTML = 'Photo: <a href="' + esc(s.photo.page) + '" rel="noopener">Wikipedia</a>';
-      else c.textContent = "Photo: " + (s.photo.by === "you" ? "you" : "a HONE listener") + " · UFL";
-    }
-    $("d-meta").textContent = "Heard " + plural(s.heard, "time", "times") + ". First " + ago(s.first) + ", last " + ago(s.last) + "." +
-      (s.rare ? " Rare here: " + (s.rare === "confirmed" ? "confirmed by another listener." : "not yet confirmed by another listener.") : "");
+    if (s.photo) { if (s.photo.page) c.innerHTML = 'Photo: <a href="' + esc(s.photo.page) + '" rel="noopener">Wikipedia</a>'; else c.textContent = "Photo: " + (s.photo.by === "you" ? "you" : "an Ornigo listener"); }
+    $("d-meta").textContent = "Heard in " + plural(s.heard, "report", "reports") + ". First " + ago(s.first) + ", last " + ago(s.last) + ".";
     $("d-places").textContent = "Heard in " + plural(s.places, "place", "places");
     api("/mine/birds/" + encodeURIComponent(s.latin)).then(function (j) { drawMap(j.places); $("d-places").textContent = "Heard in " + plural(j.count, "place", "places"); }).catch(function () {});
-    $("d-calls").innerHTML = '<div class="empty">Loading calls…</div>';
+    $("d-calls").innerHTML = '<div class="empty">Loading songs…</div>';
     calls(s.latin).then(function (r) {
       if (!r.length) { $("d-calls").innerHTML = '<div class="empty">No recording of this one yet.</div>'; return; }
       $("d-calls").innerHTML = "";
       r.forEach(function (x) {
-        var row = document.createElement("div"); row.className = "rec";
-        row.innerHTML = '<button class="play" type="button" aria-label="Play"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg></button>' +
-          '<div class="tx"><b>' + esc((x.type || "call").replace(/^./, function (m) { return m.toUpperCase(); })) + (x.length ? " · " + esc(x.length) : "") + "</b><br>" +
-          esc(x.recordist) + (x.country ? ", " + esc(x.country) : "") + ' · <a href="' + esc(x.license_url) + '" rel="noopener">' + esc(x.license) + '</a> · <a href="' + esc(x.page_url) + '" rel="noopener">XC' + esc(x.xc_id) + "</a></div>";
+        var row = document.createElement("div"); row.className = "row";
+        row.innerHTML = '<button class="play" type="button" aria-label="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg></button>' +
+          '<span class="tx"><b>' + esc((x.type || "song").replace(/^./, function (m) { return m.toUpperCase(); })) + (x.length ? " · " + esc(x.length) : "") + "</b><small>" +
+          esc(x.recordist) + (x.country ? ", " + esc(x.country) : "") + ' · <a href="' + esc(x.license_url) + '" rel="noopener">' + esc(x.license) + '</a> · <a href="' + esc(x.page_url) + '" rel="noopener">XC' + esc(x.xc_id) + "</a></small></span>";
         row.querySelector(".play").addEventListener("click", function () { playUrl(x.file_url, this); });
         $("d-calls").appendChild(row);
       });
@@ -397,21 +390,16 @@ footer a{color:var(--dim)}
   function drawMap(places) {
     if (!window.L) return;
     if (!map) {
-      map = L.map("map", { zoomControl: true, attributionControl: true, scrollWheelZoom: false });
+      map = L.map("map", { scrollWheelZoom: false });
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 16, attribution: "© OpenStreetMap" }).addTo(map);
     }
     if (layer) layer.remove();
     layer = L.featureGroup().addTo(map);
-    var accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#f7931a";
     places.forEach(function (p) {
-      var r = p.res >= 7 ? 1400 : p.res >= 5 ? 9000 : 60000;
-      L.circle([p.lat, p.lng], { radius: r, color: accent, weight: 2, fillOpacity: .25 })
-        .bindPopup(plural(p.heard, "time", "times") + ", last " + ago(p.last)).addTo(layer);
+      L.circle([p.lat, p.lng], { radius: p.res >= 7 ? 1400 : p.res >= 5 ? 9000 : 60000, color: "#B8F06A", weight: 2, fillOpacity: .25 })
+        .bindPopup(plural(p.heard, "report", "reports") + ", last " + ago(p.last)).addTo(layer);
     });
-    setTimeout(function () {
-      map.invalidateSize();
-      if (places.length) map.fitBounds(layer.getBounds(), { maxZoom: 12, padding: [24, 24] }); else map.setView([20, 0], 1);
-    }, 60);
+    setTimeout(function () { map.invalidateSize(); if (places.length) map.fitBounds(layer.getBounds(), { maxZoom: 12, padding: [24, 24] }); else map.setView([20, 0], 1); }, 60);
   }
   function close() { stop(); $("sheet").classList.remove("open"); document.body.style.overflow = ""; }
   $("d-close").addEventListener("click", function () { history.back(); });
@@ -425,47 +413,45 @@ footer a{color:var(--dim)}
     }).catch(function (e) { b.disabled = false; b.textContent = e.message; });
   });
   $("tok-copy").addEventListener("click", function () {
-    var t = $("tok-v").textContent, b = this;
-    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { b.textContent = "Copied"; },
-      function () { var r = document.createRange(); r.selectNodeContents($("tok-v")); getSelection().removeAllRanges(); getSelection().addRange(r); });
+    var b = this;
+    (navigator.clipboard ? navigator.clipboard.writeText($("tok-v").textContent) : Promise.reject()).then(function () { b.textContent = "Copied"; }, function () { b.textContent = "Select it"; });
   });
 
   // ── example data (?demo=1) ───────────────────────────────────────────────────────
   function demo(path) {
     var now = Math.floor(Date.now() / 1000), W = "https://thumb.wikimedia.org/wikipedia/commons/thumb/";
     var S = [
-      ["Cardinalis cardinalis", "Northern cardinal", "5/5c/Male_northern_cardinal_in_Central_Park_%2852612%29.jpg/330px-Male_northern_cardinal_in_Central_Park_%2852612%29.jpg", 41, 3, 1100, "Northern_cardinal"],
-      ["Strix varia", "Barred owl", "3/3c/Strix-varia-005.jpg/330px-Strix-varia-005.jpg", 9, 2, 5 * 3600, "Barred_owl"],
-      ["Polioptila caerulea", "Blue-gray gnatcatcher", "1/11/Blue-gray_gnatcatcher_in_PP_%2872317%29.jpg/330px-Blue-gray_gnatcatcher_in_PP_%2872317%29.jpg", 6, 1, 26 * 3600, "Blue-gray_gnatcatcher"],
-      ["Contopus virens", "Eastern wood pewee", "6/63/Eastern_wood_pewee_%2871095%29.jpg/330px-Eastern_wood_pewee_%2871095%29.jpg", 4, 1, 3 * 86400, "Eastern_wood_pewee"],
-      ["Bubo virginianus", "Great horned owl", "2/23/Bubo_virginianus_06.jpg/330px-Bubo_virginianus_06.jpg", 2, 1, 5 * 86400, "Great_horned_owl"],
-      ["Corvus corax", "Common raven", "9/91/Corvus_corax_clarionensis%2C_Point_Reyes_National_Seashore.jpg/330px-Corvus_corax_clarionensis%2C_Point_Reyes_National_Seashore.jpg", 1, 1, 9 * 86400, "Common_raven", "unconfirmed"]
+      ["Pitangus sulphuratus", "Great kiskadee", "9/94/Great_kiskadee_%2870240%29.jpg/330px-Great_kiskadee_%2870240%29.jpg", 41, 2, 1100, "Great_kiskadee", .91],
+      ["Strix varia", "Barred owl", "3/3c/Strix-varia-005.jpg/330px-Strix-varia-005.jpg", 3, 1, 5 * 3600, "Barred_owl", .82],
+      ["Nyctidromus albicollis", "Common pauraque", "", 1, 1, 9 * 3600, "Common_pauraque", .48],
+      ["Cardinalis cardinalis", "Northern cardinal", "5/5c/Male_northern_cardinal_in_Central_Park_%2852612%29.jpg/330px-Male_northern_cardinal_in_Central_Park_%2852612%29.jpg", 12, 3, 30 * 3600, "Northern_cardinal", .88],
+      ["Bubo virginianus", "Great horned owl", "2/23/Bubo_virginianus_06.jpg/330px-Bubo_virginianus_06.jpg", 6, 1, 10 * 86400, "Great_horned_owl", .8],
+      ["Contopus virens", "Eastern wood pewee", "6/63/Eastern_wood_pewee_%2871095%29.jpg/330px-Eastern_wood_pewee_%2871095%29.jpg", 4, 1, 40 * 86400, "Eastern_wood_pewee", .75]
     ];
     var sp = S.map(function (x) {
-      return { latin: x[0], name: x[1], photo: { url: W + x[2], by: "Wikipedia", page: "https://en.wikipedia.org/wiki/" + x[6] },
-        heard: x[3], places: x[4], last: now - x[5], first: now - 20 * 86400, rare: x[7] || null };
+      return { latin: x[0], name: x[1], photo: x[2] ? { url: W + x[2], by: "Wikipedia", page: "https://en.wikipedia.org/wiki/" + x[6] } : null,
+        heard: x[3], places: x[4], last: now - x[5], first: now - 60 * 86400, best_conf: x[7], rare: null };
     });
-    if (path.indexOf("/mine/summary") === 0) return { name: "Sam", species: sp.length, places: 3, listening_now: 1 };
+    if (path.indexOf("/mine/summary") === 0) return { name: "wrenfan", species: sp.length, places: 3, listening_now: 1 };
     if (path.indexOf("/mine/listeners") === 0) return { listening_now: 1, listeners: [
-      { label: "Backyard camera", kind: "camera listener", online: true, last_report: now - 420, detections_today: 23, version: "1.0.0" },
-      { label: "Pixel", kind: "phone", online: false, last_report: now - 3 * 3600, detections_today: 2 }] };
+      { label: "Home PC", kind: "camera listener", online: true, last_report: now - 240, detections_today: 23 },
+      { label: "Kitchen tablet", kind: "phone", online: false, last_report: now - 26 * 3600 }] };
     if (path.indexOf("/mine/birds/") === 0) {
       var s = sp.filter(function (x) { return "/mine/birds/" + encodeURIComponent(x.latin) === path; })[0] || sp[0];
-      var pts = [[40.7812, -73.9665], [40.6602, -73.969], [40.8296, -73.9262]].slice(0, s.places);
-      return { latin: s.latin, count: pts.length, places: pts.map(function (p, i) { return { lat: p[0], lng: p[1], res: 7, heard: i ? 2 : s.heard, last: s.last }; }) };
+      var pts = [[13.674, -89.247], [13.701, -89.224], [13.69, -89.19]].slice(0, s.places);
+      return { latin: s.latin, count: pts.length, places: pts.map(function (p) { return { lat: p[0], lng: p[1], res: 7, heard: s.heard, last: s.last }; }) };
     }
-    if (path.indexOf("/mine/birds") === 0) {
-      var m = /since=(\d+)/.exec(path), since = m ? +m[1] : 0;
-      var f = sp.filter(function (x) { return x.last >= since; });
-      return { species: f, count: f.length };
-    }
+    if (path.indexOf("/mine/birds") === 0) { var m = /since=(\d+)/.exec(path), since = m ? +m[1] : 0; var f = sp.filter(function (x) { return x.last >= since; }); return { species: f, count: f.length }; }
     if (path.indexOf("/web/token") === 0) return { token: "w_example-only-not-a-real-key" };
+    if (path.indexOf("/web/setup-link") === 0) return { ok: true };
     return {};
   }
 
   // ── start ────────────────────────────────────────────────────────────────────────
-  if (DEMO) home();
-  else { state.token = load(TK); if (state.token) home(); else signedOut(); }
+  var standalone = window.navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  show("tip", IOS && !standalone);
+  setMode("link");
+  if (DEMO) home(); else { state.token = load(TK); if (state.token) home(); else signedOut(); }
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/me/sw.js", { scope: "/me/" }).catch(function () {});
 })();
 </script>

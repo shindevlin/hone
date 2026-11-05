@@ -1,0 +1,39 @@
+Ornigo: Microsoft Store listing copy (from the Ornigo design canvas, Store-Copy board)
+Check each field against the current Partner Center character limits before submitting.
+
+APP NAME
+Ornigo: bird sounds around your home
+
+SHORT DESCRIPTION
+Ornigo listens through your PC, phone and home cameras, names the birds it hears, and tells you when your regulars come back. Free, no ads. Conversation is deleted on the device.
+
+DESCRIPTION
+Ornigo turns the computer you leave on into a bird listener. It uses this PC's microphone, plus any security cameras or microphones it finds on your Wi-Fi. Use them all, or pick the ones you want.
+
+As birds sing, their names light up. Tap one to hear its real song. Over the days, Ornigo learns who lives with you: Regular here, Heard recently, Possible, Fading, or Gone for the season. When the same bird keeps coming back, Ornigo can tell, and for some species you can give that bird a name that is yours in your town.
+
+Check your birds from any phone at honemesh.net/me, including iPhone.
+
+Your home stays private. Human conversation is automatically deleted. The listener only keeps a count of voices it removed. No audio is ever saved or sent; only a short bird report every 15 minutes.
+
+Ornigo is free, with no ads and no subscription.
+
+PRODUCT FEATURES
+- Names birds by sound as they sing
+- Listens through this PC's mic and cameras on your Wi-Fi, all or the ones you pick
+- Plays each bird's real song
+- Shows who is regular, who is new and who has left for the season
+- Recognises a bird that keeps coming back, and lets you name it
+- Your birds on any phone at honemesh.net/me
+- Conversation deleted on the device; only bird reports leave it
+
+SEARCH TERMS
+bird song, bird identification, birdsong, bird sounds, backyard birds, owl, nature, security camera, wildlife
+
+LISTING DETAILS
+Category: Education
+Publisher: Honemesh
+Website: https://honemesh.net/ornigo/
+Support: ornigo@honemesh.net
+Privacy policy: https://honemesh.net/ornigo/privacy
+Capabilities: Microphone (recommended), local network (to find cameras)

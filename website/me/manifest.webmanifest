@@ -1,12 +1,12 @@
 {
-  "name": "HONE · My Birds",
-  "short_name": "My Birds",
-  "description": "The birds your HONE listeners heard.",
+  "name": "Ornigo · My Birds",
+  "short_name": "Ornigo",
+  "description": "The birds your Ornigo listeners heard.",
   "start_url": "/me/",
   "scope": "/me/",
   "display": "standalone",
-  "background_color": "#0a0e17",
-  "theme_color": "#0a0e17",
+  "background_color": "#0B1310",
+  "theme_color": "#0B1310",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },

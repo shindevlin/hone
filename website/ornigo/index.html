@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get Ornigo</title>
+<meta name="description" content="Ornigo listens through your PC, phone and home cameras, names the birds it hears, and tells you when your regulars come back. Free, no ads. Conversation is deleted on the device.">
+<meta property="og:title" content="Ornigo: hear the birds you've been missing">
+<meta property="og:description" content="Put a listener on a computer that stays on. Free, no ads, no subscription.">
+<meta property="og:image" content="https://honemesh.net/assets/join-kiskadee.jpg">
+<meta name="theme-color" content="#0B1310">
+<link rel="icon" href="/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/ornigo.css">
+<style>
+.wrap{gap:36px}
+.hero{display:flex;flex-wrap:wrap;gap:36px;align-items:center}
+.hero .t{flex:999 1 420px;min-width:0;display:flex;flex-direction:column;gap:14px}
+.hero h1{font-size:clamp(2.2rem,5vw,3.6rem);line-height:1.05;letter-spacing:-1.5px}
+.hero .pic{flex:1 1 300px;min-width:0;position:relative;border-radius:30px;overflow:hidden;aspect-ratio:4/3.4;background:var(--canopy);border:1px solid var(--twig)}
+.hero .pic img{width:100%;height:100%;object-fit:cover;object-position:50% 30%;display:block}
+.hero .pic .heard{position:absolute;left:14px;right:14px;bottom:14px;background:rgba(20,31,26,.92)}
+.oi{margin-top:-8px}
+.and{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.and .x{flex:1 1 300px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="nav">
+    <a class="wm" href="/ornigo/" aria-label="ornigo"><svg viewBox="0 0 104 104" aria-hidden="true"><circle cx="52" cy="58" r="34" fill="none" stroke="#B8F06A" stroke-width="16"/><path d="M84 50 l16 6 -16 6z" fill="#B8F06A"/></svg><b>rnigo</b></a>
+    <nav aria-label="Site"><a href="/join" id="nav-join">Join</a><a href="/me" id="nav-me">My birds</a></nav>
+  </header>
+
+  <section class="hero">
+    <div class="t">
+      <span class="chip hidden" id="ref"></span>
+      <h1>Put a listener on a computer that stays on.</h1>
+      <p class="mut" style="font-size:1.1rem;max-width:640px">It uses that computer's microphone and any cameras or mics on your Wi-Fi. You pick all of them or just a few the first time it opens. Every bird it hears shows up on your phone.</p>
+      <p class="mut hidden" id="phone-note" style="color:var(--ink)">You're on a phone. <a id="mail-self" href="#">Email yourself this page</a> and open it on the computer at home.</p>
+    </div>
+    <div class="pic">
+      <img src="/assets/join-kiskadee.jpg" alt="A great kiskadee perched on a branch" width="960" height="1307">
+      <div class="heard"><b>Great Kiskadee</b><small>Heard by the garden camera, 6:12 this morning</small></div>
+    </div>
+  </section>
+  <p class="credit" style="margin-top:-28px;text-align:right"><a href="https://commons.wikimedia.org/wiki/File:Great_kiskadee_(70240).jpg" rel="noopener">Great kiskadee. Photo: Rhododendrites, CC BY-SA 4.0, via Wikimedia Commons</a></p>
+
+  <section class="card priv" aria-label="Privacy">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#B8F06A" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+    <p>Human conversation is automatically deleted. The listener only keeps a count of voices it removed. No audio is ever saved or sent; only a short bird report every 15 minutes.</p>
+  </section>
+
+  <section aria-label="Install" style="display:flex;flex-direction:column;gap:14px">
+    <h2 style="font-size:30px" id="install">Install Ornigo</h2>
+    <div id="cards"></div>
+    <div class="card and">
+      <div class="x"><b style="font:800 22px var(--disp)">Android</b><p class="mut">Android 10 or newer. The phone listens too, and finds cameras on your Wi-Fi.</p></div>
+      <a class="go" id="apk" href="/app/hone-latest.apk">Get the Android app</a>
+    </div>
+    <div class="card and">
+      <div class="x"><b>On an iPhone?</b><p class="mut">A computer at home does the listening. Your birds arrive at honemesh.net/me; add it to your Home Screen.</p></div>
+      <a class="ghost" id="me2" href="/me">Open my birds</a>
+    </div>
+  </section>
+
+  <section aria-label="Questions" style="display:flex;flex-direction:column;gap:10px">
+    <h2 style="font-size:30px">Questions</h2>
+    <details class="card"><summary>Does it record what we say at home?</summary><p>No. Sound is checked a few seconds at a time on your own computer. Anything that sounds like people talking is deleted right away and only counted. No audio is ever saved or sent. Every 15 minutes Ornigo sends a short report: which birds it heard, and when.</p></details>
+    <details class="card"><summary>Which cameras work?</summary><p>Most Wi-Fi security cameras with a microphone. Ornigo finds them on your network and tells you in plain words how well each one hears birds.</p></details>
+    <details class="card"><summary>Will it slow my computer down?</summary><p>It runs quietly in the background on a small slice of the processor. You can pause or uninstall it at any time.</p></details>
+    <details class="card"><summary>Use an AI assistant?</summary><p>Claude and other assistants can set Ornigo up for you, step by step. <a href="/listener/ai">Install with an assistant</a>.</p></details>
+  </section>
+
+  <footer class="foot">
+    <span>Ornigo is made by Honemesh. <a href="/ornigo/privacy">Privacy</a> · Help: <a href="mailto:ornigo@honemesh.net">ornigo@honemesh.net</a></span>
+    <a class="hone" href="/">Get paid for your birds → HONE</a>
+  </footer>
+</div>
+<script src="/assets/listener-install.js"></script>
+<script>
+(function () {
+  var O = OrnigoInstall, q = new URLSearchParams(location.search);
+  var ref = O.cleanRef(q.get("ref")), v = O.cleanVoucher(q.get("v")), c = O.carry(ref, v);
+  O.render(document.getElementById("cards"), { ref: ref, voucher: v });
+  if (ref) { var r = document.getElementById("ref"); r.textContent = ref + " invited you"; r.classList.remove("hidden"); }
+  document.getElementById("nav-join").href = "/join" + c;
+  var d = O.detect();
+  if (d === "ios" || d === "android") {
+    document.getElementById("phone-note").classList.remove("hidden");
+    document.getElementById("mail-self").href = "mailto:?subject=" + encodeURIComponent("Set up Ornigo on my computer") +
+      "&body=" + encodeURIComponent("Open this on a computer that stays on at home:\nhttps://honemesh.net/ornigo/" + c + "\n\nThen check your birds at https://honemesh.net/me");
+  }
+})();
+</script>
+</body>
+</html>
