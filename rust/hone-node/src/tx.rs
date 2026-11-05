@@ -176,7 +176,7 @@ thread_local! {
 
 /// Admission (not consensus): may entries signed by this seat enter the pending pool?
 fn seat_admitted(chain: &Chain, seat: &str, owner: &str) -> bool {
-    seat_staked(chain, seat, owner)
+    seat_staked(chain, seat, owner) || crate::sensor_seat::backed(chain, seat)
 }
 
 /// A device seat holds a role stake (clock or decide) placed by its owner.
