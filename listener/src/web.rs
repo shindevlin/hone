@@ -66,6 +66,7 @@ impl App {
         let r = f(&mut c);
         let _ = c.save();
         self.engine.sync(&c);
+        crate::voiceprint::configure(c.cell9.as_deref(), c.tz_min.unwrap_or_else(|| c.lon_hint.map(crate::voiceprint::tz_from_lon).unwrap_or(0)));
         let snap = c.clone();
         drop(c);
         if snap.account.is_some() {
@@ -93,6 +94,7 @@ impl App {
             "map_state": l.map_state, "chain_state": l.chain_state, "chain_queued": l.chain_queued, "chain_accepted": l.chain_accepted,
             "update_state": l.update_state, "model_error": l.model_error, "secret_store": secrets::backend(),
             "station_pub": key_pub, "summary": live::summary(c.listening),
+            "individuals": crate::voiceprint::view(&|sp| self.names.get(sp).cloned()),
         })
     }
 
@@ -202,6 +204,7 @@ impl App {
                     c.stations.push(st);
                     c.cell9 = Some(c9);
                     c.cell7 = Some(c7);
+                    c.lon_hint = Some(lon);
                 });
                 j(self.state())
             }
@@ -226,6 +229,19 @@ impl App {
                 self.update_cfg(|c| c.listening = true);
                 j(self.state())
             }
+            "/api/tz" => {
+                match b["tz_min"].as_i64() {
+                    Some(t) if (-720..=840).contains(&t) => {
+                        self.update_cfg(|c| c.tz_min = Some(t as i32));
+                        j(json!({"ok": true}))
+                    }
+                    _ => fail(400, "bad time zone"),
+                }
+            }
+            "/api/bird/name" => match crate::voiceprint::name(&s("bird_id"), &s("name")) {
+                Ok(()) => j(self.state()),
+                Err(e) => fail(400, &e),
+            },
             "/api/pause" => {
                 self.update_cfg(|c| c.listening = false);
                 j(self.state())

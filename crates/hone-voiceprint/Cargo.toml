@@ -1,0 +1,28 @@
+[package]
+name = "hone-voiceprint"
+version = "0.1.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+license = "MIT OR Apache-2.0"
+description = "Individual bird voiceprints for HONE: compact, non-invertible Perch-derived prints, online per-place clustering, stable bird ids and calibrated 'is back' likelihoods."
+publish = false
+
+# Standalone crate (the listener and the Android port use it by path).
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+# JNI entry points for network.hone.app.sound.Voiceprints (build with cargo ndk --features android)
+android = ["dep:jni"]
+
+[dependencies]
+jni = { version = "0.21", optional = true, default-features = false }
+h3o = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[[example]]
+name = "vp_sim"

@@ -20,7 +20,15 @@ for n in sorted(os.listdir(d)):
         continue
     files[n] = {"sha256": hashlib.sha256(open(p, "rb").read()).hexdigest(), "size": os.path.getsize(p)}
 m = {"name": "hone-listener", "version": v, "released": datetime.date.today().isoformat(), "files": files,
-     "local": {"systemd_unit": "hone-listener", "windows_task": "HONE Listener", "launchd_label": "net.honemesh.listener", "status_port": 47811}}
+     "local": {"systemd_unit": "hone-listener", "windows_task": "HONE Listener", "launchd_label": "net.honemesh.listener",
+               # status_port is the PREFERRED port only. Windows can reserve it (Hyper-V/WSL), and then the
+               # listener takes the next free one. The port in use is always written, as plain digits, to
+               # status_port_file; read that first and fall back to status_port.
+               "status_port": 47811,
+               "status_port_file": {"windows": "%LOCALAPPDATA%\\HONE\\Listener\\ui-port",
+                                    "linux": "/var/lib/hone-listener/ui-port",
+                                    "linux_user": "~/.local/share/hone-listener/ui-port",
+                                    "macos": "~/Library/Application Support/HONE Listener/ui-port"}}}
 open(os.path.join(d, "version.json"), "w").write(json.dumps(m, indent=1, sort_keys=True) + "\n")
 PY
 T=$(mktemp); trap 'rm -f "$T"' EXIT

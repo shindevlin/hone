@@ -79,6 +79,7 @@ pub fn run(app: Arc<App>) -> ! {
                 }
                 next = Instant::now();
             } else if ev.id == quit.id() {
+                crate::voiceprint::save_now();
                 std::process::exit(0);
             }
         }

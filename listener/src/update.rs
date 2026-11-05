@@ -152,6 +152,7 @@ pub fn check(cfg: &Config, apply: bool) -> String {
 fn restart() {
     if let Ok(exe) = std::env::current_exe() {
         // launchd/systemd restart us when we exit; elsewhere start the new copy first.
+        crate::voiceprint::save_now();
         if std::env::var("HONE_LISTENER_SUPERVISED").is_err() {
             let _ = std::process::Command::new(exe).args(std::env::args().skip(1)).spawn();
         }

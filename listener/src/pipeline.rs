@@ -7,7 +7,7 @@
 use crate::audio::LinearResampler;
 use crate::config::{now_ms, res_dir, Config, Station};
 use crate::perch::{self, Perch};
-use crate::voiceprint::{NoopVoiceprint, VoiceprintSink};
+use crate::voiceprint::VoiceprintSink;
 use crate::{live, report, secrets, voicegate};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read};
@@ -210,7 +210,7 @@ fn analyze_file_inner(path: &str, rate: u32) -> Result<serde_json::Value, String
     let q = Arc::new(FrameQueue::default());
     let stop = AtomicBool::new(false);
     let (tx, _rx) = mpsc::channel();
-    let mut a = Analyzer::new(tx, Box::new(NoopVoiceprint));
+    let mut a = Analyzer::new(tx, Box::new(Discard));
     let mut child = Command::new(ffmpeg_bin()).args(ffmpeg_args(path, rate)).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn().map_err(|e| format!("ffmpeg: {e}"))?;
     let mut out = child.stdout.take().unwrap();
@@ -321,6 +321,12 @@ pub struct Win {
 /// TFLite/XNNPACK kernels use large stack frames: Windows' default 1 MB main stack is not
 /// enough (access violation), so Perch always runs on a thread with this stack.
 pub const PERCH_STACK: usize = 16 << 20;
+
+/// Offline `analyze` runs keep no voiceprints.
+struct Discard;
+impl VoiceprintSink for Discard {
+    fn on_detection(&mut self, _: &str, _: &[f32], _: u64, _: f32) {}
+}
 
 pub fn strict_voice() -> bool {
     std::env::var("HONE_LISTENER_STRICT_VOICE").map(|v| v == "1").unwrap_or(false)
@@ -476,7 +482,7 @@ pub fn spawn_analyzer(q: Arc<FrameQueue>, reports: mpsc::Sender<report::Report>)
         .name("hone-perch".into())
         .stack_size(PERCH_STACK)
         .spawn(move || {
-            let mut a = Analyzer::new(reports, Box::new(NoopVoiceprint));
+            let mut a = Analyzer::new(reports, Box::new(crate::voiceprint::Shared));
             loop {
                 if let Some(f) = q.pop(Duration::from_secs(5)) {
                     a.process(f);

@@ -149,6 +149,7 @@ footer{color:var(--muted);font-size:13px;margin-top:24px}
     <div class="stat"><b id="n-birds">0</b><span class="small muted">birds heard</span></div>
     <div class="stat"><b id="n-voices">0</b><span class="small muted">voices deleted</span></div>
   </div>
+  <div class="card hide" id="indiv"><h2>Birds that come back</h2><p class="small muted">The listener recognises some birds by their voice. Only a short voice summary stays on this computer, never sound.</p><div id="indiv-list"></div></div>
   <div class="card"><h2>Heard recently</h2><div id="birds"><p class="muted small">Nothing yet. Owls and nightjars usually call after dark.</p></div></div>
   <div class="card"><h2>Cameras</h2><div id="stations"></div>
     <div class="row"><button class="line" id="b-add-cam">Add a camera</button><button class="line" id="b-toggle">Pause listening</button></div></div>
@@ -229,12 +230,22 @@ function home(){
   $('stations').querySelectorAll('button').forEach(b=>b.onclick=async()=>{if(confirm('Remove this camera?')){S=await api('station/remove',{id:b.dataset.id});route()}});
   $('b-toggle').textContent=S.listening?'Pause listening':'Start listening';
   $('home-disc').textContent=S.disclaimer;
+  indiv();
   $('home-meta').innerHTML='Version '+esc(S.version)+(S.update_state?' · '+esc(S.update_state):'')+'<br>Reports sent from here: '+S.reports_made+(S.last_report_bytes?' (last one '+S.last_report_bytes+' bytes)':'')+(S.map_state?'<br>Bird map: '+esc(S.map_state):'')+'<br>Station key: '+esc(S.station_pub.slice(0,16))+'… ('+(S.secret_store==='keychain'?'kept in this computer\'s keychain':'kept in a locked file')+')';
+}
+function indiv(){
+  const v=S.individuals||{birds:[],back:[]};const el=$('indiv');el.classList.toggle('hide',!v.birds.length&&!v.back.length);
+  const who=b=>b.name?esc(b.name):'Your '+esc(b.common||b.species);
+  const back=v.back.slice(0,5).map(b=>'<div class="bird"><div><b>'+who(b)+' is back</b>, night '+b.nights_seen+' <span class="small muted">('+esc(b.phrase)+', '+b.likelihood_pct+'%)</span></div><div class="small muted">'+new Date(b.t).toLocaleDateString()+'</div></div>').join('');
+  const birds=v.birds.map(b=>'<div class="bird"><div><b>'+who(b)+'</b><br><i>'+esc(b.species)+'</i> <span class="small muted">· visited on '+b.nights_seen+' nights'+(b.is_back&&b.back_pct?' · back tonight ('+esc(b.back_phrase)+', '+b.back_pct+'%)':'')+'</span></div>'+(b.name?'':'<button class="ghost" data-id="'+esc(b.bird_id)+'">Name it</button>')+'</div>').join('');
+  $('indiv-list').innerHTML=back+birds;
+  $('indiv-list').querySelectorAll('button').forEach(x=>x.onclick=async()=>{const n=prompt('A name for this bird (letters only):');if(!n)return;try{S=await api('bird/name',{bird_id:x.dataset.id,name:n});route()}catch(e){alert(e.message)}});
 }
 $('b-toggle').onclick=async()=>{if(S.listening){S=await api('pause',{})}else{show('s-start');$('disc-text').textContent=S.disclaimer;return}route()};
 $('b-add-cam').onclick=()=>{adding=true;scanned=false;cam=null;probe=null;route()};
 $('b-logout').onclick=async()=>{if(confirm('Sign out? Listening stops until you sign in again.')){S=await api('logout',{});route()}};
 $('b-upd').onclick=async()=>{const r=await api('update',{});alert(r.update_state)};
+api('tz',{tz_min:-new Date().getTimezoneOffset()}).catch(()=>{});
 refresh();setInterval(()=>{if(!document.hidden&&S&&!$('s-home').classList.contains('hide'))refresh()},5000);
 </script>
 </body>

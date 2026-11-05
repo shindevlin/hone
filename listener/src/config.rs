@@ -110,6 +110,12 @@ pub struct Config {
     pub cell7: Option<String>,
     #[serde(default)]
     pub show_name: bool,
+    /// Owner's UTC offset in minutes (from the setup page's browser), for voiceprint nights.
+    #[serde(default)]
+    pub tz_min: Option<i32>,
+    /// Declared camera location, kept only to place voiceprints (never sent).
+    #[serde(default)]
+    pub lon_hint: Option<f64>,
     #[serde(default = "yes")]
     pub auto_update: bool,
     #[serde(default = "api")]

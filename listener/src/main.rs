@@ -87,7 +87,13 @@ fn run(tray: bool) {
         log::error!("could not open a local port for the setup page");
         std::process::exit(1);
     };
+    // The port in use, for `hone-listener open/url` and the HONE MCP (version.json local.status_port_file).
     let _ = std::fs::write(state_dir().join("ui-port"), port_now.to_string());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(state_dir().join("ui-port"), std::fs::Permissions::from_mode(0o644));
+    }
     if let Err(e) = secrets::station_key() {
         log::error!("station key: {e}");
     }
@@ -98,6 +104,16 @@ fn run(tray: bool) {
     update::spawn();
     status::spawn();
     let first_run = !cfg.ready();
+    voiceprint::configure(cfg.cell9.as_deref(), cfg.tz_min.unwrap_or_else(|| cfg.lon_hint.map(voiceprint::tz_from_lon).unwrap_or(0)));
+    // Save voiceprints on SIGTERM/SIGINT (systemd stop, launchd, Ctrl-C) and every 10 min.
+    let _ = ctrlc::set_handler(|| {
+        voiceprint::save_now();
+        std::process::exit(0);
+    });
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(600));
+        voiceprint::save_now();
+    });
     engine.sync(&cfg);
     let app = web::App::new(engine, cfg, port_now);
     web::serve(app.clone(), server);
