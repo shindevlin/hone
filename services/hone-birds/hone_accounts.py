@@ -33,7 +33,9 @@ REF = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 LATIN = re.compile(r"^[A-Z][a-z]+ [a-z][a-z-]+$")
 NODE = os.environ.get("HONE_NODE_URL", "http://127.0.0.1:4242")
 SESSION_S = 180 * 86400
-CODE_S = 30 * 60
+CODE_S = 10 * 60          # codes expire after 10 minutes
+RESEND_GAP_S = 60         # at most one new code a minute
+RESEND_MAX_HOUR = 5       # and at most 5 codes an hour per account
 OUTBOX_KEEP_S = 3600
 AGENTMAIL_API = "https://api.agentmail.to/v0"
 _mail_kick = threading.Event()
@@ -41,6 +43,7 @@ _mail_kick = threading.Event()
 _db = _lock = _bind = None
 _ref_cache = {}
 _login_rate = {}
+_code_rate = {}   # handle -> [window start, codes sent]
 
 
 class AuthError(Exception):
@@ -154,8 +157,10 @@ def auth(headers):
 def _queue_code(handle, email, name):
     code = f"{secrets.randbelow(1_000_000):06d}"
     now = int(time.time())
+    w = _code_rate.get(handle)
+    _code_rate[handle] = [w[0], w[1] + 1] if w and now - w[0] < 3600 else [now, 1]
     body = (f"Hi {name or 'there'},\n\nYour HONE code is {code}. Enter it in the app to finish signing up.\n\n"
-            "The code works for 30 minutes. If you didn't sign up for HONE, you can ignore this email.\n\n"
+            "The code works for 10 minutes. If you didn't sign up for HONE, you can ignore this email.\n\n"
             "HONE · https://honemesh.net")
     with _lock:
         _db.execute("INSERT OR REPLACE INTO user_codes VALUES(?,?,?,0)", (handle, _h(handle + code), now + CODE_S))
@@ -322,8 +327,12 @@ def resend(handle):
         return {"ok": True, "verified": True}
     with _lock:
         r = _db.execute("SELECT expires FROM user_codes WHERE handle=?", (handle,)).fetchone()
-    if r and r[0] - CODE_S > time.time() - 60:
+    now = time.time()
+    if r and r[0] - CODE_S > now - RESEND_GAP_S:
         raise Refused("A code was just sent. Please wait a minute.")
+    w = _code_rate.get(handle)
+    if w and now - w[0] < 3600 and w[1] >= RESEND_MAX_HOUR:
+        raise Refused("Too many codes sent. Please wait an hour and try again.")
     _queue_code(handle, u["email"], u["name"])
     return {"ok": True}
 
