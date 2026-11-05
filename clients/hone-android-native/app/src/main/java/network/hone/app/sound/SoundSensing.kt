@@ -283,6 +283,8 @@ object SoundSensing {
             win.lastSeq[d.name] = seq
         }
         if (top.isNotEmpty()) logDetections(top, p.lastEmbedding)
+        // Voiceprints, shadow mode: after the human-speech check, nothing shown or sent.
+        if (ctx != null) for (d in top) VoiceprintShadow.observe(ctx, d.name, p.lastEmbedding, d.atMs, d.conf)
         val s = _live.value
         _live.value = s.copy(
             framesHeard = s.framesHeard + 1,

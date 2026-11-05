@@ -34,7 +34,7 @@ fun ListenScreen() {
     Page {
         Title(stringResource(R.string.st_title))
         if (AccountStore.signedIn(ctx) && !AccountStore.verified(ctx))
-            Text(stringResource(R.string.ob_verify_nudge), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.ob_verify_reminder), style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
         stations.forEach { s ->
             val l = live[s.id]
             Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)).padding(16.dp),

@@ -60,7 +60,7 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
             if (acct.signedIn(ctx)) {
                 Text(acct.email(ctx) ?: "", style = MaterialTheme.typography.bodyMedium)
                 if (!acct.verified(ctx)) Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.ob_verify_nudge),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
                 Text(acct.referrer(ctx)?.let { androidx.compose.ui.res.stringResource(network.hone.app.R.string.ob_consent_ref, it) }
                     ?: androidx.compose.ui.res.stringResource(network.hone.app.R.string.ob_consent_pool),
                     style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
@@ -157,6 +157,7 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
                     }
                     Switch(tiered, { tiered = it; network.hone.app.birds.BirdsSync.setTiered(ctx, it) })
                 }
+                VoiceprintExport()
             }
             Text("Home area: sightings inside it are shown at about 5 km. Elsewhere, as precise as your GPS.",
                 style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
@@ -199,4 +200,24 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         content()
     }
+}
+
+/** Hidden debug export for the voiceprint shadow test: candidates, nights, likelihoods. No voiceprints. */
+@Composable
+private fun VoiceprintExport() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var msg by remember { mutableStateOf("") }
+    val save = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) Thread {
+            msg = runCatching {
+                ctx.contentResolver.openOutputStream(uri)!!.use { it.write(network.hone.app.sound.VoiceprintShadow.export(ctx).toByteArray()) }
+                "Saved."
+            }.getOrElse { "Could not save: ${it.message}" }
+        }.start()
+    }
+    TextButton({ save.launch("hone-voiceprint-shadow-${System.currentTimeMillis() / 1000}.json") }) {
+        Text("Voiceprint test export", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+    }
+    if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
 }

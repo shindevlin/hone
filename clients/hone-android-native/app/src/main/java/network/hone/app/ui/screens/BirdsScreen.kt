@@ -220,6 +220,7 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
             Text("Heard ${s.count}× · first ${ago(s.first)} · last ${ago(s.last)} · best ${s.bestConf.toInt()}%",
                 style = MaterialTheme.typography.bodyMedium)
         }
+        item { WhereHeard(s) }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Your photos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
@@ -497,3 +498,108 @@ private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
 
 private fun ago(t: Long): String =
     DateUtils.getRelativeTimeSpanString(t, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+
+// ── Where I heard this bird (local log only, never sent) ───────────────────────
+
+@Composable
+private fun WhereHeard(s: MySpecies) {
+    val ctx = LocalContext.current
+    val hp by produceState<network.hone.app.birds.HeardPlaces?>(null, s.latin, s.count) {
+        value = withContext(Dispatchers.IO) { network.hone.app.birds.Places.forSpecies(ctx, s.history) }
+    }
+    val r = hp ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(if (r.places.size == 1) "Heard in 1 place" else "Heard in ${r.places.size} places",
+            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (r.places.isNotEmpty()) PlacesMap(r.places)
+        r.places.forEach { p ->
+            Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)).padding(12.dp)) {
+                Text(p.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("${p.count}× · first ${ago(p.first)} · last ${ago(p.last)} · best ${p.bestConf.toInt()}%",
+                    style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
+            }
+        }
+        if (r.unlocated > 0) Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)).padding(12.dp)) {
+            Text("Place not recorded", style = MaterialTheme.typography.bodyMedium, color = HoneTextDim)
+            Text("${r.unlocated}× heard without a location fix", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+        }
+        Text("From this phone's own log. Place names: GeoNames, offline. Stays on this phone.",
+            style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+    }
+}
+
+@Composable
+private fun PlacesMap(places: List<network.hone.app.birds.HeardPlace>) {
+    val ctx = LocalContext.current
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    val mapView = remember {
+        org.maplibre.android.MapLibre.getInstance(ctx)
+        org.maplibre.android.maps.MapView(ctx).apply { onCreate(null) }
+    }
+    DisposableEffect(lifecycle) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            when (e) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> mapView.onStart()
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> mapView.onStop()
+                else -> {}
+            }
+        }
+        lifecycle.addObserver(obs); mapView.onStart(); mapView.onResume()
+        onDispose { lifecycle.removeObserver(obs); mapView.onPause(); mapView.onStop(); mapView.onDestroy() }
+    }
+    LaunchedEffect(places) {
+        val feats = JSONArray()
+        val pins = JSONArray()
+        places.forEach { p ->
+            p.cells.forEach { c -> val ring = network.hone.app.sightings.Cells.boundary(c)
+            if (ring != null) {
+                val coords = JSONArray().apply {
+                    ring.forEach { (lat, lng) -> put(JSONArray().put(lng).put(lat)) }
+                    put(JSONArray().put(ring[0].second).put(ring[0].first))
+                }
+                feats.put(JSONObject().put("type", "Feature").put("properties", JSONObject().put("n", p.count))
+                    .put("geometry", JSONObject().put("type", "Polygon").put("coordinates", JSONArray().put(coords))))
+            } }
+            pins.put(JSONObject().put("type", "Feature").put("properties", JSONObject().put("n", p.count))
+                .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(p.lon).put(p.lat))))
+        }
+        val hexes = JSONObject().put("type", "FeatureCollection").put("features", feats).toString()
+        val points = JSONObject().put("type", "FeatureCollection").put("features", pins).toString()
+        mapView.getMapAsync { map ->
+            map.uiSettings.setAllGesturesEnabled(false)
+            map.uiSettings.isAttributionEnabled = false
+            map.uiSettings.isLogoEnabled = false
+            map.setStyle(org.maplibre.android.maps.Style.Builder().fromUri(MAP_STYLE)) { style ->
+                style.addSource(org.maplibre.android.style.sources.GeoJsonSource("heard-hex", hexes))
+                style.addSource(org.maplibre.android.style.sources.GeoJsonSource("heard-pin", points))
+                style.addLayer(org.maplibre.android.style.layers.FillLayer("heard-fill", "heard-hex").withProperties(
+                    org.maplibre.android.style.layers.PropertyFactory.fillColor("#F28C28"),
+                    org.maplibre.android.style.layers.PropertyFactory.fillOpacity(0.40f),
+                    org.maplibre.android.style.layers.PropertyFactory.fillOutlineColor("#F28C28"),
+                ))
+                style.addLayer(org.maplibre.android.style.layers.CircleLayer("heard-dot", "heard-pin").withProperties(
+                    org.maplibre.android.style.layers.PropertyFactory.circleColor("#F28C28"),
+                    org.maplibre.android.style.layers.PropertyFactory.circleRadius(5f),
+                    org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor("#FFFFFF"),
+                    org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth(1.5f),
+                ))
+                val cam = if (places.size == 1) org.maplibre.android.camera.CameraUpdateFactory.newLatLngZoom(
+                    org.maplibre.android.geometry.LatLng(places[0].lat, places[0].lon), 14.0)
+                else org.maplibre.android.camera.CameraUpdateFactory.newLatLngBounds(
+                    org.maplibre.android.geometry.LatLngBounds.Builder().apply {
+                        places.forEach { include(org.maplibre.android.geometry.LatLng(it.lat, it.lon)) }
+                    }.build(), 60)
+                runCatching { map.moveCamera(cam) }.onFailure {
+                    map.moveCamera(org.maplibre.android.camera.CameraUpdateFactory.newLatLngZoom(
+                        org.maplibre.android.geometry.LatLng(places[0].lat, places[0].lon), 12.0))
+                }
+                if (map.cameraPosition.zoom > 15.0) map.moveCamera(org.maplibre.android.camera.CameraUpdateFactory.zoomTo(15.0))
+            }
+        }
+    }
+    androidx.compose.ui.viewinterop.AndroidView({ mapView },
+        Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)))
+    Text("Map: OpenFreeMap · © OpenStreetMap contributors", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+}

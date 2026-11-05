@@ -1,0 +1,2 @@
+Place names: GeoNames cities1000 (https://www.geonames.org), CC BY 4.0. Fetched 2026-11-04.
+Format: name<TAB>lat<TAB>lon<TAB>country, sorted by latitude. Used on the phone only, for offline place labels.

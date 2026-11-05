@@ -26,6 +26,7 @@
     <string name="ob_verify_button">Verify</string>
     <string name="ob_verify_later">Later</string>
     <string name="ob_verify_resend">Send a new code</string>
+    <string name="ob_verify_reminder">Reminder: confirm your email in Settings to sign in on another phone.</string>
     <string name="ob_verify_nudge">Please verify your email so you can sign in on another phone.</string>
     <string name="ob_verified">Email verified</string>
 
@@ -88,7 +89,7 @@
     <string name="nt_battery_low">Battery is at %1$d%%. Bird listening is paused until you plug in your phone.</string>
     <string name="nt_battery_weak">Battery is at %1$d%% even though it is charging. Try a stronger charger so HONE can keep listening.</string>
     <string name="set_publish_tiered">Publish by local range</string>
-    <string name="set_publish_tiered_sub">On: 60%% for local birds, 70%% when the local list is unknown, 85%% for rare ones. Off: 70%% for all. Heard twice in 15 minutes always publishes.</string>
+    <string name="set_publish_tiered_sub" formatted="false">On: 60% for local birds, 70% when the local list is unknown, 85% for rare ones. Off: 70% for all. Heard twice in 15 minutes always publishes.</string>
     <string name="bd_tab_mine">Mine</string>
     <string name="bd_tab_around">Around here</string>
     <string name="bd_tab_everyone">Everyone</string>
