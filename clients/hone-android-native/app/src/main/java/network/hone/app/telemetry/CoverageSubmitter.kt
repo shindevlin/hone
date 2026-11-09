@@ -21,6 +21,16 @@ import java.util.concurrent.atomic.AtomicBoolean
 object CoverageSubmitter {
     private const val TAG = "HoneCoverage"
     const val CHAIN_URL = "${ChainHttp.PUBLIC_BASE}/api/sensor/summary"
+
+    /** True when [cell9] is clear of the saved home (home radius plus the block's own size). */
+    private fun awayFromHome(ctx: android.content.Context, cell9: String): Boolean {
+        val p = ctx.getSharedPreferences("hone_birds", android.content.Context.MODE_PRIVATE)
+        if (!p.contains("home_lat")) return false
+        val c = Cells.center(cell9) ?: return false
+        val d = FloatArray(1)
+        android.location.Location.distanceBetween(c.first, c.second, p.getFloat("home_lat", 0f).toDouble(), p.getFloat("home_lon", 0f).toDouble(), d)
+        return d[0] > p.getFloat("home_radius_m", 500f) + Cells.EDGE_M[9].toFloat()
+    }
     const val INDEX_URL = "${Telemetry.API}/coverage/summaries"
     private const val ROUND_MS = 5 * 60_000L
     private const val INDEX_MS = 15 * 60_000L
@@ -97,6 +107,9 @@ object CoverageSubmitter {
             val j = runCatching { JSONObject(json) }.getOrNull()
             val r = if (cell == "unlocated") -1 else Cells.res(cell)
             val c9 = if (r >= 9) Cells.parent(cell, 9) else null
+            // The chain is permanent and public: a res-9 block goes on chain only away from a saved
+            // home. Without a home, or near it, the row stays map-only (the indexer coarsens it).
+            if (c9 != null && !awayFromHome(ctx, c9)) { if (w < nowW) store.markSummary(cell, w, MAP_ONLY); continue }
             if (j == null || c9 == null || w < nowW - MAX_AGE_WINDOWS || w >= nowW) {
                 if (w < nowW) store.markSummary(cell, w, MAP_ONLY)
                 continue
