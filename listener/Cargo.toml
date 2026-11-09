@@ -1,6 +1,6 @@
 [package]
 name = "hone-listener"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "HONE Birds camera listener: turns a home IP camera's microphone into a bird listener"
 license-file = "../LICENSE"
@@ -35,6 +35,7 @@ open = "5"
 percent-encoding = "2"
 hone-voiceprint = { path = "../crates/hone-voiceprint" }
 ctrlc = { version = "3", features = ["termination"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 tray-icon = { version = "0.19", optional = true }

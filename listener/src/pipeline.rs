@@ -444,6 +444,8 @@ impl Analyzer {
                 s.voices_removed += 1;
                 s.last_frame_ms = f.t_ms;
             });
+            live::voice_removed();
+            live::levels(&f.station, &vec![None; f.samples.len() / voicegate::BLOCK]);
             return; // Frame dropped here: Drop zeroes it.
         }
         let mut f = f;
@@ -457,6 +459,16 @@ impl Analyzer {
         if muted > 0 {
             self.windows.get_mut(&f.station).unwrap().1.voice_blocks += muted as u32;
             live::station(&f.station, |s| s.voices_removed += 1);
+            live::voice_removed();
+        }
+        // Levels for the page's lane: 100 ms block levels; muted speech shows as a gap.
+        {
+            let bl = voicegate::BLOCK;
+            let lv: Vec<Option<f64>> = (0..f.samples.len() / bl).map(|b| if gate.mask.get(b).copied().unwrap_or(false) { None } else {
+                let e: f64 = f.samples[b * bl..(b + 1) * bl].iter().map(|&v| (v as f64) * (v as f64)).sum();
+                Some(10.0 * (e / bl as f64 + 1e-12).log10())
+            }).collect();
+            live::levels(&f.station, &lv);
         }
         if !self.ensure_perch() {
             return;
@@ -480,6 +492,7 @@ impl Analyzer {
                 s.voices_removed += 1;
                 s.last_frame_ms = f.t_ms;
             });
+            live::voice_removed();
             return;
         }
         let block = (perch::SAMPLE_RATE / 10) as usize;

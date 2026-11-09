@@ -15,6 +15,45 @@ use tiny_http::{Header, Method, Request, Response, Server};
 
 pub const DISCLAIMER: &str = "Human conversation is automatically deleted. The listener only keeps a count of voices it removed. No audio is ever saved or sent; only a short bird report every 15 minutes.";
 const INDEX: &str = include_str!("../ui/index.html");
+/// Bundled assets: fonts (SIL Open Font License: Atkinson Hyperlegible, Bricolage Grotesque,
+/// JetBrains Mono) and the sample dawn (hawfinch by Alexander Kurthy, CC BY-SA 4.0, Wikimedia Commons).
+const ASSETS: &[(&str, &str, &[u8])] = &[
+    ("atkinson-400.woff2", "font/woff2", include_bytes!("../ui/assets/atkinson-400.woff2")),
+    ("atkinson-700.woff2", "font/woff2", include_bytes!("../ui/assets/atkinson-700.woff2")),
+    ("bricolage-800.woff2", "font/woff2", include_bytes!("../ui/assets/bricolage-800.woff2")),
+    ("jetbrains.woff2", "font/woff2", include_bytes!("../ui/assets/jetbrains.woff2")),
+    ("sample-dawn.ogg", "audio/ogg", include_bytes!("../ui/assets/sample-dawn.ogg")),
+];
+pub const PHONE_URL: &str = "https://honemesh.net/me";
+
+pub fn quality(tier: &str) -> &'static str {
+    match tier {
+        "A" => "Great",
+        "B" => "Good",
+        _ => "Basic",
+    }
+}
+
+fn qr_svg() -> String {
+    qrcode::QrCode::new(PHONE_URL.as_bytes()).map(|q| q.render::<qrcode::render::svg::Color>().min_dimensions(160, 160)
+        .dark_color(qrcode::render::svg::Color("#0B1310")).light_color(qrcode::render::svg::Color("#F2F6EE")).build()).unwrap_or_default()
+}
+
+/// Place search and reverse lookup (OpenStreetMap Nominatim), so nobody types coordinates.
+/// Only the search text or the point the user chose is sent; results are towns, not addresses.
+fn nominatim(path: &str) -> Result<Value, String> {
+    crate::account::agent().get(&format!("https://nominatim.openstreetmap.org/{path}")).set("Accept-Language", "en")
+        .call().map_err(|_| "Place search isn't reachable right now. Try again.".to_string())?.into_json().map_err(|_| "Place search failed.".into())
+}
+
+fn town_of(a: &Value) -> Option<String> {
+    for k in ["town", "city", "village", "suburb", "municipality", "hamlet", "county", "state"] {
+        if let Some(s) = a[k].as_str() {
+            return Some(s.to_string());
+        }
+    }
+    None
+}
 const NAMES_FILE: &str = "names_en.json";
 
 pub struct App {
@@ -82,7 +121,7 @@ impl App {
         let l = live::snapshot();
         let key_pub = secrets::station_key().map(|k| canonical::pub_hex(&k)).unwrap_or_default();
         let recent: Vec<Value> = l.recent.iter().take(30).map(|d| json!({"t": d.t, "name": d.name, "common": self.names.get(&d.name), "conf": d.conf})).collect();
-        json!({
+        let mut out = json!({
             "version": env!("CARGO_PKG_VERSION"),
             "account": c.account, "pending_ref": c.pending_ref, "referral_ack": c.referral_ack,
             "consent_text": account::consent_text(c.account.as_ref().and_then(|a| a.referrer()).or(c.pending_ref.as_deref())),
@@ -96,7 +135,31 @@ impl App {
             "station_pub": key_pub, "summary": live::summary(c.listening),
             "voucher_state": crate::voucher::state(),
             "individuals": crate::voiceprint::view(&|sp| self.names.get(sp).cloned()),
-        })
+        });
+        let names: std::collections::HashMap<&str, &str> = c.stations.iter().map(|s| (s.id.as_str(), s.label.as_str())).collect();
+        out["town"] = json!(c.town);
+        out["has_account"] = json!(c.account.is_some());
+        out["phone_url"] = json!(PHONE_URL);
+        out["sources"] = json!(c.stations.iter().map(|s| {
+            let x = l.stations.get(&s.id).cloned().unwrap_or_default();
+            let bird = x.last_bird.as_ref().filter(|(_, t)| now_ms() - t < 90_000).map(|(n, _)| self.names.get(n).cloned().unwrap_or(n.clone()));
+            let details = if s.kind == "mic" { format!("Microphone · {} kHz", s.rate / 1000) } else {
+                format!("{} · {} kHz{}", s.codec, s.rate / 1000, s.noise_db.map(|n| format!(" · background {} dB", n.round())).unwrap_or_default()) };
+            json!({"id": s.id, "kind": if s.kind == "mic" { "mic" } else { "camera" }, "label": s.label, "quality": quality(&s.tier),
+                "details": details, "running": x.running, "error": x.last_error, "levels": x.levels, "bird": bird})
+        }).collect::<Vec<_>>());
+        let mut seen = std::collections::HashSet::new();
+        out["singing_now"] = json!(l.recent.iter().filter(|d| now_ms() - d.t < 90_000).filter(|d| seen.insert(d.name.clone()))
+            .map(|d| json!({"name": d.name, "common": self.names.get(&d.name), "source": names.get(d.station.as_str()), "t": d.t})).collect::<Vec<_>>());
+        let day0 = now_ms() / 86_400_000 * 86_400_000;
+        let week = now_ms().saturating_sub(7 * 86_400_000);
+        let life = live::lifelist().lock().unwrap().clone();
+        let mut seen = std::collections::HashSet::new();
+        let list: Vec<Value> = l.recent.iter().filter(|d| d.t >= day0).filter(|d| seen.insert(d.name.clone()))
+            .map(|d| json!({"name": d.name, "common": self.names.get(&d.name), "t": d.t, "new": life.get(&d.name).map(|f| *f >= week).unwrap_or(false)})).collect();
+        out["today"] = json!({"list": list, "kinds": seen.len(), "new_week": life.values().filter(|f| **f >= week).count(),
+            "voices": if l.voices_day.0 == now_ms() / 86_400_000 { l.voices_day.1 } else { 0 }, "life": life.len()});
+        out
     }
 
     fn body(req: &mut Request) -> Value {
@@ -187,14 +250,62 @@ impl App {
                 }
             }
             "/api/location" => {
-                let (Some(lat), Some(lon)) = (b["lat"].as_f64(), b["lon"].as_f64()) else { return fail(400, "Please set where you are.") };
-                let Some((c9, c7)) = cells(lat, lon) else { return fail(400, "That location doesn't look right.") };
+                let (Some(lat), Some(lon)) = (b["lat"].as_f64(), b["lon"].as_f64()) else { return fail(400, "Please choose your town.") };
+                let Some((c9, c7)) = cells(lat, lon) else { return fail(400, "That place doesn't look right.") };
+                let town = b["town"].as_str().map(|t| t.chars().take(60).collect::<String>()).filter(|t| !t.is_empty())
+                    .or_else(|| nominatim(&format!("reverse?format=jsonv2&zoom=12&lat={lat:.3}&lon={lon:.3}")).ok().and_then(|v| town_of(&v["address"])));
                 self.update_cfg(|c| {
                     c.cell9 = Some(c9);
                     c.cell7 = Some(c7);
                     c.lon_hint = Some(lon);
+                    c.town = town;
                 });
                 j(self.state())
+            }
+            "/api/place/search" => {
+                let q: String = s("q").chars().take(80).collect();
+                if q.trim().len() < 2 {
+                    return j(json!({"places": []}));
+                }
+                let enc = percent_encoding::utf8_percent_encode(q.trim(), percent_encoding::NON_ALPHANUMERIC);
+                match nominatim(&format!("search?format=jsonv2&addressdetails=1&limit=6&q={enc}")) {
+                    Ok(v) => j(json!({"places": v.as_array().cloned().unwrap_or_default().iter().filter_map(|p| {
+                        let lat: f64 = p["lat"].as_str()?.parse().ok()?;
+                        let lon: f64 = p["lon"].as_str()?.parse().ok()?;
+                        let name = town_of(&p["address"]).or(p["name"].as_str().map(String::from))?;
+                        let region = [p["address"]["state"].as_str(), p["address"]["country"].as_str()].into_iter().flatten().collect::<Vec<_>>().join(", ");
+                        Some(json!({"town": name, "region": region, "lat": lat, "lon": lon}))
+                    }).collect::<Vec<_>>()})),
+                    Err(e) => fail(502, &e),
+                }
+            }
+            "/api/camera/add" => {
+                if self.cfg.lock().unwrap().cell9.is_none() {
+                    return fail(400, "Please choose your town first.");
+                }
+                let cam = FoundCamera { host: s("host"), rtsp_port: b["rtsp_port"].as_u64().map(|p| p as u16), onvif: b["onvif"].as_str().map(String::from), name: b["name"].as_str().map(String::from) };
+                let p = match setup::connect(&cam, &s("user"), &s("pass"), 6.0) {
+                    Ok(p) => p,
+                    Err(e) => return j(json!({"error": setup::friendly(&e), "need_password": e.code == 401})).with_status_code(400),
+                };
+                let key = match secrets::station_key() {
+                    Ok(k) => k,
+                    Err(e) => return fail(500, &e),
+                };
+                let id = setup::station_id(&p.id_source, &p.id_value, &canonical::pub_hex(&key));
+                if let Err(e) = secrets::set_camera_creds(&id, &s("user"), &s("pass")) {
+                    return fail(500, &e);
+                }
+                let label = if s("label").is_empty() { p.model.clone().unwrap_or("Camera".into()) } else { s("label") };
+                let st = Station { id: id.clone(), kind: "rtsp".into(), label: label.chars().take(40).collect(), host: p.host.clone(), port: p.port, path: p.path.clone(), onvif: cam.onvif.clone(),
+                    codec: p.codec.clone(), rate: p.rate, tier: p.tier.clone(), id_source: p.id_source.clone(), noise_db: p.noise_db, enabled: true, added_ms: now_ms() };
+                self.update_cfg(|c| {
+                    c.stations.retain(|x| x.id != id);
+                    c.stations.push(st);
+                });
+                let mut out = self.state();
+                out["added"] = json!({"label": label, "quality": quality(&p.tier), "tier_copy": setup::tier_copy(&p.tier)});
+                j(out)
             }
             "/api/mic/add" => {
                 let spec = s("spec");
@@ -339,6 +450,22 @@ impl App {
             let _ = req.respond(j(crate::status::local(&c)));
             return;
         }
+        if let Some(name) = path.strip_prefix("/a/") {
+            match ASSETS.iter().find(|(n, _, _)| *n == name) {
+                Some((_, ct, b)) => {
+                    let _ = req.respond(Response::from_data(b.to_vec()).with_header(Header::from_bytes("Content-Type", *ct).unwrap())
+                        .with_header(Header::from_bytes("Cache-Control", "public, max-age=604800").unwrap()));
+                }
+                None => {
+                    let _ = req.respond(fail(404, "not found"));
+                }
+            }
+            return;
+        }
+        if path == "/qr.svg" {
+            let _ = req.respond(Response::from_string(qr_svg()).with_header(Header::from_bytes("Content-Type", "image/svg+xml").unwrap()));
+            return;
+        }
         if path == "/" {
             if let Some(t) = query.split('&').find_map(|kv| kv.strip_prefix("t=")) {
                 if t == self.token {
@@ -352,7 +479,7 @@ impl App {
                 return;
             }
             let _ = req.respond(Response::from_string(INDEX).with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap())
-                .with_header(Header::from_bytes("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'").unwrap()));
+                .with_header(Header::from_bytes("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; media-src 'self'; frame-ancestors 'none'").unwrap()));
             return;
         }
         if !path.starts_with("/api/") || !self.authed(&req) {

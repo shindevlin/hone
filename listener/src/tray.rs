@@ -48,11 +48,13 @@ pub fn run(app: Arc<App>) -> ! {
     let status = MenuItem::new("Starting…", false, None);
     let open = MenuItem::new("Open Ornigo", true, None);
     let toggle = MenuItem::new("Pause listening", true, None);
+    let phone = MenuItem::new("See your birds on your phone (honemesh.net/me)", true, None);
     let quit = MenuItem::new("Quit", true, None);
     let menu = Menu::new();
     let _ = menu.append(&status);
     let _ = menu.append(&open);
     let _ = menu.append(&toggle);
+    let _ = menu.append(&phone);
     let _ = menu.append(&PredefinedMenuItem::separator());
     for l in lines(DISCLAIMER, 48) {
         let _ = menu.append(&MenuItem::new(l, false, None));
@@ -78,6 +80,8 @@ pub fn run(app: Arc<App>) -> ! {
                     let _ = open::that(&url);
                 }
                 next = Instant::now();
+            } else if ev.id == phone.id() {
+                let _ = open::that(crate::web::PHONE_URL);
             } else if ev.id == quit.id() {
                 crate::voiceprint::save_now();
                 std::process::exit(0);

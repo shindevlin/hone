@@ -119,6 +119,9 @@ pub struct Config {
     /// Declared camera location, kept only to place voiceprints (never sent).
     #[serde(default)]
     pub lon_hint: Option<f64>,
+    /// Town shown in the location chip ("near Alder Hill"); only the H3 cells are shared.
+    #[serde(default)]
+    pub town: Option<String>,
     #[serde(default = "yes")]
     pub auto_update: bool,
     #[serde(default = "api")]
@@ -180,8 +183,10 @@ impl Config {
         std::fs::rename(tmp, p)
     }
 
+    /// Listening can start once the privacy card was accepted and a source exists. An account
+    /// is optional ("Skip, just listen here"): without one, reports stay in the local queue.
     pub fn ready(&self) -> bool {
-        self.account.is_some() && self.referral_ack && self.disclaimer_ack_ms.is_some() && !self.stations.is_empty()
+        self.disclaimer_ack_ms.is_some() && !self.stations.is_empty()
     }
 }
 

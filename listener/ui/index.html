@@ -5,281 +5,473 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ornigo</title>
 <style>
-:root{--bg:#f7f3ea;--card:#fffdf8;--ink:#23251f;--muted:#6b6a60;--line:#e4dccb;--accent:#2f6b4a;--accent-ink:#fff;--warn:#9a5b12;--bad:#a23b2c;--chip:#eef3ea}
-@media (prefers-color-scheme:dark){:root{--bg:#171a16;--card:#20241f;--ink:#ecebe4;--muted:#a3a497;--line:#343a31;--accent:#6fb58c;--accent-ink:#0f1a13;--warn:#e0a85a;--bad:#e5806f;--chip:#263027}}
+@font-face{font-family:'Atkinson Hyperlegible';font-weight:400;font-display:swap;src:url(/a/atkinson-400.woff2) format('woff2')}
+@font-face{font-family:'Atkinson Hyperlegible';font-weight:700;font-display:swap;src:url(/a/atkinson-700.woff2) format('woff2')}
+@font-face{font-family:'Bricolage Grotesque';font-weight:800;font-display:swap;src:url(/a/bricolage-800.woff2) format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:500 700;font-display:swap;src:url(/a/jetbrains.woff2) format('woff2')}
+/* Ornigo night canopy (dark only for v1) */
+:root{--night:#0B1310;--canopy:#141F1A;--bough:#1C2A23;--twig:#2A3A32;--deep:#0F1915;--ink:#F2F6EE;--dim:#B3C1B8;--soft:#DDE5DF;
+--chorus:#B8F06A;--gold:#FFD36B;--sky:#7CC4FF;--dawn:#FF9A4D;--alarm:#FF8A7A;
+--display:'Bricolage Grotesque','Segoe UI',system-ui,sans-serif;--body:'Atkinson Hyperlegible','Segoe UI',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,Consolas,monospace;color-scheme:dark}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif}
-main{max-width:560px;margin:0 auto;padding:32px 16px 64px}
-.brand{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:24px}
-.dot{width:14px;height:14px;border-radius:50%;background:var(--accent)}
-h1{font-size:30px;line-height:1.15;margin:0 0 8px;font-weight:700;letter-spacing:-.01em}
-h2{font-size:20px;margin:0 0 6px}
-p{margin:0 0 14px}
-.sub{color:var(--muted);margin-bottom:22px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px}
-label.f{display:block;font-size:14px;color:var(--muted);margin:12px 0 4px}
-input[type=text],input[type=email],input[type=password],input[type=number]{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);font:inherit}
-input:focus{outline:2px solid var(--accent);outline-offset:1px}
-button{font:inherit;border:0;border-radius:999px;padding:12px 20px;cursor:pointer;background:var(--accent);color:var(--accent-ink);font-weight:600}
-button.ghost{background:transparent;color:var(--accent);padding:10px 4px}
-button.line{background:transparent;color:var(--ink);border:1px solid var(--line)}
-button:disabled{opacity:.45;cursor:default}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}
-.tick{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:12px;margin-top:12px;cursor:pointer}
-.tick input{width:22px;height:22px;margin-top:2px;flex:none;accent-color:var(--accent)}
-.err{color:var(--bad);margin-top:10px;min-height:1.2em}
-.muted{color:var(--muted)}
-.small{font-size:14px}
-.cam{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
-.cam:first-child{border-top:0}
-.tier{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--chip);font-size:13px;font-weight:600}
-.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
-.stat{background:var(--chip);border-radius:12px;padding:12px}
-.stat b{display:block;font-size:26px;line-height:1.1}
-.bird{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
-.bird:first-child{border-top:0}
-.bird i{color:var(--muted);font-size:14px}
-.notice{border-left:3px solid var(--warn);padding:8px 12px;background:var(--chip);border-radius:6px;margin:10px 0}
-.disc{font-size:15px}
-.hide{display:none}
-.spin{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite;vertical-align:-3px;margin-right:8px}
+html,body{margin:0;background:var(--night);color:var(--ink);font:400 16px/1.5 var(--body)}
+a{color:var(--dawn)}
+button{font:700 15px var(--body);cursor:pointer}
+:focus-visible{outline:2px solid var(--chorus);outline-offset:2px}
+.hide{display:none!important}
+.k{font:700 11px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.h1{margin:0;font:800 clamp(30px,5vw,44px)/1.08 var(--display);letter-spacing:-.02em;text-wrap:balance}
+.h2{margin:0;font:800 26px/1.15 var(--display)}
+.p{margin:0;color:var(--soft);font-size:17px;line-height:26px;max-width:60ch}
+.small{font-size:13px;color:var(--dim)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.btn{height:56px;padding:0 26px;border-radius:28px;border:0;background:var(--chorus);color:var(--night)}
+.btn:disabled{opacity:.4;cursor:default}
+.ghost{height:56px;padding:0 18px;border-radius:28px;border:1px solid var(--twig);background:transparent;color:var(--ink)}
+.link{background:none;border:0;color:var(--chorus);padding:4px 0;font-weight:700}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.card{background:var(--canopy);border:1px solid var(--twig);border-radius:22px;padding:16px;display:flex;flex-direction:column;gap:10px}
+input[type=text],input[type=email],input[type=password],input[type=search]{height:52px;width:100%;max-width:440px;border-radius:16px;border:2px solid var(--twig);background:var(--canopy);color:var(--ink);padding:0 16px;font:16px var(--body)}
+input:focus{border-color:var(--chorus);outline:none}
+label.f{font-size:14px;font-weight:700}
+.err{color:var(--alarm);min-height:1.2em;font-size:14px}
+.err:not(:empty)::before{content:"! ";font-weight:700}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--twig);border-top-color:var(--chorus);border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px}
 @keyframes s{to{transform:rotate(360deg)}}
-footer{color:var(--muted);font-size:13px;margin-top:24px}
+@keyframes sweep{from{left:0}to{left:calc(100% - 2px)}}
+@keyframes pulse{0%{transform:scale(1);opacity:.9}100%{transform:scale(2.6);opacity:0}}
+@keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(255,211,107,.0)}50%{box-shadow:0 0 0 6px rgba(255,211,107,.18)}}
+@keyframes ring{0%{transform:scale(.8);opacity:.7}100%{transform:scale(1.5);opacity:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+.mark{display:inline-flex;align-items:center;gap:1px;color:var(--ink);text-decoration:none}
+.mark b{font:800 26px/1 var(--display);letter-spacing:-1px;margin-top:-3px}
+
+/* first run */
+.wiz{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
+.wiz-main{padding:32px clamp(16px,5vw,56px) 48px;display:flex;flex-direction:column;gap:28px}
+.wiz-art{position:relative;background:var(--deep);border-left:1px solid var(--twig);display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:320px}
+.wiz-art .r{position:absolute;width:260px;height:260px;border-radius:50%;border:2px solid var(--chorus);animation:ring 3s ease-out infinite}
+.wiz-art .r2{animation-delay:1.5s}
+.dots{display:flex;gap:6px;align-items:center}
+.dots i{height:8px;border-radius:4px;background:var(--twig);width:8px;display:block}
+.dots i.on{background:var(--chorus)}.dots i.cur{width:22px}
+.step{display:flex;flex-direction:column;gap:18px;max-width:620px}
+.privacy{padding:20px;border-radius:22px;background:var(--canopy);border:1px solid var(--chorus);font-size:17px;line-height:26px}
+.seg{display:inline-flex;padding:4px;border-radius:26px;background:var(--canopy);align-self:flex-start}
+.seg button{height:44px;padding:0 18px;border-radius:22px;border:0;background:transparent;color:var(--soft)}
+.seg button[aria-checked=true]{background:var(--ink);color:var(--night)}
+.srcs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.src{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:16px;background:var(--canopy);border:1px solid var(--twig)}
+.src.on{border-color:#2F4A2A}
+.src-top{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:var(--ink);padding:0;text-align:left;font-weight:400}
+.glyph{width:36px;height:36px;border-radius:10px;background:#1A2B38;color:var(--sky);display:flex;align-items:center;justify-content:center;font:700 11px var(--mono);flex:none}
+.src-name{flex:1;display:flex;flex-direction:column;min-width:0}
+.src-name b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q{font-size:12px;font-weight:700;color:var(--chorus)}
+.q.basic{color:var(--gold)}
+.tick{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid var(--twig);flex:none}
+.on .tick{background:var(--chorus);color:var(--night);border-color:var(--chorus)}
+.all .tick{opacity:.55}
+.creds{display:flex;gap:8px;flex-wrap:wrap}
+.creds input{height:44px;max-width:200px;border-radius:12px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:20px;background:var(--canopy);border:1px solid var(--twig);color:var(--ink);align-self:flex-start}
+.chip.need{border-color:var(--gold);color:var(--gold)}
+.demo{position:absolute;bottom:40px;left:40px;right:40px;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.demo li{display:flex;justify-content:space-between;padding:12px 16px;border-radius:16px;background:var(--canopy)}
+.demo li.now{background:#22331F;border:1px solid var(--chorus)}
+.demo li.now span{color:var(--chorus);font-size:13px}
+
+/* app */
+.app{min-height:100vh;display:grid;grid-template-columns:220px minmax(0,1fr) 340px}
+.nav{background:var(--deep);border-right:1px solid var(--twig);padding:18px 12px;display:flex;flex-direction:column;gap:4px}
+.nav .mark{padding:0 8px 16px}
+.nav button.tab{display:flex;align-items:center;height:44px;padding:0 12px;border-radius:12px;border:0;background:transparent;color:var(--dim);text-align:left}
+.nav button.tab[aria-current=page]{background:var(--bough);color:var(--chorus)}
+.nav-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding:8px}
+.main{padding:24px 28px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.side{background:var(--deep);border-left:1px solid var(--twig);padding:24px 18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.pdot{position:relative;width:14px;height:14px;flex:none}
+.pdot i{position:absolute;inset:0;border-radius:50%;background:var(--chorus)}
+.pdot i.p{animation:pulse 1.6s ease-out infinite}
+.paused .pdot i{background:#8B9A91}.paused .pdot i.p,.paused .sweep{animation:none}
+.lane{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;align-items:center}
+.lane-l{display:flex;flex-direction:column;gap:2px;min-width:0}
+.lane-l b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lane-l span{font-size:12px;color:var(--sky)}
+.strip{position:relative;height:112px;border-radius:16px;background:#08100D;overflow:hidden;border:1px solid var(--bough)}
+.strip svg{position:absolute;inset:0;width:100%;height:100%}
+.sweep{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);opacity:.45;animation:sweep 6s linear infinite}
+.tag{position:absolute;right:10px;top:8px;font-size:12px;font-weight:700;padding:4px 8px;border-radius:8px;background:var(--night);color:var(--dim)}
+.tag.bird{color:var(--chorus)}
+.tag.warn{color:var(--alarm)}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.stat b{font:700 30px var(--mono)}
+.stat b small{font-size:14px;color:var(--dim)}
+.stat.third b{font-size:22px;color:var(--dim)}
+.back{background:#2B2414;border-color:var(--gold);animation:glow 2.4s ease-in-out infinite}
+.back .k{color:var(--gold)}
+.back b{font:800 24px var(--display)}
+.back span{font-size:14px;color:#F1E3B8}
+.sing{flex-direction:row;align-items:center;padding:12px}
+.sing.now{background:#22331F;border-color:var(--chorus)}
+.sing b{flex:1}
+.sing span{font-size:12px;color:var(--chorus)}
+.earlier{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.earlier li{display:flex;justify-content:space-between;gap:10px}
+.earlier time{color:var(--dim);font:500 12px var(--mono)}
+.new{color:var(--chorus);font-size:11px;font-weight:700;margin-left:4px}
+.phone{flex-direction:row;align-items:center;gap:12px}
+.phone img{width:84px;height:84px;border-radius:10px;flex:none}
+.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:var(--canopy);border:1px solid var(--twig)}
+.item .grow{flex:1;min-width:0;display:flex;flex-direction:column}
+details.x summary{cursor:pointer;color:var(--dim);font-size:13px}
+.xrow{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid var(--twig)}
+.xrow code{font:500 12px var(--mono);color:var(--dim);word-break:break-all}
+.note{border-left:3px solid var(--gold);padding:10px 12px;border-radius:8px;background:var(--canopy);font-size:14px}
+.note.alarm{border-color:var(--alarm)}
+.hone{color:var(--dawn);font-size:13px;font-weight:700;text-decoration:none}
+dialog{background:var(--canopy);color:var(--ink);border:1px solid var(--twig);border-radius:22px;padding:22px;max-width:min(520px,calc(100vw - 32px));width:100%}
+dialog::backdrop{background:rgba(5,9,7,.7)}
+.results{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.results button{width:100%;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--twig);background:var(--bough);color:var(--ink);font-weight:400}
+@media (max-width:1100px){.app{grid-template-columns:200px minmax(0,1fr)}.side{grid-column:2;border-left:0;border-top:1px solid var(--twig)}}
+@media (max-width:760px){
+  .wiz{grid-template-columns:1fr}.wiz-art{min-height:200px;border-left:0;border-top:1px solid var(--twig);order:2}
+  .app{grid-template-columns:1fr}.nav{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--twig);padding:10px}
+  .nav .mark{padding:0 8px 0 0}.nav-foot{display:none}.side{grid-column:1}
+  .main{padding:18px 16px}.side{padding:18px 16px}
+  .lane{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.stat.third{grid-column:span 2}
+}
 </style>
 </head>
 <body>
-<main>
-<div class="brand"><span class="dot"></span>Ornigo</div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="ring" viewBox="0 0 104 104"><circle cx="52" cy="58" r="34" fill="none" stroke="#B8F06A" stroke-width="16"/><path d="M84 50 l16 6 -16 6z" fill="#B8F06A"/><circle cx="64" cy="48" r="5" fill="#B8F06A"/></symbol></defs></svg>
 
-<section id="s-account" class="hide">
-  <h1>Hear who's singing at your place</h1>
-  <p class="sub">Ornigo turns this computer's microphone, or the security camera you already have, into a bird listener.</p>
-  <div class="card" id="signup">
-    <label class="f" for="name">Your first name</label><input id="name" type="text" autocomplete="given-name">
-    <label class="f" for="email">Email</label><input id="email" type="email" autocomplete="email">
-    <label class="f" for="pw">Password (at least 10 characters)</label><input id="pw" type="password" autocomplete="new-password">
-    <label class="f" for="ref">Invite code (optional)</label><input id="ref" type="text" autocapitalize="off" spellcheck="false">
-    <label class="tick"><input type="checkbox" id="consent"><span id="consent-text" class="small"></span></label>
-    <div class="row"><button id="b-signup">Create my account</button><button class="ghost" id="to-login">I already have an account</button></div>
-    <div class="err" id="e-signup"></div>
-  </div>
-  <div class="card hide" id="login">
-    <label class="f" for="lemail">Email</label><input id="lemail" type="email" autocomplete="email">
-    <label class="f" for="lpw">Password</label><input id="lpw" type="password" autocomplete="current-password">
-    <div class="row"><button id="b-login">Sign in</button><button class="ghost" id="to-signup">Create an account instead</button></div>
-    <div class="err" id="e-login"></div>
-  </div>
-</section>
+<!-- ───────── first run ───────── -->
+<div class="wiz hide" id="wiz">
+  <div class="wiz-main">
+    <div class="row" style="justify-content:space-between">
+      <span class="mark" role="img" aria-label="ornigo"><svg width="30" height="30" aria-hidden="true"><use href="#ring"/></svg><b>rnigo</b></span>
+      <span class="row" style="gap:10px"><span class="dots" id="dots"></span><span class="small" id="steplabel"></span></span>
+    </div>
 
-<section id="s-verify" class="hide">
-  <h1>Check your email</h1>
-  <p class="sub" id="verify-body"></p>
-  <div class="card">
-    <label class="f" for="code">6-digit code</label><input id="code" type="text" inputmode="numeric" maxlength="6">
-    <div class="row"><button id="b-verify">Verify</button><button class="ghost" id="b-resend">Send a new code</button><button class="ghost" id="b-later">Later</button></div>
-    <div class="err" id="e-verify"></div>
-  </div>
-</section>
+    <section class="step hide" id="w1">
+      <span class="k" style="color:var(--chorus)">Welcome</span>
+      <h1 class="h1">This computer can hear the birds outside.</h1>
+      <p class="p">Ornigo listens through this computer's microphone and the cameras on your Wi-Fi, names every bird it hears, and tells you when your regulars come back.</p>
+      <div class="row"><button class="btn" id="w1-next">Let's listen</button><button class="ghost" id="demo-btn">Hear a sample dawn</button></div>
+      <audio id="demo-audio" src="/a/sample-dawn.ogg" preload="none"></audio>
+      <p class="small hide" id="demo-credit">Sample: Hawfinch, recorded by Alexander Kürthy, CC BY-SA 4.0, via Wikimedia Commons.</p>
+    </section>
 
-<section id="s-referral" class="hide">
-  <h1>One thing first</h1>
-  <div class="card">
-    <label class="tick"><input type="checkbox" id="refack"><span id="refack-text"></span></label>
-    <div class="row"><button id="b-refack" disabled>Continue</button></div>
-    <div class="err" id="e-refack"></div>
-  </div>
-</section>
+    <section class="step hide" id="w2">
+      <span class="k" style="color:var(--chorus)">Your home stays private</span>
+      <h1 class="h1">Only birds leave this computer.</h1>
+      <div class="privacy" id="disc-text"></div>
+      <div class="row"><button class="btn" id="w2-next">I understand, continue</button><button class="ghost" id="w2-back">Back</button></div>
+      <div class="err" id="e-w2"></div>
+    </section>
 
-<section id="s-where" class="hide">
-  <h1>Where are you?</h1>
-  <p class="sub">Birds are shared on the map by area, never your exact address.</p>
-  <div class="card">
-    <div class="row" style="margin-top:0"><button class="line" id="b-geo">Use my location</button><span class="small muted" id="geo-state"></span></div>
-    <div class="row"><input id="lat" type="number" step="any" placeholder="Latitude, e.g. 13.68" style="flex:1;min-width:140px"><input id="lon" type="number" step="any" placeholder="Longitude, e.g. -89.24" style="flex:1;min-width:140px"></div>
-    <div class="row"><button id="b-where">Continue</button></div>
-    <div class="err" id="e-where"></div>
-  </div>
-</section>
+    <section class="step hide" id="w3">
+      <span class="k" style="color:var(--sky)">Found on this computer and your Wi-Fi</span>
+      <h1 class="h1" style="font-size:clamp(28px,4vw,36px)" id="w3-title">Looking for things that can listen…</h1>
+      <button class="chip" id="place-chip" type="button"></button>
+      <div class="seg hide" role="radiogroup" aria-label="Which sources" id="seg">
+        <button role="radio" aria-checked="true" id="seg-all">Listen with all</button>
+        <button role="radio" aria-checked="false" id="seg-pick">Let me pick</button>
+      </div>
+      <ul class="srcs" id="srcs"></ul>
+      <div class="row"><button class="btn" id="w3-go" disabled>Listen</button><span class="small">Cameras: sound only, never video.</span></div>
+      <div class="row"><button class="link" id="w3-rescan">Look again</button><button class="link" id="w3-manual">Add a camera by its address</button><button class="link hide" id="w3-cancel">Cancel</button></div>
+      <div class="err" id="e-w3"></div>
+    </section>
 
-<section id="s-find" class="hide">
-  <h1 id="find-title">Let's find out who's singing at your place.</h1>
-  <p class="sub" id="find-sub">Looking for microphones and cameras…</p>
-  <div class="card hide" id="srcs-card">
-    <div id="srcs"></div>
-    <p id="ask" style="margin-top:14px"><b>Listen with all of them, or pick which ones?</b></p>
-    <div class="row" id="ask-row"><button id="b-all">Listen with all of them</button><button class="line" id="b-pick">Pick which ones</button></div>
-    <div class="row hide" id="pick-row"><button id="b-picked">Listen with these</button></div>
-  </div>
-  <div class="card">
-    <p class="small muted">Know your camera's address? Type it here (for example 192.168.1.50).</p>
-    <div class="row" style="margin-top:0"><input id="manual" type="text" placeholder="192.168.1.50" style="flex:1;min-width:160px"><button class="line" id="b-manual">Use this address</button></div>
-    <div class="row"><button class="ghost" id="b-rescan">Look again</button></div>
-    <div class="err" id="e-find"></div>
-  </div>
-</section>
+    <section class="step hide" id="w4">
+      <span class="k" style="color:var(--chorus)">See your birds on your phone</span>
+      <h1 class="h1" style="font-size:clamp(28px,4vw,36px)" id="w4-title">Where should we send your birds?</h1>
+      <div id="w4-signup" class="step" style="gap:12px">
+        <label class="f" for="em">Email</label><input id="em" type="email" autocomplete="email">
+        <label class="f" for="pw">Password (at least 10 characters)</label><input id="pw" type="password" autocomplete="new-password">
+        <label class="f" for="nm">Your first name (optional)</label><input id="nm" type="text" autocomplete="given-name">
+        <label class="f" for="rf">Invite code (optional)</label><input id="rf" type="text" autocapitalize="off" spellcheck="false">
+        <label class="row" style="align-items:flex-start;gap:10px;max-width:520px;cursor:pointer"><input type="checkbox" id="consent" style="width:22px;height:22px;accent-color:#B8F06A;margin-top:2px"><span class="small" id="consent-text" style="color:var(--soft)"></span></label>
+        <div class="row"><button class="btn" id="b-signup">Create my account</button><button class="ghost" id="w4-skip">Skip, just listen here</button></div>
+        <button class="link" id="to-login" style="align-self:flex-start">I already have an account</button>
+      </div>
+      <div id="w4-login" class="step hide" style="gap:12px">
+        <label class="f" for="lem">Email</label><input id="lem" type="email" autocomplete="email">
+        <label class="f" for="lpw">Password</label><input id="lpw" type="password" autocomplete="current-password">
+        <div class="row"><button class="btn" id="b-login">Sign in</button><button class="ghost" id="w4-skip2">Skip, just listen here</button></div>
+        <button class="link" id="to-signup" style="align-self:flex-start">Create an account instead</button>
+      </div>
+      <div id="w4-verify" class="step hide" style="gap:12px">
+        <p class="p" id="verify-body"></p>
+        <label class="f" for="code">6-digit code</label><input id="code" type="text" inputmode="numeric" maxlength="6" style="max-width:200px">
+        <div class="row"><button class="btn" id="b-verify">Verify</button><button class="ghost" id="b-later">Later</button><button class="link" id="b-resend">Send a new code</button></div>
+      </div>
+      <div class="err" id="e-w4"></div>
+    </section>
 
-<section id="s-camlogin" class="hide">
-  <h1>Camera username and password</h1>
-  <p class="sub">The same ones you use in your camera app. They stay on this computer, locked.</p>
-  <div class="card">
-    <p class="small muted" id="cam-name"></p>
-    <label class="f" for="cuser">Camera username</label><input id="cuser" type="text" autocomplete="off" autocapitalize="off">
-    <label class="f" for="cpass">Camera password</label><input id="cpass" type="password" autocomplete="off">
-    <div class="row"><button id="b-connect">Connect</button><button class="ghost" id="b-back">Back</button></div>
-    <div class="err" id="e-connect"></div>
+    <section class="step hide" id="w5">
+      <span class="k" style="color:var(--chorus)">Listening</span>
+      <h1 class="h1" id="w5-title">Listening.</h1>
+      <p class="p">You'll see the first bird here as soon as it sings. Leave this computer on and Ornigo keeps going from the tray.</p>
+      <div class="note hide" id="w5-voucher"></div>
+      <div class="row"><button class="btn" id="w5-open">Open Listen</button></div>
+    </section>
   </div>
-</section>
-
-<section id="s-probe" class="hide">
-  <h1 id="probe-title">Listening to your camera for a few seconds…</h1>
-  <div class="card hide" id="probe-res">
-    <p><span class="tier" id="probe-tier"></span></p>
-    <p id="probe-copy" style="font-size:18px"></p>
-    <p class="small muted" id="probe-detail"></p>
-    <p class="small">We only use sound, never video. Anyone talking is deleted instantly.</p>
-    <label class="f" for="clabel">Name this source</label><input id="clabel" type="text" maxlength="40" placeholder="Back garden">
-    <div class="row"><button id="b-add">Continue</button></div>
-    <div class="err" id="e-add"></div>
+  <div class="wiz-art" aria-hidden="true">
+    <span class="r"></span><span class="r r2"></span>
+    <svg width="200" height="200" viewBox="0 0 104 104" style="position:relative"><use href="#ring"/></svg>
+    <ul class="demo hide" id="demo" aria-live="polite"></ul>
   </div>
-</section>
+</div>
 
-<section id="s-start" class="hide">
-  <h1>Ready to listen</h1>
-  <div class="card">
-    <label class="tick"><input type="checkbox" id="discack"><span class="disc" id="disc-text"></span></label>
-    <div class="row"><button id="b-start" disabled>Start listening</button></div>
-    <div class="err" id="e-start"></div>
-  </div>
-</section>
+<!-- ───────── app ───────── -->
+<div class="app hide" id="app">
+  <nav class="nav" aria-label="Ornigo">
+    <span class="mark" role="img" aria-label="ornigo"><svg width="30" height="30" aria-hidden="true"><use href="#ring"/></svg><b>rnigo</b></span>
+    <button class="tab" data-v="listen" aria-current="page">Listen</button>
+    <button class="tab" data-v="birds">Birds</button>
+    <button class="tab" data-v="known">Known birds</button>
+    <button class="tab" data-v="sources">Mics and cameras</button>
+    <button class="tab" data-v="settings">Settings</button>
+    <div class="nav-foot">
+      <span class="small">On your phone: <b style="color:var(--ink)">honemesh.net/me</b></span>
+      <a class="hone" href="https://honemesh.net/join" target="_blank" rel="noopener">Get paid for your birds → full HONE</a>
+    </div>
+  </nav>
 
-<section id="s-home" class="hide">
-  <h1 id="home-title">Listening…</h1>
-  <p class="sub" id="home-sub">We'll tell you when we hear your first bird.</p>
-  <div class="notice hide" id="chain-note"></div>
-  <div class="notice hide" id="model-note"></div>
-  <div class="stats">
-    <div class="stat"><b id="n-birds">0</b><span class="small muted">birds heard</span></div>
-    <div class="stat"><b id="n-voices">0</b><span class="small muted">voices deleted</span></div>
-  </div>
-  <div class="card hide" id="indiv"><h2>Birds that come back</h2><p class="small muted">The listener recognises some birds by their voice. Only a short voice summary stays on this computer, never sound.</p><div id="indiv-list"></div></div>
-  <div class="card"><h2>Heard recently</h2><div id="birds"><p class="muted small">Nothing yet. Owls and nightjars usually call after dark.</p></div></div>
-  <div class="card"><h2>Listening with</h2><div class="notice hide" id="voucher-note"></div><div id="stations"></div>
-    <div class="row"><button class="line" id="b-add-cam">Add a microphone or camera</button><button class="line" id="b-toggle">Pause listening</button></div></div>
-  <div class="card disc" id="home-disc"></div>
-  <div class="card small muted" id="home-meta"></div>
-  <div class="row"><button class="ghost" id="b-logout">Sign out</button><button class="ghost" id="b-upd">Check for updates</button></div>
-</section>
+  <main class="main" id="v-listen">
+    <header class="head" id="lhead">
+      <span class="pdot"><i class="p"></i><i></i></span>
+      <h1 class="h2" id="headline" style="font-size:30px">Listening</h1>
+      <span class="small" id="subline"></span>
+      <button class="ghost" id="b-toggle" style="margin-left:auto;height:44px">Pause all</button>
+    </header>
+    <div class="note alarm hide" id="model-note"></div>
+    <div id="lanes" style="display:flex;flex-direction:column;gap:14px"></div>
+    <div class="stats" style="margin-top:auto">
+      <div class="card stat"><span class="k">Today</span><b id="st-kinds">0 <small>kinds</small></b></div>
+      <div class="card stat"><span class="k">New this week</span><b id="st-new" style="color:var(--chorus)">0</b></div>
+      <div class="card stat third"><span class="k">Voices removed today</span><b id="st-voices">0</b></div>
+    </div>
+    <p class="small" id="foot-disc" style="margin:0"></p>
+  </main>
 
-<footer>Ornigo, a HONE app. Sound is checked on this computer only; only short bird reports leave it. <a href="https://honemesh.net/ornigo/privacy" target="_blank" rel="noopener">Privacy</a></footer>
-</main>
+  <main class="main hide" id="v-birds">
+    <h1 class="h2">Birds</h1>
+    <p class="small" id="birds-sub"></p>
+    <ul class="list" id="birds-list"></ul>
+  </main>
+
+  <main class="main hide" id="v-known">
+    <h1 class="h2">Known birds</h1>
+    <p class="p" style="font-size:15px">Ornigo can recognise some birds by their voice and tell you when the same one comes back. It starts with the Little Owl; more kinds follow as recognition gets good enough. Only a short voice summary stays on this computer, never sound.</p>
+    <ul class="list" id="known-list"></ul>
+  </main>
+
+  <main class="main hide" id="v-sources">
+    <div class="head"><h1 class="h2">Mics and cameras</h1><button class="btn" id="b-add" style="margin-left:auto;height:44px">Add more</button></div>
+    <ul class="list" id="src-list"></ul>
+  </main>
+
+  <main class="main hide" id="v-settings">
+    <h1 class="h2">Settings</h1>
+    <div class="card"><span class="k">Your account</span><div id="acct"></div></div>
+    <div class="card"><span class="k">Where you are</span><div class="row"><button class="chip" id="place-chip2" type="button"></button></div><span class="small">Birds are shared by area of a few kilometres, never your address.</span></div>
+    <div class="card"><span class="k">Updates</span><div class="row"><span id="upd" class="small"></span><button class="link" id="b-upd">Check now</button></div></div>
+    <div class="note hide" id="voucher-note"></div>
+    <details class="x card"><summary>Details for experts</summary><div id="xrows"></div></details>
+    <p class="small"><a href="https://honemesh.net/ornigo/privacy" target="_blank" rel="noopener">Privacy policy</a> · Ornigo is a HONE app.</p>
+  </main>
+
+  <aside class="side" id="side">
+    <div id="back-cards" style="display:flex;flex-direction:column;gap:10px"></div>
+    <span class="k">Singing now</span>
+    <div id="singing" style="display:flex;flex-direction:column;gap:8px"></div>
+    <span class="k">Earlier today</span>
+    <ul class="earlier" id="earlier"></ul>
+    <div class="card phone" style="margin-top:auto"><img src="/qr.svg" alt="QR code for honemesh.net/me"><div><b>Your birds on your phone</b><div class="small">Scan, or open <b style="color:var(--ink)">honemesh.net/me</b> and sign in with the same email.</div></div></div>
+  </aside>
+</div>
+
+<dialog id="sheet"><form method="dialog" id="sheet-form" style="display:flex;flex-direction:column;gap:14px"><h2 class="h2" id="sheet-title" style="font-size:22px"></h2><div id="sheet-body"></div><div class="err" id="sheet-err"></div><div class="row" id="sheet-btns"></div></form></dialog>
+
 <script>
 const $=id=>document.getElementById(id);
-let S=null, cam=null, probe=null, adding=false, verifyLater=false, scanned=false, queue=[], found=null;
-async function api(p,b){const r=await fetch('/api/'+p,{method:b?'POST':'GET',headers:b?{'Content-Type':'application/json','X-Hone':'1'}:{},body:b?JSON.stringify(b):undefined});const j=await r.json().catch(()=>({error:'Something went wrong. Try again.'}));if(!r.ok)throw new Error(j.error||'Something went wrong.');return j}
-function show(id){document.querySelectorAll('main>section').forEach(s=>s.classList.toggle('hide',s.id!==id))}
-function busy(btn,on,txt){btn.disabled=on;if(on){btn.dataset.t=btn.textContent;btn.innerHTML='<span class="spin"></span>'+(txt||btn.textContent)}else if(btn.dataset.t)btn.textContent=btn.dataset.t}
+const DISC_FALLBACK='Human conversation is automatically deleted. The listener only keeps a count of voices it removed. No audio is ever saved or sent; only a short bird report every 15 minutes.';
+let S=null, step=null, view='listen', adding=false, mode='all', found=[], verifyLater=false;
+const mem={};const store={get(k){try{return localStorage.getItem(k)??mem[k]??null}catch(e){return mem[k]??null}},set(k,v){mem[k]=v;try{localStorage.setItem(k,v)}catch(e){}}};
+async function api(p,b){const r=await fetch('/api/'+p,{method:b?'POST':'GET',headers:b?{'Content-Type':'application/json','X-Hone':'1'}:{},body:b?JSON.stringify(b):undefined});
+  const j=await r.json().catch(()=>({error:'Something went wrong. Try again.'}));if(!r.ok){const e=new Error(j.error||'Something went wrong.');e.j=j;throw e}return j}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-async function refresh(){S=await api('state');route()}
-function route(){
-  if(!S.account){show('s-account');if(!$('ref').value&&S.pending_ref){$('ref').value=S.pending_ref;refText()}else if(!$('consent-text').textContent)refText();return}
-  if(!S.account.verified&&!verifyLater){$('verify-body').textContent='We sent a 6-digit code to '+S.account.email+'.';show('s-verify');return}
-  if(!S.referral_ack){$('refack-text').textContent=S.consent_text;show('s-referral');return}
-  if(adding||!S.stations.length){if(!S.located){show('s-where');return}if(queue.length){next();return}if(!probe&&!cam){show('s-find');if(!scanned)scan()}return}
-  if(!S.listening){$('disc-text').textContent=S.disclaimer;$('discack').checked=false;$('b-start').disabled=true;show('s-start');return}
-  home();show('s-home')
-}
-let refT;function refText(){clearTimeout(refT);const c=$('ref').value.trim().toLowerCase();
-  if(!c){$('consent-text').textContent='Rewards from this app go to the HONE community pool until you create your own wallet.';return}
-  $('consent-text').textContent='Rewards from this app go to the person who invited you ('+c+') until you create your own wallet.';
-  refT=setTimeout(async()=>{try{const r=await api('ref',{code:c});$('e-signup').textContent=r.ok?'':'That invite code wasn\'t found. Check it, or leave it empty.'}catch(e){}},500)}
-$('ref').oninput=refText;
-$('to-login').onclick=()=>{$('signup').classList.add('hide');$('login').classList.remove('hide')};
-$('to-signup').onclick=()=>{$('login').classList.add('hide');$('signup').classList.remove('hide')};
-$('b-signup').onclick=async e=>{const b=e.target;$('e-signup').textContent='';if(!$('consent').checked){$('e-signup').textContent='Please tick the box to continue.';return}
-  busy(b,true);try{S=await api('signup',{name:$('name').value,email:$('email').value,password:$('pw').value,ref:$('ref').value,consent:true});route()}catch(x){$('e-signup').textContent=x.message}busy(b,false)};
-$('b-login').onclick=async e=>{const b=e.target;$('e-login').textContent='';busy(b,true);try{S=await api('login',{email:$('lemail').value,password:$('lpw').value});verifyLater=true;route()}catch(x){$('e-login').textContent=x.message}busy(b,false)};
-$('b-verify').onclick=async e=>{const b=e.target;busy(b,true);try{S=await api('verify',{code:$('code').value});route()}catch(x){$('e-verify').textContent=x.message}busy(b,false)};
-$('b-resend').onclick=async()=>{try{await api('resend',{});$('e-verify').textContent='A new code is on its way.'}catch(x){$('e-verify').textContent=x.message}};
-$('b-later').onclick=()=>{verifyLater=true;route()};
-$('refack').onchange=()=>$('b-refack').disabled=!$('refack').checked;
-$('b-refack').onclick=async()=>{try{S=await api('referral_ack',{ok:true});route()}catch(x){$('e-refack').textContent=x.message}};
-async function scan(host){scanned=true;$('find-sub').innerHTML='<span class="spin"></span>Looking for microphones and cameras…';$('srcs').innerHTML='';$('e-find').textContent='';$('srcs-card').classList.add('hide');
-  if(S.account&&S.account.name)$('find-title').textContent='Welcome, '+S.account.name+'. Let\'s find out who\'s singing at your place.';
-  try{const r=await api('discover',{host:host||''});
-    const have=new Set(S.stations.map(x=>x.kind==='mic'?'mic:'+x.label:x.host));
-    found=[...r.mics.map(m=>({kind:'mic',spec:m.spec,name:m.name,label:m.name})),...r.cameras.map(c=>({kind:'camera',cam:c,name:c.name||'Camera',label:(c.name||'Camera')+' · '+c.host}))];
-    const n=found.length;
-    $('find-sub').textContent=n===0?'We didn\'t find a microphone or camera.':n===1?'We found 1 thing that can listen: '+found[0].label+'.':'We found '+n+' things that can listen.';
-    if(!r.local_ip&&!r.mics.length)$('e-find').textContent='Connect this computer to the same Wi-Fi as your camera, then try again.';
-    $('srcs-card').classList.toggle('hide',!n);$('ask').classList.toggle('hide',n<2);$('ask-row').classList.remove('hide');$('pick-row').classList.add('hide');
-    $('b-pick').classList.toggle('hide',n<2);$('b-all').textContent=n<2?'Use this one':'Listen with all of them';
-    $('srcs').innerHTML=found.map((x,i)=>'<label class="cam" style="cursor:pointer"><div><b>'+esc(x.kind==='mic'?'Microphone: '+x.name:x.name)+'</b><div class="small muted">'+esc(x.kind==='mic'?'on this computer':x.cam.host+(x.cam.onvif?' · ONVIF':''))+'</div></div><input type="checkbox" class="pick hide" data-i="'+i+'" checked style="width:22px;height:22px;accent-color:var(--accent)"></label>').join('');
-  }catch(x){$('find-sub').textContent='';$('e-find').textContent=x.message}}
-function start(list){queue=list.slice();adding=true;next()}
-$('b-all').onclick=()=>start(found);
-$('b-pick').onclick=()=>{document.querySelectorAll('.pick').forEach(c=>c.classList.remove('hide'));$('ask-row').classList.add('hide');$('pick-row').classList.remove('hide')};
-$('b-picked').onclick=()=>{const l=[...document.querySelectorAll('.pick')].filter(c=>c.checked).map(c=>found[c.dataset.i]);if(!l.length){$('e-find').textContent='Tick at least one.';return}start(l)};
-async function next(){
-  const x=queue[0];if(!x){adding=false;scanned=false;found=null;route();return}
-  $('probe-res').classList.add('hide');show('s-probe');
-  if(x.kind==='mic'){
-    $('probe-title').textContent='Listening to your microphone for a few seconds…';
-    try{S=await api('mic/add',{spec:x.spec,name:x.name});queue.shift();next()}catch(e){queue.shift();$('probe-title').textContent=x.name+': '+e.message;setTimeout(next,3500)}
-    return}
-  cam=x.cam;$('probe-title').textContent='Listening to your camera for a few seconds…';
-  try{const r=await api('probe',{host:cam.host,rtsp_port:cam.rtsp_port,onvif:cam.onvif,name:cam.name,user:'',pass:''});showProbe(r)}
-  catch(e){$('cam-name').textContent=(cam.name||'Camera')+' · '+cam.host;$('e-connect').textContent='';show('s-camlogin')}
-}
-function showProbe(r){probe=r;$('probe-title').textContent='Your camera can listen';$('probe-tier').textContent='Sound quality '+r.probe.tier;$('probe-copy').textContent=r.tier_copy;
-  $('probe-detail').textContent=r.probe.codec+' · '+(r.probe.rate/1000)+' kHz'+(r.probe.noise_db!=null?' · background '+Math.round(r.probe.noise_db)+' dB':'')+(r.probe.video_tracks_skipped?' · video not used':'');
-  $('clabel').value=r.probe.model||'';$('probe-res').classList.remove('hide');show('s-probe')}
-function pick(c){queue=[{kind:'camera',cam:c,name:c.name||'Camera'}];adding=true;cam=c;$('cam-name').textContent=(c.name||'Camera')+' · '+c.host;$('e-connect').textContent='';show('s-camlogin')}
-$('b-manual').onclick=()=>{const h=$('manual').value.trim();if(!/^\d+\.\d+\.\d+\.\d+$/.test(h)){$('e-find').textContent='Type the camera\'s address, like 192.168.1.50.';return}pick({host:h,rtsp_port:null,onvif:null,name:null})};
-$('b-rescan').onclick=()=>scan();
-$('b-back').onclick=()=>{cam=null;queue.shift();next()};
-$('b-connect').onclick=async e=>{const b=e.target;busy(b,true);$('e-connect').textContent='';
-  $('probe-title').textContent='Listening to your camera for a few seconds…';$('probe-res').classList.add('hide');show('s-probe');
-  try{const r=await api('probe',{host:cam.host,rtsp_port:cam.rtsp_port,onvif:cam.onvif,name:cam.name,user:$('cuser').value,pass:$('cpass').value});$('cpass').value='';showProbe(r)}
-  catch(x){show('s-camlogin');$('e-connect').textContent=x.message}busy(b,false)};
-$('b-where').onclick=async e=>{const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
-  if(!(Math.abs(lat)<=90&&Math.abs(lon)<=180)){$('e-where').textContent='Please set where you are.';return}
-  try{S=await api('location',{lat,lon});route()}catch(x){$('e-where').textContent=x.message}};
-$('b-geo').onclick=()=>{if(!navigator.geolocation){$('geo-state').textContent='Type the numbers below instead.';return}$('geo-state').textContent='Finding…';
-  navigator.geolocation.getCurrentPosition(p=>{$('lat').value=p.coords.latitude.toFixed(5);$('lon').value=p.coords.longitude.toFixed(5);$('geo-state').textContent='Got it.'},()=>{$('geo-state').textContent='Couldn\'t get it. Type the numbers below.'},{timeout:10000})};
-$('b-add').onclick=async e=>{const b=e.target;busy(b,true);
-  try{S=await api('station/add',{probe_id:probe.probe_id,label:$('clabel').value,onvif:cam.onvif});probe=null;cam=null;queue.shift();next()}catch(x){$('e-add').textContent=x.message}busy(b,false)};
-$('discack').onchange=()=>$('b-start').disabled=!$('discack').checked;
-$('b-start').onclick=async e=>{const b=e.target;busy(b,true);try{await api('disclaimer',{ok:true});S=await api('start',{});route()}catch(x){$('e-start').textContent=x.message}busy(b,false)};
-function home(){
-  let birds=0,voices=0,up=false,err=null;S.stations.forEach(s=>{const l=s.live||{};birds+=l.birds||0;voices+=l.voices_removed||0;if(l.running)up=true;if(l.last_error)err=l.last_error});
-  $('n-birds').textContent=birds;$('n-voices').textContent=voices;
-  $('home-title').textContent=up?'Listening…':'Can\'t reach your microphone or camera. Trying again soon.';
-  $('home-sub').textContent=S.recent.length?'Birds heard at your place appear below.':'We\'ll tell you when we hear your first bird.';
-  const cn=$('chain-note');cn.classList.toggle('hide',!S.chain_state);cn.textContent=S.chain_state?(S.chain_state.charAt(0).toUpperCase()+S.chain_state.slice(1)+(S.chain_queued?' ('+S.chain_queued+' report'+(S.chain_queued>1?'s':'')+' waiting)':'')+'.'):'';
-  const mn=$('model-note');mn.classList.toggle('hide',!S.model_error);mn.textContent=S.model_error?'Problem: '+S.model_error:'';
-  if(S.recent.length)$('birds').innerHTML=S.recent.slice(0,12).map(d=>'<div class="bird"><div><b>'+esc(d.common||d.name)+'</b><br><i>'+esc(d.name)+'</i></div><div class="small muted">'+new Date(d.t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+'</div></div>').join('');
-  const vn=$('voucher-note');vn.classList.toggle('hide',!S.voucher_state);vn.textContent=S.voucher_state?S.voucher_state+'.':'';
-  $('stations').innerHTML=S.stations.map(s=>{const l=s.live||{};return '<div class="cam"><div><b>'+esc(s.label)+'</b> <span class="tier">'+esc(s.tier)+'</span><div class="small muted">'+(l.running?'Listening now':(l.last_error?(s.kind==='mic'?'Can\'t hear the microphone. Trying again soon.':'Can\'t reach the camera. Trying again soon.'):'Starting…'))+' · '+(l.frames||0)+' sounds checked</div></div><button class="ghost" data-id="'+esc(s.id)+'">Remove</button></div>'}).join('');
-  $('stations').querySelectorAll('button').forEach(b=>b.onclick=async()=>{if(confirm('Remove this camera?')){S=await api('station/remove',{id:b.dataset.id});route()}});
-  $('b-toggle').textContent=S.listening?'Pause listening':'Start listening';
-  $('home-disc').textContent=S.disclaimer;
-  indiv();
-  $('home-meta').innerHTML='Version '+esc(S.version)+(S.update_state?' · '+esc(S.update_state):'')+'<br>Reports sent from here: '+S.reports_made+(S.last_report_bytes?' (last one '+S.last_report_bytes+' bytes)':'')+(S.map_state?'<br>Bird map: '+esc(S.map_state):'')+'<br>Station key: '+esc(S.station_pub.slice(0,16))+'… ('+(S.secret_store==='keychain'?'kept in this computer\'s keychain':'kept in a locked file')+')';
-}
-function indiv(){
-  const v=S.individuals||{birds:[],back:[]};const el=$('indiv');el.classList.toggle('hide',!v.birds.length&&!v.back.length);
+function hhmm(t){return new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+function busy(b,on){b.disabled=on;if(on){b.dataset.t=b.textContent;b.innerHTML='<span class="spin"></span> '+esc(b.dataset.t)}else if(b.dataset.t)b.textContent=b.dataset.t}
+function bird(d){return d.common||d.name}
+
+// sheet (replaces alert / confirm / prompt)
+function sheet({title,body='',buttons=[{label:'OK',primary:true}],onOpen}){return new Promise(res=>{
+  $('sheet-title').textContent=title;$('sheet-body').innerHTML=body;$('sheet-err').textContent='';
+  const row=$('sheet-btns');row.innerHTML='';
+  buttons.forEach(b=>{const x=document.createElement('button');x.type='button';x.className=b.primary?'btn':'ghost';x.style.height='48px';x.textContent=b.label;
+    x.onclick=async()=>{if(b.run){try{busy(x,true);const v=await b.run();busy(x,false);if(v===false)return;$('sheet').close();res(v===undefined?b.value:v)}catch(e){busy(x,false);$('sheet-err').textContent=e.message}}else{$('sheet').close();res(b.value)}};row.appendChild(x)});
+  $('sheet').onclose=()=>res(undefined);$('sheet').showModal();onOpen&&onOpen()})}
+
+// ── place chip (search or this computer's location; no coordinates to type) ──
+function chip(el){if(!S)return;el.className='chip'+(S.located?'':' need');el.innerHTML=S.located?('near <b>'+esc(S.town||'your area')+'</b> · <span style="color:var(--chorus)">Change</span>'):'Choose your town to start';el.onclick=placeSheet}
+function placeSheet(){let picked=null;
+  return sheet({title:'Where is home?',body:'<p class="small" style="margin:0 0 8px">Birds are shared by area of a few kilometres, never your address.</p><input type="search" id="pq" placeholder="Your town or neighbourhood" autocomplete="off"><ul class="results" id="pres"></ul><button type="button" class="link" id="pgeo">Use this computer\'s location</button>',
+    buttons:[{label:'Cancel'}],onOpen:()=>{const q=$('pq');q.focus();let t;
+      q.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{if(q.value.trim().length<2){$('pres').innerHTML='';return}
+        try{const r=await api('place/search',{q:q.value});$('pres').innerHTML=r.places.length?r.places.map((p,i)=>'<li><button type="button" data-i="'+i+'"><b>'+esc(p.town)+'</b><br><span class="small">'+esc(p.region)+'</span></button></li>').join(''):'<li class="small">No places found. Try a nearby town.</li>';
+          $('pres').querySelectorAll('button').forEach(b=>b.onclick=()=>setPlace(r.places[b.dataset.i]))}catch(e){$('sheet-err').textContent=e.message}},350)};
+      $('pgeo').onclick=()=>{if(!navigator.geolocation){$('sheet-err').textContent='Search for your town instead.';return}$('pgeo').textContent='Finding…';
+        navigator.geolocation.getCurrentPosition(p=>setPlace({lat:p.coords.latitude,lon:p.coords.longitude}),()=>{$('pgeo').textContent='Use this computer\'s location';$('sheet-err').textContent='Couldn\'t get it. Search for your town instead.'},{timeout:12000})}}});
+  async function setPlace(p){try{S=await api('location',{lat:p.lat,lon:p.lon,town:p.town||''});$('sheet').close();render()}catch(e){$('sheet-err').textContent=e.message}}}
+
+// ── first run ──
+function wizStep(){
+  if(!S.disclaimer_ack)return step==='w2'?'w2':'w1';
+  if(adding||!S.stations.length||!S.listening&&!store.get('started'))return 'w3';
+  if(S.account&&!S.account.verified&&!verifyLater&&!store.get('verify_later'))return 'w4';
+  if(!S.account&&!store.get('email_skipped'))return 'w4';
+  if(!store.get('done_shown'))return 'w5';
+  return null}
+function showWiz(s){step=s;$('wiz').classList.remove('hide');$('app').classList.add('hide');
+  ['w1','w2','w3','w4','w5'].forEach(id=>$(id).classList.toggle('hide',id!==s));
+  const n=+s.slice(1);$('dots').innerHTML=[1,2,3,4,5].map(k=>'<i class="'+(k<=n?'on ':'')+(k===n?'cur':'')+'"></i>').join('');$('steplabel').textContent=adding?'':'Step '+n+' of 5';
+  if(s==='w2')$('disc-text').textContent=S.disclaimer||DISC_FALLBACK;
+  if(s==='w3'){if(!adding&&!S.stations.length)adding=true;chip($('place-chip'));$('w3-cancel').classList.toggle('hide',!(adding&&S.stations.length));if(!found.length&&!step3scanning)scan();else paintSources()}
+  if(s==='w4')paintEmail();
+  if(s==='w5'){$('w5-title').textContent='Listening on '+S.stations.length+(S.stations.length===1?' source.':' sources.');const v=$('w5-voucher');v.classList.toggle('hide',!S.voucher_state);v.textContent=S.voucher_state?S.voucher_state+'.':''}}
+$('w1-next').onclick=()=>{step='w2';render()};
+$('w2-back').onclick=()=>{step='w1';render()};
+$('w2-next').onclick=async e=>{busy(e.target,true);try{S=await api('disclaimer',{ok:true});render()}catch(x){$('e-w2').textContent=x.message}busy(e.target,false)};
+$('demo-btn').onclick=()=>{const a=$('demo-audio'),d=$('demo');if(!a.paused){a.pause();a.currentTime=0;d.classList.add('hide');$('demo-btn').textContent='Hear a sample dawn';return}
+  a.play().catch(()=>{});$('demo-credit').classList.remove('hide');$('demo-btn').textContent='Stop sample';d.classList.remove('hide');
+  d.innerHTML='<li class="now"><b>Hawfinch</b><span>singing now</span></li><li><b>Eurasian Blackbird</b><span class="small">a moment ago</span></li>';
+  a.onended=()=>{d.classList.add('hide');$('demo-btn').textContent='Hear a sample dawn'}};
+
+// sources step
+let step3scanning=false;
+async function scan(){step3scanning=true;$('w3-title').innerHTML='<span class="spin"></span> Looking on this computer and your Wi-Fi…';$('srcs').innerHTML='';$('seg').classList.add('hide');$('w3-go').disabled=true;$('e-w3').textContent='';
+  try{const r=await api('discover',{host:''});
+    const have=new Set(S.stations.map(x=>x.kind==='mic'?'m:'+x.label:'c:'+x.host));
+    found=[...r.mics.map(m=>({kind:'mic',spec:m.spec,name:m.name,glyph:/usb/i.test(m.name)?'USB':'MIC',note:'On this computer',on:true})),
+      ...r.cameras.map(c=>({kind:'camera',cam:c,name:c.name||'Camera',glyph:'CAM',note:c.host+' · on your Wi-Fi',on:true}))]
+      .filter(x=>!have.has(x.kind==='mic'?'m:'+x.name:'c:'+x.cam.host));
+    if(!r.local_ip&&!r.mics.length)$('e-w3').textContent='Connect this computer to the same Wi-Fi as your camera, then look again.';
+  }catch(e){$('e-w3').textContent=e.message}step3scanning=false;paintSources()}
+function paintSources(){const n=found.length;
+  $('w3-title').textContent=n===0?'Nothing found yet.':n===1?'1 thing can listen. Use it?':n+' things can listen. Use them all?';
+  $('seg').classList.toggle('hide',n<2);$('seg-all').setAttribute('aria-checked',mode==='all');$('seg-pick').setAttribute('aria-checked',mode==='pick');
+  $('srcs').className='srcs'+(mode==='all'?' all':'');
+  $('srcs').innerHTML=found.map((x,i)=>{const on=mode==='all'||x.on;const st=x.state||'';
+    return '<li class="src'+(on?' on':'')+'"><button type="button" class="src-top" data-i="'+i+'" aria-pressed="'+on+'"><span class="glyph">'+x.glyph+'</span><span class="src-name"><b>'+esc(x.name)+'</b><span class="small">'+esc(x.status||x.note)+'</span></span>'+
+      (x.quality?'<span class="q'+(x.quality==='Basic'?' basic':'')+'">'+x.quality+'</span>':'')+(st==='busy'?'<span class="spin"></span>':'')+'<span class="tick" aria-hidden="true">'+(x.added?'✓':on?'✓':'')+'</span></button>'+
+      (x.needPass&&!x.added?'<div class="creds"><input type="text" placeholder="Camera username" data-u="'+i+'" autocomplete="off" autocapitalize="off"><input type="password" placeholder="Camera password" data-p="'+i+'" autocomplete="off"></div><span class="small">The same ones you use in your camera app. They stay on this computer, locked.</span>':'')+'</li>'}).join('');
+  $('srcs').querySelectorAll('.src-top').forEach(b=>b.onclick=()=>{if(mode!=='pick')return;const x=found[b.dataset.i];if(x.added)return;x.on=!x.on;paintSources()});
+  $('srcs').querySelectorAll('[data-u]').forEach(el=>{const x=found[el.dataset.u];el.value=x.user||'';el.oninput=()=>x.user=el.value});
+  $('srcs').querySelectorAll('[data-p]').forEach(el=>{const x=found[el.dataset.p];el.value=x.pass||'';el.oninput=()=>x.pass=el.value});
+  const todo=found.filter(x=>(mode==='all'||x.on)&&!x.added).length;
+  const go=$('w3-go');go.textContent=todo?'Listen with '+todo:(S.stations.length?'Continue':'Listen');go.disabled=!S.located||(!todo&&!S.stations.length);
+  if(!S.located&&n)$('e-w3').textContent='Choose your town first.';else if($('e-w3').textContent==='Choose your town first.')$('e-w3').textContent=''}
+$('seg-all').onclick=()=>{mode='all';paintSources()};$('seg-pick').onclick=()=>{mode='pick';paintSources()};
+$('w3-rescan').onclick=()=>scan();
+$('w3-cancel').onclick=()=>{adding=false;found=[];render()};
+$('w3-manual').onclick=()=>sheet({title:'Add a camera by its address',body:'<p class="small" style="margin:0 0 8px">Only cameras on your own Wi-Fi, for example 192.168.1.50.</p><input type="text" id="mip" placeholder="192.168.1.50">',
+  buttons:[{label:'Add',primary:true,run:()=>{const h=$('mip').value.trim();if(!/^\d+\.\d+\.\d+\.\d+$/.test(h))throw new Error('Type the camera\'s address, like 192.168.1.50.');
+    found.push({kind:'camera',cam:{host:h,rtsp_port:null,onvif:null,name:null},name:'Camera at '+h,glyph:'CAM',note:h+' · on your Wi-Fi',on:true});paintSources()}},{label:'Cancel'}]});
+$('w3-go').onclick=async e=>{const b=e.target;busy(b,true);$('e-w3').textContent='';
+  for(const x of found.filter(x=>(mode==='all'||x.on)&&!x.added)){x.state='busy';x.status=x.kind==='mic'?'Listening for a few seconds…':'Connecting…';paintSources();
+    try{const r=x.kind==='mic'?await api('mic/add',{spec:x.spec,name:x.name}):await api('camera/add',{host:x.cam.host,rtsp_port:x.cam.rtsp_port,onvif:x.cam.onvif,name:x.cam.name,user:x.user||'',pass:x.pass||'',label:x.name});
+      S=r;x.added=true;x.quality=r.added.quality;x.status='Added · hears birds '+(r.added.quality==='Basic'?'low and loud, like owls and doves':r.added.quality==='Good'?'well':'very well');x.needPass=false}
+    catch(err){x.status=err.message;if(err.j&&err.j.need_password)x.needPass=true}x.state='';paintSources()}
+  busy(b,false);paintSources();
+  if(found.some(x=>(mode==='all'||x.on)&&!x.added)&&S.stations.length===0){$('e-w3').textContent='None of these could be added yet. Fix the ones above, or look again.';return}
+  if(found.some(x=>(mode==='all'||x.on)&&!x.added)){const go=await sheet({title:'Some sources need attention',body:'<p class="p" style="font-size:15px">You can type the camera password and try again, or start listening with what\'s ready.</p>',buttons:[{label:'Start listening now',primary:true,value:true},{label:'Fix them first',value:false}]});if(!go)return}
+  try{S=await api('start',{});store.set('started','1');adding=false;found=[];render()}catch(x){$('e-w3').textContent=x.message}};
+
+// email step
+function paintEmail(){const a=S.account;
+  $('w4-signup').classList.toggle('hide',!!a||$('w4-login').dataset.on==='1');$('w4-login').classList.toggle('hide',!!a||$('w4-login').dataset.on!=='1');$('w4-verify').classList.toggle('hide',!a);
+  $('w4-title').textContent=a?'Check your email':'Where should we send your birds?';
+  if(a)$('verify-body').textContent='We sent a 6-digit code to '+a.email+'.';
+  if(!$('rf').value&&S.pending_ref)$('rf').value=S.pending_ref;consentText()}
+function consentText(){const c=$('rf').value.trim().toLowerCase();$('consent-text').textContent=c?'Rewards from this app go to the person who invited you ('+c+') until you create your own wallet.':'Rewards from this app go to the HONE community pool until you create your own wallet.'}
+$('rf').oninput=consentText;
+$('to-login').onclick=()=>{$('w4-login').dataset.on='1';paintEmail()};$('to-signup').onclick=()=>{$('w4-login').dataset.on='0';paintEmail()};
+const skip=()=>{store.set('email_skipped','1');render()};$('w4-skip').onclick=skip;$('w4-skip2').onclick=skip;
+$('b-signup').onclick=async e=>{$('e-w4').textContent='';if(!$('consent').checked){$('e-w4').textContent='Please tick the box to continue.';return}busy(e.target,true);
+  try{S=await api('signup',{name:$('nm').value,email:$('em').value,password:$('pw').value,ref:$('rf').value,consent:true});$('pw').value='';render()}catch(x){$('e-w4').textContent=x.message}busy(e.target,false)};
+$('b-login').onclick=async e=>{$('e-w4').textContent='';busy(e.target,true);try{S=await api('login',{email:$('lem').value,password:$('lpw').value});$('lpw').value='';verifyLater=true;render()}catch(x){$('e-w4').textContent=x.message}busy(e.target,false)};
+$('b-verify').onclick=async e=>{busy(e.target,true);try{S=await api('verify',{code:$('code').value});render()}catch(x){$('e-w4').textContent=x.message}busy(e.target,false)};
+$('b-resend').onclick=async()=>{try{await api('resend',{});$('e-w4').textContent='';$('verify-body').textContent+=' A new code is on its way.'}catch(x){$('e-w4').textContent=x.message}};
+$('b-later').onclick=()=>{verifyLater=true;store.set('verify_later','1');render()};
+$('w5-open').onclick=()=>{store.set('done_shown','1');render()};
+
+// ── app ──
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{view=t.dataset.v;render()});
+function laneSvg(levels){const n=150,h=112;if(!levels||!levels.length)return '';
+  const pts=levels.slice(-n);const off=n-pts.length;let d='',pen=false;
+  pts.forEach((v,i)=>{const x=((off+i)/(n-1)*580).toFixed(1);if(v==null){pen=false;return}const y=(h-8-Math.max(0,Math.min(1,(v+80)/65))*(h-20)).toFixed(1);d+=(pen?'L':'M')+x+' '+y+' ';pen=true});
+  return '<svg viewBox="0 0 580 112" preserveAspectRatio="none" aria-hidden="true"><path d="'+d+'" fill="none" stroke="#B8F06A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/></svg>'}
+function paintListen(){
+  const on=S.listening;$('lhead').classList.toggle('paused',!on);$('lanes').classList.toggle('paused',!on);
+  const up=S.sources.filter(x=>x.running).length;
+  $('headline').textContent=!on?'Paused':up?'Listening':'Starting…';
+  $('subline').textContent=S.sources.length+(S.sources.length===1?' source':' sources')+(on&&up<S.sources.length?' · '+(S.sources.length-up)+' not connected':'');
+  $('b-toggle').textContent=on?'Pause all':'Listen again';
+  const mn=$('model-note');mn.classList.toggle('hide',!S.model_error);mn.textContent=S.model_error?'Ornigo can\'t identify birds right now: '+S.model_error:'';
+  $('lanes').innerHTML=S.sources.map(x=>'<section class="lane" aria-label="'+esc(x.label)+'"><div class="lane-l"><b>'+esc(x.label)+'</b><span>'+(x.kind==='mic'?'Microphone':'Camera')+' · '+x.quality+'</span></div>'+
+    '<div class="strip">'+laneSvg(x.levels)+'<div class="sweep"></div><span class="tag'+(x.bird?' bird':(!x.running&&x.error?' warn':''))+'">'+esc(x.bird||(!x.running&&x.error?(x.kind==='mic'?'Can\'t hear it':'Can\'t reach it'):on?'Quiet':'Paused'))+'</span></div></section>').join('');
+  $('st-kinds').innerHTML=S.today.kinds+' <small>kinds</small>';$('st-new').textContent=S.today.new_week;$('st-voices').textContent=S.today.voices;
+  $('foot-disc').textContent=S.disclaimer}
+function paintSide(){const v=S.individuals||{birds:[],back:[]};
   const who=b=>b.name?esc(b.name):'Your '+esc(b.common||b.species);
-  const back=v.back.slice(0,5).map(b=>'<div class="bird"><div><b>'+who(b)+' is back</b>, night '+b.nights_seen+' <span class="small muted">('+esc(b.phrase)+', '+b.likelihood_pct+'%)</span></div><div class="small muted">'+new Date(b.t).toLocaleDateString()+'</div></div>').join('');
-  const birds=v.birds.map(b=>'<div class="bird"><div><b>'+who(b)+'</b><br><i>'+esc(b.species)+'</i> <span class="small muted">· visited on '+b.nights_seen+' nights'+(b.is_back&&b.back_pct?' · back tonight ('+esc(b.back_phrase)+', '+b.back_pct+'%)':'')+'</span></div>'+(b.name?'':'<button class="ghost" data-id="'+esc(b.bird_id)+'">Name it</button>')+'</div>').join('');
-  $('indiv-list').innerHTML=back+birds;
-  $('indiv-list').querySelectorAll('button').forEach(x=>x.onclick=async()=>{const n=prompt('A name for this bird (letters only):');if(!n)return;try{S=await api('bird/name',{bird_id:x.dataset.id,name:n});route()}catch(e){alert(e.message)}});
-}
-$('b-toggle').onclick=async()=>{if(S.listening){S=await api('pause',{})}else{show('s-start');$('disc-text').textContent=S.disclaimer;return}route()};
-$('b-add-cam').onclick=()=>{adding=true;scanned=false;cam=null;probe=null;queue=[];route()};
-$('b-logout').onclick=async()=>{if(confirm('Sign out? Listening stops until you sign in again.')){S=await api('logout',{});route()}};
-$('b-upd').onclick=async()=>{const r=await api('update',{});alert(r.update_state)};
+  $('back-cards').innerHTML=v.back.slice(0,2).map(b=>'<div class="card back"><span class="k">Is back</span><b>'+who(b)+' is back</b><span>'+esc(b.common||b.species)+' · night '+b.nights_seen+' · '+esc(b.phrase)+' ('+b.likelihood_pct+'%)</span></div>').join('');
+  $('singing').innerHTML=S.singing_now.length?S.singing_now.slice(0,4).map((d,i)=>'<div class="card sing'+(i===0?' now':'')+'"><b>'+esc(bird(d))+'</b><span'+(i?' style="color:var(--dim)"':'')+'>'+esc(d.source||'')+'</span></div>').join(''):'<span class="small">Quiet right now.</span>';
+  const earlier=S.today.list.filter(d=>!S.singing_now.some(s=>s.name===d.name));
+  $('earlier').innerHTML=earlier.length?earlier.slice(0,10).map(d=>'<li><span>'+esc(bird(d))+(d.new?'<span class="new">NEW</span>':'')+'</span><time>'+hhmm(d.t)+'</time></li>').join(''):'<li class="small">Nothing yet today. Owls and nightjars call after dark; most birds sing at dawn.</li>'}
+function paintBirds(){$('birds-sub').textContent=S.today.kinds+' kinds today · '+S.today.life+' kinds heard here so far';
+  $('birds-list').innerHTML=S.today.list.length?S.today.list.map(d=>'<li class="item"><div class="grow"><b>'+esc(bird(d))+(d.new?'<span class="new">NEW</span>':'')+'</b><i class="small">'+esc(d.name)+'</i></div><time class="small mono">'+hhmm(d.t)+'</time></li>').join(''):'<li class="small">No birds yet today.</li>'}
+function paintKnown(){const v=S.individuals||{birds:[]};
+  $('known-list').innerHTML=v.birds.length?v.birds.map(b=>'<li class="item"><div class="grow"><b>'+(b.name?esc(b.name):'Your '+esc(b.common||b.species))+'</b><span class="small">'+esc(b.common||b.species)+' · visited on '+b.nights_seen+' nights'+(b.is_back&&b.back_pct?' · back tonight, '+esc(b.back_phrase)+' ('+b.back_pct+'%)':'')+'</span></div>'+(b.name?'':'<button class="ghost" style="height:44px" data-id="'+esc(b.bird_id)+'">Name it</button>')+'</li>').join(''):'<li class="small">No regulars yet. A bird needs to come back on a few nights first.</li>';
+  $('known-list').querySelectorAll('button[data-id]').forEach(x=>x.onclick=()=>sheet({title:'Name this bird',body:'<input type="text" id="bn" maxlength="24" placeholder="For example Lumen"><p class="small">Letters only, up to 24.</p>',
+    buttons:[{label:'Save',primary:true,run:async()=>{S=await api('bird/name',{bird_id:x.dataset.id,name:$('bn').value});render()}},{label:'Cancel'}],onOpen:()=>$('bn').focus()}))}
+function paintSrcList(){
+  $('src-list').innerHTML=S.sources.map(x=>'<li class="item" style="flex-wrap:wrap"><span class="glyph">'+(x.kind==='mic'?'MIC':'CAM')+'</span><div class="grow"><b>'+esc(x.label)+'</b><span class="small">'+(x.running?'Listening now':x.error?(x.kind==='mic'?'Can\'t hear the microphone. Trying again soon.':'Can\'t reach the camera. Trying again soon.'):'Starting…')+'</span>'+
+    '<details class="x"><summary>Details</summary><span class="small mono">'+esc(x.details)+'</span></details></div><span class="q'+(x.quality==='Basic'?' basic':'')+'">'+x.quality+'</span><button class="ghost" style="height:44px" data-rm="'+esc(x.id)+'">Remove</button></li>').join('')||'<li class="small">No sources yet.</li>';
+  $('src-list').querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{const ok=await sheet({title:'Remove this source?',body:'<p class="p" style="font-size:15px">Ornigo stops listening with it. You can add it again any time.</p>',buttons:[{label:'Remove',primary:true,value:true},{label:'Keep it',value:false}]});
+    if(ok){S=await api('station/remove',{id:b.dataset.rm});render()}})}
+function paintSettings(){const a=S.account;
+  $('acct').innerHTML=a?'<div class="row"><div class="grow" style="flex:1"><b>'+esc(a.email)+'</b><div class="small">'+(a.verified?'Email verified':'Email not verified yet')+'</div></div><button class="ghost" style="height:44px" id="b-out">Sign out</button></div>':'<div class="row"><span class="small" style="flex:1">Not signed in. Birds stay on this computer until you add an email.</span><button class="btn" style="height:44px" id="b-in">Add my email</button></div>';
+  if($('b-out'))$('b-out').onclick=async()=>{const ok=await sheet({title:'Sign out?',body:'<p class="p" style="font-size:15px">Ornigo keeps listening, but birds stay on this computer until you sign in again.</p>',buttons:[{label:'Sign out',primary:true,value:true},{label:'Cancel',value:false}]});if(ok){S=await api('logout',{});render()}};
+  if($('b-in'))$('b-in').onclick=()=>{store.set('email_skipped','');render()};
+  chip($('place-chip2'));$('upd').textContent='Version '+S.version+(S.update_state?' · '+S.update_state:'');
+  const vn=$('voucher-note');vn.classList.toggle('hide',!S.voucher_state);vn.textContent=S.voucher_state?S.voucher_state+'.':'';
+  const X=(label,tech,val)=>'<div class="xrow"><b style="font-size:14px">'+label+'</b><code>'+esc(tech)+(val!==undefined?': '+esc(val):'')+'</code></div>';
+  $('xrows').innerHTML=X('This listener\'s key','station key, ed25519',S.station_pub)+X('Kept in','secret store',S.secret_store==='keychain'?'this computer\'s keychain':'a locked file')+
+    X('Reports sent','15-minute station reports',S.reports_made+(S.last_report_bytes?' (last '+S.last_report_bytes+' bytes)':''))+X('Bird map','indexer',S.map_state||'nothing sent yet')+
+    X('Rewards','chain state',(S.chain_state||'not checked yet')+(S.chain_queued?' · '+S.chain_queued+' waiting':''))+X('Voices removed','speech gate, this session',S.sources.length?S.stations.reduce((a,s)=>a+((s.live||{}).voices_removed||0),0):0)}
+$('b-toggle').onclick=async()=>{S=await api(S.listening?'pause':'start',{});render()};
+$('b-add').onclick=()=>{adding=true;found=[];render()};
+$('b-upd').onclick=async e=>{busy(e.target,true);try{const r=await api('update',{});$('upd').textContent=r.update_state}catch(x){$('upd').textContent=x.message}busy(e.target,false)};
+
+function render(){if(!S)return;
+  const w=wizStep();
+  if(w){showWiz(w);return}
+  step=null;
+  $('wiz').classList.add('hide');$('app').classList.remove('hide');
+  document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-current',t.dataset.v===view?'page':'false'));
+  ['listen','birds','known','sources','settings'].forEach(v=>$('v-'+v).classList.toggle('hide',v!==view));
+  paintSide();({listen:paintListen,birds:paintBirds,known:paintKnown,sources:paintSrcList,settings:paintSettings})[view]()}
+async function refresh(){try{S=await api('state');render()}catch(e){}}
 api('tz',{tz_min:-new Date().getTimezoneOffset()}).catch(()=>{});
-refresh();setInterval(()=>{if(!document.hidden&&S&&!$('s-home').classList.contains('hide'))refresh()},5000);
+refresh();setInterval(()=>{if(!document.hidden&&!$('sheet').open&&$('wiz').classList.contains('hide'))refresh()},3000);
 </script>
 </body>
 </html>
