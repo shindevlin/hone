@@ -316,7 +316,7 @@ object SoundSensing {
         fun pct(q: Double) = if (sorted.isEmpty()) null else sorted[((1 - q) * (sorted.size - 1)).toInt()]
         val leq = if (w.blockDb.isEmpty()) null
             else 10 * log10(w.blockDb.sumOf { Math.pow(10.0, it / 10) } / w.blockDb.size)
-        val fix = SightingsEngine.lastFix()
+        val fix = network.hone.app.home.HomeState.fixOrHome(ctx)
         val cell = fix?.let { Cells.cell(it.latitude, it.longitude, 9) }
         val r = JSONObject().apply {
             put("v", 1)
@@ -358,7 +358,7 @@ object SoundSensing {
     /** Private detection history for the Birds tab: time, species, confidence, fix. Device only. */
     private fun logDetections(top: List<Detection>, emb: FloatArray) {
         val ctx = appCtx ?: return
-        val fix = SightingsEngine.lastFix()
+        val fix = network.hone.app.home.HomeState.fixOrHome(ctx)
         runCatching {
             // Perch's embedding of this frame, kept on the phone for training a local layer once the
             // user confirms or rejects the detection. Not audio: it can't be played back.

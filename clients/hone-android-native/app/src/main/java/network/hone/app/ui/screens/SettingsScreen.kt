@@ -189,16 +189,26 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     SightingsEngine.lastFix()?.let {
-                        prefs.edit().putFloat("home_lat", it.latitude.toFloat()).putFloat("home_lon", it.longitude.toFloat()).apply()
+                        network.hone.app.home.HomeState.setManual(ctx, it.latitude, it.longitude)
                         homeSet = true
                     }
                 }) { Text(if (homeSet) "Move home here" else "Set home here") }
                 if (homeSet) TextButton(onClick = {
-                    prefs.edit().remove("home_lat").remove("home_lon").apply(); homeSet = false
-                }) { Text("Clear") }
+                    network.hone.app.home.HomeState.decline(ctx); homeSet = false
+                }) { Text("Not home") }
             }
-            if (!homeSet) Text("No home set. Needs a location fix (Sensor node on).",
+            if (!homeSet) Text("No home yet. It is set automatically after a few nights at home, or set it here (needs a location fix).",
                 style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+            if (homeSet) {
+                var homeWifiN by remember { mutableStateOf(network.hone.app.home.HomeState.homeWifiCount(ctx)) }
+                Text(if (network.hone.app.home.HomeState.auto(ctx)) "Set automatically from where this phone spends its nights. Kept private, never shared." else "Set by you. Kept private, never shared.",
+                    style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+                if (homeWifiN > 0) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Home Wi-Fi remembered as a scrambled code on this phone. While connected, the phone counts as at home.",
+                        Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+                    TextButton({ network.hone.app.home.HomeState.forgetWifi(ctx); homeWifiN = 0 }) { Text("Forget") }
+                }
+            }
         }
 
         Section("About") {

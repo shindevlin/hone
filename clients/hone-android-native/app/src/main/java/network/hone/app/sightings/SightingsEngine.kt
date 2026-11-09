@@ -300,9 +300,12 @@ object SightingsEngine {
         _live.value = _live.value.copy(running = false, advertising = false)
     }
 
+    @Volatile private var homeWifiWindow = false
+
     fun tick() {
         val c = appCtx ?: return
         rollWindow(c, System.currentTimeMillis())
+        if (!homeWifiWindow && runCatching { network.hone.app.home.HomeState.onHomeWifi(c) }.getOrDefault(false)) homeWifiWindow = true
         wkey?.let { IdAdvertiser.ensure(c, it) }
         publishLive(c)
     }
@@ -313,6 +316,7 @@ object SightingsEngine {
         if (w == window) return
         if (window != Long.MIN_VALUE) finalizeWindow()
         window = w
+        homeWifiWindow = false
         accs.clear(); sightBest.clear()
         dayKey(nowMs)
         wkey = RoleKeys.thisWindowKey(c, w).let { (k, src) -> seedDerived = src != "provisional"; k }
@@ -329,7 +333,8 @@ object SightingsEngine {
         for ((cell, a) in accs) {
             if (a.aps.isEmpty() && a.ble.isEmpty() && a.hone.isEmpty()) continue
             val located = cell.isNotEmpty()
-            runCatching { st.putSummary(if (located) cell else "unlocated", window, summaryJson(cell, a).toString(), located) }
+            // Queued for the chain only when located and not on the home Wi-Fi (map only otherwise).
+            runCatching { st.putSummary(if (located) cell else "unlocated", window, summaryJson(cell, a).toString(), located && !homeWifiWindow) }
                 .onFailure { Log.e(TAG, "store summary", it) }
         }
         val (n, q) = runCatching { st.summaryCounts() }.getOrDefault(0 to 0)

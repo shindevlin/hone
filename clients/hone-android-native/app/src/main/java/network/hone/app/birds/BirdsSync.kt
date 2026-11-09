@@ -72,6 +72,7 @@ object BirdsSync {
         val p = prefs(ctx)
         // Without a saved home we can't tell home from away, so nothing finer than res 7 goes out.
         if (!p.contains("home_lat")) return Cells.cell(lat, lon, 7)
+        if (network.hone.app.home.HomeState.onHomeWifi(ctx)) return Cells.cell(lat, lon, 7)
         val d = FloatArray(1)
         Location.distanceBetween(lat, lon, p.getFloat("home_lat", 0f).toDouble(), p.getFloat("home_lon", 0f).toDouble(), d)
         if (d[0] <= p.getFloat("home_radius_m", 500f) + acc) return Cells.cell(lat, lon, 7)

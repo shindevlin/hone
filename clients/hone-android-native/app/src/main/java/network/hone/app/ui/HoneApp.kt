@@ -135,6 +135,7 @@ private fun AppShell(honeMode: Boolean) {
             }
         },
     ) { inner ->
+        network.hone.app.ui.screens.HomeNotice(onChange = { nav.navigate(Dest.Settings.route) })
         NavHost(
             navController = nav,
             startDestination = if (honeMode) Dest.Wallet.route else Dest.Map.route,

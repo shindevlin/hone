@@ -61,7 +61,7 @@ object Catches {
     /** Prior for [latin] here: from the indexer (per-species T, season, occupancy), else local range. Call off the main thread. */
     fun prior(ctx: Context, latin: String): Prior {
         // Where the phone is; without a fresh fix, the home area saved at first run.
-        val fix = SightingsEngine.lastFix()
+        val fix = network.hone.app.home.HomeState.fixOrHome(ctx)
         val hp = ctx.getSharedPreferences("hone_birds", Context.MODE_PRIVATE)
         val last = fix ?: runCatching {
             val lm = ctx.getSystemService(android.location.LocationManager::class.java)

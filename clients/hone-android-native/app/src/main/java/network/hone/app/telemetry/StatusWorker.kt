@@ -9,6 +9,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import network.hone.app.birds.BirdsSync
+import network.hone.app.home.HomeState
 import network.hone.app.station.StationService
 import network.hone.app.station.StationSync
 import java.util.concurrent.TimeUnit
@@ -21,6 +22,7 @@ import java.util.concurrent.TimeUnit
 class StatusWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         val c = applicationContext
+        runCatching { HomeState.tick(c) }.onFailure { Telemetry.error(c, "worker home", it) }
         runCatching { DeviceStatus.maybeSend(c) }.onFailure { Telemetry.error(c, "worker status", it) }
         runCatching { BirdsSync.syncNow(c) }.onFailure { Telemetry.error(c, "worker birds", it) }
         runCatching { StationSync.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker stations", it) }
