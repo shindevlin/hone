@@ -63,6 +63,7 @@ def listener_of(account):
     return "acct:" + ALIASES.get(a, a)
 
 
+public_cell = lambda cell, listeners: h3.cell_to_parent(cell, 7) if h3.get_resolution(cell) > 7 else cell  # set by the indexer
 _db = _lock = None  # the indexer's lock must be an RLock (scores call back into range lookups)
 _in_range = _months = _photo_near = None
 
@@ -457,7 +458,7 @@ def area_view(cell, now=None):
             s = _load(cell_, latin, t)
             v = _view(s, t)
             if v["tier"]:
-                v["cell"] = cell_
+                v["cell"] = public_cell(cell_, s["listeners"])
             if latin not in best or v["p"] > best[latin]["p"]:
                 best[latin] = v
     order = {w: i for i, w in enumerate(STATUS_WORDS)}
@@ -486,5 +487,5 @@ def changes(since=0, limit=500):
     with _lock:
         rows = _db.execute("SELECT t, kind, cell, latin, season, p FROM occ_changes WHERE t>=? ORDER BY t LIMIT ?",
                            (int(since), min(int(limit), 2000))).fetchall()
-    return [{"t": r[0], "kind": r[1], "cell": r[2], "latin": r[3], "season": r[4], "p": round(r[5], 4),
+    return [{"t": r[0], "kind": r[1], "cell": h3.cell_to_parent(r[2], 7) if h3.get_resolution(r[2]) > 7 else r[2], "latin": r[3], "season": r[4], "p": round(r[5], 4),
              "chain": "not submitted (no chain format yet)"} for r in rows]

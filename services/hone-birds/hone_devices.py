@@ -326,7 +326,8 @@ def get_frames(args):
         rows = _db.execute(sql, a).fetchall()
     return [{"batch_hash": r[0], "sensor_id": r[1], "owner": r[2], "reading_count": r[3], "sensor_type": r[4],
              "t_min": r[5], "chain_ok": None if r[6] is None else bool(r[6]), "signature": r[7],
-             "device_pubkey": r[8], "heard_by": r[9], "cells": sorted(c for c in (r[10] or "").split(",") if c)}
+             "device_pubkey": r[8], "heard_by": r[9],
+             "cells": sorted({h3.cell_to_parent(c, 7) if h3.get_resolution(c) > 7 else c for c in (r[10] or "").split(",") if c})}
             for r in rows]
 
 
@@ -465,6 +466,9 @@ def post_coverage(body):
     return {"ok": True, "stored": len(rows), "rejected": bad, "verified": bool(verified)}
 
 
+public_res_of = lambda account: 7  # set by the indexer (res 9 once the account saved a home)
+
+
 def get_coverage_map(args):
     _coverage_table()
     res = int(args.get("res", 7))
@@ -474,10 +478,11 @@ def get_coverage_map(args):
     if metric and not METRIC.match(metric):
         raise ValueError("bad metric")
     with _lock:
-        rows = _db.execute("SELECT cell, device, verified, metrics FROM coverage WHERE window>=?",
+        rows = _db.execute("SELECT cell, device, verified, metrics, account FROM coverage WHERE window>=?",
                            (int(args.get("since", 0)),)).fetchall()
     agg = {}
-    for cell, dev, ver, mj in rows:
+    for cell, dev, ver, mj, acct in rows:
+        cell = h3.cell_to_parent(cell, public_res_of(acct)) if h3.get_resolution(cell) > public_res_of(acct) else cell
         c = h3.cell_to_parent(cell, res) if h3.get_resolution(cell) > res else cell
         e = agg.setdefault(c, {"cell": c, "reports": 0, "verified_reports": 0, "devices": set(), "metric_max": None})
         e["reports"] += 1; e["verified_reports"] += 1 if ver else 0; e["devices"].add(dev)

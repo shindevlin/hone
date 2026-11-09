@@ -387,6 +387,7 @@ def spots(c7, now=None):
     per, allk = {}, {}
     # Each account's most-used block (most distinct days) is its base, likely home: never a spot.
     used = {}
+    rows = [r for r in rows if public_res(r[4]) >= 9]
     for cell, res, latin, w, acct, show in rows:
         s9 = h3.cell_to_parent(cell, 9) if res > 9 else cell
         used.setdefault(acct, {}).setdefault(s9, set()).add(w // 96)
@@ -420,7 +421,41 @@ def spots(c7, now=None):
                     "keeper_mornings": len(e["days"]) if keeper else 0, "keeper_kinds": len(e["kinds"]) if keeper else 0})
     return sorted(out, key=lambda o: (-o["kinds"], o["spot"]))
 
+
+# ── public location precision ───────────────────────────────────────────────────────────
+# Public feeds never show a block finer than H3 res 9. An account that hasn't told us it saved
+# a home (phones from 1.6.0 send home_set) is shown at res 7 only, so an unknown home is never
+# exposed. Stored rows keep their precision for the owner's own views (/me, the phone).
+db.execute("CREATE TABLE IF NOT EXISTS account_home(account TEXT PRIMARY KEY, home_set INTEGER, updated INTEGER)")
+db.commit()
+PUBLIC_MAX_RES, NO_HOME_RES = 9, 7
+_homes = {"t": 0, "set": set()}
+
+
+def homes_set():
+    if time.time() - _homes["t"] > 30:
+        with lock:
+            _homes["set"] = {r[0] for r in db.execute("SELECT account FROM account_home WHERE home_set=1")}
+        _homes["t"] = time.time()
+    return _homes["set"]
+
+
+def public_res(account):
+    return PUBLIC_MAX_RES if account in homes_set() else NO_HOME_RES
+
+
+def coarsen(cell, max_res):
+    return h3.cell_to_parent(cell, max_res) if h3.get_resolution(cell) > max_res else cell
+
+
+def public_listeners_ok(listeners):
+    """True when every listener behind an occupancy cell has saved a home (else show res 7)."""
+    ok = {occupancy.listener_of(a) for a in homes_set()}
+    return all(l in ok for l in listeners)
+
 occupancy.init(db, lock, in_range, months=season_months, photo_near=photo_near)
+occupancy.public_cell = lambda cell, listeners: coarsen(cell, PUBLIC_MAX_RES if public_listeners_ok(listeners) else NO_HOME_RES)
+devices.public_res_of = public_res
 if not db.execute("SELECT 1 FROM occ_state LIMIT 1").fetchone():
     # First start with occupancy: score the sightings already stored (positive evidence only).
     for _r in db.execute("SELECT cell, latin, conf_q8, frames, window, account, station, verified FROM sightings"
@@ -444,6 +479,11 @@ def add_labels(body):
 
 def add_sighting(body):
     p, pub, verified = verify(body)
+    if verified and "home_set" in p:
+        with lock:
+            db.execute("INSERT OR REPLACE INTO account_home VALUES(?,?,?)", (p["account"], 1 if p["home_set"] else 0, int(time.time())))
+            db.commit()
+        _homes["t"] = 0
     cell = p["cell"]
     if not h3.is_valid_cell(cell):
         raise ValueError("bad cell")
@@ -630,6 +670,7 @@ def q(sql, args=()):
 def public_sighting(r):
     # never return the signing key of anonymous rows (there is none) or receive times
     out = {k: r[k] for k in ("window", "cell", "res", "latin", "conf_q8", "frames")}
+    out["cell"] = coarsen(r["cell"], public_res(r["account"])); out["res"] = h3.get_resolution(out["cell"])
     out["account"] = r["account"] if r["show_name"] else None   # verified either way; name only on opt-in
     out["rare"] = {3: "unconfirmed", 4: "confirmed"}.get(r["verified"])
     out["source"] = r.get("source") or "phone"
@@ -806,13 +847,13 @@ class H(BaseHTTPRequestHandler):
                 res = int(a.get("res", 5))
                 if res not in (3, 5, 7, 9):
                     raise ValueError("res must be 3, 5, 7 or 9")
-                sql = "SELECT cell, res, latin FROM sightings WHERE verified IN (1,4) AND window>=?"
+                sql = "SELECT cell, res, latin, account FROM sightings WHERE verified IN (1,4) AND window>=?"
                 args = [int(a.get("since", 0))]
                 if a.get("species"):
                     sql += " AND latin=?"; args.append(a["species"])
                 agg = {}
                 for r in q(sql, args):
-                    c = h3.cell_to_parent(r["cell"], res) if r["res"] > res else r["cell"]
+                    c = coarsen(coarsen(r["cell"], public_res(r["account"])), res)
                     e = agg.setdefault(c, {"cell": c, "sightings": 0, "species": set()})
                     e["sightings"] += 1; e["species"].add(r["latin"])
                 out = [{"cell": e["cell"], "sightings": e["sightings"], "species": len(e["species"])} for e in agg.values()]
