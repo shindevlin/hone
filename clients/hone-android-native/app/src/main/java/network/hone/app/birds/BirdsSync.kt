@@ -30,6 +30,8 @@ object BirdsSync {
     private const val TAG = "HoneBirds"
     const val BASE = "https://honemesh.net/api/birds"
     private const val WINDOW_MS = 900_000L
+    /** Finest public block: H3 res 9 (about 170 m across). */
+    const val PUBLIC_MAX_RES = 9
     private const val PUBLISH_MIN_CONF = 70.0   // percent; or heard twice in the window
 
     /** Tiered thresholds (off by default until Josh confirms): 60 local, 70 unknown, 85 rare. */
@@ -68,13 +70,14 @@ object BirdsSync {
     /** Cell to publish for a fix: ~5 km at home, otherwise as fine as the accuracy allows. */
     fun publicCell(ctx: Context, lat: Double, lon: Double, acc: Float, maxRes: Int = 13): String? {
         val p = prefs(ctx)
-        if (p.contains("home_lat")) {
-            val d = FloatArray(1)
-            Location.distanceBetween(lat, lon, p.getFloat("home_lat", 0f).toDouble(), p.getFloat("home_lon", 0f).toDouble(), d)
-            if (d[0] <= p.getFloat("home_radius_m", 500f) + acc) return Cells.cell(lat, lon, 7)
-        }
+        // Without a saved home we can't tell home from away, so nothing finer than res 7 goes out.
+        if (!p.contains("home_lat")) return Cells.cell(lat, lon, 7)
+        val d = FloatArray(1)
+        Location.distanceBetween(lat, lon, p.getFloat("home_lat", 0f).toDouble(), p.getFloat("home_lon", 0f).toDouble(), d)
+        if (d[0] <= p.getFloat("home_radius_m", 500f) + acc) return Cells.cell(lat, lon, 7)
+        // Away from home: a block (res 9) at most, never a house.
         val res = (13 downTo 5).firstOrNull { Cells.EDGE_M[it] >= acc } ?: return null
-        return Cells.cell(lat, lon, minOf(res, maxRes))
+        return Cells.cell(lat, lon, minOf(res, maxRes, PUBLIC_MAX_RES))
     }
 
     private fun pushSightings(ctx: Context) {
@@ -123,7 +126,8 @@ object BirdsSync {
                             put(JSONObject().put("name", name).put("conf_q8", (v.first * 2.55).toInt().coerceIn(0, 255)).put("frames", v.second))
                         }
                     })
-                payload.put("account", acct).put("show_name", show).put("occ", 1)   // scores come from windows
+                payload.put("account", acct).put("show_name", show).put("occ", 1)
+                    .put("home_set", prefs(ctx).contains("home_lat"))   // the indexer shows res 7 only until a home is saved   // scores come from windows
                 try {
                     val res = post("$BASE/sightings", signed(ctx, acct, payload.toString()))
                     res.optJSONArray("first_in_area")?.let { a ->
