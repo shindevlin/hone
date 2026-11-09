@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,10 +59,18 @@ fun DevicesScreen(vm: NodeViewModel = viewModel(), onNode: () -> Unit, onSensors
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         HoneTitle("Your devices")
         val roles = myRoles.orEmpty().map { Plain.role(it).lowercase() }.sorted()
+        Section("Open")
+        NavRow(Icons.Filled.Sensors, "Sensors on this phone", "Each sensor, what it reads and what it shares.", onSensors)
+        NavRow(Icons.Filled.Dashboard, "Node", "This phone's helper: start, stop and details.", onNode)
+        NavRow(Icons.Filled.TravelExplore, "Find my things", "Where your tags, Flippers and old phones were last seen.", onFindMy)
+        NavRow(Icons.Filled.Groups, "Help run the network",
+            if (roles.isEmpty()) "Timekeeper, checking panel and sensor jobs." else "Your jobs: " + roles.joinToString(", ") + ".", onRoles)
+        Spacer(Modifier.height(6.dp))
+        Section("Status")
         DeviceCard("This phone", if (s.running) "Running" else "Stopped", if (s.running) HoneGreen else HoneAmber,
             sub = if (s.running) "Helping the network" + (s.seat?.let { " · timekeeper seat" } ?: "") else "Not helping right now",
-            detail = "Its sensors and microphone report every 15 minutes while it runs. Open Sensors for each one.",
-            tech = "node · ${s.seat ?: "no seat"} · device ${myDevice.take(8)}") { LineButton("Sensors on this phone") { onSensors() } }
+            detail = "Its sensors and microphone report every 15 minutes while it runs.",
+            tech = "node · ${s.seat ?: "no seat"} · device ${myDevice.take(8)}")
         others?.forEach { (d, on) ->
             DeviceCard(if (d.startsWith("pc") || d.contains("listener")) "PC listener" else "Device ${d.take(6)}",
                 if (on) "Online" else "Quiet", if (on) HoneGreen else HoneAmber,
@@ -75,14 +85,6 @@ fun DevicesScreen(vm: NodeViewModel = viewModel(), onNode: () -> Unit, onSensors
         }
         if (others == null && acct.isNotEmpty()) Dim("Asking for your other devices…")
         NodeCard(s, onToggle = { vm.toggleNode(s) }, onNode = onNode)
-        HoneBox(onClick = onFindMy) {
-            Text("Find my things", fontWeight = FontWeight.Bold, color = HoneText)
-            Dim("Where your tags, Flippers and old phones were last seen.")
-        }
-        HoneBox(onClick = onRoles) {
-            Text("Help run the network", fontWeight = FontWeight.Bold, color = HoneText)
-            Dim(if (roles.isEmpty()) "Timekeeper, checking panel and sensor jobs." else "Your account's jobs: " + roles.joinToString(", ") + ".")
-        }
     }
 }
 
@@ -95,9 +97,12 @@ private fun DeviceCard(name: String, status: String, color: Color, sub: String, 
             Dot(color); Spacer(Modifier.width(10.dp))
             Text(name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = HoneText, modifier = Modifier.weight(1f))
             Text(status, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = color)
+            Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (open) "Less" else "More", tint = HoneTextDim)
         }
         Dim(sub)
-        if (open) { Dim(detail); Tech(tech); action?.invoke() }
+        if (open) { Dim(detail); Tech(tech) }
+        action?.invoke()
     }
 }
 
@@ -123,6 +128,26 @@ private fun NodeCard(s: network.hone.app.data.NodeSnapshot, onToggle: () -> Unit
             OutlinedButton(onNode, Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(22.dp)) {
                 Text("Node details", color = Color(0xFFFFB677), fontWeight = FontWeight.Bold)
             }
+        }
+    }
+}
+
+@Composable
+private fun Section(label: String) =
+    Text(label.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = HoneTextDim)
+
+/** A place you can open: icon, name, one line, and an arrow. */
+@Composable
+private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String, onClick: () -> Unit) {
+    HoneBox(onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = HoneOrange, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = HoneText)
+                Dim(sub)
+            }
+            Icon(Icons.Filled.ChevronRight, contentDescription = "Open", tint = HoneTextDim)
         }
     }
 }
