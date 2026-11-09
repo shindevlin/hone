@@ -3,6 +3,7 @@
 Read-only and owner-scoped. Nothing here writes sightings, profiles or devices.
 
   POST /api/accounts/web/login    {email,password}      -> {token, user}   read-only web session
+  POST /api/accounts/web/setup-link {email,ref?,v?}      email the computer setup link (rate limited)
   POST /api/accounts/web/logout                          (Bearer web)
   POST /api/accounts/web/token    {label}                (Bearer web) -> {token}  extra read-only
                                                          token, e.g. for an AI assistant (MCP)
@@ -102,9 +103,53 @@ def auth(headers):
     return _web_handle(headers) or accounts.auth(headers)
 
 
+_link_rate = {}
+
+
+def _rl(key, n, per):
+    now = time.time()
+    w = _link_rate.get(key)
+    if not w or now - w[0] > per:
+        _link_rate[key] = [now, 1]; return False
+    w[1] += 1
+    return w[1] > n
+
+
+def setup_link(body, headers):
+    """Email the computer setup link (/ornigo/) to the address given on /me's first visit.
+    Fixed text; only a validated invite code and voucher go into the link. Rate limited per
+    address (2 per hour, 4 per day) and per IP (6 per hour). Never says whether an account exists."""
+    email = accounts._norm_email(body.get("email"))
+    ip = headers.get("X-Forwarded-For", "").split(",")[0].strip() or "?"
+    if _rl("ip:" + ip, 6, 3600) or _rl("e1:" + _h(email), 2, 3600) or _rl("e24:" + _h(email), 4, 86400):
+        raise accounts.Refused("A link was just sent. Please check your email, or try again in an hour.")
+    ref = str(body.get("ref") or "").lower()
+    v = str(body.get("v") or "")
+    q = []
+    if accounts.REF.match(ref):
+        q.append("ref=" + ref)
+    if re.fullmatch(r"[A-Za-z0-9_-]{16,128}", v):
+        q.append("v=" + v)
+    link = "https://honemesh.net/ornigo/" + ("?" + "&".join(q) if q else "")
+    text = ("Hi,\n\nHere's the link to set up Ornigo on a computer that stays on at home:\n\n" + link +
+            "\n\nOpen it on that computer. It takes a couple of minutes. Then check your birds on your phone at "
+            "https://honemesh.net/me (on iPhone: tap Share, then Add to Home Screen).\n\n"
+            "Human conversation is automatically deleted. No audio is ever saved or sent.\n\n"
+            "If you didn't ask for this, you can ignore this email.\n\nOrnigo · ornigo@honemesh.net")
+    with _lock:
+        _db.execute("INSERT INTO mail_outbox(to_email,subject,body,kind,created) VALUES(?,?,?,?,?)",
+                    (email, "Set up Ornigo on your computer", text, "setup", int(time.time())))
+        _db.commit()
+    if accounts._agentmail_key():
+        accounts._mail_kick.set()
+    return {"ok": True}
+
+
 def post(path, body, headers):
     if path == "/api/accounts/web/login":
         return login(body)
+    if path == "/api/accounts/web/setup-link":
+        return setup_link(body, headers)
     h = _web_handle(headers)
     if not h:
         raise accounts.AuthError("Please sign in again.")
@@ -187,7 +232,7 @@ def _place(cell, res):
 
 def _sightings(accts, since_window=0, latin=None):
     sql = (f"SELECT latin, window, cell, res, conf_q8, verified, source, station FROM sightings "
-           f"WHERE account IN ({_in(len(accts))}) AND verified IN (1,3,4) AND window>=?")
+           f"WHERE account IN ({_in(len(accts))}) AND verified IN (1,4) AND window>=?")
     args = [*accts, since_window]
     if latin:
         sql += " AND latin=?"; args.append(latin)
