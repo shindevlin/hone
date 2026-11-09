@@ -218,15 +218,168 @@ pub fn peers(bootstrap: &[String]) -> Vec<String> {
     }).collect()
 }
 
-/// Backfill from..=to from the first peer(s) that recorded them, then apply.
-pub async fn backfill(chain: &Arc<Chain>, peers: &[String], from: u64, to: u64) {
+// ── Gossip transport (2026-11-09) ─────────────────────────────────────────────────────
+// The HTTP path needs a reachable peer API. Since the tailscale removal the nodes behind
+// NAT expose none, so ferryvps (whose only sync peer was an old tailscale IP) could never
+// backfill: its reward driver stalled on 354,945, the one epoch it was down for during a
+// restart, and it paid no rewards for days. The same requests now also travel over
+// libp2p gossip (hone/consensus), which reaches every node through relay / hole punching:
+//  - "fin": clocks answer with their signed catch-up echo of the finalized rewards_hash
+//    for each epoch, plus that epoch's validator snapshot. The requester tallies the
+//    echoes with the normal catch-up quorum rule (no single operator can finalize) and
+//    adopts a snapshot only if it hashes to the agreed rewards_hash, so sealed_by and the
+//    rewards it pays are exactly what the quorum finalized.
+//  - "sets": clocks answer with the committed entry sets they recorded. Every entry is
+//    signature-checked and exactly-once guarded on apply, as on the HTTP path, so a peer
+//    can omit but never forge.
+use std::collections::BTreeMap;
+use std::sync::Mutex;
+
+/// Most epochs one gossip request or answer covers (keeps answers well under the
+/// gossipsub message limit).
+pub const GOSSIP_MAX_EPOCHS: u64 = 32;
+const GOSSIP_WAIT_MS: u64 = 6_000;
+
+static OFFERED: Mutex<BTreeMap<u64, Vec<Vec<u8>>>> = Mutex::new(BTreeMap::new());
+static WANT: Mutex<Option<(u64, u64)>> = Mutex::new(None);
+static GOT: Mutex<BTreeMap<u64, Vec<(LedgerEntry, Option<String>)>>> = Mutex::new(BTreeMap::new());
+static REQ_LAST: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+static ANS_LAST: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// Keep a validator snapshot a peer offered for `epoch` (a JSON list of clock ids).
+pub fn offer_snapshot(epoch: u64, list: &serde_json::Value) {
+    let Ok(v) = serde_json::from_value::<Vec<String>>(list.clone()) else { return };
+    let Ok(bytes) = serde_json::to_vec(&v) else { return };
+    let mut m = OFFERED.lock().unwrap();
+    let c = m.entry(epoch).or_default();
+    if c.len() < 4 && !c.contains(&bytes) { c.push(bytes); }
+    while m.len() > 4_096 {
+        let k = *m.keys().next_back().unwrap();
+        m.remove(&k);
+    }
+}
+
+/// An offered snapshot for `epoch` that is the preimage of the quorum's `rewards_hash`.
+pub fn offered_snapshot(epoch: u64, rewards_hash: &str) -> Option<Vec<u8>> {
+    OFFERED.lock().unwrap().get(&epoch)?.iter()
+        .find(|b| crate::clock::snapshot_matches(epoch, b, rewards_hash)).cloned()
+}
+
+/// Gossip a request for from..=to (clipped to GOSSIP_MAX_EPOCHS), at most once per
+/// `min_gap_ms` per kind. Returns whether it was sent.
+pub fn request(cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, node_id: &str, kind: &str,
+    from: u64, to: u64, min_gap_ms: u64) -> bool
+{
+    if from == 0 || to < from { return false; }
+    let to = to.min(from + GOSSIP_MAX_EPOCHS - 1);
+    let now = now_ms();
+    {
+        let mut m = REQ_LAST.lock().unwrap();
+        let last = m.get(kind).copied().unwrap_or(0);
+        if now.saturating_sub(last) < min_gap_ms { return false; }
+        m.insert(kind.to_owned(), now);
+    }
+    let Ok(data) = serde_json::to_vec(&serde_json::json!({
+        "type": "sync_req", "node_id": node_id, "kind": kind, "from": from, "to": to, "nonce": now,
+    })) else { return false };
+    let ok = cmd_tx.try_send(crate::net::NetCmd::Broadcast { topic: "hone/consensus", data }).is_ok();
+    if ok { info!("[epoch-sync] gossip {kind} request {from}..{to}"); }
+    ok
+}
+
+/// Responder rate limit: one answer per (requester, kind, from) per 30 s, and at most one
+/// answer of any kind every 2 s.
+pub fn should_answer(requester: &str, kind: &str, from: u64) -> bool {
+    let now = now_ms();
+    let mut m = ANS_LAST.lock().unwrap();
+    if now.saturating_sub(m.get("*").copied().unwrap_or(0)) < 2_000 { return false; }
+    let k = format!("{requester}|{kind}|{from}");
+    if now.saturating_sub(m.get(&k).copied().unwrap_or(0)) < 30_000 { return false; }
+    m.insert(k, now);
+    m.insert("*".into(), now);
+    if m.len() > 1_024 { m.retain(|_, t| now.saturating_sub(*t) < 30_000); }
+    true
+}
+
+/// What a clock echoes for a "fin" request: (epoch, rewards_hash) of each epoch it has
+/// finalized in range, and the validator snapshot each hash was computed over.
+pub fn finalize_echo(chain: &Chain, from: u64, to: u64) -> (Vec<(u64, String)>, serde_json::Map<String, serde_json::Value>) {
+    let mut votes = Vec::new();
+    let mut snaps = serde_json::Map::new();
+    if to < from { return (votes, snaps); }
+    for e in from..=to.min(from + GOSSIP_MAX_EPOCHS - 1) {
+        let Ok(Some(m)) = chain.store.get_epoch_meta(e) else { continue };
+        if !m["finalized"].as_bool().unwrap_or(false) { continue; }
+        let Some(h) = m["rewards_hash"].as_str().filter(|h| !h.is_empty()) else { continue };
+        votes.push((e, h.to_owned()));
+        if let Some(v) = chain.store.state_get(&format!("epoch_validators:{}", e))
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        {
+            snaps.insert(e.to_string(), v);
+        }
+    }
+    (votes, snaps)
+}
+
+/// A clock's answer to a "sets" request: the entry sets it recorded in range.
+pub fn sets_message(chain: &Chain, node_id: &str, from: u64, to: u64) -> Option<Vec<u8>> {
+    if to < from { return None; }
+    let v = serve(chain, from, to.min(from + GOSSIP_MAX_EPOCHS - 1));
+    if v["epochs"].as_array().map(|a| a.is_empty()).unwrap_or(true) { return None; }
+    serde_json::to_vec(&serde_json::json!({
+        "type": "sync_sets", "node_id": node_id, "epochs": v["epochs"], "nonce": now_ms(),
+    })).ok()
+}
+
+/// Take entry sets from a gossiped answer, only for the range this node is waiting on.
+pub fn receive_sets(msg: &serde_json::Value) -> usize {
+    let Some((a, b)) = *WANT.lock().unwrap() else { return 0 };
+    let mut got = GOT.lock().unwrap();
+    let mut n = 0;
+    for (e, s) in parse(msg) {
+        if e >= a && e <= b && !got.contains_key(&e) { got.insert(e, s); n += 1; }
+    }
+    n
+}
+
+/// Ask peers over gossip for the sets of `missing` epochs and wait (bounded) for answers.
+async fn gossip_fetch(cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, node_id: &str, missing: &[u64])
+    -> BTreeMap<u64, Vec<(LedgerEntry, Option<String>)>>
+{
+    let (Some(&a), Some(&last)) = (missing.first(), missing.last()) else { return Default::default() };
+    let b = last.min(a + GOSSIP_MAX_EPOCHS - 1);
+    *WANT.lock().unwrap() = Some((a, b));
+    GOT.lock().unwrap().clear();
+    if request(cmd_tx, node_id, "sets", a, b, 3_000) {
+        let want: Vec<u64> = missing.iter().copied().filter(|e| *e <= b).collect();
+        let t0 = now_ms();
+        while now_ms().saturating_sub(t0) < GOSSIP_WAIT_MS {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            let g = GOT.lock().unwrap();
+            if want.iter().all(|e| g.contains_key(e)) { break; }
+        }
+    }
+    *WANT.lock().unwrap() = None;
+    std::mem::take(&mut *GOT.lock().unwrap())
+}
+
+/// Backfill from..=to from the first peer(s) that recorded them, then apply. Peers with
+/// an HTTP API are tried first; what is still missing is asked for over gossip.
+pub async fn backfill(chain: &Arc<Chain>, peers: &[String], from: u64, to: u64,
+    gossip: Option<(&tokio::sync::mpsc::Sender<crate::net::NetCmd>, &str)>)
+{
     if from > to { return; }
     if to - from + 1 > MAX_GAP {
         warn!("[epoch-sync] gap {}..{} is {} epochs (> {}); not backfilling — needs a state transplant",
             from, to, to - from + 1, MAX_GAP);
         return;
     }
-    let http = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build() { Ok(h) => h, Err(_) => return };
+    let http = match reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(15)).build() { Ok(h) => h, Err(_) => return };
     let mut got: std::collections::BTreeMap<u64, Vec<(LedgerEntry, Option<String>)>> = Default::default();
     let mut fins: Vec<serde_json::Value> = Vec::new();
     for p in peers {
@@ -240,7 +393,14 @@ pub async fn backfill(chain: &Arc<Chain>, peers: &[String], from: u64, to: u64) 
         }
         if (from..=to).all(|e| got.contains_key(&e)) { break; }
     }
-    let missing: Vec<u64> = (from..=to).filter(|e| !got.contains_key(e)).collect();
+    let mut missing: Vec<u64> = (from..=to).filter(|e| !got.contains_key(e)).collect();
+    if let (Some((tx, me)), false) = (gossip, missing.is_empty()) {
+        let g = gossip_fetch(tx, me, &missing).await;
+        let k = g.len();
+        for (e, s) in g { got.entry(e).or_insert(s); }
+        missing = (from..=to).filter(|e| !got.contains_key(e)).collect();
+        if k > 0 { info!("[epoch-sync] {} epoch set(s) for {}..{} received over gossip", k, from, to); }
+    }
     let n = apply_backfill(chain, got.into_iter().collect());
     let f: usize = fins.iter().map(|v| apply_finalized(chain, v)).sum();
     if f > 0 { info!("[epoch-sync] {} finalized epoch(s) taken from peers for {}..{}", f, from, to); }
@@ -360,6 +520,41 @@ mod tests {
         // A drained pool stays drained across another restart.
         let c = Chain::new(st.clone(), "a".into(), "hone-test".into());
         assert_eq!(c.restore_pools().0, 0);
+    }
+
+    /// Gossip transport: B missed 101..=103 and has no HTTP peer. A clock's "sets" answer
+    /// is accepted only for the range B is waiting on, and applying it converges B on A.
+    #[test]
+    fn missed_sets_over_gossip_converge() {
+        let sk = SigningKey::from_bytes(&[0x44; 32]);
+        let (a, _da) = chain("ga");
+        let (b, _db) = chain("gb");
+        for c in [&a, &b] { setup(c, &sk); seal(c, 100); }
+        for c in [&a, &b] { let ap = apply_set(c, 100, vec![xfer(&sk, 1, 100)], None); record(c, 100, &ap); }
+        for ep in 101..=103u64 {
+            seal(&a, ep);
+            let ap = apply_set(&a, ep, vec![xfer(&sk, ep - 99, ep)], None);
+            record(&a, ep, &ap);
+            epoch_tick(&a, ep, ap.iter().map(|(x, _)| hone_types::entry_weight(x)).sum());
+        }
+        seal(&a, 110); seal(&b, 110);
+        let msg: serde_json::Value = serde_json::from_slice(&sets_message(&a, "natoshisakamoto", 101, 103).unwrap()).unwrap();
+        assert_eq!(receive_sets(&msg), 0, "not waiting: ignored");
+        *WANT.lock().unwrap() = Some((101, 103));
+        assert_eq!(receive_sets(&msg), 3);
+        *WANT.lock().unwrap() = None;
+        let got = std::mem::take(&mut *GOT.lock().unwrap());
+        assert_eq!(apply_backfill(&b, got.into_iter().collect()), 3);
+        assert_eq!(a.store.balance_merkle_root(), b.store.balance_merkle_root());
+        assert_eq!(b.store.state_get("chain_param:base_fee"), a.store.state_get("chain_param:base_fee"));
+        assert!(sets_message(&a, "x", 200, 210).is_none(), "nothing recorded: no answer");
+    }
+
+    #[test]
+    fn answer_rate_limit() {
+        assert!(should_answer("rl-node", "fin", 7));
+        assert!(!should_answer("rl-node", "fin", 7), "same request within 30 s");
+        assert!(!should_answer("rl-other", "fin", 8), "global 2 s spacing");
     }
 
     #[test]

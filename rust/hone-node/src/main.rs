@@ -454,6 +454,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         let clock_ref = clock.clone();
         let chain_ref = chain.clone();
         let fin_sync_peers = epoch_sync::peers(&cfg.bootstrap_peers);
+        let fin_cmd_tx = net_handle.cmd_tx.clone();
+        let fin_node_id = cfg.node_id.clone();
         tokio::spawn(async move {
             // Track the last epoch we've seeded so empty epochs are only tracked once.
             let mut last_tracked: u64 = 0;
@@ -799,6 +801,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                     if last_rewarded < stop && safe_tip > last_rewarded.saturating_add(40) {
                         epoch_sync::request_finalize_backfill(&chain_ref, &fin_sync_peers,
                             last_rewarded.saturating_add(1), safe_tip);
+                        // No reachable HTTP peer (NAT): ask the clocks over gossip too.
+                        epoch_sync::request(&fin_cmd_tx, &fin_node_id, "fin",
+                            last_rewarded.saturating_add(1), safe_tip, 60_000);
                     }
                 }
             }
@@ -876,7 +881,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         if sealed.quorum >= 2 {
                             let prev = epoch_sync::last_committed(&chain_ref);
                             if prev > 0 && sealed_epoch > prev + 1 {
-                                epoch_sync::backfill(&chain_ref, &sync_peers, prev + 1, sealed_epoch - 1).await;
+                                epoch_sync::backfill(&chain_ref, &sync_peers, prev + 1, sealed_epoch - 1,
+                                    Some((&cmd_tx_for_seal, node_id_c.as_str()))).await;
                             }
                         }
                         if sealed.quorum >= 2 {
@@ -1938,11 +1944,22 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             _ => {}
                         }
                     }
-                    Ok(NetworkEvent::CatchupVotes { node_id, votes, sig, echo }) => {
+                    Ok(NetworkEvent::CatchupVotes { node_id, votes, sig, echo, snaps }) => {
                         // Signed by the voter's registered clock key, or ignored.
                         let msg = catchup_message(&chain_ref.chain_id, &node_id, &votes);
                         match verify_clock_signature(&chain_ref, &node_id, msg.as_bytes(), &sig) {
                             Ok(()) => {
+                                // Validator snapshots for echoed epochs this node never sealed.
+                                // Used only if one hashes to the quorum's rewards_hash.
+                                if let Some(m) = snaps.as_object() {
+                                    for (k, v) in m {
+                                        if let Ok(e) = k.parse::<u64>() {
+                                            if votes.iter().any(|(x, _)| *x == e) && !epoch_is_finalized(&chain_ref, e) {
+                                                epoch_sync::offer_snapshot(e, v);
+                                            }
+                                        }
+                                    }
+                                }
                                 // A peer is voting on epochs this node already finalized: it
                                 // is missing votes (ours among them), and having finalized we
                                 // no longer send them on our own. Echo our finalized hashes
@@ -2019,6 +2036,43 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             }
                             Err(err) => warn!("[catchup] rejected votes from '{}': {}", node_id, err),
                         }
+                    }
+                    Ok(NetworkEvent::SyncRequest { node_id, kind, from, to }) => {
+                        // Clocks answer peers that missed epochs (gossip transport, see
+                        // epoch_sync). "fin": a signed catch-up echo of our finalized hashes
+                        // plus validator snapshots. "sets": our recorded entry sets.
+                        let Some(sk) = echo_sk.as_ref().as_ref() else { continue };
+                        if !epoch_sync::should_answer(&node_id, &kind, from) { continue; }
+                        let data = match kind.as_str() {
+                            "fin" => {
+                                let (votes, snaps) = epoch_sync::finalize_echo(&chain_ref, from, to);
+                                if votes.is_empty() { continue; }
+                                let m = catchup_message(&chain_ref.chain_id, &echo_node_id, &votes);
+                                let esig = {
+                                    use ed25519_dalek::Signer;
+                                    hex::encode(sk.sign(m.as_bytes()).to_bytes())
+                                };
+                                info!("[epoch-sync] answering fin request from {} for {}..{}: {} epoch(s)",
+                                    node_id, from, to, votes.len());
+                                serde_json::to_vec(&serde_json::json!({
+                                    "type": "catchup", "echo": true, "node_id": echo_node_id,
+                                    "votes": votes, "sig": esig, "snaps": snaps, "nonce": now_ms(),
+                                })).ok()
+                            }
+                            "sets" => {
+                                let d = epoch_sync::sets_message(&chain_ref, &echo_node_id, from, to);
+                                if d.is_some() { info!("[epoch-sync] answering sets request from {} for {}..{}", node_id, from, to); }
+                                d
+                            }
+                            _ => None,
+                        };
+                        if let Some(data) = data {
+                            let _ = echo_cmd_tx.send(NetCmd::Broadcast { topic: "hone/consensus", data }).await;
+                        }
+                    }
+                    Ok(NetworkEvent::SyncSets { msg }) => {
+                        let n = epoch_sync::receive_sets(&msg);
+                        if n > 0 { info!("[epoch-sync] {} missed epoch set(s) received over gossip", n); }
                     }
                     Ok(NetworkEvent::GitRefAvailable { repo_id, owner, repo_name, commit_hash, peer_http }) => {
                         let _ = sync_tx.try_send(storage_sync::RefAvailable {
@@ -2478,7 +2532,9 @@ fn needs_validator_snapshot(store: &Store, epoch: u64, rewards_hash: &str) -> bo
     let key = format!("epoch_validators:{}", epoch);
     if store.state_get(&key).is_some() { return false; }
     // Missed the seal: adopt the registered-clock snapshot only if it reproduces the hash.
-    match clock::derive_validator_snapshot(store, epoch, rewards_hash) {
+    match clock::derive_validator_snapshot(store, epoch, rewards_hash)
+        .or_else(|| epoch_sync::offered_snapshot(epoch, rewards_hash))
+    {
         Some(bytes) => store.state_set(&key, &bytes).is_err(),
         None => true,
     }
@@ -4184,6 +4240,66 @@ mod reward_driver_tests {
         // grace a ClockReward is paid into stake, so a balances-only total reports
         // correctly-paid rewards as missing supply.
         chain.store.total_supply(hone_types::NATIVE_TOKEN) + chain.store.total_staked()
+    }
+
+    /// 2026-11-09: ferryvps missed epoch 354,945 (down across the boundary while it
+    /// restarted) and its reward driver stalled there for days: no HTTP peer was reachable
+    /// and no clock ever re-votes an epoch it has finalized. Two nodes, one missing an
+    /// epoch: the gap node takes the clocks' signed echoes (the gossip "fin" answer),
+    /// tallies them with the catch-up quorum (one operator is not enough), adopts the
+    /// validator snapshot only if it hashes to the agreed rewards_hash, and after the
+    /// reward replay both nodes hold identical state.
+    #[test]
+    fn missed_epoch_heals_from_gossip_finalize_echo() {
+        let (a, _da) = make_chain("fe_a");
+        let (b, _db) = make_chain("fe_b");
+        let (a, b) = (std::sync::Arc::new(a), std::sync::Arc::new(b));
+        let e = 354_945u64;
+        let snap = serde_json::to_vec(&vec!["josh".to_string(), "natoshisakamoto".into(), "shindevlin".into()]).unwrap();
+        for c in [&a, &b] {
+            for x in [e - 1, e + 1] { c.store.state_set(&format!("epoch_validators:{x}"), &snap).unwrap(); }
+        }
+        a.store.state_set(&format!("epoch_validators:{e}"), &snap).unwrap();
+        let fin = |c: &Chain, x: u64, hash: String| {
+            let sealers = finalize_sealers(&c.store, x, &hash);
+            c.apply_entry(&LedgerEntry::EpochFinalize { epoch: x, node_id: "natoshisakamoto".into(),
+                rewards_hash: hash, quorum: 2, sealed_by: sealers, state_root: String::new(), timestamp: 0 }).unwrap();
+        };
+        for x in e - 1..=e + 1 { fin(&*a, x, clock::compute_rewards_hash(x, &a.store)); }
+        for x in [e - 1, e + 1] { fin(&*b, x, clock::compute_rewards_hash(x, &b.store)); }
+        assert!(!epoch_is_finalized(&b, e));
+        let h = clock::compute_rewards_hash(e, &a.store);
+        assert!(needs_validator_snapshot(&b.store, e, &h), "B cannot derive the snapshot alone");
+        // A (a clock) answers the "fin" request.
+        let (votes, snaps) = epoch_sync::finalize_echo(&a, e - 1, e + 1);
+        assert_eq!(votes.len(), 3);
+        // A forged snapshot is never adopted.
+        epoch_sync::offer_snapshot(e, &serde_json::json!(["mallory"]));
+        assert!(needs_validator_snapshot(&b.store, e, &h));
+        epoch_sync::offer_snapshot(e, &snaps[&e.to_string()]);
+        let clock = clock::ClockConsensus::new();
+        let mut rx = clock.subscribe_finalized();
+        let voters = |_x: u64| vec!["josh".to_string(), "natoshisakamoto".into(), "shindevlin".into()];
+        let mine: Vec<(u64, String)> = votes.iter().filter(|(x, _)| *x == e).cloned().collect();
+        assert_eq!(clock.receive_catchup_votes("natoshisakamoto", &mine, voters, |x| epoch_is_finalized(&b, x)), 0,
+            "one operator cannot finalize");
+        assert_eq!(clock.receive_catchup_votes("shindevlin", &mine, voters, |x| epoch_is_finalized(&b, x)), 1);
+        let ev = rx.try_recv().unwrap();
+        assert_eq!((ev.epoch, ev.rewards_hash.as_str()), (e, h.as_str()));
+        assert!(!needs_validator_snapshot(&b.store, ev.epoch, &ev.rewards_hash), "snapshot adopted");
+        fin(&*b, ev.epoch, ev.rewards_hash.clone());
+        assert_eq!(b.store.get_epoch_meta(e).unwrap().unwrap()["sealed_by"],
+            a.store.get_epoch_meta(e).unwrap().unwrap()["sealed_by"]);
+        // Reward replay on both, in epoch order: identical state.
+        for c in [&a, &b] {
+            for x in e - 1..=e + 1 {
+                let m = c.store.get_epoch_meta(x).unwrap().unwrap();
+                let s: Vec<String> = serde_json::from_value(m["sealed_by"].clone()).unwrap();
+                assert_eq!(s.len(), 3);
+                emit_epoch_rewards(x, &s, c);
+            }
+        }
+        assert_eq!(a.store.balance_merkle_root(), b.store.balance_merkle_root());
     }
 
     #[test]

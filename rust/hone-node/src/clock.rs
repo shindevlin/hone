@@ -1091,6 +1091,13 @@ fn rewards_hash_over(epoch: u64, snapshot: &[u8]) -> String {
 /// votes differ forever (mainnet 2026-10-31..11-02: 8,490 epochs from 339222 stuck, the
 /// reward driver blocked on 339222). An epoch that missed live reward consensus earns
 /// nothing; its block reward recycles, identically on every node.
+/// True when `snapshot` (a stored validator-list JSON) is the preimage of `rewards_hash`
+/// for `epoch`. Lets a node that missed an epoch adopt the snapshot a peer offers: the
+/// hash it must match is the one the reward quorum agreed on, so a peer cannot forge it.
+pub fn snapshot_matches(epoch: u64, snapshot: &[u8], rewards_hash: &str) -> bool {
+    rewards_hash_over(epoch, snapshot) == rewards_hash
+}
+
 pub fn no_reward_hash(epoch: u64) -> String {
     rewards_hash_over(epoch, &[])
 }

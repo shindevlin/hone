@@ -56,7 +56,15 @@ pub enum NetworkEvent {
     ConsensusProposal { epoch: u64, rewards_hash: String, node_id: String },
     /// Signed batch of catch-up reward votes for past unfinalized epochs
     /// (`{"type":"catchup","node_id","votes":[[epoch,hash],..],"sig"}` on hone/consensus).
-    CatchupVotes { node_id: String, votes: Vec<(u64, String)>, sig: String, echo: bool },
+    CatchupVotes { node_id: String, votes: Vec<(u64, String)>, sig: String, echo: bool,
+        /// Validator snapshots for the echoed epochs (epoch -> list); checked against the
+        /// quorum hash before use (epoch_sync::offered_snapshot).
+        snaps: serde_json::Value },
+    /// A peer is missing epochs: "fin" (its reward driver is stalled on unfinalized
+    /// epochs) or "sets" (committed entry sets of seals it missed). Clocks answer.
+    SyncRequest { node_id: String, kind: String, from: u64, to: u64 },
+    /// Committed entry sets a clock sent in answer to a "sets" request.
+    SyncSets { msg: serde_json::Value },
     /// State-healer traffic on hone/consensus: a signed checkpoint attestation
     /// (`type: checkpoint`), a snapshot request (`checkpoint_req`) or a snapshot reply
     /// (`checkpoint_snap`). See state_healer.rs.
@@ -893,7 +901,21 @@ impl Network {
                 }
                 debug!("Received {} catch-up votes from {} ({})", votes.len(), node_id, source);
                 let echo = json.get("echo").and_then(|v| v.as_bool()).unwrap_or(false);
-                self.emit(NetworkEvent::CatchupVotes { node_id, votes, sig, echo });
+                let snaps = json.get("snaps").cloned().unwrap_or(serde_json::Value::Null);
+                self.emit(NetworkEvent::CatchupVotes { node_id, votes, sig, echo, snaps });
+            }
+
+            TOPIC_CONSENSUS if json.get("type").and_then(|v| v.as_str()) == Some("sync_req") => {
+                let node_id = json.get("node_id").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+                let kind = json.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+                let from = json.get("from").and_then(|v| v.as_u64()).unwrap_or(0);
+                let to = json.get("to").and_then(|v| v.as_u64()).unwrap_or(0);
+                if node_id.is_empty() || from == 0 || to < from { return; }
+                self.emit(NetworkEvent::SyncRequest { node_id, kind, from, to });
+            }
+
+            TOPIC_CONSENSUS if json.get("type").and_then(|v| v.as_str()) == Some("sync_sets") => {
+                self.emit(NetworkEvent::SyncSets { msg: json });
             }
 
             TOPIC_CONSENSUS => {
