@@ -58,6 +58,8 @@ data class LiveCoverage(
     val locSrc: String = "",
     val apCount: Int = 0,
     val apByBand: Map<String, Int> = emptyMap(),
+    val apStrongest: Int? = null,               // dBm of the strongest network this window
+    val apChannels: Map<Int, Int> = emptyMap(), // channel -> networks on it
     val bandsSupported: List<String> = emptyList(),
     val bleCrowd: Int = 0,
     val honeDevices: Int = 0,
@@ -400,6 +402,8 @@ object SightingsEngine {
                 locAgeS = f?.first?.let { ageMs(it) / 1000 }, locSrc = f?.second ?: "",
                 apCount = a?.aps?.size ?: 0,
                 apByBand = a?.aps?.values?.groupingBy { it.band }?.eachCount() ?: emptyMap(),
+                apStrongest = a?.aps?.values?.maxOfOrNull { it.rssi },
+                apChannels = a?.aps?.values?.groupingBy { it.channel }?.eachCount() ?: emptyMap(),
                 bandsSupported = bandsSupported(c),
                 bleCrowd = a?.ble?.size ?: 0,
                 honeDevices = accs.values.flatMap { it.hone }.toSet().size,

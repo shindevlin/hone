@@ -73,6 +73,8 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
             }
         }
 
+        FlipperDevicesCard(onOpen = { onOpen("flipper") }, title = "Your devices")
+
         if (simple) TextButton({ advanced = !advanced }) {
             Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_advanced) + if (advanced) " ▾" else " ▸")
         }

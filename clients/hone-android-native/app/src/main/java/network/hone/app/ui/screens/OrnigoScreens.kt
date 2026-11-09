@@ -216,7 +216,7 @@ private fun Chip(text: String, color: androidx.compose.ui.graphics.Color = OrnIn
 // ── Today ────────────────────────────────────────────────────────────────────
 
 @Composable
-fun TodayScreen(onSettings: () -> Unit, onSave: () -> Unit = {}, onHone: () -> Unit = {}) {
+fun TodayScreen(onSettings: () -> Unit, onSave: () -> Unit = {}, onHone: () -> Unit = {}, onFlipper: () -> Unit = {}) {
     val ctx = LocalContext.current
     val live by SoundSensing.live.collectAsStateWithLifecycle()
     val st by produceState<TodayStats?>(null, live.reportsStored, live.recent.firstOrNull()?.atMs) {
@@ -229,6 +229,7 @@ fun TodayScreen(onSettings: () -> Unit, onSave: () -> Unit = {}, onHone: () -> U
             TextButton(onSettings) { Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_settings), color = OrnInkDim) }
         }
         SaveYourBirdsCard(onSave)
+        FlipperDevicesCard(onOpen = onFlipper, showEmpty = false, title = "Your devices")
         val s = st ?: run { Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_counting), color = OrnInkFaint); return@Column }
         // Streak
         Column(Modifier.fillMaxWidth().background(OrnCanopy, RoundedCornerShape(22.dp)).padding(16.dp),

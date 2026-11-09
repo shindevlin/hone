@@ -148,14 +148,16 @@ private fun AppShell(honeMode: Boolean) {
                 network.hone.app.ui.screens.EncounterScreen(target = e.arguments?.getString("t"),
                     onCollection = { go(Dest.Birds.route) }, onBack = { nav.popBackStack() })
             }
-            composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }, onHone = { nav.navigate("handoff") }) }
+            composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }, onHone = { nav.navigate("handoff") },
+                onFlipper = { nav.navigate("flipper") }) }
+            composable("flipper") { network.hone.app.ui.screens.FlipperScreen(onBack = { nav.popBackStack() }) }
             composable("handoff") { network.hone.app.ui.screens.HandoffScreen(onBack = { nav.popBackStack() }) }
             composable(Dest.Node.route) { NodeScreen() }
             composable(Dest.Wallet.route) { WalletScreen(onEarnings = { go(Dest.Earnings.route) }, onSponsor = { nav.navigate("sponsor") },
                 onKeys = { nav.navigate("keys") }, onCards = { nav.navigate("cards") }) }
             composable(Dest.Earnings.route) { network.hone.app.ui.screens.EarningsScreen() }
             composable(Dest.Devices.route) { network.hone.app.ui.screens.DevicesScreen(onNode = { nav.navigate(Dest.Node.route) },
-                onSensors = { nav.navigate(Dest.Sensors.route) }, onRoles = { nav.navigate("roles") }, onFindMy = { nav.navigate("findthings") }) }
+                onSensors = { nav.navigate(Dest.Sensors.route) }, onRoles = { nav.navigate("roles") }, onFindMy = { nav.navigate("findthings") }, onFlipper = { nav.navigate("flipper") }) }
             composable("sponsor") { network.hone.app.ui.screens.SponsorScreen(onBack = { nav.popBackStack() }) }
             composable("roles") { network.hone.app.ui.screens.RolesScreen(onBack = { nav.popBackStack() }, onKeys = { nav.navigate("keys") }) }
             composable("keys") { network.hone.app.ui.screens.KeysScreen(onBack = { nav.popBackStack() }, onFindMy = { nav.navigate("findmy") },

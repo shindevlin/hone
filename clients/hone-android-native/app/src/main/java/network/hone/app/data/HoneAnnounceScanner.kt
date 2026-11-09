@@ -219,6 +219,7 @@ object HoneAnnounceScanner {
             savePending()
         }
         appCtx?.let { c ->
+            runCatching { FlipperLog.add(c, devId, GROUPS[group], count, hash) }
             network.hone.app.telemetry.FlipperPublisher.record(c, sensorId, owner, hash, count, GROUP_TYPE[group],
                 sig.hex(), pubkey, null)
         }
@@ -275,8 +276,9 @@ object HoneAnnounceScanner {
     /** Refresh rssi / last-seen on every repeat fragment of an already-verified announce. */
     private fun touch(r: ScanResult) {
         val id = addrToId[r.device.address] ?: return
-        val d = _devices.value[id] ?: return
-        _devices.value = _devices.value + (id to d.copy(rssi = r.rssi, lastSeenMs = System.currentTimeMillis()))
+        val d = _devices.value[id]?.copy(rssi = r.rssi, lastSeenMs = System.currentTimeMillis()) ?: return
+        _devices.value = _devices.value + (id to d)
+        appCtx?.let { c -> runCatching { FlipperLog.seen(c, d) } }
     }
 
     private fun parse(f: ByteArray, rssi: Int): HoneDevice? {
@@ -318,6 +320,7 @@ object HoneAnnounceScanner {
         val prev = _devices.value[d0.deviceId]
         val d = d0.copy(relayed = relayedBy[d0.deviceId] ?: 0, queued = prev?.queued ?: 0)
         _devices.value = _devices.value + (d.deviceId to d)
+        appCtx?.let { c -> runCatching { FlipperLog.seen(c, d) } }
         Log.i(TAG, "announce ${d.deviceId} owner=${d.owner} sig=${d.signatureOk} batt=${d.batteryPct}%")
         val last = chainChecked[d.deviceId]
         if (d.signatureOk && (last == null || System.currentTimeMillis() - last.second > 300_000)) {

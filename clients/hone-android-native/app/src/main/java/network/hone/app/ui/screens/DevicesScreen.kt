@@ -29,7 +29,7 @@ import java.net.URL
 
 /** Your devices: this phone, your other HONE devices (from the status index), things you own, and the node card. */
 @Composable
-fun DevicesScreen(vm: NodeViewModel = viewModel(), onNode: () -> Unit, onSensors: () -> Unit, onRoles: () -> Unit, onFindMy: () -> Unit) {
+fun DevicesScreen(vm: NodeViewModel = viewModel(), onNode: () -> Unit, onSensors: () -> Unit, onRoles: () -> Unit, onFindMy: () -> Unit, onFlipper: () -> Unit = {}) {
     val ctx = LocalContext.current
     val s by vm.state.collectAsStateWithLifecycle()
     val acct = remember { runCatching { java.io.File(ctx.filesDir, "hone-node/witness_account").readText().trim() }.getOrDefault("") }
@@ -65,6 +65,8 @@ fun DevicesScreen(vm: NodeViewModel = viewModel(), onNode: () -> Unit, onSensors
         NavRow(Icons.Filled.TravelExplore, "Find my things", "Where your tags, Flippers and old phones were last seen.", onFindMy)
         NavRow(Icons.Filled.Groups, "Help run the network",
             if (roles.isEmpty()) "Timekeeper, checking panel and sensor jobs." else "Your jobs: " + roles.joinToString(", ") + ".", onRoles)
+        Spacer(Modifier.height(6.dp))
+        FlipperDevicesCard(onOpen = onFlipper, title = "Flipper")
         Spacer(Modifier.height(6.dp))
         Section("Status")
         DeviceCard("This phone", if (s.running) "Running" else "Stopped", if (s.running) HoneGreen else HoneAmber,
