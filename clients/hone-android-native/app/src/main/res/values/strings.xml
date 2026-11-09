@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">HONE</string>
+    <string name="read_heard_label">see the birds Hone heard and your Hone account</string>
+    <string name="read_heard_desc">Lets a bird game like Birderlands show the birds Hone heard (bird, time and area, never audio or your exact position) and connect to your Hone account name.</string>
 </resources>
