@@ -19,6 +19,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,46 +41,79 @@ import network.hone.app.ui.theme.*
  * The private key never surfaces here — it stays in the Rust keystore.
  */
 @Composable
-fun WalletScreen(vm: WalletViewModel = viewModel()) {
+fun WalletScreen(vm: WalletViewModel = viewModel(), onEarnings: () -> Unit = {}, onSponsor: (() -> Unit)? = null, onKeys: (() -> Unit)? = null) {
     val identity by vm.identity.collectAsStateWithLifecycle()
     val history by vm.history.collectAsStateWithLifecycle()
     var showReceive by remember { mutableStateOf(false) }
-    var showSend by remember { mutableStateOf(false) }
-    var showStake by remember { mutableStateOf(false) }
     var showKey by remember { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val acct = identity.address
+    var positions by remember { mutableStateOf<List<network.hone.app.data.HoneChain.Position>?>(null) }
+    LaunchedEffect(acct, identity.balanceHunits) {
+        if (acct.isNotEmpty()) positions = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { network.hone.app.data.HoneChain.positions(acct) }.getOrNull() } ?: positions
+    }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(top = 24.dp)) {
-        Text("Wallet", style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(8.dp))
-        Text(identity.name, style = MaterialTheme.typography.titleMedium, color = HoneTextDim)
-
-        Spacer(Modifier.height(20.dp))
-        BalanceCard(identity.balanceHone.takeIf { identity.balanceKnown }, identity.delegatedHone)
-
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ActionButton("Receive", Icons.Filled.CallReceived, Modifier.weight(1f)) { showReceive = true }
-            ActionButton("Send", Icons.Filled.CallMade, Modifier.weight(1f), primary = true) { showSend = true }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(top = 20.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("HONE", fontFamily = OrnDisplay, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, letterSpacing = 3.sp,
+                color = HoneOrange, modifier = Modifier.weight(1f))
+            Text(identity.name, fontSize = 13.sp, color = HoneTextDim)
         }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ActionButton("Stake", Icons.Filled.Hub, Modifier.weight(1f)) { showStake = true }
-            ActionButton("Active key", Icons.Filled.Key, Modifier.weight(1f)) { showKey = true }
+        YouHave(identity.balanceHunits.toLong().takeIf { identity.balanceKnown }, positions, acct, onEarnings)
+
+        Segmented(listOf("Send", "Back someone"), tab) { tab = it }
+        HoneBox {
+            if (acct.isEmpty()) Dim("This phone has no HONE account yet.")
+            else if (tab == 0) SendFlow(acct, inline = true) else DelegateFlow(acct, inline = true)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LineButton("Receive", Modifier.weight(1f)) { showReceive = true }
+            LineButton("Sending key", Modifier.weight(1f)) { showKey = true }
+        }
+        if (onSponsor != null) HoneBox(onClick = onSponsor) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Bring people in", fontWeight = FontWeight.Bold, color = HoneText, modifier = Modifier.weight(1f))
+                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = HoneTextDim)
+            }
+            Dim("Invite someone, back a new listener, or make vouchers.")
         }
 
-        Spacer(Modifier.height(24.dp))
-        Text("ACTIVITY", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(history, key = { it.id }) { TxRow(it) }
-        }
+        Text("Recent", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = HoneText)
+        if (history.isEmpty()) Dim(if (identity.balanceKnown) "Nothing yet." else "Asking the network…")
+        if (history.isNotEmpty()) HoneBox { groupTx(history).take(20).forEach { (tx, n, sum) -> TxRow(tx, n, sum) } }
+        if (onKeys != null) TextButton(onKeys) { Text("Keys and grants (for experts)", color = HoneOrange, fontWeight = FontWeight.Bold) }
     }
 
     if (showReceive) ReceiveSheet(identity.name, identity.address) { showReceive = false }
-    if (showSend) ActionSheet({ showSend = false }) { SendFlow(identity.address) }
-    if (showStake) ActionSheet({ showStake = false }) { DelegateFlow(identity.address) }
     if (showKey) ActionSheet({ showKey = false }) { Column(Modifier.padding(24.dp)) { ActiveKeyCard(identity.address) } }
+}
+
+/** "You have": everything, split into free to use, set aside for own roles, and backing others. */
+@Composable
+private fun YouHave(free: Long?, positions: List<network.hone.app.data.HoneChain.Position>?, acct: String, onEarnings: () -> Unit) {
+    val own = positions?.filter { network.hone.app.data.HoneChain.isMine(acct, it.node) }?.sumOf { it.amount }
+    val others = positions?.filterNot { network.hone.app.data.HoneChain.isMine(acct, it.node) }?.sumOf { it.amount }
+    fun f(h: Long?) = h?.let { network.hone.app.data.Plain.hone(it) } ?: "—"
+    HoneBox {
+        Dim("You have")
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(f(if (free == null || own == null || others == null) null else free + own + others),
+                fontFamily = HoneMono, fontWeight = FontWeight.Bold, fontSize = 34.sp, color = HoneText)
+            Spacer(Modifier.width(6.dp))
+            Text("HONE", fontSize = 16.sp, color = HoneOrange, fontFamily = HoneMono, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        Row(Modifier.fillMaxWidth()) {
+            listOf("Free to use" to free, "Set aside" to own, "Backing others" to others).forEach { (k, v) ->
+                Column(Modifier.weight(1f)) { Dim(k); Mono(f(v)) }
+            }
+        }
+        TextButton(onEarnings, contentPadding = PaddingValues(0.dp)) {
+            Text("Earnings: paid and waiting", color = HoneOrange, fontWeight = FontWeight.Bold)
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = HoneOrange)
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,70 +123,33 @@ private fun ActionSheet(onDismiss: () -> Unit, content: @Composable () -> Unit) 
         containerColor = MaterialTheme.colorScheme.surface) { content() }
 }
 
-@Composable
-private fun BalanceCard(balance: Double?, delegated: Double) {
-    Column(
-        Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
-            .padding(20.dp)
-    ) {
-        Text("BALANCE", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(if (balance == null) "—" else "%.6f".format(balance),
-                style = MaterialTheme.typography.displayLarge.copy(fontFamily = HoneMono),
-                color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.width(8.dp))
-            Text("HONE", style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 8.dp))
-        }
-        if (delegated > 0) {
-            Spacer(Modifier.height(4.dp))
-            Text("+ %.2f HONE delegated".format(delegated),
-                style = MaterialTheme.typography.bodyMedium, color = HoneBlue)
-        }
+/** The same kind of reward collapses into one row ("Paid for keeping time ×12"). Transfers stay single. */
+private fun groupTx(h: List<Tx>): List<Triple<Tx, Int, Long>> {
+    val out = mutableListOf<Triple<Tx, Int, Long>>()
+    val at = HashMap<String, Int>()
+    h.forEach { t ->
+        val k = t.counterparty + t.direction
+        val i = if (t.counterparty.startsWith("@")) null else at[k]
+        if (i != null) out[i] = Triple(out[i].first, out[i].second + 1, out[i].third + t.amountHunits.toLong())
+        else { if (!t.counterparty.startsWith("@")) at[k] = out.size; out += Triple(t, 1, t.amountHunits.toLong()) }
     }
+    return out
 }
 
 @Composable
-private fun ActionButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
-                         modifier: Modifier, primary: Boolean = false, onClick: () -> Unit) {
-    val colors = if (primary)
-        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = androidx.compose.ui.graphics.Color.Black)
-    else ButtonDefaults.filledTonalButtonColors()
-    Button(onClick = onClick, modifier = modifier.height(52.dp),
-        shape = RoundedCornerShape(14.dp), colors = colors) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(label, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun TxRow(tx: Tx) {
+private fun TxRow(tx: Tx, count: Int = 1, sum: Long = tx.amountHunits.toLong()) {
     val inbound = tx.direction == TxDirection.IN
     val sign = if (inbound) "+" else "−"
-    val amtColor = if (inbound) HoneGreen else MaterialTheme.colorScheme.onSurface
-    Row(
-        Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(if (inbound) Icons.Filled.SouthWest else Icons.Filled.NorthEast,
-            contentDescription = if (inbound) "received" else "sent",
-            tint = if (inbound) HoneGreen else HoneTextDim, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
+    val isTransfer = tx.counterparty.startsWith("@")
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(tx.counterparty, style = MaterialTheme.typography.titleMedium)
-            Text("epoch ${tx.epoch}${tx.memo?.let { " · $it" } ?: ""}",
-                style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+            Text(network.hone.app.data.Plain.entry(if (isTransfer) "transfer" else tx.counterparty, !inbound, tx.counterparty) + if (count > 1) " ×$count" else "",
+                fontSize = 14.sp, color = HoneText)
+            tx.memo?.let { Text(it, fontSize = 12.sp, color = HoneTextFaint) }
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text("$sign${"%.6f".format(tx.amountHone)}",
-                style = MaterialTheme.typography.titleMedium.copy(fontFamily = HoneMono), color = amtColor)
-            StatusChip(tx.status)
+            Text("$sign${network.hone.app.data.Plain.hone(sum)}", fontFamily = HoneMono, fontSize = 14.sp, color = if (inbound) HoneGreen else HoneText)
+            if (tx.status != TxStatus.CONFIRMED) StatusChip(tx.status)
         }
     }
 }

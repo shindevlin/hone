@@ -16,3 +16,4 @@ keystore.properties
 /app/src/main/jniLibs
 # Perch model, fetched by tools/fetch-perch.sh
 /app/src/main/assets/perch/
+/app/src/emulator/jniLibs

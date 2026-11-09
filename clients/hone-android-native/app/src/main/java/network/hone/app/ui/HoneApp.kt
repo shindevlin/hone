@@ -147,7 +147,8 @@ private fun AppShell(honeMode: Boolean) {
             composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }, onHone = { nav.navigate("handoff") }) }
             composable("handoff") { network.hone.app.ui.screens.HandoffScreen(onBack = { nav.popBackStack() }) }
             composable(Dest.Node.route) { NodeScreen() }
-            composable(Dest.Wallet.route) { WalletScreen() }
+            composable(Dest.Wallet.route) { WalletScreen(onEarnings = { nav.navigate("earnings") }) }
+            composable("earnings") { network.hone.app.ui.screens.EarningsScreen(onBack = { nav.popBackStack() }) }
             composable(Dest.Sensors.route) { SensorsScreen() }
             composable(Dest.Birds.route) { BirdsScreen() }
             composable(Dest.Settings.route) { SettingsScreen(simple = simple, onOpen = { nav.navigate(it) }, onSignIn = { firstRun = true }) }

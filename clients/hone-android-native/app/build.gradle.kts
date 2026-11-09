@@ -1,3 +1,8 @@
+// Emulator-only build: ./gradlew -Pemulator assembleDebug. Adds the x86_64 h3, hone_miner and
+// hone_voiceprint libraries from src/emulator/jniLibs (gitignored, built by tools/build-emu-libs.sh).
+// The release script never passes -Pemulator and refuses any APK holding lib/x86_64/.
+val emulatorBuild = project.hasProperty("emulator")
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,15 +17,17 @@ android {
         applicationId = "network.hone.app"   // HONE brand — matches the Rust JNI/uniffi package
         minSdk = 26                            // 8.0+ (foreground services, notification channels)
         targetSdk = 36
-        versionCode = 18
-        versionName = "1.7.0"
+        versionCode = 19
+        versionName = "1.8.0"
         // Commit shown in the signed device status.
         buildConfigField("String", "GIT_COMMIT", "\"" + (runCatching {
             ProcessBuilder("git", "rev-parse", "--short=8", "HEAD").directory(rootDir).start()
                 .inputStream.bufferedReader().readText().trim()
         }.getOrNull()?.ifEmpty { null } ?: "unknown") + "\"")
         // The Rust core is loaded per-ABI as libhone_miner.so (Phase 0b/uniffi).
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        // Phones: ARM only. x86_64 exists only in emulator builds (-Pemulator), never shipped.
+        ndk { abiFilters += if (emulatorBuild) listOf("x86_64") else listOf("arm64-v8a", "armeabi-v7a") }
+        if (emulatorBuild) versionNameSuffix = "-emulator"
     }
 
     buildTypes {
@@ -120,6 +127,7 @@ val extractH3Jni by tasks.registering(Copy::class) {
 }
 android {
     sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("h3jni"))
+    if (emulatorBuild) sourceSets["debug"].jniLibs.srcDir("src/emulator/jniLibs")
     packaging {
         resources.excludes += listOf(
             "android-arm/**", "android-arm64/**", "darwin-arm64/**", "darwin-x64/**",
@@ -130,3 +138,15 @@ android {
     }
 }
 tasks.named("preBuild") { dependsOn(extractH3Jni) }
+// Phone builds must never carry x86_64 code (emulator stubs or libraries).
+val checkNoX86 by tasks.registering {
+    doLast {
+        if (emulatorBuild) return@doLast
+        val apks = fileTree(layout.buildDirectory.dir("outputs/apk")) { include("**/*.apk") }
+        apks.forEach { apk ->
+            val bad = zipTree(apk).matching { include("lib/x86_64/**", "lib/x86/**") }.files.map { it.name }
+            if (bad.isNotEmpty()) throw GradleException("${apk.name} holds x86 libraries: $bad")
+        }
+    }
+}
+tasks.matching { it.name == "assembleDebug" || it.name == "assembleRelease" }.configureEach { finalizedBy(checkNoX86) }

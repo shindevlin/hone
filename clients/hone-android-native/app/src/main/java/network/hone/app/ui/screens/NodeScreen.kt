@@ -113,7 +113,7 @@ private fun MineToggle(s: NodeSnapshot, onToggle: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, label = "press")
     val bg = if (s.running) HoneRed.copy(alpha = 0.15f) else MaterialTheme.colorScheme.primary
-    val fg = if (s.running) HoneRed else Color.Black
+    val fg = if (s.running) HoneRed else MaterialTheme.colorScheme.onPrimary
     val label = if (s.running) "Stop node" else "Start mining"
 
     Button(

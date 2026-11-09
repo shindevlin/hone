@@ -10,6 +10,8 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -67,6 +69,11 @@ private val OrnShapes = Shapes(
 @Suppress("UNUSED_PARAMETER")
 fun HoneTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
     val view = LocalView.current
+    // Decide the palette here, above MaterialTheme: a write from a child does not recolour the scheme.
+    val ctx = view.context
+    val modeVersion by network.hone.app.ui.AppMode.version
+    val light = remember(modeVersion) { network.hone.app.ui.AppMode.hone(ctx) && network.hone.app.ui.AppMode.light(ctx) }
+    ThemeMode.light = light
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
@@ -75,5 +82,5 @@ fun HoneTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = ThemeMode.light
         }
     }
-    MaterialTheme(colorScheme = if (ThemeMode.light) HoneLightColors else OrnColors, typography = HoneTypography, shapes = OrnShapes, content = content)
+    MaterialTheme(colorScheme = if (light) HoneLightColors else OrnColors, typography = HoneTypography, shapes = OrnShapes, content = content)
 }
