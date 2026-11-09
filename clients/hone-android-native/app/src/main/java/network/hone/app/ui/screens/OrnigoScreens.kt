@@ -54,7 +54,7 @@ fun confidenceWord(pct: Double, unlikelyHere: Boolean = false): String = when {
 private data class Pin(val latin: String, val name: String, val lat: Double, val lon: Double, val last: Long, val rare: Boolean, val n: Int)
 
 @Composable
-fun OrnigoMapScreen(onListen: () -> Unit) {
+fun OrnigoMapScreen(onListen: (String?) -> Unit) {
     val ctx = LocalContext.current
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val mapView = remember {
@@ -190,7 +190,7 @@ fun OrnigoMapScreen(onListen: () -> Unit) {
                     Text(if (pins.isEmpty()) androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_empty_body) else androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_tap),
                         style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
                 }
-                Button(onListen, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(28.dp),
+                Button({ onListen(sel?.latin) }, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = OrnChorus, contentColor = OrnNight)) {
                     Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_go_listen), style = MaterialTheme.typography.titleMedium)
                 }

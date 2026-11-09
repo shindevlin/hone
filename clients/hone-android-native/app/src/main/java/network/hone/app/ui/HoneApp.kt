@@ -132,7 +132,13 @@ private fun AppShell(honeMode: Boolean) {
             startDestination = if (honeMode) Dest.Node.route else Dest.Map.route,
             modifier = Modifier.padding(inner),
         ) {
-            composable(Dest.Map.route) { network.hone.app.ui.screens.OrnigoMapScreen(onListen = { go(Dest.Listen.route) }) }
+            composable(Dest.Map.route) { network.hone.app.ui.screens.OrnigoMapScreen(onListen = { t ->
+                nav.navigate("encounter" + (t?.let { "?t=" + android.net.Uri.encode(it) } ?: "")) }) }
+            composable("encounter?t={t}", arguments = listOf(androidx.navigation.navArgument("t") {
+                type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null })) { e ->
+                network.hone.app.ui.screens.EncounterScreen(target = e.arguments?.getString("t"),
+                    onCollection = { go(Dest.Birds.route) }, onBack = { nav.popBackStack() })
+            }
             composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }) }
             composable(Dest.Node.route) { NodeScreen() }
             composable(Dest.Wallet.route) { WalletScreen() }

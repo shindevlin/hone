@@ -32,7 +32,8 @@ import java.security.MessageDigest
 import kotlin.math.log10
 import kotlin.math.max
 
-data class Detection(val name: String, val conf: Float, val atMs: Long)
+/** [emb]: Perch embedding of the frame, kept only while an encounter is open (replay check). */
+data class Detection(val name: String, val conf: Float, val atMs: Long, val emb: FloatArray? = null)
 
 data class SoundLive(
     val enabled: Boolean = false,
@@ -94,6 +95,10 @@ object SoundSensing {
 
     private val _live = MutableStateFlow(SoundLive())
     val live: StateFlow<SoundLive> = _live.asStateFlow()
+
+    /** Focus listening (Ornigo encounter): every frame, no pause between bursts, until this time. */
+    @Volatile var focusUntilMs: Long = 0L
+    private fun focused() = System.currentTimeMillis() < focusUntilMs
 
     // Reports waiting for NodeService to commit (hash on chain, report kept on the device).
     private val pending = ArrayDeque<JSONObject>()
@@ -186,7 +191,7 @@ object SoundSensing {
         val frame = FloatArray(Perch.FRAME)
         while (currentCoroutineContext().isActive) {
             val plugged = onPower(ctx)
-            val burst = if (plugged) 6 else FRAMES_PER_BURST
+            val burst = if (plugged || focused()) 6 else FRAMES_PER_BURST
             val started = System.currentTimeMillis()
             var pauseMs = 0L
             val pct = batteryPct(ctx)
@@ -236,7 +241,8 @@ object SoundSensing {
             frameSeq += 2
             if (pauseMs > 0) { delay(pauseMs); continue }
             _live.value = _live.value.copy(listening = false, status = "waiting")
-            if (!plugged) delay(max(0L, BURST_EVERY_MS - (System.currentTimeMillis() - started)))
+            // Between bursts on battery; an encounter opening ends the wait within a second.
+            if (!plugged) while (!focused() && System.currentTimeMillis() - started < BURST_EVERY_MS) delay(1000)
         }
     }
 
@@ -274,7 +280,7 @@ object SoundSensing {
                 (ctx == null || network.hone.app.birds.Range.allowed(ctx, p.names[it], probs[it]))
         }
             .sortedByDescending { probs[it] }.take(5)
-            .map { Detection(p.names[it], probs[it], now) }
+            .map { Detection(p.names[it], probs[it], now, if (focused()) p.lastEmbedding.copyOf() else null) }
         for (d in top) {
             val prev = win.species[d.name]
             win.species[d.name] = Pair(max(prev?.first ?: 0f, d.conf), (prev?.second ?: 0) + 1)

@@ -100,7 +100,7 @@
     <string name="orn_enc_new">New for your collection</string>
     <string name="orn_enc_again">Heard again · %1$d times now</string>
     <string name="orn_enc_replay">That sounded like a recording. Only a live bird counts.</string>
-    <string name="orn_enc_live_only">Only a live bird counts. Played recordings are caught and don\'t count.</string>
+    <string name="orn_enc_live_only">Only a live bird counts. Recordings played from a phone or speaker are spotted and don\'t count.</string>
     <string name="orn_enc_see_collection">See it in your collection</string>
     <string name="orn_enc_keep">Keep listening</string>
     <string name="orn_enc_start">Go and listen</string>
