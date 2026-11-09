@@ -75,6 +75,10 @@ fun DevicesScreen(vm: NodeViewModel = viewModel(), onNode: () -> Unit, onSensors
         }
         if (others == null && acct.isNotEmpty()) Dim("Asking for your other devices…")
         NodeCard(s, onToggle = { vm.toggleNode(s) }, onNode = onNode)
+        HoneBox(onClick = onFindMy) {
+            Text("Find my things", fontWeight = FontWeight.Bold, color = HoneText)
+            Dim("Where your tags, Flippers and old phones were last seen.")
+        }
         HoneBox(onClick = onRoles) {
             Text("Help run the network", fontWeight = FontWeight.Bold, color = HoneText)
             Dim(if (roles.isEmpty()) "Timekeeper, checking panel and sensor jobs." else "Your account's jobs: " + roles.joinToString(", ") + ".")

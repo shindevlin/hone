@@ -41,7 +41,7 @@ import network.hone.app.ui.theme.*
  * The private key never surfaces here — it stays in the Rust keystore.
  */
 @Composable
-fun WalletScreen(vm: WalletViewModel = viewModel(), onEarnings: () -> Unit = {}, onSponsor: (() -> Unit)? = null, onKeys: (() -> Unit)? = null) {
+fun WalletScreen(vm: WalletViewModel = viewModel(), onEarnings: () -> Unit = {}, onSponsor: (() -> Unit)? = null, onKeys: (() -> Unit)? = null, onCards: (() -> Unit)? = null) {
     val identity by vm.identity.collectAsStateWithLifecycle()
     val history by vm.history.collectAsStateWithLifecycle()
     var showReceive by remember { mutableStateOf(false) }
@@ -78,6 +78,13 @@ fun WalletScreen(vm: WalletViewModel = viewModel(), onEarnings: () -> Unit = {},
                 Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = HoneTextDim)
             }
             Dim("Invite someone, back a new listener, or make vouchers.")
+        }
+        if (onCards != null) HoneBox(onClick = onCards) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Bird cards", fontWeight = FontWeight.Bold, color = HoneText, modifier = Modifier.weight(1f))
+                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = HoneTextDim)
+            }
+            Dim("Claim, send and keep cards for birds you found first.")
         }
 
         Text("Recent", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = HoneText)
