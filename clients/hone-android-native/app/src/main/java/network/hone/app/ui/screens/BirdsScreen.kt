@@ -1,5 +1,8 @@
 package network.hone.app.ui.screens
 
+import network.hone.app.birds.Collection
+import network.hone.app.birds.Catches
+
 import android.content.Intent
 import android.net.Uri
 import android.text.format.DateUtils
@@ -49,6 +52,8 @@ fun BirdsScreen() {
     var tab by remember { mutableIntStateOf(0) }
     var open by remember { mutableStateOf<String?>(null) }
     var mine by remember { mutableStateOf<List<MySpecies>>(emptyList()) }
+    var around by remember { mutableStateOf<List<BirdsSync.Around>?>(null) }
+    LaunchedEffect(Unit) { around = withContext(Dispatchers.IO) { BirdsSync.around(ctx.applicationContext) } }
     // Reload when a new detection arrives.
     LaunchedEffect(live.recent.firstOrNull()?.atMs, live.reportsStored) {
         mine = withContext(Dispatchers.IO) { Birds.mySpecies(ctx) }
@@ -59,16 +64,17 @@ fun BirdsScreen() {
     open?.let { latin ->
         BackHandler { open = null }
         val m = mine.firstOrNull { it.latin == latin }
-        if (tab == 0 && m != null) SpeciesDetail(m) { open = null } else PublicDetail(latin) { open = null }
+        if (tab == 0 && m != null) SpeciesDetail(m, around) { open = null } else PublicDetail(latin) { open = null }
         return
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(top = 24.dp)) {
-        Text("Birds", style = MaterialTheme.typography.headlineMedium)
+        Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_collection), style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(4.dp))
         Text(
-            if (mine.isEmpty()) "Nothing heard yet." else
-                "${mine.count { !it.rare }} species · ${mine.filter { !it.rare }.sumOf { it.count }} times heard",
+            if (mine.isEmpty()) androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_collection_empty) else
+                androidx.compose.ui.res.pluralStringResource(network.hone.app.R.plurals.orn_collection_kinds, mine.count { !it.rare }, mine.count { !it.rare }) +
+                    " · " + androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_collection_caught, remember(mine) { Catches.all(ctx).size }),
             style = MaterialTheme.typography.bodyMedium, color = HoneTextDim,
         )
         Spacer(Modifier.height(12.dp))
@@ -82,7 +88,7 @@ fun BirdsScreen() {
         }
         Spacer(Modifier.height(12.dp))
         when (tab) {
-            0 -> MineList(mine, enabled = live.enabled) { open = it }
+            0 -> MineList(mine, around, enabled = live.enabled) { open = it }
             1 -> AroundHere { open = it }
             2 -> EveryoneList { open = it }
             else -> BirdMap()
@@ -91,7 +97,8 @@ fun BirdsScreen() {
 }
 
 @Composable
-private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -> Unit) {
+private fun MineList(mine: List<MySpecies>, around: List<BirdsSync.Around>?, enabled: Boolean, onOpen: (String) -> Unit) {
+    val ctx = LocalContext.current
     if (mine.isEmpty()) {
         Text(
             if (enabled) "Listening. Species show up here as soon as they're heard."
@@ -101,7 +108,12 @@ private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -
         return
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_shiny_why),
+                style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+        }
         items(mine.distinctBy { it.latin }, key = { it.latin }) { s ->
+            val card = remember(s.latin, s.count, around) { Collection.card(ctx, s.latin, around) }
             Row(
                 Modifier.fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
@@ -113,8 +125,9 @@ private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Names(s.latin, s.english)
+                    if (!s.rare) RarityLine(card)
                     Text((if (s.rare) androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_unlikely_review) + " · " else "") +
-                        "heard ${s.count}× · last ${ago(s.last)}",
+                        "heard ${s.count}× · last ${ago(s.last)}" + (if (card.caught > 0) " · caught ${card.caught}×" else ""),
                         style = MaterialTheme.typography.labelSmall, color = if (s.rare) OrnAlarm else HoneTextDim)
                 }
             }
@@ -177,8 +190,9 @@ private fun SpeciesThumb(latin: String, size: Int) {
 }
 
 @Composable
-private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
+private fun SpeciesDetail(s: MySpecies, around: List<BirdsSync.Around>?, onBack: () -> Unit) {
     val ctx = LocalContext.current
+    val card = remember(s.latin, s.count, around) { Collection.card(ctx, s.latin, around) }
     val img by produceState<SpeciesImage?>(null, s.latin) { value = withContext(Dispatchers.IO) { Birds.image(ctx, s.latin) } }
     val bmp = remember(img) { img?.let { Birds.bitmap(it.file, 1080) } }
     var photos by remember { mutableStateOf(Birds.myPhotos(ctx, s.latin)) }
@@ -218,10 +232,17 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
             }
         }
         item {
-            Text("Heard ${s.count}× · first ${ago(s.first)} · last ${ago(s.last)}",
+            Text("Heard ${s.count}× · first ${ago(s.first)} · last ${ago(s.last)}" + (if (card.caught > 0) " · caught ${card.caught}×" else ""),
                 style = MaterialTheme.typography.bodyMedium)
+            if (!s.rare) RarityLine(card)
         }
+        item { CallPlayer(s.latin) }
         item { WhereHeard(s) }
+        item { WeekStrip(s) }
+        item {
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_naming_note, s.english ?: s.latin),
+                style = MaterialTheme.typography.bodySmall, color = HoneTextDim)
+        }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Your photos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
@@ -252,7 +273,6 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
                 "Answers train HONE's local model and keep wrong ones off the map. $yes yes · $no no so far.",
                 style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
         }
-        item { CallPlayer(s.latin) }
         items(s.history.distinctBy { it.t }.take(200), key = { "h-${it.t}" }) { h ->
             val v = verdicts["${h.t}|${h.name}"]
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -603,4 +623,45 @@ private fun PlacesMap(places: List<network.hone.app.birds.HeardPlace>) {
     androidx.compose.ui.viewinterop.AndroidView({ mapView },
         Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(14.dp)))
     Text("Map: OpenFreeMap · © OpenStreetMap contributors", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+}
+
+
+@Composable
+private fun RarityLine(card: Collection.Card) {
+    if (card.pips == 0 && card.shiny == null) return
+    val word = when (card.pips) {
+        1 -> androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_rarity_common)
+        2 -> androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_rarity_uncommon)
+        3 -> androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_rarity_rare)
+        else -> ""
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (card.pips > 0) {
+            Text("●".repeat(card.pips) + "○".repeat(3 - card.pips), style = MaterialTheme.typography.labelMedium,
+                color = if (card.pips == 3) OrnGold else OrnChorus)
+            Text(word, style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
+        }
+        if (card.shiny != null) Text("✦ " + androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_rarity_shiny),
+            style = MaterialTheme.typography.labelMedium, color = OrnGold)
+    }
+}
+
+/** Twelve weeks, oldest left: bar height = times heard that week. */
+@Composable
+private fun WeekStrip(s: MySpecies) {
+    val w = remember(s.latin, s.count) { Collection.weeks(s.history) }
+    val top = (w.maxOrNull() ?: 0).coerceAtLeast(1)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth().height(44.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+            w.forEach { n ->
+                Box(Modifier.weight(1f).fillMaxHeight(if (n == 0) 0.08f else 0.25f + 0.75f * n / top)
+                    .background(if (n == 0) OrnTwig else OrnChorus, RoundedCornerShape(3.dp)))
+            }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_weeks_ago), style = MaterialTheme.typography.labelSmall,
+                color = HoneTextFaint, modifier = Modifier.weight(1f))
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_this_week), style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+        }
+    }
 }

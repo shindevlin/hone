@@ -708,6 +708,18 @@ class H(BaseHTTPRequestHandler):
         try:
             if path == "/api/birds/occupancy":
                 return self._send(200, {"cell": a["cell"], "species": occupancy.area_view(a["cell"])})
+            if path == "/api/birds/catch_prior":
+                # Ornigo encounter: the prior a catch starts from (season/range kind, this species'
+                # calibration temperature, and how established it is in this res-7 area).
+                cell, latin = a["cell"], a["latin"]
+                if not h3.is_valid_cell(cell) or h3.get_resolution(cell) > 7 or not LATIN.match(latin):
+                    raise ValueError("cell must be an H3 cell of res <= 7 and latin a species name")
+                _, _, kind, _ = occupancy.prior(cell, latin, time.time())
+                here = [v for v in occupancy.area_view(cell) if v["latin"] == latin]
+                return self._send(200, {"latin": latin, "kind": kind, "prior_p": occupancy.PRIOR_P[kind],
+                                        "T": round(occupancy.temperature(latin), 3),
+                                        "area_p": here[0]["p"] if here else 0.0,
+                                        "status": here[0]["status"] if here else None})
             if path == "/api/birds/occupancy/map":
                 res = int(a.get("res", 7))
                 if res not in (5, 7):

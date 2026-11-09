@@ -68,6 +68,9 @@ object Engagement {
 
     /** The indexer said nobody had reported this species in the area before. */
     @Synchronized
+    /** True once the indexer said this phone's report was the first of [latin] in its block. */
+    fun wasFirstInArea(ctx: Context, latin: String) = prefs(ctx).getBoolean("area_$latin", false)
+
     fun firstInArea(ctx: Context, latin: String) {
         val p = prefs(ctx); val k = "area_$latin"
         if (p.getBoolean(k, false)) return

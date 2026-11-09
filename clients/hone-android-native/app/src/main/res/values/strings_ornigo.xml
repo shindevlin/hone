@@ -94,7 +94,7 @@
     <!-- Encounter -->
     <string name="orn_enc_kicker_listen">LISTEN CLOSELY</string>
     <string name="orn_enc_title_listen">Someone is singing nearby</string>
-    <string name="orn_enc_body_listen">Stay still and let your phone hear it. Three clear calls fill the ring.</string>
+    <string name="orn_enc_body_listen">Stay still and let your phone hear it. Each call fills the ring a little.</string>
     <string name="orn_enc_calls">%1$d of 3 calls</string>
     <string name="orn_enc_kicker_caught">CAUGHT</string>
     <string name="orn_enc_new">New for your collection</string>
@@ -107,6 +107,14 @@
     <string name="orn_enc_off">Turn on listening first, then come back.</string>
     <string name="orn_enc_timeout">It went quiet. Try again in a moment, or move closer to where you heard it.</string>
     <string name="orn_enc_try_again">Try again</string>
+    <string name="orn_enc_body_more">Getting there. A few more clear calls will do it.</string>
+    <string name="orn_enc_body_regular">A regular here. A few clear calls will catch it.</string>
+    <string name="orn_enc_body_unlikely">Unusual for here, so it needs more calls to be sure.</string>
+    <string name="orn_enc_caught_unlikely">Unusual for here. It\'s kept for you to check.</string>
+    <plurals name="orn_enc_calls_heard">
+        <item quantity="one">%d call</item>
+        <item quantity="other">%d calls</item>
+    </plurals>
 
     <!-- Collection / bird page -->
     <string name="orn_rarity_common">Common</string>
@@ -120,7 +128,15 @@
         <item quantity="other">%1$d kinds caught</item>
     </plurals>
     <string name="orn_twelve_weeks">Last 12 weeks</string>
-    <string name="orn_naming_note">Naming single birds opens species by species, once telling them apart by voice is reliable. The Little Owl is first.</string>
+    <string name="orn_naming_note">Naming opens for %1$s once Ornigo can tell one from another by voice.</string>
+    <string name="orn_collection_empty">Nothing heard yet.</string>
+    <plurals name="orn_collection_kinds">
+        <item quantity="one">%1$d kind heard</item>
+        <item quantity="other">%1$d kinds heard</item>
+    </plurals>
+    <string name="orn_collection_caught">%1$d caught</string>
+    <string name="orn_weeks_ago">12 weeks ago</string>
+    <string name="orn_this_week">this week</string>
     <string name="orn_shiny_why">Shiny: confirmed by a photo, a second listener, or the first in its block.</string>
 
     <!-- Spots and Keepers -->

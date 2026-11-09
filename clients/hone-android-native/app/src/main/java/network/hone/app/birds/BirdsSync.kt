@@ -125,7 +125,10 @@ object BirdsSync {
                     })
                 payload.put("account", acct).put("show_name", show).put("occ", 1)   // scores come from windows
                 try {
-                    post("$BASE/sightings", signed(ctx, acct, payload.toString()))
+                    val res = post("$BASE/sightings", signed(ctx, acct, payload.toString()))
+                    res.optJSONArray("first_in_area")?.let { a ->
+                        for (i in 0 until a.length()) network.hone.app.engage.Engagement.firstInArea(ctx, a.getString(i))
+                    }
                     Telemetry.upload(ctx, "birds", true)
                 } catch (e: Refused) {
                     // A final 4xx for this window (bad cell, key refused...): record it and move on,

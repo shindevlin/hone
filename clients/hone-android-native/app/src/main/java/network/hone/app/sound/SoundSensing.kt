@@ -45,6 +45,8 @@ data class SoundLive(
     val lastTop: List<Detection> = emptyList(),
     val windowSpecies: List<Detection> = emptyList(),
     val recent: List<Detection> = emptyList(),
+    /** Encounter only (focus listening): every species call at 30%+, with its embedding. Never logged or sent. */
+    val focus: List<Detection> = emptyList(),
     val reportsStored: Int = 0,
     /** ok | silenced | other_app | low_battery */
     val mic: String = "ok",
@@ -280,7 +282,7 @@ object SoundSensing {
                 (ctx == null || network.hone.app.birds.Range.allowed(ctx, p.names[it], probs[it]))
         }
             .sortedByDescending { probs[it] }.take(5)
-            .map { Detection(p.names[it], probs[it], now, if (focused()) p.lastEmbedding.copyOf() else null) }
+            .map { Detection(p.names[it], probs[it], now) }
         for (d in top) {
             val prev = win.species[d.name]
             win.species[d.name] = Pair(max(prev?.first ?: 0f, d.conf), (prev?.second ?: 0) + 1)
@@ -298,6 +300,10 @@ object SoundSensing {
             lastTop = top,
             windowSpecies = win.species.map { (k, v) -> Detection(k, v.first, now) }.sortedByDescending { it.conf },
             recent = (top + s.recent).take(20),
+            focus = if (!focused()) emptyList() else (probs.indices
+                .filter { p.isSpecies[it] && probs[it] >= network.hone.app.birds.Catches.CALL_FLOOR }
+                .sortedByDescending { probs[it] }.take(3)
+                .map { Detection(p.names[it], probs[it], now, p.lastEmbedding.copyOf()) } + s.focus).take(60),
         )
     }
 
