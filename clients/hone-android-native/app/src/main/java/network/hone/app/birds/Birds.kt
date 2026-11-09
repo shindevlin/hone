@@ -18,6 +18,8 @@ data class Heard(
     val rare: Boolean = false,
     /** User's verdict: true = right, false = wrong, null = not reviewed. */
     val label: Boolean? = null,
+    /** Location accuracy in metres when it was heard (spots only count close fixes). */
+    val acc: Double? = null,
 )
 
 /** Everything this phone has heard of one species. */
@@ -73,7 +75,7 @@ object Birds {
                 val j = JSONObject(l)
                 out += Heard(j.getLong("t"), j.getString("name"), j.getDouble("conf"),
                     j.optDouble("lat").takeUnless { it.isNaN() }, j.optDouble("lon").takeUnless { it.isNaN() },
-                    j.optBoolean("rare"))
+                    j.optBoolean("rare"), acc = j.optDouble("acc").takeUnless { it.isNaN() })
             }
         }
         val firstDet = out.minOfOrNull { it.t } ?: Long.MAX_VALUE

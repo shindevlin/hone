@@ -2,6 +2,7 @@ package network.hone.app.ui.screens
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -54,7 +55,7 @@ fun confidenceWord(pct: Double, unlikelyHere: Boolean = false): String = when {
 private data class Pin(val latin: String, val name: String, val lat: Double, val lon: Double, val last: Long, val rare: Boolean, val n: Int)
 
 @Composable
-fun OrnigoMapScreen(onListen: (String?) -> Unit) {
+fun OrnigoMapScreen(onListen: (String?) -> Unit, onSpots: () -> Unit = {}) {
     val ctx = LocalContext.current
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val mapView = remember {
@@ -91,7 +92,7 @@ fun OrnigoMapScreen(onListen: (String?) -> Unit) {
                         c?.second ?: hs.map { it.lon!! }.average(), hs.maxOf { it.t }, hs.any { it.rare }, hs.size)
                 }.sortedByDescending { it.last }
             val fix = SightingsEngine.lastFix()
-            Triple(ps, fix?.let { Places.nearestName(ctx, it.latitude, it.longitude) }, runCatching { Today.compute(ctx).energy }.getOrDefault(0))
+            Triple(ps, fix?.let { Places.nearestName(ctx, it.latitude, it.longitude) }, runCatching { network.hone.app.birds.Energy.available(ctx) }.getOrDefault(0))
         }
         pins = p; town = t; energy = e
         val fix = SightingsEngine.lastFix()
@@ -171,6 +172,7 @@ fun OrnigoMapScreen(onListen: (String?) -> Unit) {
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Chip(town?.let { androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_near, it) } ?: androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_your_area))
             Spacer(Modifier.weight(1f))
+            Box(Modifier.clickable(onClick = onSpots)) { Chip(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_spots), OrnGold) }
             Chip(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_energy, energy), OrnChorus)
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)) {
@@ -270,15 +272,19 @@ fun TodayScreen(onSettings: () -> Unit, onSave: () -> Unit = {}) {
                 Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_of, g.progress, g.target), style = MaterialTheme.typography.labelSmall, color = OrnInkDim, fontFamily = HoneMono)
             }
         }
-        // Energy
+        // Energy (earned minus spent)
+        var spentTick by remember { mutableIntStateOf(0) }
+        val avail = remember(s, spentTick) { (s.energy - network.hone.app.birds.Energy.spent(ctx)).coerceAtLeast(0) }
         Column(Modifier.fillMaxWidth().background(OrnCanopy, RoundedCornerShape(22.dp)).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_energy_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                Text("${s.energy}", style = MaterialTheme.typography.headlineMedium, color = OrnChorus, fontFamily = HoneMono)
+                Text("$avail", style = MaterialTheme.typography.headlineMedium, color = OrnChorus, fontFamily = HoneMono)
             }
             Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_energy_body), style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
+            EnergySpends(avail) { spentTick++ }
         }
+        DawnChorusCard()
         DisclaimerCard()
     }
 }

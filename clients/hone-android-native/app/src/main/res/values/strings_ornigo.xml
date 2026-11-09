@@ -146,15 +146,33 @@
     <string name="orn_spot_you_keep">You keep this spot</string>
     <string name="orn_spot_rule">Keeper is whoever listens here on the most mornings and hears the most kinds over 30 days. Public places only; homes can\'t be claimed.</string>
     <string name="orn_spot_challenge">Challenge (20 energy, 7 days)</string>
-    <string name="orn_spot_need_here">Go to the spot to challenge. Your phone checks the place by its Wi-Fi and Bluetooth around you.</string>
+    <string name="orn_spot_need_here">Go to the spot to challenge. Only calls heard there with a close location fix count.</string>
     <string name="orn_spot_need_energy">You need 20 energy to challenge.</string>
     <string name="orn_spot_challenging">Challenge on · %1$d days left</string>
     <string name="orn_spot_mornings">%1$d mornings · %2$d kinds (last 30 days)</string>
     <string name="orn_focus">Focus mode (10)</string>
-    <string name="orn_focus_on">Focus on · listening every frame for 15 minutes</string>
+    <string name="orn_focus_on">On · %1$d min left</string>
     <string name="orn_nearby">Who\'s nearby (5)</string>
     <string name="orn_event_dawn">Dawn chorus %1$s · double energy</string>
     <string name="orn_event_note">From home or public paths.</string>
+    <string name="orn_event_private">Listen from home or public paths. Ornigo never sends you onto private land.</string>
+    <string name="orn_event_live">ON NOW</string>
+    <string name="orn_event_next">EVERY MORNING</string>
+    <string name="orn_focus_title">Focus mode</string>
+    <string name="orn_focus_body">Longer listening bursts for an hour</string>
+    <string name="orn_nearby_title">Who\'s nearby</string>
+    <string name="orn_nearby_body">Show 5 birds likely around you this week</string>
+    <string name="orn_nearby_offline">Can\'t reach the shared scores right now. No energy was spent.</string>
+    <string name="orn_spots_offline">Spots need a location and a connection. Try again outside.</string>
+    <string name="orn_spots_empty">No spots around here yet. Listen on a public path and this one could be yours.</string>
+    <string name="orn_spot_near">Near %1$s</string>
+    <string name="orn_spot_a_listener">a listener</string>
+    <string name="orn_spot_kinds_here">%1$d kinds found here · %2$d listeners</string>
+    <string name="orn_spot_kicker">SPOT · PUBLIC PLACE</string>
+    <string name="orn_spot_you">You, last 30 days</string>
+    <string name="orn_spot_mornings_label">Mornings here</string>
+    <string name="orn_spot_kinds_label">Kinds found here</string>
+    <string name="orn_spot_privacy">Keepers show a display name only. Nobody is shown live on the map.</string>
     <string name="orn_not_enough_energy">Not enough energy yet.</string>
 
     <!-- HONE mode -->

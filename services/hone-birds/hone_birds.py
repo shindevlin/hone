@@ -372,6 +372,54 @@ def photo_near(cell, latin):
                           (latin, c7)).fetchone() is not None
 
 
+
+# ── Ornigo spots: public res-9 blocks and their Keepers ────────────────────────────────
+# Phones share home detections only as a coarse area, and camera stations (often at home) are
+# left out, so only public places become spots. Keeper: the account with the most mornings
+# (04:00-10:00 local, by longitude) times the most kinds in the block over 30 days. Keepers show
+# a display name only if they chose to show their name; otherwise "a listener".
+def spots(c7, now=None):
+    t = now or time.time()
+    since = int((t - 30 * 86400) // 900)
+    with lock:
+        rows = db.execute("SELECT cell, res, latin, window, account, show_name FROM sightings WHERE verified IN (1,4) "
+                          "AND res>=9 AND window>=? AND station IS NULL", (since,)).fetchall()
+    per, allk = {}, {}
+    # Each account's most-used block (most distinct days) is its base, likely home: never a spot.
+    used = {}
+    for cell, res, latin, w, acct, show in rows:
+        s9 = h3.cell_to_parent(cell, 9) if res > 9 else cell
+        used.setdefault(acct, {}).setdefault(s9, set()).add(w // 96)
+    bases = {max(d.items(), key=lambda kv: len(kv[1]))[0] for d in used.values() if d}
+    for cell, res, latin, w, acct, show in rows:
+        s9 = h3.cell_to_parent(cell, 9) if res > 9 else cell
+        if h3.cell_to_parent(s9, 7) != c7 or s9 in bases:
+            continue
+        lng = h3.cell_to_latlng(s9)[1]
+        local_s = w * 900 + lng / 15 * 3600
+        e = per.setdefault(s9, {}).setdefault(acct, {"days": set(), "kinds": set(), "show": False})
+        e["kinds"].add(latin); e["show"] = e["show"] or bool(show)
+        allk.setdefault(s9, set()).add(latin)
+        hour = (local_s / 3600) % 24
+        if 4 <= hour < 10:
+            e["days"].add(int(local_s // 86400))
+        if hour >= 22 or hour < 4:
+            e.setdefault("nights", set()).add(int((local_s - 12 * 3600) // 86400))
+    out = []
+    for s9, accts in per.items():
+        # Homes can't be claimed: a block where anyone listens on three or more nights looks like
+        # someone's home (or a camera on a house), so it is never a spot.
+        if any(len(v.get("nights", ())) >= 3 for v in accts.values()):
+            continue
+        acct, e = max(accts.items(), key=lambda kv: (len(kv[1]["days"]) * len(kv[1]["kinds"]), len(kv[1]["kinds"])))
+        lat, lng = h3.cell_to_latlng(s9)
+        keeper = len(e["days"]) > 0
+        out.append({"spot": s9, "lat": round(lat, 5), "lon": round(lng, 5), "kinds": len(allk[s9]), "listeners": len(accts),
+                    "keeper": acct if keeper and e["show"] else None,
+                    "keeper_hash": hashlib.sha256(acct.encode()).hexdigest()[:12] if keeper else None,
+                    "keeper_mornings": len(e["days"]) if keeper else 0, "keeper_kinds": len(e["kinds"]) if keeper else 0})
+    return sorted(out, key=lambda o: (-o["kinds"], o["spot"]))
+
 occupancy.init(db, lock, in_range, months=season_months, photo_near=photo_near)
 if not db.execute("SELECT 1 FROM occ_state LIMIT 1").fetchone():
     # First start with occupancy: score the sightings already stored (positive evidence only).
@@ -708,6 +756,11 @@ class H(BaseHTTPRequestHandler):
         try:
             if path == "/api/birds/occupancy":
                 return self._send(200, {"cell": a["cell"], "species": occupancy.area_view(a["cell"])})
+            if path == "/api/birds/spots":
+                c = a["cell"]
+                if not h3.is_valid_cell(c) or h3.get_resolution(c) != 7:
+                    raise ValueError("cell must be an H3 res-7 cell")
+                return self._send(200, {"cell": c, "days": 30, "spots": spots(c)})
             if path == "/api/birds/catch_prior":
                 # Ornigo encounter: the prior a catch starts from (season/range kind, this species'
                 # calibration temperature, and how established it is in this res-7 area).

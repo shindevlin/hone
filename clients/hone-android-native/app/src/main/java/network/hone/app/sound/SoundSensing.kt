@@ -100,7 +100,9 @@ object SoundSensing {
 
     /** Focus listening (Ornigo encounter): every frame, no pause between bursts, until this time. */
     @Volatile var focusUntilMs: Long = 0L
-    private fun focused() = System.currentTimeMillis() < focusUntilMs
+    /** Focus mode bought with energy (an hour); kept apart so closing an encounter doesn't end it. */
+    @Volatile var paidFocusUntilMs: Long = 0L
+    private fun focused() = System.currentTimeMillis().let { it < focusUntilMs || it < paidFocusUntilMs }
 
     // Reports waiting for NodeService to commit (hash on chain, report kept on the device).
     private val pending = ArrayDeque<JSONObject>()
@@ -191,6 +193,7 @@ object SoundSensing {
 
         var win = Window(System.currentTimeMillis() / WINDOW_MS)
         val frame = FloatArray(Perch.FRAME)
+        network.hone.app.birds.Energy.restore(ctx)
         while (currentCoroutineContext().isActive) {
             val plugged = onPower(ctx)
             val burst = if (plugged || focused()) 6 else FRAMES_PER_BURST

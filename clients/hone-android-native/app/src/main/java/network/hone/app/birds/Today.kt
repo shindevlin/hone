@@ -41,11 +41,14 @@ object Today {
 
         // Listening per day, from the 15-minute window reports.
         val listened = HashMap<LocalDate, Int>()
+        var dawnSecs = 0
         File(dir, "reports.jsonl").takeIf { it.exists() }?.forEachLine { l ->
             runCatching {
                 val j = JSONObject(l)
                 val d = day(j.getLong("window") * WINDOW_MS, z)
                 listened[d] = (listened[d] ?: 0) + j.optInt("listen_seconds")
+                // Dawn chorus event: listening from 5 to 7 in the morning earns double energy.
+                if (Instant.ofEpochMilli(j.getLong("window") * WINDOW_MS).atZone(z).hour in 5..6) dawnSecs += j.optInt("listen_seconds")
             }
         }
 
@@ -98,7 +101,7 @@ object Today {
         )
 
         // Energy: live listening, new blocks, honest labels, finished goals. Not for sale, not tradable.
-        val listenEnergy = listened.values.sum() / 300
+        val listenEnergy = (listened.values.sum() + dawnSecs) / 300
         val blocks = heard.mapNotNull { h -> if (h.lat != null && h.lon != null) Cells.cell(h.lat, h.lon, 9) ?: "%.3f,%.3f".format(h.lat, h.lon) else null }.toSet().size
         val goalsEnergy = goals.filter { it.done }.sumOf { it.energy }
         val energy = listenEnergy + 5 * blocks + 2 * labelsAll + goalsEnergy

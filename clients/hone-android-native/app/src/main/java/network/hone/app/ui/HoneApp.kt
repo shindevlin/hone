@@ -133,7 +133,8 @@ private fun AppShell(honeMode: Boolean) {
             modifier = Modifier.padding(inner),
         ) {
             composable(Dest.Map.route) { network.hone.app.ui.screens.OrnigoMapScreen(onListen = { t ->
-                nav.navigate("encounter" + (t?.let { "?t=" + android.net.Uri.encode(it) } ?: "")) }) }
+                nav.navigate("encounter" + (t?.let { "?t=" + android.net.Uri.encode(it) } ?: "")) }, onSpots = { nav.navigate("spots") }) }
+            composable("spots") { network.hone.app.ui.screens.SpotsScreen(onBack = { nav.popBackStack() }) }
             composable("encounter?t={t}", arguments = listOf(androidx.navigation.navArgument("t") {
                 type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null })) { e ->
                 network.hone.app.ui.screens.EncounterScreen(target = e.arguments?.getString("t"),
