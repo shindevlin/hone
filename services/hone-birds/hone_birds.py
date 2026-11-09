@@ -763,6 +763,10 @@ class H(BaseHTTPRequestHandler):
             return accounts.login(body)
         if path.startswith("/api/accounts/web/"):
             return web.post(path, body, self.headers)
+        if path == "/api/accounts/admin/plan":
+            if not devices.admin(self.headers):
+                raise accounts.AuthError("forbidden")
+            return accounts.admin_plan(body)
         if path == "/api/accounts/admin/outbox/ack":
             if not devices.admin(self.headers):
                 raise accounts.AuthError("forbidden")

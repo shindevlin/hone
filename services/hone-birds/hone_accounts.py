@@ -8,16 +8,22 @@ The log names outbox ids and HTTP codes only, never an address or a code.
 Unverified accounts work; sign-in on another phone is the same either way.
 
 API (JSON):
-  POST /api/accounts/signup   {name,email,password,ref,consent:true,consent_text,seat:<seat envelope>}
+  POST /api/accounts/signup   {name,email,password,ref,consent:true,consent_text,seat:<seat envelope>,
+                               kind?:"personal"|"business", business?:{name,places:[...]}}
   POST /api/accounts/login    {email,password,seat}
   POST /api/accounts/verify   {code}                      (Bearer)
   POST /api/accounts/resend   {}                          (Bearer)
   GET  /api/accounts/me                                   (Bearer) profile + devices
-  PUT  /api/accounts/me       {name?,life_list?,settings?} (Bearer)
+  PUT  /api/accounts/me       {name?,life_list?,settings?,kind?,business?} (Bearer)
   POST /api/accounts/logout                               (Bearer)
   GET  /api/accounts/admin/outbox        (X-Hone-Admin)   unsent mail, for n8n
   POST /api/accounts/admin/outbox/ack    {ids:[...]}      (X-Hone-Admin)
   GET  /api/accounts/ref/<code>          is this invite code valid? {ok, ref}
+  POST /api/accounts/admin/plan {email,plan,note}  (X-Hone-Admin) give an address a plan, now or at sign-up
+
+Account kind: "personal" or "business", chosen at the first sign-up (null = older account, not asked
+yet). A business has a public name and the kinds of place it is (restaurant, eco site, ...). Its
+plan says what it pays; "free_partner" is a business that never pays (test partners).
 The seat envelope: {"payload": canonical {"kind":"seat_link","seat_pub","email_sha","label","ts"},
 "key":"seat","pub","sig"} signed by the phone's device key; it links that device to the account.
 """
@@ -31,6 +37,9 @@ ph = PasswordHasher()   # argon2id, library defaults (t=3, m=64 MiB, p=4)
 EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}\.[^@\s]{2,}$")
 REF = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 LATIN = re.compile(r"^[A-Z][a-z]+ [a-z][a-z-]+$")
+KINDS = ("personal", "business")
+PLACES = ("restaurant", "hotel", "farm", "eco", "school", "shop", "office", "other")
+PLANS = ("free_partner",)
 NODE = os.environ.get("HONE_NODE_URL", "http://127.0.0.1:4242")
 SESSION_S = 180 * 86400
 CODE_S = 10 * 60          # codes expire after 10 minutes
@@ -66,7 +75,12 @@ def init(db, lock, bind):
     CREATE TABLE IF NOT EXISTS user_seats(handle TEXT, seat_pub TEXT, label TEXT, linked INTEGER, PRIMARY KEY(handle, seat_pub));
     CREATE TABLE IF NOT EXISTS mail_outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, to_email TEXT, subject TEXT, body TEXT,
       kind TEXT, created INTEGER, sent INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS plan_grants(email_sha TEXT PRIMARY KEY, plan TEXT, note TEXT, created INTEGER);
     """)
+    cols = {r[1] for r in db.execute("PRAGMA table_info(users)")}
+    for c, d in (("kind", "TEXT"), ("business", "TEXT DEFAULT '{}'"), ("plan", "TEXT DEFAULT ''"), ("plan_note", "TEXT DEFAULT ''")):
+        if c not in cols:
+            db.execute(f"ALTER TABLE users ADD COLUMN {c} {d}")
     db.commit()
     if _agentmail_key():
         threading.Thread(target=_mail_loop, daemon=True, name="agentmail").start()
@@ -99,6 +113,47 @@ def ref_ok(ref):
         ok = False
     _ref_cache[ref] = (time.time(), ok)
     return ok
+
+
+def _kind(b):
+    """(kind, business json) from a request; kind None when the client didn't ask (older apps)."""
+    k = b.get("kind")
+    if k is None:
+        return None, "{}"
+    if k not in KINDS:
+        raise Refused("Please choose personal or business.")
+    if k == "personal":
+        return k, "{}"
+    biz = b.get("business") if isinstance(b.get("business"), dict) else {}
+    name = re.sub(r"[\x00-\x1f<>]", "", str(biz.get("name", ""))).strip()[:60]
+    if len(name) < 2:
+        raise Refused("Please enter the business name.")
+    places = [p for p in (biz.get("places") or []) if p in PLACES][:3] or ["other"]
+    return k, json.dumps({"name": name, "places": places})
+
+
+def _apply_grant(handle, email):
+    with _lock:
+        g = _db.execute("SELECT plan, note FROM plan_grants WHERE email_sha=?", (_h(email),)).fetchone()
+        if g:
+            _db.execute("UPDATE users SET plan=?, plan_note=? WHERE handle=?", (g[0], g[1], handle))
+            _db.commit()
+
+
+def admin_plan(b):
+    """Give an address a plan. Applies now if the account exists, else when it signs up."""
+    email = _norm_email(b.get("email"))
+    plan = str(b.get("plan", ""))
+    if plan not in PLANS:
+        raise Refused("Unknown plan.")
+    note = re.sub(r"[\x00-\x1f<>]", "", str(b.get("note", "")))[:200]
+    with _lock:
+        _db.execute("INSERT OR REPLACE INTO plan_grants VALUES(?,?,?,?)", (_h(email), plan, note, int(time.time())))
+        r = _db.execute("SELECT handle FROM users WHERE email=?", (email,)).fetchone()
+        _db.commit()
+    if r:
+        _apply_grant(r[0], email)
+    return {"ok": True, "applied": bool(r)}
 
 
 def _seat(env, email):
@@ -136,11 +191,13 @@ def _session(handle):
 
 def _user(handle):
     with _lock:
-        r = _db.execute("SELECT handle,email,name,ref,verified,life_list,settings,created FROM users WHERE handle=?", (handle,)).fetchone()
+        r = _db.execute("SELECT handle,email,name,ref,verified,life_list,settings,created,kind,business,plan,plan_note "
+                        "FROM users WHERE handle=?", (handle,)).fetchone()
     if not r:
         return None
     return {"handle": r[0], "email": r[1], "name": r[2], "ref": r[3], "verified": bool(r[4]),
-            "life_list": json.loads(r[5] or "[]"), "settings": json.loads(r[6] or "{}"), "created": r[7]}
+            "life_list": json.loads(r[5] or "[]"), "settings": json.loads(r[6] or "{}"), "created": r[7],
+            "kind": r[8], "business": json.loads(r[9] or "{}") or None, "plan": r[10] or "", "plan_note": r[11] or ""}
 
 
 def auth(headers):
@@ -267,14 +324,18 @@ def signup(b):
     if not ref_ok(ref):
         raise Refused("That invite code wasn't found. Check it, or leave it empty.")
     name = re.sub(r"[\x00-\x1f<>]", "", str(b.get("name", "")))[:40].strip()
+    kind, biz = _kind(b)
     pub, label = _seat(b.get("seat"), email)
     with _lock:
         if _db.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
             raise Refused("That email already has an account. Tap \"I already have an account\" to sign in.")
         handle = "u-" + secrets.token_hex(5)
-        _db.execute("INSERT INTO users(handle,email,pw,name,ref,verified,consent_text,consent_ms,created) VALUES(?,?,?,?,?,0,?,?,?)",
-                    (handle, email, ph.hash(pw), name, ref, str(b.get("consent_text", ""))[:300], int(time.time() * 1000), int(time.time())))
+        _db.execute("INSERT INTO users(handle,email,pw,name,ref,verified,consent_text,consent_ms,created,kind,business) "
+                    "VALUES(?,?,?,?,?,0,?,?,?,?,?)",
+                    (handle, email, ph.hash(pw), name, ref, str(b.get("consent_text", ""))[:300], int(time.time() * 1000),
+                     int(time.time()), kind, biz))
         _db.commit()
+    _apply_grant(handle, email)
     _link(handle, pub, label)
     _queue_code(handle, email, name)
     return {"token": _session(handle), "user": _public(_user(handle))}
@@ -338,7 +399,7 @@ def resend(handle):
 
 
 def _public(u):
-    return {k: u[k] for k in ("handle", "email", "name", "ref", "verified")}
+    return {k: u[k] for k in ("handle", "email", "name", "ref", "verified", "kind", "business", "plan", "plan_note")}
 
 
 def me(handle, device_latest):
@@ -367,6 +428,9 @@ def put_me(handle, b):
         if len(s) > 4096:
             raise Refused("Settings too large.")
         sets.append("settings=?"); args.append(s)
+    if "kind" in b:
+        kind, biz = _kind(b)
+        sets += ["kind=?", "business=?"]; args += [kind, biz]
     if sets:
         with _lock:
             _db.execute(f"UPDATE users SET {','.join(sets)} WHERE handle=?", (*args, handle)); _db.commit()
