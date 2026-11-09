@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.filled.FlutterDash
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Map
@@ -40,6 +42,8 @@ private enum class Dest(val route: String, val label: String, val icon: ImageVec
     Node("node", "Node", Icons.Filled.Dashboard),
     Wallet("wallet", "Wallet", Icons.Filled.AccountBalanceWallet),
     Sensors("sensors", "Sensors", Icons.Filled.Sensors),
+    Earnings("earnings", "Earnings", Icons.Filled.Paid),
+    Devices("devices", "Devices", Icons.Filled.Devices),
     Settings("settings", "Settings", Icons.Filled.Settings),
 }
 
@@ -103,7 +107,7 @@ private fun AppShell(honeMode: Boolean) {
         }
         return
     }
-    val tabs = if (honeMode) listOf(Dest.Node, Dest.Wallet, Dest.Sensors, Dest.Birds, Dest.Settings)
+    val tabs = if (honeMode) listOf(Dest.Wallet, Dest.Earnings, Dest.Devices, Dest.Birds, Dest.Settings)
         else listOf(Dest.Map, Dest.Listen, Dest.Birds, Dest.Today)
     fun go(route: String) = nav.navigate(route) {
         popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -133,7 +137,7 @@ private fun AppShell(honeMode: Boolean) {
     ) { inner ->
         NavHost(
             navController = nav,
-            startDestination = if (honeMode) Dest.Node.route else Dest.Map.route,
+            startDestination = if (honeMode) Dest.Wallet.route else Dest.Map.route,
             modifier = Modifier.padding(inner),
         ) {
             composable(Dest.Map.route) { network.hone.app.ui.screens.OrnigoMapScreen(onListen = { t ->
@@ -147,8 +151,13 @@ private fun AppShell(honeMode: Boolean) {
             composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }, onHone = { nav.navigate("handoff") }) }
             composable("handoff") { network.hone.app.ui.screens.HandoffScreen(onBack = { nav.popBackStack() }) }
             composable(Dest.Node.route) { NodeScreen() }
-            composable(Dest.Wallet.route) { WalletScreen(onEarnings = { nav.navigate("earnings") }) }
-            composable("earnings") { network.hone.app.ui.screens.EarningsScreen(onBack = { nav.popBackStack() }) }
+            composable(Dest.Wallet.route) { WalletScreen(onEarnings = { go(Dest.Earnings.route) }, onSponsor = { nav.navigate("sponsor") }) }
+            composable(Dest.Earnings.route) { network.hone.app.ui.screens.EarningsScreen() }
+            composable(Dest.Devices.route) { network.hone.app.ui.screens.DevicesScreen(onNode = { nav.navigate(Dest.Node.route) },
+                onSensors = { nav.navigate(Dest.Sensors.route) }, onRoles = { nav.navigate("roles") }, onFindMy = { nav.navigate("findmy") }) }
+            composable("sponsor") { network.hone.app.ui.screens.SponsorScreen(onBack = { nav.popBackStack() }) }
+            composable("roles") { network.hone.app.ui.screens.RolesScreen(onBack = { nav.popBackStack() }) }
+            composable("findmy") { network.hone.app.ui.screens.FindMyScreen(onBack = { nav.popBackStack() }) }
             composable(Dest.Sensors.route) { SensorsScreen() }
             composable(Dest.Birds.route) { BirdsScreen() }
             composable(Dest.Settings.route) { SettingsScreen(simple = simple, onOpen = { nav.navigate(it) }, onSignIn = { firstRun = true }) }
