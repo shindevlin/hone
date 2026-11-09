@@ -77,7 +77,7 @@ fun BirdsScreen() {
                 androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_tab_around),
                 androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_tab_everyone),
                 androidx.compose.ui.res.stringResource(network.hone.app.R.string.bd_tab_map)).forEachIndexed { i, t ->
-                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) })
+                Tab(selected = tab == i, onClick = { tab = i }, text = { network.hone.app.ui.FitText(t) })
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -483,7 +483,7 @@ private fun BirdMap() {
     Column(Modifier.fillMaxSize()) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Local", "Regional", "World").forEachIndexed { i, t ->
-                FilterChip(selected = scale == i, onClick = { scale = i }, label = { Text(t) })
+                FilterChip(selected = scale == i, onClick = { scale = i }, label = { network.hone.app.ui.FitText(t) })
             }
         }
         Text(info, style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)

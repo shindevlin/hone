@@ -101,7 +101,7 @@ private fun AppShell(honeMode: Boolean) {
                         selected = selected,
                         onClick = { go(dest.route) },
                         icon = { Icon(dest.icon, contentDescription = dest.label) },
-                        label = { Text(dest.label) },
+                        label = { FitText(dest.label) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = OrnNight, indicatorColor = OrnChorus,
                             selectedTextColor = OrnChorus, unselectedIconColor = OrnInkDim, unselectedTextColor = OrnInkDim),
