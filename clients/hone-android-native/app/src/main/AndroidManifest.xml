@@ -4,6 +4,12 @@
 
     <!-- Node participation: networking + keep-alive -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Birderlands (same phone) can read what Hone heard and which account it uses, after the player allows it. -->
+    <permission
+        android:name="network.hone.permission.READ_HEARD"
+        android:label="@string/read_heard_label"
+        android:description="@string/read_heard_desc"
+        android:protectionLevel="dangerous" />
     <!-- In-app updates: hand a verified APK to the system installer (user confirms). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- BLE: hear HONE device announces (e.g. the Flipper). Not used for location. -->
@@ -121,5 +127,10 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_paths" />
         </provider>
+        <provider
+            android:name=".birds.HeardProvider"
+            android:authorities="${applicationId}.heard"
+            android:exported="true"
+            android:readPermission="network.hone.permission.READ_HEARD" />
     </application>
 </manifest>
