@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// HONE camera listener MCP server.
+// Ornigo listener MCP server (package hone-listener-mcp).
 //
-// Lets an AI assistant install the HONE camera listener and answer "what birds did we hear?".
+// Lets an AI assistant install the Ornigo listener and answer "what birds did we hear?".
 // Zero dependencies (Node 18+). Two modes:
 //   stdio (default)  all four tools; install_listener runs on this computer.
 //   --http [port]    remote, read-only: my_birds, is_back, listener_status (no installs).
@@ -16,11 +16,12 @@
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { tmpdir, homedir, platform, arch, release } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const ORIGIN = "https://honemesh.net";
 const LISTENER_PATH = "/app/listener/";
 const API = ORIGIN + "/api/accounts";
@@ -76,7 +77,7 @@ async function fetchVerified() {
   try {
     man = await getPinned("version.json", MAX_MANIFEST);
   } catch (e) {
-    if (e.notYet) throw new Error("The HONE listener hasn't been published on honemesh.net yet, so nothing was installed. It's coming in the next few days; try again then.");
+    if (e.notYet) throw new Error("Ornigo hasn't been published on honemesh.net yet, so nothing was installed. It's coming in the next few days; try again then.");
     throw e;
   }
   steps.push(`Downloaded ${man.url} (${man.buf.length} bytes).`);
@@ -112,20 +113,20 @@ function token(headerTok) {
   }
   t = t.trim();
   if (!t) return null;
-  if (!/^w_[A-Za-z0-9_-]{20,}$/.test(t)) throw new Error("HONE_TOKEN must be a read-only key from honemesh.net/me (it starts with w_).");
+  if (!/^w_[A-Za-z0-9_-]{20,}$/.test(t)) throw new Error("HONE_TOKEN must be a read-only Ornigo key from honemesh.net/me (it starts with w_).");
   return t;
 }
 
 async function api(path, tok) {
   if (!tok) {
-    throw new Error("Not connected to a HONE account yet. Ask the user to open https://honemesh.net/me, sign in, " +
+    throw new Error("Not connected to an Ornigo account yet. Ask the user to open https://honemesh.net/me, sign in, " +
       "tap \"Make an AI key\" and add it to this assistant as HONE_TOKEN. The key can only read birds and listeners.");
   }
   const res = await fetch(API + path, { redirect: "error", signal: AbortSignal.timeout(30000),
     headers: { Authorization: "Bearer " + tok, "User-Agent": "hone-listener-mcp/" + VERSION } });
   const j = await res.json().catch(() => ({}));
-  if (res.status === 401) throw new Error("The HONE key was refused (expired or signed out). Make a new one at https://honemesh.net/me.");
-  if (!res.ok) throw new Error(j.error || `HONE answered HTTP ${res.status}`);
+  if (res.status === 401) throw new Error("The Ornigo key was refused (expired or signed out). Make a new one at https://honemesh.net/me.");
+  if (!res.ok) throw new Error(j.error || `honemesh.net answered HTTP ${res.status}`);
   return j;
 }
 
@@ -160,6 +161,38 @@ function run(cmd, args) {
   } catch (e) { return { code: -1, out: String(e.message).slice(0, 200) }; }
 }
 
+const PORT_FILES = {
+  windows: "%LOCALAPPDATA%\\HONE\\Listener\\ui-port",
+  linux: "/var/lib/hone-listener/ui-port",
+  linux_user: "~/.local/share/hone-listener/ui-port",
+  macos: "~/Library/Application Support/HONE Listener/ui-port",
+};
+
+function expandPath(p) {
+  if (typeof p !== "string" || !/ui-port$/.test(p) || p.length > 300) return null;
+  let x = p;
+  if (x.startsWith("~/")) x = join(homedir(), x.slice(2));
+  x = x.replace(/%([A-Za-z_]+)%/g, (_, k) => process.env[k] || "\0");
+  return x.includes("\0") || !isAbsolute(x) ? null : x;
+}
+
+/** Port from the listener's port file (manifest paths first, then the known defaults). */
+function readPortFile(os, fromManifest, scope) {
+  const m = fromManifest && typeof fromManifest === "object" ? fromManifest : {};
+  const keys = os === "win32" ? ["windows"] : os === "darwin" ? ["macos"] : scope === "user" ? ["linux_user", "linux"] : ["linux", "linux_user"];
+  for (const k of keys) {
+    for (const raw of [m[k], PORT_FILES[k]]) {
+      const f = expandPath(raw);
+      if (!f) continue;
+      try {
+        const n = Number(readFileSync(f, "utf8").slice(0, 16).trim());
+        if (Number.isInteger(n) && n > 1023 && n < 65536) return n;
+      } catch { /* not there */ }
+    }
+  }
+  return 0;
+}
+
 async function localStatus() {
   // Service names come from the signed manifest when it's available; else the defaults.
   let local = {};
@@ -191,14 +224,19 @@ async function localStatus() {
       }
     }
   }
+  // 0.1.4+: the listener writes the port it actually bound to a file (status_port_file per OS);
+  // status_port is only the preferred port.
+  let port = readPortFile(os, local.status_port_file, svc.scope);
+  const portFrom = port ? "port file" : "preferred port";
+  if (!port) port = Number(local.status_port) || 47811;
   let http = null;
-  const port = Number(local.status_port);
   if (Number.isInteger(port) && port > 1023 && port < 65536) {
     try {
       const r = await fetch(`http://127.0.0.1:${port}/status`, { signal: AbortSignal.timeout(3000), redirect: "error" });
       http = r.ok ? await r.json() : { http: r.status };
     } catch { http = { reachable: false }; }
   }
+  if (http) http = { port, from: portFrom, ...http };
   return { os, ...svc, local_status: http };
 }
 
@@ -207,7 +245,7 @@ const TOOLS = [
   {
     name: "install_listener",
     description:
-      "Install the HONE camera listener on THIS computer, so the user's home security camera can listen for birds. " +
+      "Install Ornigo, the bird listener, on THIS computer, so the user's home security camera can listen for birds. " +
       "Call it first WITHOUT confirm: it detects the operating system, downloads the signed release manifest and the installer " +
       "from honemesh.net only, checks the ed25519 signature against the pinned HONE release key and the installer's sha256, " +
       "and reports each check without running anything. Explain those steps to the user in plain words, read them the privacy " +
@@ -228,8 +266,8 @@ const TOOLS = [
   {
     name: "listener_status",
     description:
-      "Is the user's HONE listener running? Checks the listener service on this computer (when running locally) and, if a " +
-      "HONE key is set, every listener and phone on the user's account: \"Listening now\" or when it last sent a report. " +
+      "Is the user's Ornigo listener running? Checks the listener service on this computer (when running locally) and, if a " +
+      "Ornigo key is set, every listener and phone on the user's account: \"Listening now\" or when it last sent a report. " +
       "Reports arrive every 15 minutes; a device counts as listening if one arrived in the last 35 minutes. Explain the result " +
       "simply, e.g. \"Your backyard camera is listening now; its last report was 6 minutes ago.\"",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -237,7 +275,7 @@ const TOOLS = [
   {
     name: "my_birds",
     description:
-      "List the birds the user's own HONE listeners and phones have heard, newest first: English and Latin name, how many " +
+      "List the birds the user's own Ornigo listeners and phones have heard, newest first: English and Latin name, how many " +
       "15-minute reports included it, in how many places, first and last time heard, and a rare flag. Use since to narrow it " +
       "(\"today\", \"week\", \"month\", \"48h\", an ISO date or unix seconds). Read-only. When telling the user, lead with the " +
       "most recent or most interesting birds rather than reading the whole list.",
@@ -308,7 +346,7 @@ async function listenerStatus(args, ctx) {
   if (!ctx.remote) {
     try {
       const s = await localStatus();
-      parts.push(`This computer (${s.os}): listener ${s.installed ? (s.running ? "installed and running" : "installed but NOT running") : "not installed"}` +
+      parts.push(`This computer (${s.os}): Ornigo ${s.installed ? (s.running ? "installed and running" : "installed but NOT running") : "not installed"}` +
         ` [service ${s.name}${s.state ? ", state " + s.state : ""}].` + (s.local_status ? ` Local status: ${JSON.stringify(s.local_status).slice(0, 400)}` : ""));
     } catch (e) { parts.push("This computer: couldn't check (" + e.message + ")."); }
   }
@@ -323,7 +361,7 @@ async function listenerStatus(args, ctx) {
         (d.detections_today != null ? `; ${d.detections_today} bird calls today` : "") + (d.version ? `; version ${d.version}` : ""));
     }
   } else if (!ctx.remote) {
-    parts.push("Account status not checked: no HONE key set (make one at https://honemesh.net/me).");
+    parts.push("Account status not checked: no Ornigo key set (make one at https://honemesh.net/me).");
   }
   return parts.join("\n");
 }
@@ -376,7 +414,7 @@ async function handle(msg, ctx) {
       protocolVersion: params?.protocolVersion || "2025-06-18",
       capabilities: { tools: {} },
       serverInfo: { name: "hone-listener", version: VERSION },
-      instructions: "HONE camera listener. Explain every step to the user in plain words. Never run the installer " +
+      instructions: "Ornigo bird listener (made by Honemesh). Explain every step to the user in plain words. Never run the installer " +
         "before the user agrees; install_listener needs confirm: true for that. Privacy: " + DISCLAIMER,
     });
   }

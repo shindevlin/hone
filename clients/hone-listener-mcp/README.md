@@ -1,7 +1,7 @@
 # hone-listener-mcp
 
 An MCP server that lets an AI assistant (Claude Desktop, Claude Code, or any MCP client) set up the
-HONE camera listener on the user's computer and answer questions like "is the cardinal back?".
+Ornigo listener on the user's computer and answer questions like "is the cardinal back?".
 
 Docs for people: https://honemesh.net/listener/ai
 
@@ -25,14 +25,14 @@ Node 18.17 or newer.
   "mcpServers": {
     "hone-listener": {
       "command": "npx",
-      "args": ["-y", "https://honemesh.net/app/mcp/hone-listener-mcp-0.1.0.tgz"],
+      "args": ["-y", "https://honemesh.net/app/mcp/hone-listener-mcp-0.1.1.tgz"],
       "env": { "HONE_TOKEN": "w_... (from https://honemesh.net/me, Make an AI key)" }
     }
   }
 }
 ```
 
-Claude Code: `claude mcp add hone-listener -e HONE_TOKEN=w_... -- npx -y https://honemesh.net/app/mcp/hone-listener-mcp-0.1.0.tgz`
+Claude Code: `claude mcp add hone-listener -e HONE_TOKEN=w_... -- npx -y https://honemesh.net/app/mcp/hone-listener-mcp-0.1.1.tgz`
 
 `HONE_TOKEN` is optional for installing; it is needed for `my_birds`, `is_back` and account status.
 It may also be read from `~/.hone/listener-token`. Only read-only web keys (`w_...`) are accepted.
@@ -44,10 +44,10 @@ stateless). The public one is `https://honemesh.net/listener/mcp`; send `Authori
 
 Published at `https://honemesh.net/app/listener/`:
 
-- `version.json`: `{"name": "hone-listener", "version": "...", "files": {"install.sh": {"sha256": "..."}, "install.ps1": {"sha256": "..."}, ...}}`.
+- `version.json` (`local.status_port_file` per OS is read first by `listener_status`, then `local.status_port`): `{"name": "hone-listener", "version": "...", "files": {"install.sh": {"sha256": "..."}, "install.ps1": {"sha256": "..."}, ...}}`.
   Optional: `"store_url"` (Microsoft Store listing, shown on /listener), `"local": {"windows_service", "windows_task", "launchd_label", "systemd_unit", "status_port"}` (used by `listener_status`).
 - `version.json.sig`: base64 (or hex) ed25519 signature over the exact bytes of `version.json`,
-  by the HONE listener release key `27ef54588674c3391e660056d873b89136e75125b5a433de0747191baa94a10d`.
+  by the Ornigo (hone-listener) release key `27ef54588674c3391e660056d873b89136e75125b5a433de0747191baa94a10d`.
   `scripts/sign-listener-release.mjs <dir> --version X.Y.Z` writes both.
 - Installers get `HONE_REF` (invite code, may be empty), `HONE_VERIFIED_MANIFEST` (path to the verified
   `version.json`, so the installer can check every file it downloads against it), `HONE_INSTALL_SOURCE=mcp`

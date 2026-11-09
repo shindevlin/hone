@@ -1,13 +1,30 @@
 {
   "name": "hone-listener-mcp",
-  "version": "0.1.0",
-  "description": "MCP server that lets an AI assistant install the HONE camera listener (signed, verified downloads from honemesh.net only) and report the birds it hears.",
+  "version": "0.1.1",
+  "description": "MCP server that lets an AI assistant install Ornigo, the bird listener (signed, verified downloads from honemesh.net only), and report the birds it hears.",
   "type": "module",
-  "bin": { "hone-listener-mcp": "server.mjs" },
-  "files": ["server.mjs", "README.md"],
-  "engines": { "node": ">=18.17" },
+  "bin": {
+    "hone-listener-mcp": "server.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
   "homepage": "https://honemesh.net/listener/ai",
-  "repository": { "type": "git", "url": "git+https://github.com/shindevlin/hone.git", "directory": "clients/hone-listener-mcp" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shindevlin/hone.git",
+    "directory": "clients/hone-listener-mcp"
+  },
   "license": "SEE LICENSE IN https://honemesh.net/terms",
-  "keywords": ["mcp", "birds", "hone", "bird-listener", "model-context-protocol"]
+  "keywords": [
+    "mcp",
+    "birds",
+    "ornigo",
+    "bird-listener",
+    "model-context-protocol"
+  ]
 }
