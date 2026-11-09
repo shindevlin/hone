@@ -29,7 +29,7 @@ import h3
 from nacl.signing import VerifyKey
 
 ONLINE_S = 35 * 60
-HISTORY_S = 24 * 3600
+HISTORY_S = 7 * 86400  # 7 days of status history
 MAX_STATUS = 32 * 1024
 MAX_FRAMES = 500
 NODE = os.environ.get("HONE_NODE_URL", "http://127.0.0.1:4242")
