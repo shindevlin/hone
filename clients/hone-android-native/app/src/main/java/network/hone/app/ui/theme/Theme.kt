@@ -1,5 +1,8 @@
 package network.hone.app.ui.theme
 
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+
 import android.app.Activity
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +42,19 @@ private val OrnColors = darkColorScheme(
     onError = OrnNight,
 )
 
+private val HoneLightColors = lightColorScheme(
+    primary = HoneBrand, onPrimary = Color.White,
+    primaryContainer = HoneBrand.copy(alpha = 0.12f), onPrimaryContainer = HoneBrand,
+    secondary = HoneProven, onSecondary = Color.White,
+    tertiary = HoneSkyLight, onTertiary = Color.White,
+    background = HonePaper, onBackground = HoneInk,
+    surface = HoneCard, onSurface = HoneInk,
+    surfaceVariant = HoneCardHi, onSurfaceVariant = HoneDim,
+    surfaceContainer = HoneCard, surfaceContainerHigh = HoneCardHi, surfaceContainerHighest = HoneCardHi,
+    outline = HoneLine, outlineVariant = HoneLine,
+    secondaryContainer = HoneCardHi, onSecondaryContainer = HoneInk,
+    error = HoneErr, onError = Color.White,
+)
 private val OrnShapes = Shapes(
     extraSmall = RoundedCornerShape(12.dp),
     small = RoundedCornerShape(12.dp),
@@ -54,10 +70,10 @@ fun HoneTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = OrnNight.toArgb()
-            window.navigationBarColor = OrnNight.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
+            window.statusBarColor = (if (ThemeMode.light) HonePaper else OrnNight).toArgb()
+            window.navigationBarColor = (if (ThemeMode.light) HonePaper else OrnNight).toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = ThemeMode.light
         }
     }
-    MaterialTheme(colorScheme = OrnColors, typography = HoneTypography, shapes = OrnShapes, content = content)
+    MaterialTheme(colorScheme = if (ThemeMode.light) HoneLightColors else OrnColors, typography = HoneTypography, shapes = OrnShapes, content = content)
 }

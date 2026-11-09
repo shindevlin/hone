@@ -27,16 +27,31 @@ val HoneProven = Color(0xFF2E6B2A)
 val HoneQueued = Color(0xFF8A5A00)
 
 // Names used across the existing screens, now mapped onto the Ornigo tokens.
-val HoneOrange       = OrnChorus
-val HoneOrangeBright = OrnChorus
-val HoneAmber        = OrnGold
-val HoneBg           = OrnNight
-val HoneSurface      = OrnCanopy
-val HoneSurfaceHi    = OrnBough
-val HoneOutline      = OrnTwig
-val HoneText         = OrnInk
-val HoneTextDim      = OrnInkDim
-val HoneTextFaint    = OrnInkFaint
-val HoneGreen        = OrnChorus
-val HoneRed          = OrnAlarm
-val HoneBlue         = OrnSky
+val HoneOrange: Color get() = if (ThemeMode.light) HoneBrand else OrnChorus
+val HoneOrangeBright: Color get() = if (ThemeMode.light) HoneBrand else OrnChorus
+val HoneAmber: Color get() = if (ThemeMode.light) HoneQueued else OrnGold
+val HoneBg: Color get() = if (ThemeMode.light) HonePaper else OrnNight
+val HoneSurface: Color get() = if (ThemeMode.light) HoneCard else OrnCanopy
+val HoneSurfaceHi: Color get() = if (ThemeMode.light) HoneCardHi else OrnBough
+val HoneOutline: Color get() = if (ThemeMode.light) HoneLine else OrnTwig
+val HoneText: Color get() = if (ThemeMode.light) HoneInk else OrnInk
+val HoneTextDim: Color get() = if (ThemeMode.light) HoneDim else OrnInkDim
+val HoneTextFaint: Color get() = if (ThemeMode.light) HoneFaint else OrnInkFaint
+val HoneGreen: Color get() = if (ThemeMode.light) HoneProven else OrnChorus
+val HoneRed: Color get() = if (ThemeMode.light) HoneErr else OrnAlarm
+val HoneBlue: Color get() = if (ThemeMode.light) HoneSkyLight else OrnSky
+
+
+// HONE light (HONE mode). Text contrast on white: ink ~16:1, dim ~6.8:1, faint ~5:1, brand ~5:1.
+val HoneCardHi   = Color(0xFFEDE9E1)
+val HoneFaint    = Color(0xFF6B7177)
+val HoneErr      = Color(0xFFB3261E)
+val HoneSkyLight = Color(0xFF1F5F95)
+
+/** Which palette the shared screens use: HONE light in HONE mode, Ornigo night otherwise. */
+object ThemeMode {
+    private val state = androidx.compose.runtime.mutableStateOf(false)
+    var light: Boolean
+        get() = state.value
+        set(v) { state.value = v }
+}

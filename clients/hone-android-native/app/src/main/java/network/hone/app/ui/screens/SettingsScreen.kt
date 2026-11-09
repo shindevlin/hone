@@ -166,9 +166,20 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
                     }
                     Switch(honeMode, { honeMode = it; network.hone.app.ui.AppMode.setHone(ctx, it); network.hone.app.ui.AppMode.version.intValue++ })
                 }
+                if (honeMode) {
+                    var light by remember { mutableStateOf(network.hone.app.ui.AppMode.light(ctx)) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("HONE light colours (preview)", style = MaterialTheme.typography.bodyMedium)
+                            Text("Paper and ink for the HONE screens. Off: the night colours.",
+                                style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+                        }
+                        Switch(light, { light = it; network.hone.app.ui.AppMode.setLight(ctx, it); network.hone.app.ui.AppMode.version.intValue++ })
+                    }
+                }
                 VoiceprintExport()
             }
-            Text("Home area: sightings inside it are shown at about 5 km. Elsewhere, as precise as your GPS.",
+            Text("Home area: sightings inside it are shown at about 5 km. Elsewhere, at most a block (about 170 m). With no home area, everything is shown at about 5 km.",
                 style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
             Text("Radius ${homeRadius.toInt()} m", style = MaterialTheme.typography.bodySmall)
             Slider(homeRadius, { homeRadius = it }, valueRange = 100f..5000f,

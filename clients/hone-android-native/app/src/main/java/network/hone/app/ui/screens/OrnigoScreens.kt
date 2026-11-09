@@ -216,7 +216,7 @@ private fun Chip(text: String, color: androidx.compose.ui.graphics.Color = OrnIn
 // ── Today ────────────────────────────────────────────────────────────────────
 
 @Composable
-fun TodayScreen(onSettings: () -> Unit, onSave: () -> Unit = {}) {
+fun TodayScreen(onSettings: () -> Unit, onSave: () -> Unit = {}, onHone: () -> Unit = {}) {
     val ctx = LocalContext.current
     val live by SoundSensing.live.collectAsStateWithLifecycle()
     val st by produceState<TodayStats?>(null, live.reportsStored, live.recent.firstOrNull()?.atMs) {
@@ -285,6 +285,7 @@ fun TodayScreen(onSettings: () -> Unit, onSave: () -> Unit = {}) {
             EnergySpends(avail) { spentTick++ }
         }
         DawnChorusCard()
+        HoneLink(onHone)
         DisclaimerCard()
     }
 }

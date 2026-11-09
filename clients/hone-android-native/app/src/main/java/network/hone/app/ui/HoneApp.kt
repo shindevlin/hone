@@ -26,7 +26,7 @@ import network.hone.app.ui.screens.NodeScreen
 import network.hone.app.ui.screens.SensorsScreen
 import network.hone.app.ui.screens.SettingsScreen
 import network.hone.app.ui.screens.WalletScreen
-import network.hone.app.ui.theme.OrnCanopy
+import network.hone.app.ui.theme.*
 import network.hone.app.ui.theme.OrnChorus
 import network.hone.app.ui.theme.OrnInkDim
 import network.hone.app.ui.theme.OrnNight
@@ -52,6 +52,8 @@ object AppMode {
     fun hasSeat(ctx: Context) = java.io.File(ctx.filesDir, "hone-node/witness_account").exists()
     fun hone(ctx: Context) = prefs(ctx).getBoolean("hone", hasSeat(ctx))
     fun setHone(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("hone", on).apply()
+    fun light(ctx: Context) = prefs(ctx).getBoolean("light", false)
+    fun setLight(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("light", on).apply()
     val version = mutableIntStateOf(0)
 }
 
@@ -60,6 +62,8 @@ fun HoneApp() {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val modeVersion by AppMode.version
     val honeMode = remember(modeVersion) { AppMode.hone(ctx) }
+    // HONE light colours are opt-in until they have been checked on a phone (Settings > Advanced).
+    network.hone.app.ui.theme.ThemeMode.light = honeMode && AppMode.light(ctx)
     key(honeMode) { AppShell(honeMode) }
 }
 
@@ -76,7 +80,7 @@ private fun AppShell(honeMode: Boolean) {
     if (importKey) { network.hone.app.ui.screens.FindMyScreen(onBack = { importKey = false }); return }
     var account by remember { mutableStateOf(false) }
     if (account) {
-        Scaffold(containerColor = OrnNight) { inner ->
+        Scaffold(containerColor = HoneBg) { inner ->
             androidx.compose.foundation.layout.Box(Modifier.padding(inner)) {
                 network.hone.app.ui.screens.AccountFlow(onSignedIn = { account = false }, onSkip = { account = false }, onImportKey = { importKey = true })
             }
@@ -84,7 +88,7 @@ private fun AppShell(honeMode: Boolean) {
         return
     }
     if (firstRun && !honeMode) {
-        Scaffold(topBar = { network.hone.app.update.UpdateBanner() }, containerColor = OrnNight) { inner ->
+        Scaffold(topBar = { network.hone.app.update.UpdateBanner() }, containerColor = HoneBg) { inner ->
             androidx.compose.foundation.layout.Box(Modifier.padding(inner)) {
                 network.hone.app.ui.screens.OrnigoFirstRun(onDone = { firstRun = false }, onSignIn = { account = true })
             }
@@ -92,7 +96,7 @@ private fun AppShell(honeMode: Boolean) {
         return
     }
     if (firstRun) {
-        Scaffold(topBar = { network.hone.app.update.UpdateBanner() }, containerColor = OrnNight) { inner ->
+        Scaffold(topBar = { network.hone.app.update.UpdateBanner() }, containerColor = HoneBg) { inner ->
             androidx.compose.foundation.layout.Box(Modifier.padding(inner)) {
                 network.hone.app.ui.screens.FirstRunScreen(onDone = { firstRun = false }, onImportKey = { importKey = true })
             }
@@ -108,10 +112,10 @@ private fun AppShell(honeMode: Boolean) {
     }
 
     Scaffold(
-        containerColor = OrnNight,
+        containerColor = HoneBg,
         topBar = { network.hone.app.update.UpdateBanner() },
         bottomBar = {
-            NavigationBar(containerColor = OrnCanopy) {
+            NavigationBar(containerColor = HoneSurface) {
                 tabs.forEach { dest ->
                     val selected = current?.hierarchy?.any { it.route == dest.route } == true
                     NavigationBarItem(
@@ -120,8 +124,8 @@ private fun AppShell(honeMode: Boolean) {
                         icon = { Icon(dest.icon, contentDescription = dest.label) },
                         label = { FitText(dest.label) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = OrnNight, indicatorColor = OrnChorus,
-                            selectedTextColor = OrnChorus, unselectedIconColor = OrnInkDim, unselectedTextColor = OrnInkDim),
+                            selectedIconColor = if (honeMode) androidx.compose.ui.graphics.Color.White else OrnNight, indicatorColor = HoneOrange,
+                            selectedTextColor = HoneOrange, unselectedIconColor = HoneTextDim, unselectedTextColor = HoneTextDim),
                     )
                 }
             }
@@ -140,7 +144,8 @@ private fun AppShell(honeMode: Boolean) {
                 network.hone.app.ui.screens.EncounterScreen(target = e.arguments?.getString("t"),
                     onCollection = { go(Dest.Birds.route) }, onBack = { nav.popBackStack() })
             }
-            composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }) }
+            composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }, onHone = { nav.navigate("handoff") }) }
+            composable("handoff") { network.hone.app.ui.screens.HandoffScreen(onBack = { nav.popBackStack() }) }
             composable(Dest.Node.route) { NodeScreen() }
             composable(Dest.Wallet.route) { WalletScreen() }
             composable(Dest.Sensors.route) { SensorsScreen() }

@@ -12,8 +12,8 @@ android {
         applicationId = "network.hone.app"   // HONE brand — matches the Rust JNI/uniffi package
         minSdk = 26                            // 8.0+ (foreground services, notification channels)
         targetSdk = 36
-        versionCode = 17
-        versionName = "1.6.1"
+        versionCode = 18
+        versionName = "1.7.0"
         // Commit shown in the signed device status.
         buildConfigField("String", "GIT_COMMIT", "\"" + (runCatching {
             ProcessBuilder("git", "rev-parse", "--short=8", "HEAD").directory(rootDir).start()

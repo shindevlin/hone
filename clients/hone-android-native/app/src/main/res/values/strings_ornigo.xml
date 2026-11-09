@@ -181,6 +181,8 @@
     <string name="hone_handoff_same">Stays the same: your account, birds, names and streak.</string>
     <string name="hone_handoff_new">New: your own wallet on this phone, paid for what your listeners find.</string>
     <string name="hone_handoff_rewards">Rewards until now went to the person who invited you, or the community pool.</string>
+    <string name="hone_handoff_intro">HONE is the full app behind Ornigo. Your birds help map nature, and HONE pays for the finds that are new and checked.</string>
+    <string name="hone_handoff_optional">Ornigo keeps working as it is. HONE is optional, and Settings › Advanced › HONE mode switches back.</string>
     <string name="hone_handoff_go">Switch to HONE on this phone</string>
     <string name="hone_handoff_back">Back to Ornigo</string>
     <string name="hone_details_experts">Details for experts</string>
