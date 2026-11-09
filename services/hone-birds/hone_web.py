@@ -187,7 +187,7 @@ def _place(cell, res):
 
 def _sightings(accts, since_window=0, latin=None):
     sql = (f"SELECT latin, window, cell, res, conf_q8, verified, source, station FROM sightings "
-           f"WHERE account IN ({_in(len(accts))}) AND verified IN (1,3,4) AND window>=?")
+           f"WHERE account IN ({_in(len(accts))}) AND verified IN (1,4) AND window>=?")
     args = [*accts, since_window]
     if latin:
         sql += " AND latin=?"; args.append(latin)

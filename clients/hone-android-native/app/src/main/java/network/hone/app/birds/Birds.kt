@@ -42,6 +42,16 @@ data class MyPhoto(val file: File, val latin: String, val t: Long, val status: S
 object Birds {
     @Volatile private var names: Map<String, String>? = null
 
+    /**
+     * Whether a detection counts (life list, map, Today, uploads). A species not recorded in this
+     * area is "unlikely here": kept on the phone for review, but it only counts once the user
+     * confirms it (or the indexer confirms it from a second listener or a photo).
+     */
+    fun counts(ctx: Context, h: Heard): Boolean =
+        h.label == true || (h.label != false && !h.rare && !Range.isRare(ctx, h.name))
+
+    fun unlikelyHere(ctx: Context, latin: String): Boolean = Range.isRare(ctx, latin)
+
     /** English common name from Wikidata (CC0), or null if Wikidata has none. */
     fun english(ctx: Context, latin: String): String? {
         val m = names ?: runCatching {
@@ -119,11 +129,12 @@ object Birds {
     /** Species heard here. Once the local range is known, species that don't occur here are left out. */
     fun mySpecies(ctx: Context): List<MySpecies> {
         val range = Range.current(ctx)
+        // Unlikely-here species stay in the list for review (rare = true) but are left out of counts.
         val keep = heard(ctx).filter { it.label != false && (range == null || it.name in range || it.conf >= Range.MIN_RARE * 100) }
         return keep.groupBy { it.name }.map { (latin, hs) ->
             MySpecies(latin, english(ctx, latin), hs.size, hs.minOf { it.t }, hs.maxOf { it.t },
-                hs.maxOf { it.conf }, hs, rare = range != null && latin !in range)
-        }.sortedByDescending { it.last }
+                hs.maxOf { it.conf }, hs, rare = (range != null && latin !in range || hs.any { it.rare }) && hs.none { it.label == true })
+        }.sortedWith(compareBy<MySpecies> { it.rare }.thenByDescending { it.last })
     }
 
     // ── species images (Wikimedia Commons, attributed) ─────────────────────────

@@ -87,6 +87,11 @@ rate = {}  # ip -> [window_start, count]
 RANGE_KM = 250
 RARE_MIN_Q8 = 217  # 85 %
 RANGE_TTL = 30 * 86400
+# In range: recorded at least IN_NEAR times within NEAR_KM, or IN_WIDE times within RANGE_KM.
+# A handful of stray or mislabelled GBIF records (e.g. 1-4 Eastern US species within 250 km of
+# El Salvador) no longer makes a species "local".
+NEAR_KM, IN_NEAR, IN_WIDE = 100, 3, 20
+MONTHS_MIN = 20  # records needed before a monthly season is trusted
 GBIF_GROUPS = {"classKey": [212, 131, 359], "orderKey": [1458]}  # birds, amphibians, mammals, Orthoptera
 range_locks = {}
 
@@ -126,16 +131,36 @@ def species_range(cell):
         if r and time.time() - r[1] < RANGE_TTL:
             return cell, json.loads(r[0])
         lat, lng = h3.cell_to_latlng(cell)
-        keys = set()
+        near, wide, monthly = {}, {}, {}
+
+        def facet(url, into):
+            d = gbif(url)
+            for c in d["facets"][0]["counts"] if d.get("facets") else []:
+                into[int(c["name"])] = into.get(int(c["name"]), 0) + c["count"]
+
         for field, vals in GBIF_GROUPS.items():
             for v in vals:
-                d = gbif(f"https://api.gbif.org/v1/occurrence/search?geo_distance={lat:.4f},{lng:.4f},{RANGE_KM}km"
-                         f"&{field}={v}&facet=speciesKey&facetLimit=5000&limit=0")
-                for c in d["facets"][0]["counts"] if d.get("facets") else []:
-                    if c["count"] >= 2:
-                        keys.add(int(c["name"]))
+                base = f"https://api.gbif.org/v1/occurrence/search?{field}={v}&facet=speciesKey&facetLimit=5000&limit=0"
+                facet(base + f"&geo_distance={lat:.4f},{lng:.4f},{NEAR_KM}km", near)
+                facet(base + f"&geo_distance={lat:.4f},{lng:.4f},{RANGE_KM}km", wide)
+                for m in range(1, 13):
+                    facet(base + f"&geo_distance={lat:.4f},{lng:.4f},{RANGE_KM}km&month={m}", monthly.setdefault(m, {}))
+        keys = {k for k in wide if near.get(k, 0) >= IN_NEAR or wide[k] >= IN_WIDE}
         with ThreadPoolExecutor(8) as ex:
-            names = sorted({n for n in ex.map(gbif_name, keys) if n})
+            named = {k: n for k, n in zip(keys, ex.map(gbif_name, keys)) if n}
+        names = sorted(set(named.values()))
+        # Monthly season per species for this area, from the same pass (no lazy per-species calls).
+        mrows = []
+        for k, n in named.items():
+            counts = {m: monthly[m].get(k, 0) for m in range(1, 13)}
+            months = None
+            if sum(counts.values()) >= MONTHS_MIN:
+                top = max(counts.values())
+                months = sorted(m for m, c in counts.items() if c >= 0.1 * top)
+            mrows.append((cell, n, json.dumps(months), int(time.time())))
+        with lock:
+            db.execute("CREATE TABLE IF NOT EXISTS gbif_months(cell TEXT, latin TEXT, months TEXT, updated INTEGER, PRIMARY KEY(cell, latin))")
+            db.executemany("INSERT OR REPLACE INTO gbif_months VALUES(?,?,?,?)", mrows)
         with lock:
             db.execute("INSERT OR REPLACE INTO ranges VALUES(?,?,?)", (cell, json.dumps(names), int(time.time())))
             db.commit()
@@ -148,11 +173,26 @@ def area(cell):
     return h3.latlng_to_cell(*h3.cell_to_latlng(cell), 3)
 
 
+_range_q = set()
+
+
+def _range_bg(c3):
+    try:
+        species_range(c3)
+    except Exception as e:
+        sys.stderr.write("range %s: %s\n" % (c3, str(e)[:80]))
+    finally:
+        _range_q.discard(c3)
+
+
 def in_range(cell, latin):
-    """True/False if the range for this cell is cached; None if not known yet."""
+    """True/False if the range for this cell is cached; None if not known yet (then fetched
+    in the background, so every area a listener reports from gets a prior)."""
     c3 = area(cell)
     with lock:
-        r = db.execute("SELECT species FROM ranges WHERE cell=?", (c3,)).fetchone()
+        r = db.execute("SELECT species, updated FROM ranges WHERE cell=?", (c3,)).fetchone()
+    if (not r or time.time() - r[1] >= RANGE_TTL) and c3 not in _range_q:
+        _range_q.add(c3); threading.Thread(target=_range_bg, args=(c3,), daemon=True).start()
     return None if not r else latin in set(json.loads(r[0]))
 
 
@@ -336,7 +376,7 @@ occupancy.init(db, lock, in_range, months=season_months, photo_near=photo_near)
 if not db.execute("SELECT 1 FROM occ_state LIMIT 1").fetchone():
     # First start with occupancy: score the sightings already stored (positive evidence only).
     for _r in db.execute("SELECT cell, latin, conf_q8, frames, window, account, station, verified FROM sightings"
-                         " WHERE verified IN (1,3,4) ORDER BY window").fetchall():
+                         " WHERE verified IN (1,4) ORDER BY window").fetchall():
         occupancy.ingest_sighting(_r[0], _r[1], _r[2], _r[3], _r[4], occupancy.listener_of(_r[5]), _r[7])
 
 
@@ -371,8 +411,9 @@ def add_sighting(body):
             continue
         v = verified
         if v and in_range(cell, name) is False:
-            # Not recorded in this region (GBIF). Vagrants happen: very confident reports are
-            # published flagged rare (3 = unconfirmed); weaker ones are held back (2).
+            # Not recorded in this region (GBIF): "unlikely here". Vagrants happen, so very confident
+            # reports are kept as unconfirmed rare (3) and published only once another account or a
+            # photo confirms them (4); weaker ones are held back (2). Neither is public until then.
             v = 3 if int(s["conf_q8"]) >= RARE_MIN_Q8 else 2
         rows.append((f"{sid}:{i}", int(p["window"]), cell, res, name, int(s["conf_q8"]),
                      int(s.get("frames", 1)), str(p.get("model", ""))[:64],
@@ -381,9 +422,9 @@ def add_sighting(body):
     a5 = h3.cell_to_parent(cell, 5) if res > 5 else cell
     with lock:
         for r in rows:
-            if r[11] not in (1, 3, 4):
+            if r[11] not in (1, 4):
                 continue
-            prior = db.execute("SELECT cell, res FROM sightings WHERE latin=? AND verified IN (1,3,4) AND account<>? LIMIT 5000",
+            prior = db.execute("SELECT cell, res FROM sightings WHERE latin=? AND verified IN (1,4) AND account<>? LIMIT 5000",
                                (r[4], r[8])).fetchall()
             mine = db.execute("SELECT 1 FROM sightings WHERE latin=? AND account=? LIMIT 1", (r[4], r[8])).fetchone()
             if not mine and not any((h3.cell_to_parent(c, 5) if rs > 5 else c) == a5 for c, rs in prior):
@@ -675,14 +716,14 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/birds/occupancy/changes":
                 return self._send(200, occupancy.changes(int(a.get("since", 0)), int(a.get("limit", 500))))
             if path == "/api/birds/sightings":
-                rows = q("SELECT * FROM sightings WHERE verified IN (1,3,4) AND window>=? ORDER BY window DESC LIMIT ?",
+                rows = q("SELECT * FROM sightings WHERE verified IN (1,4) AND window>=? ORDER BY window DESC LIMIT ?",
                          (int(a.get("since", 0)), min(int(a.get("limit", 500)), 2000)))
                 return self._send(200, [public_sighting(r) for r in rows])
             if path == "/api/birds/species":
                 rows = q("""SELECT latin, COUNT(*) sightings, COUNT(DISTINCT cell) cells,
                             MAX(window) last_window, MIN(window) first_window,
-                            SUM(verified IN (3,4)) rare
-                            FROM sightings WHERE verified IN (1,3,4) GROUP BY latin ORDER BY sightings DESC""")
+                            SUM(verified=4) rare
+                            FROM sightings WHERE verified IN (1,4) GROUP BY latin ORDER BY sightings DESC""")
                 photos = {r["latin"]: r["n"] for r in q("SELECT latin, COUNT(*) n FROM photos WHERE hidden=0 AND verified=1 GROUP BY latin")}
                 for r in rows:
                     r["photos"] = photos.get(r["latin"], 0)
@@ -690,7 +731,7 @@ class H(BaseHTTPRequestHandler):
             m = re.match(r"^/api/birds/species/(.+)$", path)
             if m:
                 latin = unquote(m.group(1))
-                s = q("SELECT * FROM sightings WHERE verified IN (1,3,4) AND latin=? ORDER BY window DESC LIMIT 500", (latin,))
+                s = q("SELECT * FROM sightings WHERE verified IN (1,4) AND latin=? ORDER BY window DESC LIMIT 500", (latin,))
                 p = q("SELECT id, t, license, evidence_ok, CASE WHEN show_name=1 THEN account END account FROM photos"
                       " WHERE latin=? AND hidden=0 AND verified=1 ORDER BY t DESC LIMIT 100", (latin,))
                 for r in p:
@@ -700,7 +741,7 @@ class H(BaseHTTPRequestHandler):
                 res = int(a.get("res", 5))
                 if res not in (3, 5, 7, 9):
                     raise ValueError("res must be 3, 5, 7 or 9")
-                sql = "SELECT cell, res, latin FROM sightings WHERE verified IN (1,3,4) AND window>=?"
+                sql = "SELECT cell, res, latin FROM sightings WHERE verified IN (1,4) AND window>=?"
                 args = [int(a.get("since", 0))]
                 if a.get("species"):
                     sql += " AND latin=?"; args.append(a["species"])

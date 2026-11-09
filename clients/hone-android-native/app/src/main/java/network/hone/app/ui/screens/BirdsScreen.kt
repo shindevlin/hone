@@ -68,7 +68,7 @@ fun BirdsScreen() {
         Spacer(Modifier.height(4.dp))
         Text(
             if (mine.isEmpty()) "Nothing heard yet." else
-                "${mine.size} species · ${mine.sumOf { it.count }} times heard",
+                "${mine.count { !it.rare }} species · ${mine.filter { !it.rare }.sumOf { it.count }} times heard",
             style = MaterialTheme.typography.bodyMedium, color = HoneTextDim,
         )
         Spacer(Modifier.height(12.dp))
@@ -113,8 +113,9 @@ private fun MineList(mine: List<MySpecies>, enabled: Boolean, onOpen: (String) -
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Names(s.latin, s.english)
-                    Text((if (s.rare) "rare here · " else "") + "heard ${s.count}× · last ${ago(s.last)}",
-                        style = MaterialTheme.typography.labelSmall, color = if (s.rare) HoneGreen else HoneTextDim)
+                    Text((if (s.rare) androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_unlikely_review) + " · " else "") +
+                        "heard ${s.count}× · last ${ago(s.last)}",
+                        style = MaterialTheme.typography.labelSmall, color = if (s.rare) OrnAlarm else HoneTextDim)
                 }
             }
         }
@@ -255,8 +256,8 @@ private fun SpeciesDetail(s: MySpecies, onBack: () -> Unit) {
         items(s.history.distinctBy { it.t }.take(200), key = { "h-${it.t}" }) { h ->
             val v = verdicts["${h.t}|${h.name}"]
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${DateUtils.formatDateTime(ctx, h.t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · ${confidenceWord(h.conf)}" +
-                    (if (h.rare) " · rare here" else ""),
+                Text("${DateUtils.formatDateTime(ctx, h.t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)} · ${confidenceWord(h.conf, s.rare)}" +
+                    (if (h.rare && !s.rare) " · unlikely here" else ""),
                     style = MaterialTheme.typography.bodySmall, color = HoneTextDim, modifier = Modifier.weight(1f))
                 FilterChip(selected = v == true, onClick = {
                     Birds.label(ctx, h, true); verdicts = Birds.labels(ctx)
@@ -515,7 +516,7 @@ private fun WhereHeard(s: MySpecies) {
         r.places.forEach { p ->
             Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)).padding(12.dp)) {
                 Text(p.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("${p.count}× · first ${ago(p.first)} · last ${ago(p.last)} · ${confidenceWord(p.bestConf)}",
+                Text("${p.count}× · first ${ago(p.first)} · last ${ago(p.last)} · ${confidenceWord(p.bestConf, s.rare)}",
                     style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
             }
         }

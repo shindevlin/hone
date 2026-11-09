@@ -49,7 +49,7 @@ object Today {
             }
         }
 
-        val heard = Birds.heard(ctx).filter { it.label != false }
+        val heard = Birds.heard(ctx).filter { Birds.counts(ctx, it) }
         val firstBySpecies = HashMap<String, Long>()
         heard.forEach { h -> firstBySpecies[h.name] = minOf(firstBySpecies[h.name] ?: Long.MAX_VALUE, h.t) }
         val todayHeard = heard.filter { day(it.t, z) == today }

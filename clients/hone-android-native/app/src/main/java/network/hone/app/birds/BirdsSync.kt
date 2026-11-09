@@ -88,7 +88,8 @@ object BirdsSync {
         val acct = account(ctx) ?: run { Telemetry.skipped(ctx, "birds", "no account"); return }
         // window -> cell -> species -> (best conf, count)
         val byWin = sortedMapOf<Long, HashMap<String, HashMap<String, Pair<Double, Int>>>>()
-        val rejected = Birds.labels(ctx).filterValues { !it }.keys
+        val labels = Birds.labels(ctx)
+        val rejected = labels.filterValues { !it }.keys
         var unlocated = 0
         det.forEachLine { l ->
             val j = runCatching { JSONObject(l) }.getOrNull() ?: return@forEachLine
@@ -98,9 +99,10 @@ object BirdsSync {
             if (!j.has("lat")) { unlocated++; return@forEachLine }
             val cell = publicCell(ctx, j.getDouble("lat"), j.getDouble("lon"), j.optDouble("acc", 50.0).toFloat())
                 ?: return@forEachLine
-            // Out-of-range species go out only at 85%+ (flagged rare by the indexer).
-            if (Range.current(ctx)?.contains(j.getString("name")) == false &&
-                j.getDouble("conf") < Range.MIN_RARE * 100) return@forEachLine
+            // Unlikely here (not recorded in this area): kept on the phone for review; uploaded only
+            // once the user confirms it. The indexer still needs a second listener or a photo to publish.
+            if ((Range.current(ctx)?.contains(j.getString("name")) == false || j.optBoolean("rare")) &&
+                labels["${j.getLong("t")}|${j.getString("name")}"] != true) return@forEachLine
             val sp = byWin.getOrPut(w) { HashMap() }.getOrPut(cell) { HashMap() }
             val prev = sp[j.getString("name")]
             sp[j.getString("name")] = Pair(maxOf(prev?.first ?: 0.0, j.getDouble("conf")), (prev?.second ?: 0) + 1)

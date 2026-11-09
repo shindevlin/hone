@@ -9,6 +9,8 @@
     <string name="orn_fading">Fading</string>
     <string name="orn_gone">Gone for the season</string>
     <string name="orn_very_likely">very likely</string>
+    <string name="orn_unlikely_here">unlikely here</string>
+    <string name="orn_unlikely_review">unlikely here, kept for you to check</string>
     <string name="orn_likely">likely</string>
     <string name="orn_possibly">possibly</string>
     <string name="orn_this_phone">This phone</string>

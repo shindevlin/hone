@@ -47,7 +47,7 @@ fun ListenScreen() {
                 "Turn on Sound sensing in Settings to start.", style = MaterialTheme.typography.bodyMedium, color = HoneTextDim)
             singing.forEach { d ->
                 Text(network.hone.app.birds.Birds.english(ctx, d.name) ?: d.name, style = MaterialTheme.typography.titleLarge)
-                Text(network.hone.app.ui.screens.confidenceWord(d.conf * 100.0) + " · " +
+                Text(network.hone.app.ui.screens.confidenceWord(d.conf * 100.0, network.hone.app.birds.Birds.unlikelyHere(ctx, d.name)) + " · " +
                     android.text.format.DateUtils.getRelativeTimeSpanString(d.atMs, now, android.text.format.DateUtils.MINUTE_IN_MILLIS),
                     style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
             }

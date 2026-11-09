@@ -42,7 +42,8 @@ fun DisclaimerCard(modifier: Modifier = Modifier) {
 }
 
 /** Confidence for people: a word, never a percent. */
-fun confidenceWord(pct: Double): String = when {
+fun confidenceWord(pct: Double, unlikelyHere: Boolean = false): String = when {
+    unlikelyHere -> "unlikely here"
     pct >= 85 -> "very likely"
     pct >= 70 -> "likely"
     else -> "possibly"
@@ -81,7 +82,7 @@ fun OrnigoMapScreen(onListen: () -> Unit) {
     LaunchedEffect(Unit) {
         val since = System.currentTimeMillis() - 24 * 3600_000L
         val (p, t, e) = withContext(Dispatchers.IO) {
-            val heard = Birds.heard(ctx).filter { it.t >= since && it.lat != null && it.lon != null && it.label != false }
+            val heard = Birds.heard(ctx).filter { it.t >= since && it.lat != null && it.lon != null && Birds.counts(ctx, it) }
             val ps = heard.groupBy { (network.hone.app.sightings.Cells.cell(it.lat!!, it.lon!!, 9) ?: "%.3f,%.3f".format(it.lat, it.lon)) + "|" + it.name }
                 .map { (_, hs) ->
                     // Pin sits on the block (res-9 cell centre) where the bird was heard, not on a person.

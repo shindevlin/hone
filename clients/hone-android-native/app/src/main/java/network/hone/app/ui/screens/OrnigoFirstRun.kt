@@ -201,7 +201,7 @@ private fun FirstBirdStep(onDone: () -> Unit) {
             Column(Modifier.fillMaxWidth().background(OrnCanopy, RoundedCornerShape(22.dp)).border(2.dp, OrnChorus, RoundedCornerShape(22.dp)).padding(18.dp)) {
                 Text(stringResource(R.string.orn_singing_now), style = MaterialTheme.typography.labelMedium, color = OrnChorus)
                 Text(network.hone.app.birds.Birds.english(ctx, first.name) ?: first.name, style = MaterialTheme.typography.headlineSmall)
-                Text(confidenceWord(first.conf * 100.0), style = MaterialTheme.typography.labelSmall, color = OrnInkDim)
+                Text(confidenceWord(first.conf * 100.0, network.hone.app.birds.Birds.unlikelyHere(ctx, first.name)), style = MaterialTheme.typography.labelSmall, color = OrnInkDim)
             }
         } else {
             val p by rememberInfiniteTransition(label = "p").animateFloat(0.3f, 1f, infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "p")

@@ -33,7 +33,7 @@ object Range {
         }
     }
 
-    /** True if the local list is known and [latin] isn't on it. */
+    /** True if the local list is known and [latin] isn't on it ("unlikely here"). */
     fun isRare(ctx: Context, latin: String): Boolean = current(ctx)?.let { latin !in it } ?: false
 
     /** The species set for the phone's current area, or null if not loaded yet. */
@@ -48,7 +48,7 @@ object Range {
         return names
     }
 
-    private fun file(ctx: Context, c: String) = File(ctx.filesDir, "birds/range_$c.json")
+    private fun file(ctx: Context, c: String) = File(ctx.filesDir, "birds/range2_$c.json")
 
     private fun load(ctx: Context, c: String): Set<String>? = runCatching {
         val f = file(ctx, c)
