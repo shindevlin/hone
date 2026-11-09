@@ -76,6 +76,11 @@ label.f{font-size:14px;font-weight:700}
 .creds input{height:44px;max-width:200px;border-radius:12px}
 .chip{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:20px;background:var(--canopy);border:1px solid var(--twig);color:var(--ink);align-self:flex-start}
 .chip.need{border-color:var(--gold);color:var(--gold)}
+.who{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;max-width:520px}
+.who button{text-align:left;padding:14px 16px;border-radius:18px;background:var(--canopy);border:2px solid var(--twig);color:var(--ink);font:inherit;cursor:pointer;display:flex;flex-direction:column;gap:4px}
+.who button b{font-size:17px}.who button span{font-size:14px;color:var(--soft)}
+.who button[aria-pressed=true]{border-color:var(--chorus)}
+.places{display:flex;flex-wrap:wrap;gap:8px;max-width:520px}.places .chip[aria-pressed=true]{border-color:var(--chorus);color:var(--chorus)}
 .demo{position:absolute;bottom:40px;left:40px;right:40px;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .demo li{display:flex;justify-content:space-between;padding:12px 16px;border-radius:16px;background:var(--canopy)}
 .demo li.now{background:#22331F;border:1px solid var(--chorus)}
@@ -192,6 +197,16 @@ dialog::backdrop{background:rgba(5,9,7,.7)}
       <span class="k" style="color:var(--chorus)">See your birds on your phone</span>
       <h1 class="h1" style="font-size:clamp(28px,4vw,36px)" id="w4-title">Where should we send your birds?</h1>
       <div id="w4-signup" class="step" style="gap:12px">
+        <span class="f">This account is for</span>
+        <div class="who" role="group" aria-label="Who this account is for">
+          <button type="button" id="k-personal" aria-pressed="false"><b>Me</b><span>A listener at home. Birds are shared by area, never your address.</span></button>
+          <button type="button" id="k-business" aria-pressed="false"><b>A business</b><span>A restaurant, hotel, farm or nature site. The account carries the business name, and can grow to several places.</span></button>
+        </div>
+        <div id="biz" class="step hide" style="gap:12px">
+          <label class="f" for="bn">Business name</label><input id="bn" type="text" autocomplete="organization" maxlength="60">
+          <span class="f">What kind of place is it? (up to 3)</span>
+          <div class="places" id="places"></div>
+        </div>
         <label class="f" for="em">Email</label><input id="em" type="email" autocomplete="email">
         <label class="f" for="pw">Password (at least 10 characters)</label><input id="pw" type="password" autocomplete="new-password">
         <label class="f" for="nm">Your first name (optional)</label><input id="nm" type="text" autocomplete="given-name">
@@ -405,8 +420,22 @@ function consentText(){const c=$('rf').value.trim().toLowerCase();$('consent-tex
 $('rf').oninput=consentText;
 $('to-login').onclick=()=>{$('w4-login').dataset.on='1';paintEmail()};$('to-signup').onclick=()=>{$('w4-login').dataset.on='0';paintEmail()};
 const skip=()=>{store.set('email_skipped','1');render()};$('w4-skip').onclick=skip;$('w4-skip2').onclick=skip;
-$('b-signup').onclick=async e=>{$('e-w4').textContent='';if(!$('consent').checked){$('e-w4').textContent='Please tick the box to continue.';return}busy(e.target,true);
-  try{S=await api('signup',{name:$('nm').value,email:$('em').value,password:$('pw').value,ref:$('rf').value,consent:true});$('pw').value='';render()}catch(x){$('e-w4').textContent=x.message}busy(e.target,false)};
+// personal or business: asked once, at the first sign-up
+let kind=null;const picked=new Set();
+const PLACES=[['restaurant','Restaurant'],['hotel','Hotel or lodge'],['farm','Farm'],['eco','Nature or eco site'],['school','School'],['shop','Shop'],['office','Office'],['other','Something else']];
+function paintKind(){$('k-personal').setAttribute('aria-pressed',kind==='personal');$('k-business').setAttribute('aria-pressed',kind==='business');
+  $('biz').classList.toggle('hide',kind!=='business');$('nm').previousElementSibling.textContent=kind==='business'?'Your first name (optional, not shown)':'Your first name (optional)'}
+$('k-personal').onclick=()=>{kind='personal';paintKind()};$('k-business').onclick=()=>{kind='business';paintKind()};
+$('places').innerHTML=PLACES.map(([k,l])=>'<button type="button" class="chip" aria-pressed="false" data-k="'+k+'">'+l+'</button>').join('');
+$('places').onclick=e=>{const b=e.target.closest('button');if(!b)return;const k=b.dataset.k;
+  if(picked.has(k))picked.delete(k);else if(picked.size<3)picked.add(k);b.setAttribute('aria-pressed',picked.has(k))};
+$('b-signup').onclick=async e=>{$('e-w4').textContent='';
+  if(!kind){$('e-w4').textContent='Please choose who this account is for: you, or a business.';return}
+  if(kind==='business'&&$('bn').value.trim().length<2){$('e-w4').textContent='Please enter the business name.';return}
+  if(!$('consent').checked){$('e-w4').textContent='Please tick the box to continue.';return}busy(e.target,true);
+  const body={name:$('nm').value,email:$('em').value,password:$('pw').value,ref:$('rf').value,consent:true,kind};
+  if(kind==='business')body.business={name:$('bn').value.trim(),places:[...picked]};
+  try{S=await api('signup',body);$('pw').value='';render()}catch(x){$('e-w4').textContent=x.message}busy(e.target,false)};
 $('b-login').onclick=async e=>{$('e-w4').textContent='';busy(e.target,true);try{S=await api('login',{email:$('lem').value,password:$('lpw').value});$('lpw').value='';verifyLater=true;render()}catch(x){$('e-w4').textContent=x.message}busy(e.target,false)};
 $('b-verify').onclick=async e=>{busy(e.target,true);try{S=await api('verify',{code:$('code').value});render()}catch(x){$('e-w4').textContent=x.message}busy(e.target,false)};
 $('b-resend').onclick=async()=>{try{await api('resend',{});$('e-w4').textContent='';$('verify-body').textContent+=' A new code is on its way.'}catch(x){$('e-w4').textContent=x.message}};

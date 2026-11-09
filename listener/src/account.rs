@@ -93,11 +93,19 @@ pub fn ref_check(cfg: &Config, code: &str) -> Result<bool, String> {
     Ok(call(cfg, "GET", &format!("/ref/{c}"), None, false)?["ok"].as_bool().unwrap_or(false))
 }
 
-pub fn signup(cfg: &mut Config, name: &str, email: &str, password: &str, r#ref: Option<&str>, consent: bool) -> Result<(), String> {
+pub fn signup(cfg: &mut Config, name: &str, email: &str, password: &str, r#ref: Option<&str>, consent: bool,
+              kind: &str, business: &Value) -> Result<(), String> {
+    if kind != "personal" && kind != "business" {
+        return Err("Please choose who this account is for: you, or a business.".into());
+    }
     let r = r#ref.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).unwrap_or_else(|| "none".into());
     let ct = consent_text(Some(&r).filter(|x| x.as_str() != "none").map(|s| s.as_str()));
-    let b = json!({"name": name.trim(), "email": email.trim(), "password": password, "ref": r,
-        "consent": consent, "consent_text": ct, "seat": seat_proof(email)?});
+    let mut b = json!({"name": name.trim(), "email": email.trim(), "password": password, "ref": r,
+        "consent": consent, "consent_text": ct, "seat": seat_proof(email)?, "kind": kind});
+    if kind == "business" {
+        b["business"] = json!({"name": business["name"].as_str().unwrap_or("").trim(),
+            "places": business["places"].as_array().cloned().unwrap_or_default()});
+    }
     let j = call(cfg, "POST", "/signup", Some(b), false)?;
     save_session(cfg, &j)?;
     cfg.referral_ack = consent;

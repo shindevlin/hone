@@ -185,7 +185,7 @@ impl App {
                     return fail(400, "Please tick the box to continue.");
                 }
                 let rf = s("ref");
-                match account::signup(&mut c, &s("name"), &s("email"), &s("password"), Some(&rf), true) {
+                match account::signup(&mut c, &s("name"), &s("email"), &s("password"), Some(&rf), true, &s("kind"), &b["business"]) {
                     Ok(()) => {
                         self.update_cfg(|x| *x = c);
                         j(self.state())
