@@ -2,11 +2,12 @@
 //!  1. Bird map (indexer /api/birds/sightings): publishable species (>= 70 % or heard twice in
 //!     the window), source "station", signed with the station key (key "seat"; the indexer
 //!     counts it once the key is linked to the account, which sign-in does).
-//!  2. Chain (/api/sensor/summary): one SENSOR_SUMMARY per window for the seat
-//!     "<referrer>@<station key>", signed by the station key. Until the sponsored seat exists
-//!     the chain refuses it; the report then waits in a local queue and the listener shows
-//!     "waiting for your listener to be registered". Nothing is ever shown as accepted
-//!     unless the chain said accepted:true.
+//!  2. Chain (/api/sensor/summary): one SENSOR_SUMMARY per window for this station's seat, as
+//!     the chain names it (GET /api/sensor/seat/<station key>: e.g. "{sponsor}@{key}"), signed
+//!     by the station key. Sent only while that view says registered and backed and the tip is
+//!     past seat_register_from_epoch; until then reports wait in a local queue (7 days) and the
+//!     listener shows "waiting for your listener to be registered". Nothing is ever shown as
+//!     accepted unless the chain said accepted:true.
 //! Queues hold only small signed reports (no audio).
 
 use crate::account::agent;
@@ -150,25 +151,20 @@ fn chain_round(cfg: &Config) {
     if queued == 0 {
         return;
     }
-    let Some(acct) = cfg.account.as_ref() else { return };
-    let Some(referrer) = acct.referrer() else {
-        live::set(|l| l.chain_state = Some("bird reports go to the map; chain rewards need an invite code".into()));
-        return;
-    };
     let Some(cell9) = cfg.cell9.as_deref() else {
         live::set(|l| l.chain_state = Some("set the camera's location to send reports".into()));
         return;
     };
     let Ok(key) = secrets::station_key() else { return };
-    let owner = format!("{referrer}@{}", canonical::pub_hex(&key));
-    // Same gate as the Android app (StationChain): nothing goes to the chain until the chain's
-    // usefulness record for this seat says seat_registered and its activation epoch has come.
-    // (The public node accepts summaries from unregistered device seats today, so a refusal is
-    // not a reliable signal on its own.)
-    if let Some(wait) = seat_gate(cfg, &owner) {
-        live::set(|l| l.chain_state = Some(wait));
-        return;
-    }
+    // The chain says which seat this key holds (e.g. "{sponsor}@{key}" after a voucher claim)
+    // and whether it is registered, backed and active: nothing is sent until it is.
+    let owner = match seat_gate(cfg, &canonical::pub_hex(&key)) {
+        Ok(seat) => seat,
+        Err(wait) => {
+            live::set(|l| l.chain_state = Some(wait));
+            return;
+        }
+    };
     let mut sent = 0;
     for f in queue_files("chain-queue") {
         if sent >= PER_ROUND {
@@ -229,25 +225,29 @@ fn get_json(url: &str) -> Option<Value> {
     agent().get(url).call().ok()?.into_json().ok()
 }
 
-/// None = this seat may submit; Some(state to show) = keep waiting.
-pub fn seat_gate(cfg: &Config, owner: &str) -> Option<String> {
+/// Ok(seat id) when this station's seat is registered, backed and active on the live chain
+/// (GET /api/sensor/seat/<pubkey>, seat_register_from_epoch vs the tip); Err(state) otherwise.
+pub fn seat_gate(cfg: &Config, seat_pub: &str) -> Result<String, String> {
     let tip = get_json(&format!("{}/api/node/info", cfg.chain)).and_then(|j| j["epoch"].as_i64());
-    let u = get_json(&format!("{}/api/sensor/usefulness/{owner}", cfg.chain));
-    match (tip, u) {
-        (Some(tip), Some(u)) => gate_decision(&u, tip),
-        _ => Some("chain unreachable, will retry".into()),
+    let v = get_json(&format!("{}/api/sensor/seat/{seat_pub}", cfg.chain));
+    match (tip, v) {
+        (Some(tip), Some(v)) => gate_decision(&v, tip),
+        _ => Err("chain unreachable, will retry".into()),
     }
 }
 
-pub fn gate_decision(u: &Value, tip: i64) -> Option<String> {
-    if u["seat_registered"].as_bool() != Some(true) {
-        return Some(WAITING.into());
+pub fn gate_decision(v: &Value, tip: i64) -> Result<String, String> {
+    let from = v["seat_register_from_epoch"].as_i64().unwrap_or(i64::MAX);
+    if tip < from || v["registered"].as_bool() != Some(true) {
+        return Err(WAITING.into());
     }
-    let from = u["active_from_epoch"].as_i64().unwrap_or(-1);
-    if from <= 0 || tip < from {
-        return Some(WAITING.into());
+    if v["backed"].as_bool() == Some(false) {
+        return Err("waiting for your listener to be backed".into());
     }
-    None
+    match v["seat"].as_str().filter(|s| s.contains('@')) {
+        Some(seat) => Ok(seat.to_string()),
+        None => Err(WAITING.into()),
+    }
 }
 
 pub fn enqueue(r: &Report, cfg: &Config) {
@@ -300,11 +300,12 @@ mod tests {
     }
 
     #[test]
-    fn gate_waits_until_the_seat_is_registered() {
-        // today's public node: no seat_registered field at all
-        assert_eq!(gate_decision(&json!({"owner": "maria", "active_from_epoch": 354420}), 354754).as_deref(), Some(WAITING));
-        assert_eq!(gate_decision(&json!({"seat_registered": true, "active_from_epoch": 400000}), 354754).as_deref(), Some(WAITING));
-        assert_eq!(gate_decision(&json!({"seat_registered": true, "active_from_epoch": 354420}), 354754), None);
+    fn gate_follows_the_live_seat_view() {
+        // shapes from GET /chain/api/sensor/seat/<pubkey> (sensor_seat::view)
+        assert_eq!(gate_decision(&json!({"seat": "", "registered": false, "seat_register_from_epoch": 355140}), 368033), Err(WAITING.into()));
+        assert_eq!(gate_decision(&json!({"seat": "maria@ab", "registered": true, "backed": true, "seat_register_from_epoch": 355140}), 300000), Err(WAITING.into()));
+        assert!(gate_decision(&json!({"seat": "maria@ab", "registered": true, "backed": false, "seat_register_from_epoch": 355140}), 368033).is_err());
+        assert_eq!(gate_decision(&json!({"seat": "maria@ab", "registered": true, "backed": true, "seat_register_from_epoch": 355140}), 368033), Ok("maria@ab".into()));
     }
 
     #[test]
