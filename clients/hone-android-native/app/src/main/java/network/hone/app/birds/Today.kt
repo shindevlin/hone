@@ -10,7 +10,7 @@ import java.time.ZoneId
 import java.time.temporal.IsoFields
 
 /** One of the three daily goals. */
-data class Goal(val title: String, val progress: Int, val target: Int, val energy: Int) {
+data class Goal(@androidx.annotation.StringRes val titleRes: Int, val progress: Int, val target: Int, val energy: Int) {
     val done get() = progress >= target
 }
 
@@ -92,9 +92,9 @@ object Today {
 
         val minToday = (listened[today] ?: 0) / 60
         val goals = listOf(
-            Goal("Listen for 10 minutes", minToday.coerceAtMost(10), 10, 10),
-            Goal("Hear 3 kinds of birds", todaySpecies.size.coerceAtMost(3), 3, 10),
-            Goal("Answer one \"Is this right?\"", labelsToday.coerceAtMost(1), 1, 5),
+            Goal(network.hone.app.R.string.orn_goal_listen, minToday.coerceAtMost(10), 10, 10),
+            Goal(network.hone.app.R.string.orn_goal_kinds, todaySpecies.size.coerceAtMost(3), 3, 10),
+            Goal(network.hone.app.R.string.orn_goal_answer, labelsToday.coerceAtMost(1), 1, 5),
         )
 
         // Energy: live listening, new blocks, honest labels, finished goals. Not for sale, not tradable.

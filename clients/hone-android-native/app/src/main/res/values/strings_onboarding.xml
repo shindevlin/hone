@@ -12,8 +12,8 @@
     <string name="ob_email">Email</string>
     <string name="ob_password">Password (at least 10 characters)</string>
     <string name="ob_invite_code">Invite code (optional)</string>
-    <string name="ob_consent_ref">Rewards from this app go to the person who invited you (%1$s) until you create your own wallet.</string>
-    <string name="ob_consent_pool">Rewards from this app go to the HONE community pool until you create your own wallet.</string>
+    <string name="ob_consent_ref">Rewards from your finds go to the person who invited you (%1$s) until you switch to HONE.</string>
+    <string name="ob_consent_pool">Rewards from your finds go to the community pool until you switch to HONE.</string>
     <string name="ob_create">Create my account</string>
     <string name="ob_have_account">I already have an account</string>
     <string name="ob_sign_in">Sign in</string>

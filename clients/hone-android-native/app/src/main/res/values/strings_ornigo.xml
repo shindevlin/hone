@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="orn_brand">Ornigo</string>
+    <string name="orn_disclaimer">Human conversation is automatically deleted. The listener only keeps a count of voices it removed. No audio is ever saved or sent; only a short bird report every 15 minutes.</string>
+    <string name="orn_singing_now">Singing now</string>
+    <string name="orn_regular_here">Regular here</string>
+    <string name="orn_heard_recently">Heard recently</string>
+    <string name="orn_possible">Possible</string>
+    <string name="orn_fading">Fading</string>
+    <string name="orn_gone">Gone for the season</string>
+    <string name="orn_very_likely">very likely</string>
+    <string name="orn_likely">likely</string>
+    <string name="orn_possibly">possibly</string>
+    <string name="orn_this_phone">This phone</string>
+    <string name="orn_camera_at">Camera at %1$s</string>
+    <string name="orn_q_great">Great for birds</string>
+    <string name="orn_q_good">Good for birds</string>
+    <string name="orn_q_basic">Basic for birds</string>
+    <string name="orn_q_needs_password">Found on your Wi-Fi · needs its password</string>
+
+    <!-- First run -->
+    <string name="orn_fr_headline">Hear the birds you\'ve been missing.</string>
+    <string name="orn_fr_sub">Your phone listens for birds around your home and tells you who is singing. It never keeps a recording.</string>
+    <string name="orn_fr_sample_label">A sample morning</string>
+    <string name="orn_fr_start">Start listening</string>
+    <string name="orn_fr_privacy_title">Before we listen</string>
+    <string name="orn_fr_privacy_more">Next, your phone asks for the microphone, and for location so birds land on the right part of the map. Your exact place stays on this phone.</string>
+    <string name="orn_fr_understand">I understand, continue</string>
+    <string name="orn_fr_not_now">Not now</string>
+    <string name="orn_fr_sources_title">What should listen?</string>
+    <string name="orn_fr_all">Listen with all</string>
+    <string name="orn_fr_pick">Let me pick</string>
+    <string name="orn_fr_looking">Looking for cameras on your Wi-Fi…</string>
+    <string name="orn_fr_no_cameras">No cameras found on this Wi-Fi. You can add one later.</string>
+    <string name="orn_fr_home_chip">Home area · 5 km · Set here</string>
+    <string name="orn_fr_home_set">Home area · 5 km ✓</string>
+    <string name="orn_fr_home_note">Birds heard at home are shared as a 5 km area, never your address.</string>
+    <string name="orn_fr_continue">Continue</string>
+    <string name="orn_fr_first_wait">Your first bird</string>
+    <string name="orn_fr_first_got">Your first bird!</string>
+    <string name="orn_fr_first_listening">Listening… the first bird shows up here the moment it sings.</string>
+    <string name="orn_fr_first_off">Listening is off. You can turn it on any time from Listen.</string>
+    <string name="orn_fr_to_map">Show me the map</string>
+    <string name="orn_save_title">Save your birds</string>
+    <string name="orn_save_body">Add your email so your birds, names and streak stay yours on any phone or computer.</string>
+    <string name="orn_save_button">Save my birds</string>
+    <string name="orn_consent_ref">Rewards from your finds go to the person who invited you (%1$s) until you switch to HONE.</string>
+    <string name="orn_consent_pool">Rewards from your finds go to the community pool until you switch to HONE.</string>
+
+    <!-- Map -->
+    <string name="orn_map_near">Near %1$s</string>
+    <string name="orn_map_your_area">Your area</string>
+    <string name="orn_energy">Energy %1$d</string>
+    <string name="orn_map_rare">RARE HERE</string>
+    <string name="orn_map_nearby">HEARD NEARBY</string>
+    <string name="orn_map_heard_ago">Heard %1$s</string>
+    <string name="orn_map_times_today">· %1$d times today</string>
+    <string name="orn_map_empty_title">No birds on the map yet</string>
+    <string name="orn_map_empty_body">Start listening and birds appear where you hear them.</string>
+    <string name="orn_map_tap">Tap a pin to see who it was.</string>
+    <plurals name="orn_map_kinds">
+        <item quantity="one">%1$d kind heard near you today</item>
+        <item quantity="other">%1$d kinds heard near you today</item>
+    </plurals>
+    <string name="orn_go_listen">Go and listen</string>
+    <string name="orn_map_only_you">Only you are on this map. Birds show where they were heard, never where people are.</string>
+
+    <!-- Today -->
+    <string name="orn_today">Today</string>
+    <string name="orn_settings">Settings</string>
+    <string name="orn_counting">Counting…</string>
+    <string name="orn_day_streak">day streak</string>
+    <string name="orn_streak_note_free">10 real minutes of listening keeps the streak. One freeze a week (still free this week).</string>
+    <string name="orn_streak_note_used">10 real minutes of listening keeps the streak. One freeze a week (used this week).</string>
+    <string name="orn_kinds_today">kinds today</string>
+    <string name="orn_new_for_you">new for you</string>
+    <string name="orn_came_back">came back</string>
+    <string name="orn_daily_goals">Daily goals</string>
+    <string name="orn_goal_listen">Listen for 10 minutes</string>
+    <string name="orn_goal_kinds">Hear 3 kinds of birds</string>
+    <string name="orn_goal_answer">Answer one \"Is this right?\"</string>
+    <string name="orn_of">%1$d of %2$d</string>
+    <string name="orn_energy_title">Energy</string>
+    <string name="orn_energy_body">Earned by live listening, new blocks and honest answers. Spend it on Focus mode, Who\'s nearby and spot challenges. Not for sale, not tradable.</string>
+
+    <!-- Listen -->
+    <string name="orn_listening">Listening</string>
+    <string name="orn_not_listening">Not listening</string>
+    <string name="orn_quiet">Quiet for now. Birds show up here the moment they sing.</string>
+    <string name="orn_turn_on">Turn on listening</string>
+
+    <!-- Encounter -->
+    <string name="orn_enc_kicker_listen">LISTEN CLOSELY</string>
+    <string name="orn_enc_title_listen">Someone is singing nearby</string>
+    <string name="orn_enc_body_listen">Stay still and let your phone hear it. Three clear calls fill the ring.</string>
+    <string name="orn_enc_calls">%1$d of 3 calls</string>
+    <string name="orn_enc_kicker_caught">CAUGHT</string>
+    <string name="orn_enc_new">New for your collection</string>
+    <string name="orn_enc_again">Heard again · %1$d times now</string>
+    <string name="orn_enc_replay">That sounded like a recording. Only a live bird counts.</string>
+    <string name="orn_enc_live_only">Only a live bird counts. Played recordings are caught and don\'t count.</string>
+    <string name="orn_enc_see_collection">See it in your collection</string>
+    <string name="orn_enc_keep">Keep listening</string>
+    <string name="orn_enc_start">Go and listen</string>
+    <string name="orn_enc_off">Turn on listening first, then come back.</string>
+    <string name="orn_enc_timeout">It went quiet. Try again in a moment, or move closer to where you heard it.</string>
+    <string name="orn_enc_try_again">Try again</string>
+
+    <!-- Collection / bird page -->
+    <string name="orn_rarity_common">Common</string>
+    <string name="orn_rarity_uncommon">Uncommon</string>
+    <string name="orn_rarity_rare">Rare</string>
+    <string name="orn_rarity_shiny">Shiny</string>
+    <string name="orn_rarity_legendary">Legendary</string>
+    <string name="orn_collection">Collection</string>
+    <plurals name="orn_collection_count">
+        <item quantity="one">%1$d kind caught</item>
+        <item quantity="other">%1$d kinds caught</item>
+    </plurals>
+    <string name="orn_twelve_weeks">Last 12 weeks</string>
+    <string name="orn_naming_note">Naming single birds opens species by species, once telling them apart by voice is reliable. The Little Owl is first.</string>
+    <string name="orn_shiny_why">Shiny: confirmed by a photo, a second listener, or the first in its block.</string>
+
+    <!-- Spots and Keepers -->
+    <string name="orn_spots">Spots</string>
+    <string name="orn_spot_keeper">Keeper: %1$s</string>
+    <string name="orn_spot_no_keeper">No Keeper yet</string>
+    <string name="orn_spot_you_keep">You keep this spot</string>
+    <string name="orn_spot_rule">Keeper is whoever listens here on the most mornings and hears the most kinds over 30 days. Public places only; homes can\'t be claimed.</string>
+    <string name="orn_spot_challenge">Challenge (20 energy, 7 days)</string>
+    <string name="orn_spot_need_here">Go to the spot to challenge. Your phone checks the place by its Wi-Fi and Bluetooth around you.</string>
+    <string name="orn_spot_need_energy">You need 20 energy to challenge.</string>
+    <string name="orn_spot_challenging">Challenge on · %1$d days left</string>
+    <string name="orn_spot_mornings">%1$d mornings · %2$d kinds (last 30 days)</string>
+    <string name="orn_focus">Focus mode (10)</string>
+    <string name="orn_focus_on">Focus on · listening every frame for 15 minutes</string>
+    <string name="orn_nearby">Who\'s nearby (5)</string>
+    <string name="orn_event_dawn">Dawn chorus %1$s · double energy</string>
+    <string name="orn_event_note">From home or public paths.</string>
+    <string name="orn_not_enough_energy">Not enough energy yet.</string>
+
+    <!-- HONE mode -->
+    <string name="hone_get_paid">Get paid for your birds → HONE</string>
+    <string name="hone_handoff_title">Get paid for your birds</string>
+    <string name="hone_handoff_same">Stays the same: your account, birds, names and streak.</string>
+    <string name="hone_handoff_new">New: your own wallet on this phone, paid for what your listeners find.</string>
+    <string name="hone_handoff_rewards">Rewards until now went to the person who invited you, or the community pool.</string>
+    <string name="hone_handoff_go">Switch to HONE on this phone</string>
+    <string name="hone_handoff_back">Back to Ornigo</string>
+    <string name="hone_details_experts">Details for experts</string>
+</resources>

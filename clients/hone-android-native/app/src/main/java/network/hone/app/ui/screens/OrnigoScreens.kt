@@ -36,7 +36,7 @@ const val DISCLAIMER = "Human conversation is automatically deleted. The listene
 
 @Composable
 fun DisclaimerCard(modifier: Modifier = Modifier) {
-    Text(DISCLAIMER, modifier.fillMaxWidth().background(OrnCanopy, RoundedCornerShape(18.dp))
+    Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_disclaimer), modifier.fillMaxWidth().background(OrnCanopy, RoundedCornerShape(18.dp))
         .border(1.dp, OrnTwig, RoundedCornerShape(18.dp)).padding(16.dp),
         style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
 }
@@ -168,9 +168,9 @@ fun OrnigoMapScreen(onListen: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         androidx.compose.ui.viewinterop.AndroidView({ mapView }, Modifier.fillMaxSize())
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip(town?.let { "Near $it" } ?: "Your area")
+            Chip(town?.let { androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_near, it) } ?: androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_your_area))
             Spacer(Modifier.weight(1f))
-            Chip("Energy $energy", OrnChorus)
+            Chip(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_energy, energy), OrnChorus)
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)) {
             val s = sel
@@ -178,24 +178,24 @@ fun OrnigoMapScreen(onListen: () -> Unit) {
                 .border(1.dp, if (s?.rare == true) OrnGold else OrnTwig, RoundedCornerShape(22.dp)).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (s != null) {
-                    Text(if (s.rare) "RARE HERE" else "HEARD NEARBY", style = MaterialTheme.typography.labelMedium,
+                    Text(if (s.rare) androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_rare) else androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_nearby), style = MaterialTheme.typography.labelMedium,
                         color = if (s.rare) OrnGold else OrnChorus)
                     Text(s.name, style = MaterialTheme.typography.headlineSmall)
-                    Text("Heard ${DateUtils.getRelativeTimeSpanString(s.last, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)}" +
-                        (if (s.n > 1) " · ${s.n} times today" else ""), style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
+                    Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_heard_ago, DateUtils.getRelativeTimeSpanString(s.last, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()) +
+                        (if (s.n > 1) " " + androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_times_today, s.n) else ""), style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
                 } else {
-                    Text(if (pins.isEmpty()) "No birds on the map yet" else pins.map { it.latin }.toSet().size.let { n -> if (n == 1) "1 kind heard near you today" else "$n kinds heard near you today" },
+                    Text(if (pins.isEmpty()) androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_empty_title) else pins.map { it.latin }.toSet().size.let { n -> androidx.compose.ui.res.pluralStringResource(network.hone.app.R.plurals.orn_map_kinds, n, n) },
                         style = MaterialTheme.typography.headlineSmall)
-                    Text(if (pins.isEmpty()) "Start listening and birds appear where you hear them." else "Tap a pin to see who it was.",
+                    Text(if (pins.isEmpty()) androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_empty_body) else androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_tap),
                         style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
                 }
                 Button(onListen, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = OrnChorus, contentColor = OrnNight)) {
-                    Text("Go and listen", style = MaterialTheme.typography.titleMedium)
+                    Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_go_listen), style = MaterialTheme.typography.titleMedium)
                 }
             }
             Spacer(Modifier.height(6.dp))
-            Text("Only you are on this map. Birds show where they were heard, never where people are.",
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_map_only_you),
                 Modifier.fillMaxWidth().background(OrnNight.copy(alpha = 0.7f), RoundedCornerShape(12.dp)).padding(6.dp),
                 style = MaterialTheme.typography.labelSmall, color = OrnInkDim)
         }
@@ -213,7 +213,7 @@ private fun Chip(text: String, color: androidx.compose.ui.graphics.Color = OrnIn
 // ── Today ────────────────────────────────────────────────────────────────────
 
 @Composable
-fun TodayScreen(onSettings: () -> Unit) {
+fun TodayScreen(onSettings: () -> Unit, onSave: () -> Unit = {}) {
     val ctx = LocalContext.current
     val live by SoundSensing.live.collectAsStateWithLifecycle()
     val st by produceState<TodayStats?>(null, live.reportsStored, live.recent.firstOrNull()?.atMs) {
@@ -222,17 +222,18 @@ fun TodayScreen(onSettings: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(top = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            TextButton(onSettings) { Text("Settings", color = OrnInkDim) }
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_today), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            TextButton(onSettings) { Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_settings), color = OrnInkDim) }
         }
-        val s = st ?: run { Text("Counting…", color = OrnInkFaint); return@Column }
+        SaveYourBirdsCard(onSave)
+        val s = st ?: run { Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_counting), color = OrnInkFaint); return@Column }
         // Streak
         Column(Modifier.fillMaxWidth().background(OrnCanopy, RoundedCornerShape(22.dp)).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text("${s.streak}", style = MaterialTheme.typography.displayLarge, color = OrnGold)
                 Spacer(Modifier.width(8.dp))
-                Text(if (s.streak == 1) "day streak" else "day streak", style = MaterialTheme.typography.titleMedium,
+                Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_day_streak), style = MaterialTheme.typography.titleMedium,
                     color = OrnInkDim, modifier = Modifier.padding(bottom = 8.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -244,40 +245,38 @@ fun TodayScreen(onSettings: () -> Unit) {
                     }
                 }
             }
-            Text("10 real minutes of listening keeps the streak. One freeze a week" +
-                if (s.freezeLeftThisWeek) " (still free this week)." else " (used this week).",
+            Text(if (s.freezeLeftThisWeek) androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_streak_note_free) else androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_streak_note_used),
                 style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
         }
         // Numbers
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Stat("${s.birdsToday}", "kinds today", Modifier.weight(1f))
-            Stat("${s.newForYou}", "new for you", Modifier.weight(1f))
-            Stat("${s.cameBack}", "came back", Modifier.weight(1f))
+            Stat("${s.birdsToday}", androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_kinds_today), Modifier.weight(1f))
+            Stat("${s.newForYou}", androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_new_for_you), Modifier.weight(1f))
+            Stat("${s.cameBack}", androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_came_back), Modifier.weight(1f))
         }
         // Goals
-        Text("Daily goals", style = MaterialTheme.typography.titleLarge)
+        Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_daily_goals), style = MaterialTheme.typography.titleLarge)
         s.goals.forEach { g ->
             Column(Modifier.fillMaxWidth().background(OrnCanopy, RoundedCornerShape(16.dp))
                 .border(1.dp, if (g.done) OrnChorus else OrnTwig, RoundedCornerShape(16.dp)).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text((if (g.done) "✓ " else "") + g.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Text((if (g.done) "✓ " else "") + androidx.compose.ui.res.stringResource(g.titleRes), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text("+${g.energy}", style = MaterialTheme.typography.labelLarge, color = OrnChorus, fontFamily = HoneMono)
                 }
                 LinearProgressIndicator(progress = { g.progress.toFloat() / g.target }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
                     color = OrnChorus, trackColor = OrnBough)
-                Text("${g.progress} of ${g.target}", style = MaterialTheme.typography.labelSmall, color = OrnInkDim, fontFamily = HoneMono)
+                Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_of, g.progress, g.target), style = MaterialTheme.typography.labelSmall, color = OrnInkDim, fontFamily = HoneMono)
             }
         }
         // Energy
         Column(Modifier.fillMaxWidth().background(OrnCanopy, RoundedCornerShape(22.dp)).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Energy", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_energy_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 Text("${s.energy}", style = MaterialTheme.typography.headlineMedium, color = OrnChorus, fontFamily = HoneMono)
             }
-            Text("Earned by live listening, new blocks and honest answers. Spend it on Focus mode, Who's nearby and spot challenges. " +
-                "Not for sale, not tradable.", style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.orn_energy_body), style = MaterialTheme.typography.bodySmall, color = OrnInkDim)
         }
         DisclaimerCard()
     }

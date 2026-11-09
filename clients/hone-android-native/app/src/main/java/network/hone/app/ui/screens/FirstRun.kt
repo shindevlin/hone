@@ -161,6 +161,8 @@ fun wifiIp(ctx: Context): String? {
     }.firstOrNull()
 }
 
+fun scanLanPublic(ctx: Context): List<FoundCamera> = scanLan(ctx)
+
 private fun scanLan(ctx: Context): List<FoundCamera> {
     val wm = ctx.applicationContext.getSystemService(WifiManager::class.java)
     val lock = wm?.createMulticastLock("hone:discovery")?.apply { setReferenceCounted(false); runCatching { acquire() } }

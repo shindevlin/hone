@@ -74,6 +74,23 @@ private fun AppShell(honeMode: Boolean) {
     var firstRun by remember { mutableStateOf(simple && !network.hone.app.account.AccountStore.onboarded(ctx)) }
     var importKey by remember { mutableStateOf(false) }
     if (importKey) { network.hone.app.ui.screens.FindMyScreen(onBack = { importKey = false }); return }
+    var account by remember { mutableStateOf(false) }
+    if (account) {
+        Scaffold(containerColor = OrnNight) { inner ->
+            androidx.compose.foundation.layout.Box(Modifier.padding(inner)) {
+                network.hone.app.ui.screens.AccountFlow(onSignedIn = { account = false }, onSkip = { account = false }, onImportKey = { importKey = true })
+            }
+        }
+        return
+    }
+    if (firstRun && !honeMode) {
+        Scaffold(topBar = { network.hone.app.update.UpdateBanner() }, containerColor = OrnNight) { inner ->
+            androidx.compose.foundation.layout.Box(Modifier.padding(inner)) {
+                network.hone.app.ui.screens.OrnigoFirstRun(onDone = { firstRun = false }, onSignIn = { account = true })
+            }
+        }
+        return
+    }
     if (firstRun) {
         Scaffold(topBar = { network.hone.app.update.UpdateBanner() }, containerColor = OrnNight) { inner ->
             androidx.compose.foundation.layout.Box(Modifier.padding(inner)) {
@@ -116,7 +133,7 @@ private fun AppShell(honeMode: Boolean) {
             modifier = Modifier.padding(inner),
         ) {
             composable(Dest.Map.route) { network.hone.app.ui.screens.OrnigoMapScreen(onListen = { go(Dest.Listen.route) }) }
-            composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }) }
+            composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }) }
             composable(Dest.Node.route) { NodeScreen() }
             composable(Dest.Wallet.route) { WalletScreen() }
             composable(Dest.Sensors.route) { SensorsScreen() }
