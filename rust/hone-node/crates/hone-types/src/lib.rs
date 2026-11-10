@@ -205,11 +205,11 @@ pub const USEFULNESS_DECIDE_BY_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:08 lo
 /// outside 7..=9 is rejected; novelty stays per (cell, window, metric) at the summary's own
 /// resolution, and corroboration also works across resolutions by containment, with the
 /// 1-ring rule applied at the coarser resolution. Off until Josh signs off an epoch.
-pub const CELL_RES_RANGE_EPOCH: u64 = u64::MAX;
+pub const CELL_RES_RANGE_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:17 local: LoRa and Wi-Fi at the same activation
 /// "lora" and "wifi" metric families: LoRa noise bands (counts 30 % / min 2, SNR 3 dB) and
 /// Wi-Fi fingerprint tokens (`wifi.fp:<8 hex>`) as location context, never paid.
 /// Off until Josh signs off an epoch.
-pub const SENSOR_FAMILIES_EPOCH: u64 = u64::MAX;
+pub const SENSOR_FAMILIES_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:17 local: LoRa and Wi-Fi at the same activation
 
 /// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
 /// PLACEHOLDER — confirm the exact three founder accounts.
