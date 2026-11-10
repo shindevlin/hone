@@ -184,11 +184,11 @@ pub const SENSOR_SEATS_EPOCH: u64 = 355_140; // Josh 2026-11-04 18:44 "turn on s
 /// Bird names and cards (BIRD_OBSERVE / BIRD_NAME / BIRD_CARD_CLAIM / BIRD_CARD_SEND). Off.
 pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
 /// Decide-by certified entry sets (setcert.rs). Off until rollout + Josh OK.
-pub const SET_CERT_EPOCH: u64 = u64::MAX;
+pub const SET_CERT_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:08 local "ok, build it and turn it on"
 /// Scoped "agent" key role (Josh 2026-11-10 08:25): SET_AGENT_KEY / REVOKE_AGENT_KEY, and
 /// agent-signed SENSOR_SEAT_REGISTER / NODE_ROLE_STAKE / NODE_ROLE_UNSTAKE on the account's
 /// own seats and nodes, with total agent-placed stake capped. Off until Josh signs off an epoch.
-pub const AGENT_KEY_EPOCH: u64 = u64::MAX;
+pub const AGENT_KEY_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:08 local "ok, build it and turn it on"
 /// Default agent cap: 100 HONE = 100 x 10^10 = 10^12 hunits.
 pub const AGENT_DEFAULT_CAP_HUNITS: u64 = 1_000_000_000_000;
 /// Decide shadow spot checks: from here a sampled node that has no DecideCommit for the vote
@@ -200,7 +200,7 @@ pub const DECIDE_SPOTCHECK_COMMIT_EPOCH: u64 = u64::MAX;
 /// decide_by = T + 2,880; corroborations and contradictions count only if applied at or
 /// before decide_by; the verdict is computed once, at decide_by, and pays then (never early
 /// on corroboration). Off until rollout + Josh OK.
-pub const USEFULNESS_DECIDE_BY_EPOCH: u64 = u64::MAX;
+pub const USEFULNESS_DECIDE_BY_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:08 local "ok, build it and turn it on"
 /// SensorSummary cells at H3 res 7..=9 (coarser cells near a home device). From here a cell
 /// outside 7..=9 is rejected; novelty stays per (cell, window, metric) at the summary's own
 /// resolution, and corroboration also works across resolutions by containment, with the
