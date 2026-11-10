@@ -85,6 +85,7 @@ fun FlipperDevicesCard(onOpen: () -> Unit, showEmpty: Boolean = true, title: Str
     LaunchedEffect(Unit) { while (true) { delay(15_000); tick++ } }
     val list by produceState(emptyList<FlipperInfo>(), live, tick) { value = withContext(Dispatchers.IO) { Flippers.list(ctx, live) } }
     if (list.isEmpty() && !showEmpty) return
+    val me = remember { runCatching { network.hone.app.telemetry.Telemetry.account(ctx) }.getOrNull() }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         title?.let { Text(it.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = HoneTextDim) }
         if (list.isEmpty()) HoneBox(onClick = onOpen) {
@@ -95,7 +96,7 @@ fun FlipperDevicesCard(onOpen: () -> Unit, showEmpty: Boolean = true, title: Str
             HoneBox(border = if (f.connected) HoneGreen else HoneOutline, onClick = onOpen) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Dot(if (f.connected) HoneGreen else HoneAmber); Spacer(Modifier.width(10.dp))
-                    Text("Flipper ${f.id.take(6)}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = HoneText, modifier = Modifier.weight(1f))
+                    Text(if (f.owner.isNotEmpty() && f.owner != me) "Nearby Flipper (owner ${f.owner})" else "Flipper ${f.id.take(6)}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = HoneText, modifier = Modifier.weight(1f))
                     Text(if (f.connected) "Connected" else "Not nearby", fontSize = 12.sp, fontWeight = FontWeight.Bold,
                         color = if (f.connected) HoneGreen else HoneAmber)
                     Icon(Icons.Filled.ChevronRight, contentDescription = "Open", tint = HoneTextDim)

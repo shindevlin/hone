@@ -9,7 +9,7 @@ import kotlin.random.Random
 class RawFmtTest {
     @Test fun anyMomentRebuildsExactlyFromKeyframePlusDeltas() {
         val rnd = Random(7)
-        val enc = ChangeEncoder()
+        val enc = ChangeEncoder("abcd", "phone", mapOf("wifi" to "wifi-scan", "env" to "bmp390"), "fused")
         val recs = ArrayList<Map<String, Any?>>()
         val snaps = ArrayList<Pair<Long, Map<String, RawFmt.Entry>>>()
         var t = 1_794_000_000_000L
@@ -35,7 +35,7 @@ class RawFmtTest {
     }
 
     @Test fun deadbandsAndDisappearance() {
-        val enc = ChangeEncoder(); enc.keyframe(0, "boot"); enc.take()
+        val enc = ChangeEncoder("abcd", "phone", mapOf("wifi" to "wifi-scan", "env" to "bmp390"), "fused"); enc.keyframe(0, "boot"); enc.take()
         enc.observe(1_000, "env.air_temp_c", 20.0); enc.observe(2_000, "env.air_temp_c", 20.1); enc.observe(3_000, "env.air_temp_c", 20.2)
         assertEquals(listOf("appeared", "changed"), enc.take().map { it["e"] })
         enc.observe(4_000, "env.pressure_pa", 101300.0); enc.observe(5_000, "env.pressure_pa", 101309.0); enc.observe(6_000, "env.pressure_pa", 101311.0)
@@ -51,7 +51,7 @@ class RawFmtTest {
     }
 
     @Test fun markersForcedSamplesAndGaps() {
-        val enc = ChangeEncoder(); enc.keyframe(0, "boot"); enc.take()
+        val enc = ChangeEncoder("abcd", "phone", mapOf("wifi" to "wifi-scan", "env" to "bmp390"), "fused"); enc.keyframe(0, "boot"); enc.take()
         enc.observe(10_000, "env.rh_pct", 61.0)
         enc.observeSet(10_000, "wifi", mapOf("wifi:a" to (-60.0 to emptyMap())))
         enc.take()
@@ -62,6 +62,23 @@ class RawFmtTest {
         assertTrue(r.any { it["k"] == "env.rh_pct" && it["forced"] == true && it["v"] == 61.0 })
         assertTrue(r.any { it["e"] == "gap" && it["reason"] == "speech_deleted" && it["k"] == "audio:*" })
         assertFalse(r.any { it["k"] == "ble:*" })     // nothing known in ble: no marker
+    }
+
+    @Test fun everyRecordCarriesProvenance() {
+        val enc = ChangeEncoder("abcd", "phone", mapOf("wifi" to "wifi-scan", "env.rh_pct" to "shtc3"), "network")
+        enc.keyframe(0, "boot")
+        enc.observeSet(1_000, "wifi", mapOf("wifi:a" to (-50.0 to emptyMap())))
+        enc.observe(2_000, "env.rh_pct", 55.0)
+        enc.obs(3_000, "flipper:ab12", "flipper_relay:commit", mapOf("frame" to "AAEC", "owner" to "shindevlin"))
+        enc.gap(0, 900_000, "ble", "permission_denied"); enc.endWindow(900_000, listOf("wifi"))
+        val r = enc.take()
+        assertEquals(null, RawFmt.checkProv(r))
+        assertTrue(r.filter { it["k"] == "wifi:a" }.all { it["sen"] == "wifi-scan" && it["loc"] == "network" })
+        assertTrue(r.filter { it["k"] == "env.rh_pct" }.all { it["sen"] == "shtc3" })
+        assertTrue(r.any { it["s"] == RawFmt.SCHEMA_OBS && it["why"] == "flipper_relay:commit" && it["frame"] == "AAEC" })
+        val bad = LinkedHashMap(r[1]).apply { remove("why") }
+        assertEquals(bad, RawFmt.checkProv(listOf(bad)))
+        try { ChangeEncoder("", "phone"); org.junit.Assert.fail() } catch (e: IllegalArgumentException) {}
     }
 
     @Test fun jsonIsSortedCompactAndTokensHideIdentifiers() {

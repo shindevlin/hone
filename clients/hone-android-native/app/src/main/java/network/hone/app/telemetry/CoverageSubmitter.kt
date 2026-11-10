@@ -60,6 +60,31 @@ object CoverageSubmitter {
         return v
     }
 
+    /** The chain's NULL_CELL gate (branch data-rules): GET /api/chain/data-rules; any gate named like null_cell that
+     *  is active or whose epoch is reached. Cached 10 min; false when the node does not know the route. */
+    @Volatile private var nullGate: Pair<Long, Boolean>? = null
+    fun nullCellActive(): Boolean {
+        nullGate?.let { (t, v) -> if (System.currentTimeMillis() - t < 10 * 60_000L) return v }
+        val tip = ChainHttp.get("/api/node/info")?.let { runCatching { JSONObject(it).optLong("epoch", -1) }.getOrNull() } ?: -1
+        val j = ChainHttp.get("/api/chain/data-rules")?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val v = j != null && nullGateOpen(j, tip)
+        nullGate = System.currentTimeMillis() to v
+        return v
+    }
+    private fun nullGateOpen(o: JSONObject, tip: Long): Boolean = o.keys().asSequence().any { k ->
+        val x = o.opt(k)
+        when {
+            k.lowercase().contains("null_cell") -> when (x) {
+                is JSONObject -> x.optBoolean("active", false) || x.optLong("epoch", Long.MAX_VALUE).let { it in 1..tip }
+                is Boolean -> x
+                is Number -> x.toLong() in 1..tip
+                else -> false
+            }
+            x is JSONObject -> nullGateOpen(x, tip)
+            else -> false
+        }
+    }
+
     /** Pure: is the res 7-8 gate open, given the tip and each doc's (coarse_cells_from_epoch, summary_min_res). */
     fun coarseActive(tip: Long, gates: List<Pair<Long, Int>>): Boolean =
         gates.any { (from, minRes) -> (from in 1..tip) || minRes <= SensorSummaryWire.MIN_RES }
@@ -147,6 +172,8 @@ object CoverageSubmitter {
             p.edit().putBoolean("requeue_v27", true).apply(); Log.i(TAG, "send everything: requeued $n map-only/refused rows")
         }
         val coarseOk = coarseCellsActive(owner)
+        val nullOk = nullCellActive()
+        if (nullOk) runCatching { store.releaseParked() }
         if (coarseOk) runCatching { store.releaseHeld() }
         var held = 0
         var parked = 0
@@ -156,7 +183,10 @@ object CoverageSubmitter {
             val j = runCatching { JSONObject(json) }.getOrNull() ?: JSONObject()
             // Unlocated rows go at the device's own coarse area (AreaLocator), flagged inferred.
             val base = if (cell == "unlocated") j.optString("area_cell").takeIf { SensorSummaryWire.CELL.matches(it) } else cell
-            if (base == null) { store.parkSummary(cell, w); parked++; continue }     // no area at all: null-cell gate
+            if (base == null) {                                                 // no area at all
+                if (nullOk) { eligible.add(("" to w) to Triple(cell, w, j)); continue } // NULL_CELL gate open: empty cell
+                store.parkSummary(cell, w); parked++; continue
+            }
             val target = chainCell(ctx, base, j.optBoolean("at_home")) ?: run { store.parkSummary(cell, w); parked++; null } ?: continue
             val coarse = SensorSummaryWire.res(target) < SensorSummaryWire.MAX_RES
             if (coarse && !coarseOk) { store.holdSummary(cell, w); held++; continue }
@@ -174,10 +204,10 @@ object CoverageSubmitter {
             val (c9, w) = k
             val met = LinkedHashMap(metrics(row.third).filterKeys { SensorSummaryWire.METRIC.matches(it) }.entries.take(SensorSummaryWire.MAX_METRICS - 4)
                 .associate { it.key to it.value })
-            if (row.third.optBoolean("loc_inferred")) {
+            if (row.third.optBoolean("loc_inferred") && c9.isNotEmpty()) {     // an empty cell is never also inferred
                 met["loc.inferred"] = 1L
                 met["loc.src"] = locSrcCode(row.third.optString("loc_src"))
-                if (row.third.has("loc_age_s")) met["loc.age_s"] = row.third.optLong("loc_age_s")
+                if (row.third.has("loc_age_s")) met["loc.inferred_age_s"] = row.third.optLong("loc_age_s")
             }
             if (met.isEmpty()) met["obs.none"] = 1L                       // nothing observed is a reading too
             val bh = runCatching { network.hone.app.raw.RawRecorder.shaFor(ctx, w) }.getOrDefault("")

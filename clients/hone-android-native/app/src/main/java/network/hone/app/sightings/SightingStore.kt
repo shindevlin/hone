@@ -95,6 +95,9 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
             "cell=? AND window=?", arrayOf(cell, window.toString()))
     }
 
+    /** Parked rows (no place at all) back into the queue once the chain takes an empty cell. */
+    fun releaseParked(): Int = writableDatabase.update("public_summary", ContentValues().apply { put("queued", 1) }, "queued=3", null)
+
     /** All rows after [rowid] (for the indexer map): (rowid, cell, window, json). */
     fun summariesAfter(rowid: Long, limit: Int): List<SummaryRow> = readableDatabase.rawQuery(
         "SELECT rowid, cell, window, json FROM public_summary WHERE rowid > ? ORDER BY rowid LIMIT ?",

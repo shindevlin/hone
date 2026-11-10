@@ -1,6 +1,6 @@
 {
   "registry": "hone.raw",
-  "version": 1,
+  "version": 2,
   "updated": "2026-11-10",
   "about": "Change-based, self-describing sensor records from HONE devices. One JSON object per line (JSONL), gzip-compressed per 15-minute window (window = floor(unix_seconds / 900)). Times are RFC3339 UTC. Any moment can be rebuilt from the last keyframe plus later events: appeared/changed set a key, disappeared removes it, unchanged and gap change nothing.",
   "privacy": "Personal identifiers never appear in the clear: Wi-Fi BSSIDs and SSIDs, BLE MACs and LoRa DevAddrs are replaced by tokens (truncated SHA-256 over area, ISO week and the identifier). Human speech is never recorded (bird clips only). Locations are H3 cells, coarsened to res 7 at or near home or with no home known, at most res 9 elsewhere.",
@@ -22,54 +22,440 @@
   "schemas": {
     "hone.raw.hdr@1": {
       "description": "First line of every blob: who recorded it, where, with what.",
-      "json_schema": {"type": "object", "required": ["s", "t", "dev", "owner", "cls", "win", "area"],
+      "json_schema": {
+        "type": "object",
+        "required": [
+          "s",
+          "t",
+          "dev",
+          "owner",
+          "cls",
+          "win",
+          "area"
+        ],
         "properties": {
-          "s": {"const": "hone.raw.hdr@1"}, "t": {"type": "string", "format": "date-time"},
-          "dev": {"type": "string", "description": "Device id: first 16 hex of the device/seat public key."},
-          "owner": {"type": "string", "description": "Owner account, or account@<seat pubkey>."},
-          "cls": {"enum": ["phone", "nebra", "pc", "pi", "flipper", "station"], "description": "Device class."},
-          "fw": {"type": "string", "description": "App or collector version."},
-          "model": {"type": "string", "description": "Hardware model."},
-          "sensors": {"type": "object", "description": "Sensor model, vendor, resolution and calibration per key prefix."},
-          "win": {"type": "integer", "description": "15-minute window number."},
-          "area": {"type": "object", "description": "On-device coarse area for this window.", "properties": {
-            "cell": {"type": ["string", "null"], "description": "H3 cell id (15 hex), or null if every source failed."},
-            "res": {"type": ["integer", "null"]},
-            "src": {"enum": ["gps", "fused", "network", "wifi_fp", "last_verified", "fixed", "ip", "none"]},
-            "acc_m": {"type": ["number", "null"], "description": "Estimated accuracy of the source, metres."},
-            "inferred": {"type": "boolean", "description": "True when the area did not come from a live fix this window."},
-            "age_s": {"type": ["integer", "null"], "description": "Age of the fix the area came from, seconds."}}},
-          "registry": {"type": "string", "description": "sha256 of this registry file."},
-          "deadbands": {"type": "object"}}}
+          "s": {
+            "const": "hone.raw.hdr@1"
+          },
+          "t": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dev": {
+            "type": "string",
+            "description": "Device id: first 16 hex of the device/seat public key."
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner account, or account@<seat pubkey>."
+          },
+          "cls": {
+            "enum": [
+              "phone",
+              "nebra",
+              "pc",
+              "pi",
+              "flipper",
+              "station"
+            ],
+            "description": "Device class."
+          },
+          "fw": {
+            "type": "string",
+            "description": "App or collector version."
+          },
+          "model": {
+            "type": "string",
+            "description": "Hardware model."
+          },
+          "sensors": {
+            "type": "object",
+            "description": "Sensor model, vendor, resolution and calibration per key prefix."
+          },
+          "win": {
+            "type": "integer",
+            "description": "15-minute window number."
+          },
+          "area": {
+            "type": "object",
+            "description": "On-device coarse area for this window.",
+            "properties": {
+              "cell": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "H3 cell id (15 hex), or null if every source failed."
+              },
+              "res": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "src": {
+                "enum": [
+                  "gps",
+                  "fused",
+                  "network",
+                  "wifi_fp",
+                  "last_verified",
+                  "fixed",
+                  "ip",
+                  "none"
+                ]
+              },
+              "acc_m": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Estimated accuracy of the source, metres."
+              },
+              "inferred": {
+                "type": "boolean",
+                "description": "True when the area did not come from a live fix this window."
+              },
+              "age_s": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Age of the fix the area came from, seconds."
+              }
+            }
+          },
+          "registry": {
+            "type": "string",
+            "description": "sha256 of this registry file."
+          },
+          "deadbands": {
+            "type": "object"
+          }
+        }
+      }
     },
-    "hone.raw.kf@1": {
-      "description": "Keyframe: the full state. Sent once per device per UTC day, at boot, and after any gap.",
-      "json_schema": {"type": "object", "required": ["s", "t", "why", "state"], "properties": {
-        "s": {"const": "hone.raw.kf@1"}, "t": {"type": "string", "format": "date-time"},
-        "why": {"enum": ["boot", "day", "gap"]},
-        "state": {"type": "object", "additionalProperties": {"type": "object", "properties": {"v": {"type": "number"}, "a": {"type": "object"}}}}}}
+    "hone.raw.obs@1": {
+      "description": "An observation payload that is not state: a LoRa packet exactly as received, a HONE Flipper's signed frame relayed unaltered, a phone and Flipper heard together (pairing). Rebuild ignores it.",
+      "json_schema": {
+        "type": "object",
+        "required": [
+          "s",
+          "t",
+          "k",
+          "dev",
+          "cls",
+          "sen",
+          "why",
+          "loc"
+        ],
+        "properties": {
+          "s": {
+            "const": "hone.raw.obs@1"
+          },
+          "t": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "k": {
+            "type": "string"
+          },
+          "dev": {
+            "type": "string"
+          },
+          "cls": {
+            "type": "string"
+          },
+          "sen": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "loc": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string",
+            "description": "LoRa: PHYPayload base64 as received (LoRaWAN payloads stay encrypted; the 4-byte DevAddr inside is in the clear)."
+          },
+          "freq": {
+            "type": "number",
+            "description": "MHz"
+          },
+          "datr": {
+            "type": "string"
+          },
+          "codr": {
+            "type": "string"
+          },
+          "chan": {
+            "type": "integer"
+          },
+          "rfch": {
+            "type": "integer"
+          },
+          "rssi": {
+            "type": "number",
+            "description": "dBm"
+          },
+          "lsnr": {
+            "type": "number",
+            "description": "dB"
+          },
+          "stat": {
+            "type": "integer",
+            "description": "1 CRC ok, -1 CRC bad"
+          },
+          "size": {
+            "type": "integer",
+            "description": "bytes"
+          },
+          "tmst": {
+            "type": "integer",
+            "description": "concentrator microseconds"
+          },
+          "modu": {
+            "type": "string"
+          },
+          "frame": {
+            "type": "string",
+            "description": "Flipper: the signed BLE frame base64, unaltered (its own Ed25519 signature inside)."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Flipper frame kind: announce | commit"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner named in the Flipper's signed announce"
+          },
+          "relay_by": {
+            "type": "string",
+            "description": "Account of the phone that heard and relayed it"
+          },
+          "pair": {
+            "type": "object",
+            "description": "Phone and Flipper heard together: {flipper, owner, rssi_max, first, last}; their readings corroborate each other."
+          }
+        }
+      }
     },
-    "hone.raw.ev@1": {
-      "description": "One change event.",
-      "json_schema": {"type": "object", "required": ["s", "t", "e", "k"], "properties": {
-        "s": {"const": "hone.raw.ev@1"}, "t": {"type": "string", "format": "date-time"},
-        "e": {"enum": ["appeared", "disappeared", "changed", "unchanged", "gap"]},
-        "k": {"type": "string"}, "v": {"type": "number"}, "prev": {"type": "number"}, "a": {"type": "object"},
-        "since": {"type": "string", "format": "date-time"}, "n": {"type": "integer"}, "forced": {"type": "boolean"},
-        "reason": {"enum": ["offline", "permission_denied", "speech_deleted", "no_signal", "sensor_absent", "app_stopped"]},
-        "from": {"type": "string", "format": "date-time"}, "to": {"type": "string", "format": "date-time"}}}
+    "hone.raw.kf@2": {
+      "description": "Keyframe: the full state. Sent once per device per UTC day, at boot, and after any gap. v2 adds required provenance (dev, cls, sen, why, loc).",
+      "json_schema": {
+        "type": "object",
+        "required": [
+          "cls",
+          "dev",
+          "loc",
+          "s",
+          "sen",
+          "state",
+          "t",
+          "why"
+        ],
+        "properties": {
+          "s": {
+            "const": "hone.raw.kf@2"
+          },
+          "t": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "why": {
+            "type": "string"
+          },
+          "state": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "v": {
+                  "type": "number"
+                },
+                "a": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "dev": {
+            "type": "string"
+          },
+          "cls": {
+            "type": "string"
+          },
+          "sen": {
+            "type": "string"
+          },
+          "loc": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "hone.raw.ev@2": {
+      "description": "One change event. v2 adds required provenance (dev, cls, sen, why, loc).",
+      "json_schema": {
+        "type": "object",
+        "required": [
+          "cls",
+          "dev",
+          "e",
+          "k",
+          "loc",
+          "s",
+          "sen",
+          "t",
+          "why"
+        ],
+        "properties": {
+          "s": {
+            "const": "hone.raw.ev@2"
+          },
+          "t": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "e": {
+            "enum": [
+              "appeared",
+              "disappeared",
+              "changed",
+              "unchanged",
+              "gap"
+            ]
+          },
+          "k": {
+            "type": "string"
+          },
+          "v": {
+            "type": "number"
+          },
+          "prev": {
+            "type": "number"
+          },
+          "a": {
+            "type": "object"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "forced": {
+            "type": "boolean"
+          },
+          "reason": {
+            "enum": [
+              "offline",
+              "permission_denied",
+              "speech_deleted",
+              "no_signal",
+              "sensor_absent",
+              "app_stopped"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dev": {
+            "type": "string"
+          },
+          "cls": {
+            "type": "string"
+          },
+          "sen": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "loc": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "keys": {
-    "wifi:<token>": {"unit": "dBm", "what": "Received signal strength of one Wi-Fi access point.", "attrs": {"f": "centre frequency, MHz", "b": "band 2g/5g/6g", "ss": "SSID token", "hid": "1 if the SSID is hidden"}, "deadband": "6 dB"},
-    "ble:<token>": {"unit": "dBm", "what": "Received signal strength of one BLE advertiser (token rotates daily).", "attrs": {"ctype": "advert type"}, "deadband": "6 dB"},
-    "lora:<token>": {"unit": "dBm", "what": "LoRaWAN uplink from one device (DevAddr token rotates daily).", "attrs": {"ch": "channel 0-7", "snr": "dB", "sf": "spreading factor"}, "deadband": "6 dB"},
-    "flipper:<id>": {"unit": "dBm", "what": "Signal of a HONE Flipper heard over BLE.", "deadband": "6 dB"},
-    "env.air_temp_c": {"unit": "degC", "what": "Ambient air temperature from a real ambient sensor.", "deadband": "0.15 degC"},
-    "env.rh_pct": {"unit": "%RH", "what": "Relative humidity.", "deadband": "1 %RH"},
-    "env.pressure_pa": {"unit": "Pa", "what": "Barometric pressure (SI pascals; 1 hPa = 100 Pa).", "deadband": "10 Pa"},
-    "env.light_lux": {"unit": "lx", "what": "Ambient light.", "deadband": "10 % of the last value"},
-    "dev.temp_c": {"unit": "degC", "what": "Temperature of the device itself (phone battery, Pi CPU). NOT air temperature.", "deadband": "1 degC"},
-    "bird:<fingerprint>": {"unit": "probability 0-1", "what": "A bird voice fingerprint detection.", "attrs": {"model": "model id", "species": "scientific name", "conf": "model confidence 0-1", "clip": "sha256 of the bird-only audio clip, if kept"}}
-  }
+    "wifi:<token>": {
+      "unit": "dBm",
+      "what": "Received signal strength of one Wi-Fi access point.",
+      "attrs": {
+        "f": "centre frequency, MHz",
+        "b": "band 2g/5g/6g",
+        "ss": "SSID token",
+        "hid": "1 if the SSID is hidden"
+      },
+      "deadband": "6 dB"
+    },
+    "ble:<token>": {
+      "unit": "dBm",
+      "what": "Received signal strength of one BLE advertiser (token rotates daily).",
+      "attrs": {
+        "ctype": "advert type"
+      },
+      "deadband": "6 dB"
+    },
+    "lora:<token>": {
+      "unit": "dBm",
+      "what": "LoRaWAN uplinks. State: signal per device (DevAddr token rotates daily). Each packet is also kept as hone.raw.obs@1 with its payload bytes as received.",
+      "attrs": {
+        "ch": "channel 0-7",
+        "snr": "dB",
+        "sf": "spreading factor"
+      },
+      "deadband": "6 dB"
+    },
+    "flipper:<id>": {
+      "unit": "dBm",
+      "what": "Signal of a HONE Flipper heard over BLE by this device (any owner). Its signed frames are kept unaltered as hone.raw.obs@1.",
+      "deadband": "6 dB"
+    },
+    "env.air_temp_c": {
+      "unit": "degC",
+      "what": "Ambient air temperature from a real ambient sensor.",
+      "deadband": "0.15 degC"
+    },
+    "env.rh_pct": {
+      "unit": "%RH",
+      "what": "Relative humidity.",
+      "deadband": "1 %RH"
+    },
+    "env.pressure_pa": {
+      "unit": "Pa",
+      "what": "Barometric pressure (SI pascals; 1 hPa = 100 Pa).",
+      "deadband": "10 Pa"
+    },
+    "env.light_lux": {
+      "unit": "lx",
+      "what": "Ambient light.",
+      "deadband": "10 % of the last value"
+    },
+    "dev.temp_c": {
+      "unit": "degC",
+      "what": "Temperature of the device itself (phone battery, Pi CPU). NOT air temperature.",
+      "deadband": "1 degC"
+    },
+    "bird:<fingerprint>": {
+      "unit": "probability 0-1",
+      "what": "A bird voice fingerprint detection.",
+      "attrs": {
+        "model": "model id",
+        "species": "scientific name",
+        "conf": "model confidence 0-1",
+        "clip": "sha256 of the bird-only audio clip, if kept"
+      }
+    }
+  },
+  "provenance": "Every record carries provenance (Josh 2026-11-10 11:22): dev = device id (first 16 hex of its key), cls = device class, sen = sensor id (described in the header's sensors table), why = purpose or reason (scan, sample, scan:deadband, scan:missing_2, sample:deadband, marker:window_end, forced_sample:15min, keyframe:<boot|day|gap>, gap:<reason>, lora_uplink:<crc_ok|crc_bad>, flipper_relay:<announce|commit>, pairing:flipper_near), loc = where the window's area came from (gps, fused, network, wifi_fp, last_verified, fixed, ip) or none. Records without them are refused by the ingest."
 }

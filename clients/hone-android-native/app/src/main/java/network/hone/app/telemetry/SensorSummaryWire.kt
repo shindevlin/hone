@@ -29,7 +29,7 @@ object SensorSummaryWire {
 
     fun message(chainId: String, sensorId: String, owner: String, batchHash: String, cell: String,
                 window: Long, metrics: Map<String, Long>): String {
-        require(res(cell) in MIN_RES..MAX_RES) { "cell must be an H3 res $MIN_RES-$MAX_RES id" }
+        require(cell.isEmpty() || res(cell) in MIN_RES..MAX_RES) { "cell must be an H3 res $MIN_RES-$MAX_RES id, or empty (NULL_CELL gate)" }
         require(metrics.size in 1..MAX_METRICS) { "1..$MAX_METRICS metrics" }
         require(metrics.keys.all { METRIC.matches(it) }) { "bad metric name" }
         val m = metrics.toSortedMap().entries.joinToString(",") { (k, v) -> "\"$k\":$v" }

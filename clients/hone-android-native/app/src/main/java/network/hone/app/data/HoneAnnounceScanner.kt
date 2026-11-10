@@ -115,6 +115,7 @@ object HoneAnnounceScanner {
                     addrToId[result.device.address] = it.deviceId
                     publish(it)
                     network.hone.app.sightings.SightingsEngine.onFlipperFrame(it.deviceId, "announce", result.rssi)
+                    runCatching { network.hone.app.raw.RawRecorder.onFlipperSigned(it.deviceId, "announce", frame, result.rssi, it.owner.ifEmpty { null }) }
                 }
             }
         }
@@ -159,6 +160,8 @@ object HoneAnnounceScanner {
         val devId = data.copyOfRange(0, 8).hex()
         // Stamp the frame with this phone's location (private layer; relay unchanged).
         network.hone.app.sightings.SightingsEngine.onFlipperFrame(devId, "commit", result.rssi)
+        // Any owner's Flipper: keep its signed commit frame unaltered in this phone's raw record (relay).
+        runCatching { network.hone.app.raw.RawRecorder.onFlipperSigned(devId, "commit", data, result.rssi, _devices.value[devId]?.owner?.ifEmpty { null }) }
         val group = data[8].toInt() and 0xFF
         val count = (data[9].toInt() and 0xFF) or ((data[10].toInt() and 0xFF) shl 8)
         val hash = data.copyOfRange(11, 43).hex()

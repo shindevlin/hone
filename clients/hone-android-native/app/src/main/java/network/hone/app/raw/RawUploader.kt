@@ -56,7 +56,7 @@ object RawUploader {
             val sig = Canonical.hex(Canonical.sign(seed, meta))
             val (code, resp) = post(meta, sig, body)
             when {
-                code == 200 -> { gz.delete(); mf.delete(); Telemetry.upload(c, "raw", true) }
+                code == 200 -> { keepOwn(c, gz); mf.delete(); Telemetry.upload(c, "raw", true) }
                 code == 400 || code == 403 || code == 413 -> {
                     val r = File(q, "refused"); r.mkdirs()
                     gz.renameTo(File(r, gz.name)); mf.renameTo(File(r, mf.name))
@@ -82,6 +82,17 @@ object RawUploader {
             code to text
         } finally { conn.disconnect() }
     }.getOrDefault(0 to "")
+
+    /** Owner self-storage: this phone keeps its own uploaded blobs (served on request), up to [KEEP_BYTES]. */
+    const val KEEP_BYTES = 128L shl 20
+    fun storeDir(c: Context) = File(c.filesDir, "hone-node/raw-store")
+    private fun keepOwn(c: Context, gz: File) {
+        val d = storeDir(c); d.mkdirs()
+        if (!gz.renameTo(File(d, gz.name))) { gz.delete(); return }
+        val files = d.listFiles { f -> f.name.endsWith(".gz") }?.sortedBy { it.lastModified() } ?: return
+        var total = files.sumOf { it.length() }
+        for (f in files) { if (total <= KEEP_BYTES) break; total -= f.length(); f.delete() }
+    }
 
     fun queued(c: Context): Int = RawRecorder.qdir(c).listFiles { f -> f.name.endsWith(".json") }?.size ?: 0
 }

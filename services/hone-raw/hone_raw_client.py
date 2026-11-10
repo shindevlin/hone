@@ -46,8 +46,24 @@ def enqueue(qdir, window, body, info):
     return sha
 
 
-def flush(qdir, sk, account, device, kind, url=URL, max_n=50):
-    """Upload queued blobs oldest first; stop at the first network/server error. Returns (sent, left, last_error)."""
+def keep(path, keep_dir, keep_free_bytes):
+    """Owner self-storage: after upload the owner's own blob stays here (served on request) while the
+    disk keeps keep_free_bytes free; the oldest kept blobs go first when space is short."""
+    os.makedirs(keep_dir, exist_ok=True)
+    os.replace(path, os.path.join(keep_dir, os.path.basename(path)))
+    st = os.statvfs(keep_dir)
+    if st.f_bavail * st.f_frsize >= keep_free_bytes:
+        return
+    for old in sorted(glob.glob(os.path.join(keep_dir, "*.gz")), key=os.path.getmtime):
+        os.remove(old)
+        st = os.statvfs(keep_dir)
+        if st.f_bavail * st.f_frsize >= keep_free_bytes:
+            break
+
+
+def flush(qdir, sk, account, device, kind, url=URL, max_n=50, keep_dir=None, keep_free_bytes=2 << 30):
+    """Upload queued blobs oldest first; stop at the first network/server error. Returns (sent, left, last_error).
+    With keep_dir, uploaded blobs are kept there (owner self-storage) instead of deleted."""
     files = sorted(glob.glob(os.path.join(qdir, "*.json")))
     sent, err = 0, None
     for jf in files[:max_n]:
@@ -56,7 +72,11 @@ def flush(qdir, sk, account, device, kind, url=URL, max_n=50):
         mb, sig = meta(sk, account, device, info["window"], info.get("cell"), body, kind)
         st, r = upload(url, mb, sig, body)
         if st == 200 and r.get("ok"):
-            os.remove(gz); os.remove(jf); sent += 1
+            if keep_dir:
+                keep(gz, keep_dir, keep_free_bytes)
+            else:
+                os.remove(gz)
+            os.remove(jf); sent += 1
         elif st in (400, 403, 413):
             # The ingest refuses this blob for good: keep it aside (never deleted) and go on.
             os.makedirs(os.path.join(qdir, "refused"), exist_ok=True)

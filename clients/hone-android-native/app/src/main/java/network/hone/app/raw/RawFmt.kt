@@ -11,16 +11,31 @@ import java.time.temporal.ChronoUnit
  * services/hone-raw/hone-raw-registry.json (served at honemesh.net/api/raw/schema).
  *
  *  hone.raw.hdr@1  header (device, owner, class, firmware, model, sensors, window, area, registry)
- *  hone.raw.kf@1   keyframe: the full state, at boot, each UTC day and after a gap
- *  hone.raw.ev@1   appeared | disappeared | changed | unchanged | gap
+ *  hone.raw.kf@2   keyframe: the full state, at boot, each UTC day and after a gap
+ *  hone.raw.ev@2   appeared | disappeared | changed | unchanged | gap
+ *  hone.raw.obs@1  payload that is not state (a relayed signed Flipper frame, a pairing)
+ * Every record carries provenance: dev, cls, sen, why, loc ([RawFmt.PROV]).
  *
  * A reader rebuilds any moment from the last keyframe plus later events ([rebuild]); the
  * encoder's [ChangeEncoder.reported] is exactly that state. Pure Kotlin (JVM unit-tested).
  */
 object RawFmt {
     const val SCHEMA_HDR = "hone.raw.hdr@1"
-    const val SCHEMA_KF = "hone.raw.kf@1"
-    const val SCHEMA_EV = "hone.raw.ev@1"
+    const val SCHEMA_KF = "hone.raw.kf@2"
+    const val SCHEMA_EV = "hone.raw.ev@2"
+    const val SCHEMA_OBS = "hone.raw.obs@1"
+    /** Provenance every record carries (Josh 11:22): device, class, sensor, why, location source. */
+    val PROV = listOf("dev", "cls", "sen", "why", "loc")
+
+    /** Sensor id for a key: exact key, then its family ("wifi" for wifi:x, "env" for env.rh_pct). */
+    fun sensorOf(k: String, sensors: Map<String, String>): String =
+        sensors[k] ?: (if (':' in k) k.substringBefore(':') else k.substringBefore('.')).let { sensors[it] ?: it }
+
+    /** The first record lacking provenance, or null. Nothing without it may be sent. */
+    fun checkProv(records: List<Map<String, Any?>>): Map<String, Any?>? = records.firstOrNull { r ->
+        if (r["s"] == SCHEMA_HDR) listOf("dev", "cls", "win").any { r[it] == null || r[it] == "" } || "area" !in r
+        else PROV.any { r[it] == null || r[it] == "" }
+    }
     val EVENTS = setOf("appeared", "disappeared", "changed", "unchanged", "gap")
     val GAP_REASONS = setOf("offline", "permission_denied", "speech_deleted", "no_signal", "sensor_absent", "app_stopped")
 
@@ -121,23 +136,42 @@ object RawFmt {
     }
 }
 
-/** Turns observations into keyframes and change events (see [RawFmt]). Not thread-safe: callers lock. */
-class ChangeEncoder(private val miss: Int = 2) {
+/**
+ * Turns observations into keyframes and change events (see [RawFmt]). Not thread-safe: callers lock.
+ * [dev], [cls] and the [sensors] table give every record its provenance; [loc] is the current area source.
+ */
+class ChangeEncoder(private val dev: String, private val cls: String, private val sensors: Map<String, String> = emptyMap(),
+                    var loc: String = "none", private val miss: Int = 2) {
+    init { require(dev.isNotEmpty() && cls.isNotEmpty()) { "provenance: dev and cls are required" } }
     val reported = LinkedHashMap<String, RawFmt.Entry>()
     private val changedAt = HashMap<String, Long>()
     private val missing = HashMap<String, Int>()
     private val out = ArrayList<Map<String, Any?>>()
 
-    private fun ev(tMs: Long, e: String, k: String, vararg kv: Pair<String, Any?>) {
+    private fun prov(r: MutableMap<String, Any?>, k: String, why: String) {
+        r["dev"] = dev; r["cls"] = cls; r["sen"] = RawFmt.sensorOf(k, sensors); r["why"] = why; r["loc"] = loc.ifEmpty { "none" }
+    }
+
+    private fun ev(tMs: Long, e: String, k: String, why: String, vararg kv: Pair<String, Any?>) {
         val r = LinkedHashMap<String, Any?>()
         r["s"] = RawFmt.SCHEMA_EV; r["t"] = RawFmt.rfc3339(tMs); r["e"] = e; r["k"] = k
+        prov(r, k, why)
         kv.forEach { (a, b) -> if (b != null) r[a] = b }
         out.add(r)
     }
 
+    /** A payload record (not state), e.g. a Flipper's signed frame relayed unaltered. */
+    fun obs(tMs: Long, k: String, why: String, fields: Map<String, Any?>) {
+        val r = LinkedHashMap<String, Any?>()
+        r["s"] = RawFmt.SCHEMA_OBS; r["t"] = RawFmt.rfc3339(tMs); r["k"] = k
+        prov(r, k, why)
+        fields.forEach { (a, b) -> if (b != null) r[a] = b }
+        out.add(r)
+    }
+
     fun keyframe(tMs: Long, why: String) {
-        out.add(mapOf("s" to RawFmt.SCHEMA_KF, "t" to RawFmt.rfc3339(tMs), "why" to why,
-            "state" to reported.toSortedMap().mapValues { (_, e) -> mapOf("v" to e.v, "a" to e.a) }))
+        out.add(mapOf("s" to RawFmt.SCHEMA_KF, "t" to RawFmt.rfc3339(tMs), "dev" to dev, "cls" to cls, "sen" to "*",
+            "why" to "keyframe:$why", "loc" to loc.ifEmpty { "none" }, "state" to reported.toSortedMap().mapValues { (_, e) -> mapOf("v" to e.v, "a" to e.a) }))
         reported.keys.forEach { changedAt[it] = tMs }
     }
 
@@ -149,9 +183,9 @@ class ChangeEncoder(private val miss: Int = 2) {
             val cur = reported[k]
             if (cur == null) {
                 reported[k] = RawFmt.Entry(v, a); changedAt[k] = tMs
-                ev(tMs, "appeared", k, "v" to v, "a" to a.ifEmpty { null })
+                ev(tMs, "appeared", k, "scan", "v" to v, "a" to a.ifEmpty { null })
             } else if (RawFmt.moved(k, cur.v, v)) {
-                ev(tMs, "changed", k, "v" to v, "prev" to cur.v)
+                ev(tMs, "changed", k, "scan:deadband", "v" to v, "prev" to cur.v)
                 reported[k] = cur.copy(v = v); changedAt[k] = tMs
             }
         }
@@ -162,7 +196,7 @@ class ChangeEncoder(private val miss: Int = 2) {
             if (n >= miss) {
                 val prev = reported.remove(k)!!.v
                 missing.remove(k); changedAt[k] = tMs
-                ev(tMs, "disappeared", k, "prev" to prev)
+                ev(tMs, "disappeared", k, "scan:missing_$miss", "prev" to prev)
             }
         }
     }
@@ -172,26 +206,26 @@ class ChangeEncoder(private val miss: Int = 2) {
         val cur = reported[k]
         if (cur == null) {
             reported[k] = RawFmt.Entry(v, a); changedAt[k] = tMs
-            ev(tMs, "appeared", k, "v" to v, "a" to a.ifEmpty { null })
+            ev(tMs, "appeared", k, "sample", "v" to v, "a" to a.ifEmpty { null })
         } else if (RawFmt.moved(k, cur.v, v)) {
-            ev(tMs, "changed", k, "v" to v, "prev" to cur.v)
+            ev(tMs, "changed", k, "sample:deadband", "v" to v, "prev" to cur.v)
             reported[k] = cur.copy(v = v); changedAt[k] = tMs
         }
     }
 
     fun gap(fromMs: Long, toMs: Long, family: String, reason: String) {
         require(reason in RawFmt.GAP_REASONS) { "unknown gap reason $reason" }
-        ev(toMs, "gap", "$family:*", "reason" to reason, "from" to RawFmt.rfc3339(fromMs), "to" to RawFmt.rfc3339(toMs))
+        ev(toMs, "gap", "$family:*", "gap:$reason", "reason" to reason, "from" to RawFmt.rfc3339(fromMs), "to" to RawFmt.rfc3339(toMs))
     }
 
     /** Explicit markers at the end of a window, and the forced climate samples. */
     fun endWindow(tMs: Long, families: List<String>) {
         for (f in families) {
             val ks = reported.keys.filter { it.startsWith("$f:") }
-            if (ks.isNotEmpty()) ev(tMs, "unchanged", "$f:*", "since" to RawFmt.rfc3339(ks.minOf { changedAt[it] ?: tMs }), "n" to ks.size)
+            if (ks.isNotEmpty()) ev(tMs, "unchanged", "$f:*", "marker:window_end", "since" to RawFmt.rfc3339(ks.minOf { changedAt[it] ?: tMs }), "n" to ks.size)
         }
         for ((k, e) in reported.toSortedMap()) if (RawFmt.forced(k))
-            ev(tMs, "unchanged", k, "v" to e.v, "since" to RawFmt.rfc3339(changedAt[k] ?: tMs), "forced" to true)
+            ev(tMs, "unchanged", k, "forced_sample:15min", "v" to e.v, "since" to RawFmt.rfc3339(changedAt[k] ?: tMs), "forced" to true)
     }
 
     fun take(): List<Map<String, Any?>> = ArrayList(out).also { out.clear() }

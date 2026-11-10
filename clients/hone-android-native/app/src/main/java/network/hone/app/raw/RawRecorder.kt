@@ -29,7 +29,7 @@ import java.util.zip.GZIPOutputStream
 object RawRecorder {
     private const val TAG = "HoneRaw"
     private val lock = Any()
-    private var enc = ChangeEncoder()
+    private lateinit var enc: ChangeEncoder
     @Volatile private var app: Context? = null
     private var started = false
     private var day = ""
@@ -37,7 +37,12 @@ object RawRecorder {
     private val full = ArrayList<Map<String, Any?>>()          // full-scan log, only to measure the saving
     private var speechFromMs = 0L
     private var speechToMs = 0L
-    private val sensorsFound = LinkedHashMap<String, String>()
+    private val sensorsFound = LinkedHashMap<String, String>()       // key -> description (header)
+    private val sensorIds = linkedMapOf(                              // key or family -> sensor id (every record's "sen")
+        "wifi" to "android-wifi-scan", "ble" to "android-ble-scan", "flipper" to "hone-flipper-ble",
+        "bird" to "perch-v2", "audio" to "mic-speech-gate", "dev.temp_c" to "battery-thermistor")
+    private val near = LinkedHashMap<String, MutableMap<String, Any?>>()   // Flipper heard close this window
+    private val lastAnnounce = HashMap<String, Long>()
 
     fun qdir(ctx: Context) = File(ctx.filesDir, "hone-node/raw-queue")
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("hone_raw", Context.MODE_PRIVATE)
@@ -45,8 +50,12 @@ object RawRecorder {
     /** Start once per process (boot keyframe; climate sensors; device temperature). */
     fun start(ctx: Context) = synchronized(lock) {
         if (started) return
-        val c = ctx.applicationContext; app = c; started = true
+        val c = ctx.applicationContext; app = c
         val now = System.currentTimeMillis()
+        startClimate(c)
+        enc = ChangeEncoder(network.hone.app.telemetry.Telemetry.deviceId(c), "phone", sensorIds,
+            if (AreaLocator.salt(c) != "none") "last_verified" else "none")
+        started = true
         day = utcDay(now)
         val lastW = prefs(c).getLong("last_window", -1)
         val w = now / 900_000
@@ -55,7 +64,6 @@ object RawRecorder {
             for (f in listOf("wifi", "ble", "env", "audio", "flipper")) enc.gap((lastW + 1) * 900_000, now, f, "app_stopped")
         }
         enc.keyframe(now, "boot")
-        startClimate(c)
     }
 
     private fun utcDay(ms: Long) = LocalDate.ofEpochDay(Math.floorDiv(ms, 86_400_000L)).toString()
@@ -119,8 +127,31 @@ object RawRecorder {
     }
 
     fun onFlipperFrame(devId: String, rssi: Int) = synchronized(lock) {
-        if (started) enc.observe(System.currentTimeMillis(), "flipper:$devId", rssi.toDouble())
+        if (!started) return
+        val now = System.currentTimeMillis()
+        enc.observe(now, "flipper:$devId", rssi.toDouble())
+        // Phone and Flipper together: their readings corroborate each other (marked per window).
+        if (rssi >= NEAR_DBM) near.getOrPut(devId) { linkedMapOf<String, Any?>("flipper" to devId, "first" to RawFmt.rfc3339(now), "rssi_max" to rssi) }.also {
+            it["last"] = RawFmt.rfc3339(now); it["rssi_max"] = maxOf(it["rssi_max"] as Int, rssi)
+        }
     }
+
+    /**
+     * A HONE Flipper's signed BLE frame, from ANY owner, kept unaltered (its own Ed25519 signature
+     * inside) so the raw store carries it even when the owner's phone is away; this phone is the relay.
+     */
+    fun onFlipperSigned(devId: String, kind: String, frame: ByteArray, rssi: Int, owner: String?) = synchronized(lock) {
+        if (!started) return
+        val now = System.currentTimeMillis()
+        if (kind == "announce" && now - (lastAnnounce[devId] ?: 0) < 60_000) return
+        if (kind == "announce") lastAnnounce[devId] = now
+        owner?.let { o -> near[devId]?.put("owner", o) }
+        enc.obs(now, "flipper:$devId", "flipper_relay:$kind", mapOf(
+            "frame" to android.util.Base64.encodeToString(frame, android.util.Base64.NO_WRAP), "kind" to kind,
+            "owner" to owner, "rssi" to rssi, "relay_by" to app?.let { network.hone.app.telemetry.Telemetry.seatAccount(it) }))
+    }
+
+    private const val NEAR_DBM = -75
 
     /** A bird detection that passed the human-speech gate. */
     fun onBird(latin: String, conf: Float, model: String, tMs: Long) = synchronized(lock) {
@@ -160,7 +191,9 @@ object RawRecorder {
         for ((type, k) in climate) {
             val s = sm.getDefaultSensor(type)
             if (s == null) { sensorsFound[k] = "absent"; continue }
-            sensorsFound[k] = "${s.vendor} ${s.name} (res ${s.resolution})"
+            val id = "android:" + (s.vendor + " " + s.name).lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(48)
+            sensorIds[k] = id
+            sensorsFound[k] = "$id = ${s.vendor} ${s.name} (resolution ${s.resolution})"
             runCatching { sm.registerListener(listener, s, SensorManager.SENSOR_DELAY_NORMAL, 10_000_000) }
         }
         sensorsFound["dev.temp_c"] = "battery thermistor (device temperature, not air)"
@@ -187,15 +220,21 @@ object RawRecorder {
             runCatching { deviceTemp(c) }
             flushSpeech()
             for ((k, v) in sensorsFound) if (v == "absent") enc.gap(w * 900_000, tEnd, k, "sensor_absent")
+            for ((id, p) in near) enc.obs(tEnd, "flipper:$id", "pairing:flipper_near", mapOf("pair" to LinkedHashMap(p)))
+            val paired = near.values.map { LinkedHashMap(it) }
+            near.clear()
             enc.endWindow(tEnd, listOf("wifi", "ble", "flipper", "bird"))
             val hdr = linkedMapOf<String, Any?>(
                 "s" to RawFmt.SCHEMA_HDR, "t" to RawFmt.rfc3339(w * 900_000), "win" to w,
                 "dev" to network.hone.app.telemetry.Telemetry.deviceId(c),
                 "owner" to (network.hone.app.telemetry.Telemetry.seatAccount(c) ?: ""),
                 "cls" to "phone", "fw" to network.hone.app.BuildConfig.VERSION_NAME, "model" to "${Build.MANUFACTURER} ${Build.MODEL}",
-                "sensors" to LinkedHashMap(sensorsFound), "area" to area.toMap(), "deadbands" to RawFmt.DEADBANDS.mapValues {
+                "sensors" to LinkedHashMap(sensorsFound), "sensor_ids" to LinkedHashMap(sensorIds), "paired" to paired.ifEmpty { null },
+                "area" to area.toMap(), "deadbands" to RawFmt.DEADBANDS.mapValues {
                     if (it.value.rel > 0) mapOf("rel" to it.value.rel) else mapOf("abs" to it.value.abs) })
             recs = listOf(hdr) + enc.take()
+            enc.loc = area.src                                         // next window's records
+            RawFmt.checkProv(recs)?.let { error("raw record without provenance: ${RawFmt.json(it).take(120)}") }
             fullLog = ArrayList(full); full.clear()
             val d = utcDay(System.currentTimeMillis())
             if (d != day) { day = d; enc.keyframe(System.currentTimeMillis(), "day") }

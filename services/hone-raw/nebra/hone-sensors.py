@@ -60,6 +60,7 @@ class Lora:
         self.w = w; self.ok = 0; self.bad = 0; self.rssi = []; self.snr = []
         self.ch = [0] * 8; self.dev = set(); self.heard = {}   # token -> (rssi, attrs)
     def add(self, pk):
+        raw_lora_pkt(pk)
         st = pk.get("stat")
         if st == -1: self.bad += 1; return
         if st != 1: return
@@ -222,7 +223,8 @@ def emit(family, sensor_id, w, metrics, batch_hash=""):
                "cell": CONF["cell"], "window": w, "metrics": metrics, "batch_hash": batch_hash})
 
 # -- raw records (change-based, public, tokens only) --
-RAW = {"enc": RF.ChangeEncoder(), "full": [], "wifi_err": None, "last_t": None}
+SENSORS = {"wifi": "iw-2g", "lora": "sx1301", "dev.temp_c": "bcm2837-thermal", "env": "none"}
+RAW = {"enc": None, "full": [], "wifi_err": None, "last_t": None}
 def week(): return "%04d-W%02d" % datetime.date.today().isocalendar()[:2]
 def raw_wifi(bss):
     t = time.time(); cell = CONF["cell"]; wk = week(); seen = {}; full = []
@@ -236,6 +238,20 @@ def raw_wifi(bss):
     RAW["full"].append({"t": RF.rfc3339(t), "scan": full})
     if not bss: RAW["enc"].gap(t - CONF.get("wifi_scan_s", 60), t, "wifi", "no_signal")
     RAW["enc"].observe_set(t, "wifi", seen); RAW["wifi_err"] = None
+
+def raw_lora_pkt(pk):
+    """Every LoRa packet as received (payload bytes as-is: LoRaWAN-encrypted) plus PHY metadata (Josh 11:22)."""
+    enc = RAW.get("enc")
+    if enc is None: return
+    tok = "unknown"
+    try:
+        b = base64.b64decode(pk.get("data", ""))
+        if len(b) >= 5 and (b[0] >> 5) in (2, 4): tok = hashlib.sha256(day_key() + b[1:5]).digest()[:8].hex()
+    except Exception:
+        pass
+    meta = {k: pk.get(k) for k in ("freq", "datr", "codr", "chan", "rfch", "rssi", "lsnr", "stat", "size", "tmst", "modu")}
+    enc.obs(time.time(), "lora:" + tok, "lora_uplink:" + ("crc_ok" if pk.get("stat") == 1 else "crc_bad"),
+            data=pk.get("data", ""), **meta)
 
 def raw_tick(t):
     """Once a minute: device temperature (not air), day keyframe."""
@@ -252,8 +268,9 @@ def raw_close(w, lo):
     sk = device_key(); pub = sk.verify_key.encode().hex()
     hdr = {"s": RF.SCHEMA_HDR, "t": RF.rfc3339(w * WIN), "dev": pub[:16], "owner": CONF["owner"], "cls": "nebra",
            "fw": FW, "model": "nebra-indoor-cm3", "win": w,
-           "sensors": {"wifi": "Raspberry Pi CM3 + USB Wi-Fi, passive iw scan, 2.4 GHz", "lora": "SX1301 US915 FSB2, receive-only",
-                       "dev.temp_c": "BCM2837 SoC thermal zone (device temperature, not air)", "env": "absent"},
+           "sensors": {"iw-2g": "Raspberry Pi CM3 + USB Wi-Fi, passive iw scan, 2.4 GHz",
+                       "sx1301": "Semtech SX1301 US915 FSB2, receive-only; packets kept as received (LoRaWAN payloads stay encrypted)",
+                       "bcm2837-thermal": "BCM2837 SoC thermal zone (device temperature, not air)", "none": "no ambient climate sensor"},
            "area": {"cell": CONF["cell"], "res": int(CONF["cell"][1], 16), "src": "fixed", "acc_m": None, "inferred": False, "age_s": 0},
            "deadbands": RF.DEADBANDS}
     recs = [hdr] + enc.take()
@@ -272,13 +289,16 @@ def raw_upload_loop():
         time.sleep(CONF.get("raw_upload_s", 300))
         try:
             sk = device_key()
-            r = RC.flush(RAWQ, sk, CONF["owner"], sk.verify_key.encode().hex()[:16], "nebra", url=CONF.get("raw_url", RC.URL))
+            r = RC.flush(RAWQ, sk, CONF["owner"], sk.verify_key.encode().hex()[:16], "nebra", url=CONF.get("raw_url", RC.URL),
+                         keep_dir=f"{BASE}/raw-store", keep_free_bytes=CONF.get("raw_keep_free_bytes", 2 << 30))
             RAW["upload"] = {"t": int(time.time()), "sent": r[0], "left": r[1], "error": r[2]}
         except Exception as e:
             RAW["upload"] = {"t": int(time.time()), "error": str(e)[:120]}
 
 def main():
     lo, wf = Lora(), Wifi(); last_h = 0; last_post = 0; last_raw = 0
+    pub16 = device_key().verify_key.encode().hex()[:16]
+    RAW["enc"] = RF.ChangeEncoder(prov={"dev": pub16, "cls": "nebra", "sensors": SENSORS, "loc": "fixed"})
     t0 = time.time(); RAW["enc"].keyframe(t0, "boot"); RAW["day"] = time.strftime("%Y-%m-%d", time.gmtime(t0))
     threading.Thread(target=raw_upload_loop, daemon=True).start()
     threading.Thread(target=lora_server, args=(lo,), daemon=True).start()

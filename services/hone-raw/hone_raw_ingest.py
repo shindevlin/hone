@@ -47,7 +47,7 @@ OWNER = re.compile(r"^([a-z0-9][a-z0-9._-]{0,63})@([0-9a-f]{64})$")
 CELL = re.compile(r"^8[0-9a-f]{14}$")
 SHA = re.compile(r"^[0-9a-f]{64}$")
 RAW_MAC = re.compile(rb"(?<![0-9a-fA-F:])[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}(?![0-9a-fA-F:])")
-SCHEMAS = (F.SCHEMA_HDR, F.SCHEMA_KF, F.SCHEMA_EV)
+SCHEMAS = (F.SCHEMA_HDR, F.SCHEMA_KF, F.SCHEMA_EV, F.SCHEMA_OBS)
 
 REG_BYTES = open(REGISTRY, "rb").read()
 REG_SHA = hashlib.sha256(REG_BYTES).hexdigest()
@@ -160,6 +160,9 @@ def check_blob(body, m):
             raise ValueError("unknown schema in blob")
         if r.get("s") == F.SCHEMA_EV and r.get("e") not in F.EVENTS:
             raise ValueError("unknown event")
+    bad = F.check_prov(recs)
+    if bad is not None:
+        raise ValueError(f"record without provenance (dev, cls, sen, why, loc): {str(bad)[:120]}")
     return recs
 
 
