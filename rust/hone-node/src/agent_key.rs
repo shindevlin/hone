@@ -97,13 +97,56 @@ pub fn authorizes(chain: &Chain, entry: &LedgerEntry, sig_hex: Option<&str>) -> 
     Ok(true)
 }
 
-/// After an agent-signed stake or unstake applied: move the agent's placed-stake counter.
+fn seat_key(account: &str, role: &str, node: &str) -> String { format!("agent_stake:{account}:{role}:{node}") }
+fn read_u64(chain: &Chain, k: &str) -> u64 {
+    chain.store.state_get(k).and_then(|b| String::from_utf8(b).ok()).and_then(|s| s.parse().ok()).unwrap_or(0)
+}
+
+/// Stake the agent key has placed, per (node, role), in hunits.
+pub fn stakes(chain: &Chain, account: &str) -> Vec<(String, String, u64)> {
+    let pre = format!("agent_stake:{account}:");
+    let mut out: Vec<(String, String, u64)> = chain.store.state_scan_prefix(&pre).into_iter().filter_map(|(k, v)| {
+        let (role, node) = k[pre.len()..].split_once(':')?;
+        let amt: u64 = String::from_utf8(v).ok()?.parse().ok()?;
+        (amt > 0).then(|| (node.to_owned(), role.to_owned(), amt))
+    }).collect();
+    out.sort();
+    out
+}
+
+/// After an agent-signed stake or unstake applied: move the per-(node, role) record and the
+/// total by the same amount, so the total always equals the sum of the per-seat records. An
+/// agent unstake frees cap only for stake the agent itself placed on that (node, role).
 pub fn record(chain: &Chain, entry: &LedgerEntry) {
     match entry {
-        LedgerEntry::NodeRoleStake { staker, amount, .. } => set_staked(chain, staker, staked(chain, staker).saturating_add(*amount)),
-        LedgerEntry::NodeRoleUnstake { staker, amount, .. } => set_staked(chain, staker, staked(chain, staker).saturating_sub(*amount)),
+        LedgerEntry::NodeRoleStake { node, role, staker, amount, .. } => {
+            let k = seat_key(staker, role, node);
+            let _ = chain.store.state_set(&k, read_u64(chain, &k).saturating_add(*amount).to_string().as_bytes());
+            set_staked(chain, staker, staked(chain, staker).saturating_add(*amount));
+        }
+        LedgerEntry::NodeRoleUnstake { node, role, staker, amount, .. } => {
+            let k = seat_key(staker, role, node);
+            let cur = read_u64(chain, &k);
+            let d = cur.min(*amount);
+            if cur - d == 0 { let _ = chain.store.state_delete(&k); }
+            else { let _ = chain.store.state_set(&k, (cur - d).to_string().as_bytes()); }
+            set_staked(chain, staker, staked(chain, staker).saturating_sub(d));
+        }
         _ => {}
     }
+}
+
+/// GET /api/account/:account/agent-key. Amounts in hunits.
+pub fn view(chain: &Chain, account: &str) -> serde_json::Value {
+    serde_json::json!({
+        "active_from_epoch": gate(),
+        "epoch": chain.current_epoch(),
+        "agent_key": key_of(chain, account).map(|(pubkey, cap)| serde_json::json!({ "pubkey": pubkey, "cap": cap })),
+        "staked": staked(chain, account),
+        "stakes": stakes(chain, account).into_iter()
+            .map(|(node, role, amount)| serde_json::json!({ "node": node, "role": role, "amount": amount }))
+            .collect::<Vec<_>>(),
+    })
 }
 
 #[cfg(test)]
@@ -251,6 +294,47 @@ mod tests {
             epoch: E, signed_by: "josh".into() };
         assert!(run(&c, &summary, AG).is_err(), "posting-level entry");
         assert_eq!(staked(&c, "josh"), 0, "nothing out of scope was counted");
+    }
+
+    fn sum(c: &Chain) -> u64 { stakes(c, "josh").iter().map(|x| x.2).sum() }
+
+    #[test]
+    fn per_seat_records_sum_to_the_total_and_the_view_lists_them() {
+        let (c, _d) = world();
+        gate_at(E);
+        set_key(&c, 10 * H, ACTIVE).unwrap();
+        stake(&c, &seat(0x61), "josh", 2 * H, AG).unwrap();
+        stake(&c, &seat(0x62), "josh", 3 * H, AG).unwrap();
+        stake(&c, "josh", "josh", H, AG).unwrap();
+        stake(&c, &seat(0x61), "josh", H, ACTIVE).unwrap(); // not agent-placed: not recorded
+        assert_eq!((staked(&c, "josh"), sum(&c)), (6 * H, 6 * H));
+        // Unstaking more than the agent placed on a seat frees only the agent-placed part.
+        unstake(&c, &seat(0x61), "josh", 3 * H, AG).unwrap();
+        assert_eq!((staked(&c, "josh"), sum(&c)), (4 * H, 4 * H));
+        unstake(&c, &seat(0x62), "josh", H, AG).unwrap();
+        assert_eq!((staked(&c, "josh"), sum(&c)), (3 * H, 3 * H));
+        let v = view(&c, "josh");
+        assert_eq!(v["active_from_epoch"], E);
+        assert_eq!(v["agent_key"]["pubkey"], pk(AG));
+        assert_eq!(v["agent_key"]["cap"], 10 * H);
+        assert_eq!(v["staked"], 3 * H);
+        let mut listed: Vec<(String, String, u64)> = v["stakes"].as_array().unwrap().iter()
+            .map(|s| (s["node"].as_str().unwrap().to_owned(), s["role"].as_str().unwrap().to_owned(), s["amount"].as_u64().unwrap())).collect();
+        listed.sort();
+        let mut want = vec![("josh".to_string(), "clock".to_string(), H), (seat(0x62), "clock".to_string(), 2 * H)];
+        want.sort();
+        assert_eq!(listed, want, "seat 0x61 is gone once its agent stake is fully unstaked");
+        // No key: agent_key null, stakes still listed until unstaked.
+        revoke(&c, ACTIVE).unwrap();
+        let v = view(&c, "josh");
+        assert!(v["agent_key"].is_null());
+        assert_eq!(v["staked"], 3 * H);
+        // Before the gate nothing is ever recorded.
+        let (c2, _d2) = world();
+        gate_at(E + 1);
+        stake(&c2, &seat(0x61), "josh", H, ACTIVE).unwrap();
+        assert!(stakes(&c2, "josh").is_empty() && staked(&c2, "josh") == 0);
+        gate_at(E);
     }
 
     #[test]
