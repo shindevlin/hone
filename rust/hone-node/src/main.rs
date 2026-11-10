@@ -2807,6 +2807,43 @@ fn repair_recycled_cumulative(chain: &Chain) {
           f, before, before.saturating_add(missed), missed);
 }
 
+/// STORAGE_USEFUL_EPOCH (tests: 400,000).
+fn storage_useful_epoch() -> u64 { if cfg!(test) { 400_000 } else { hone_types::STORAGE_USEFUL_EPOCH } }
+/// USEFUL_REWARDS_EPOCH (tests: 400,000).
+fn useful_rewards_epoch() -> u64 { if cfg!(test) { 400_000 } else { hone_types::USEFUL_REWARDS_EPOCH } }
+
+/// Clock pay for proven acts (USEFUL_REWARDS_EPOCH). Each act earns a third of the base:
+/// (a) the node's seal is in the epoch's finalized `sealed_by`; (b) its signature is in the
+/// epoch's final decide-by certificate (`setcert_final:{epoch}` voters); (c) a backfill answer
+/// it gave was applied by the requester (`backfill_receipts:{epoch}:{node}` > 0; receipts are
+/// not built yet, so (c) earns nothing and that third recycles). Returns the total paid.
+fn pay_useful_clocks(epoch: u64, clock_sealers: &[String], base: u64, chain: &Arc<Chain>) -> u64 {
+    let third = base / 3;
+    if third == 0 { return 0; }
+    let names = |v: Option<serde_json::Value>, k: &str| -> std::collections::BTreeSet<String> {
+        v.and_then(|m| m[k].as_array().cloned()).unwrap_or_default().iter()
+            .filter_map(|x| x.as_str().map(str::to_owned)).collect()
+    };
+    let sealed = names(chain.store.get_epoch_meta(epoch).ok().flatten(), "sealed_by");
+    let certified = names(chain.store.state_get(&format!("setcert_final:{epoch}"))
+        .and_then(|b| serde_json::from_slice(&b).ok()), "voters");
+    let mut paid = 0u64;
+    for node_id in clock_sealers {
+        let receipts = chain.store.state_get(&format!("backfill_receipts:{epoch}:{node_id}"))
+            .and_then(|b| String::from_utf8(b).ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        let acts = sealed.contains(node_id) as u64 + certified.contains(node_id) as u64 + (receipts > 0) as u64;
+        let amount = third * acts;
+        if amount == 0 { continue; }
+        let entry = LedgerEntry::ClockReward { node_id: node_id.clone(), amount, epoch };
+        if let Err(e) = chain.apply_entry(&entry) {
+            warn!("clock: useful clock reward failed for {} epoch {}: {}", node_id, epoch, e);
+            continue;
+        }
+        paid = paid.saturating_add(amount);
+    }
+    paid
+}
+
 fn emit_epoch_rewards(
     epoch: u64,
     clock_sealers: &[String],
@@ -3018,6 +3055,9 @@ activity pool starved (sealing clock-node count too high for era budget)",
     // Emit ClockReward for each sealer, scaled by uptime. Whatever of the carved
     // clock allotment is not earned here recycles below (paid-or-recycled).
     let mut clock_paid: u64 = 0;
+    if epoch >= useful_rewards_epoch() {
+        clock_paid = pay_useful_clocks(epoch, clock_sealers, base_clock_reward, chain);
+    } else {
     for node_id in clock_sealers {
         if base_clock_reward == 0 { break; }
         let uptime_key = format!("clock_uptime:{}", node_id);
@@ -3042,6 +3082,7 @@ activity pool starved (sealing clock-node count too high for era budget)",
         // No broadcast: rewards are replay-derived from the winning EpochFinalize on
         // every node; gossiping ClockReward would double-credit (no idempotency guard).
     }
+    } // USEFUL_REWARDS_EPOCH
     // Unearned clock allotment (uptime shortfall, skipped/failed payouts, or any
     // budget-capped remainder) recycles — the clock line is conserved and never
     // minted beyond the epoch budget carved above.
@@ -3478,6 +3519,10 @@ activity pool starved (sealing clock-node count too high for era budget)",
 
     let (inference_pool, scatter_infer)  = apply_scarcity(inference_pool_raw, payout_factor(mines.len(),        cm_inference));
     let (storage_pool,   scatter_store)  = apply_scarcity(storage_pool_raw,   payout_factor(storage_nodes.len(), cm_storage));
+    // Useful-only storage (STORAGE_USEFUL_EPOCH): self-declared heartbeat bytes earn nothing;
+    // the pool is left undistributed, so the end-of-epoch accounting recycles it (recycling
+    // it here as well would count it twice).
+    let storage_pool = if epoch >= storage_useful_epoch() { 0 } else { storage_pool };
     let (sensor_pool,    scatter_sensor) = apply_scarcity(sensor_pool_raw,    payout_factor(sensor_nodes.len(),  cm_sensor));
     let (verify_pool,    scatter_verify) = apply_scarcity(verify_pool_raw,    payout_factor(verifiers.len(),     cm_verifier));
     let (service_pool,   scatter_svc)   = apply_scarcity(service_pool_raw,    payout_factor(service_nodes.len(), cm_service));
@@ -3496,9 +3541,11 @@ activity pool starved (sealing clock-node count too high for era budget)",
     distribute_rewards_desktop(epoch, &mines, inference_pool, chain, |miner, amount, ep| {
         LedgerEntry::MineReward { miner, amount, epoch: ep }
     });
-    distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, |node_id, amount, ep| {
-        LedgerEntry::StorageReward { node_id, amount, epoch: ep }
-    });
+    if storage_pool > 0 {
+        distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, |node_id, amount, ep| {
+            LedgerEntry::StorageReward { node_id, amount, epoch: ep }
+        });
+    }
     // Sensor rewards: split 60/40 when gateway is registered, plain SensorReward otherwise.
     {
         let total_score: u64 = sensor_nodes.iter().map(|(_, s)| s).sum();
@@ -4494,6 +4541,55 @@ mod reward_driver_tests {
     /// earn, because during grace nobody can be staked — staking debits balance,
     /// balance comes from rewards, rewards were gated on stake. Observed live: both
     /// clocks sealed at 2/2 for 19 epochs and earned nothing.
+    fn holdings(chain: &Chain, n: &str) -> u128 {
+        chain.store.get_balance(n, NATIVE_TOKEN) as u128 + chain.store.get_stake(n) as u128
+    }
+
+    #[test]
+    fn useful_clock_pay_counts_proven_acts_only() {
+        let (chain, _d) = make_chain("clk_useful");
+        let chain = std::sync::Arc::new(chain);
+        for n in ["nA", "nB", "nC"] {
+            chain.store.state_set(&format!("clock_reg:{n}"), format!(r#"{{"node_id":"{n}","stake":50000000000}}"#).as_bytes()).unwrap();
+        }
+        let e = 400_010;
+        chain.store.set_epoch_meta(e, &serde_json::json!({"finalized": true, "sealed_by": ["nA", "nB"]})).unwrap();
+        chain.store.state_set(&format!("setcert_final:{e}"), br#"{"voters":["nA"]}"#).unwrap();
+        let before = total_supply(&chain);
+        let (a0, b0, c0) = (holdings(&chain, "nA"), holdings(&chain, "nB"), holdings(&chain, "nC"));
+        emit_epoch_rewards(e, &["nA".to_string(), "nB".to_string(), "nC".to_string()], &chain);
+        let third = (clock_reward_at(e) / 3) as u128;
+        assert!(third > 0);
+        assert_eq!(holdings(&chain, "nA") - a0, 2 * third, "seal + certificate signature");
+        assert_eq!(holdings(&chain, "nB") - b0, third, "seal only");
+        assert_eq!(holdings(&chain, "nC") - c0, 0, "registered but did nothing: earns nothing");
+        assert_eq!(total_supply(&chain) - before, hone_types::block_reward_at(e) as u128, "budget conserved; unearned recycles");
+    }
+
+    #[test]
+    fn heartbeat_storage_earns_nothing_from_the_useful_storage_gate() {
+        for (e, paid) in [(399_990u64, true), (400_010u64, false)] {
+            let (chain, _d) = make_chain(&format!("st_useful_{e}"));
+            let chain = std::sync::Arc::new(chain);
+            chain.store.state_set(&format!("storage_beat:{e}:nS"),
+                br#"{"node_id":"nS","bytes_proven":5000000000,"proof_valid":true,"tier":1}"#).unwrap();
+            let before = total_supply(&chain);
+            let s0 = holdings(&chain, "nS");
+            emit_epoch_rewards(e, &[], &chain);
+            assert_eq!(holdings(&chain, "nS") > s0, paid, "epoch {e}");
+            assert_eq!(total_supply(&chain) - before, hone_types::block_reward_at(e) as u128, "epoch {e}: conserved");
+        }
+    }
+
+    #[test]
+    fn phone_storage_is_paused_from_the_useful_storage_gate() {
+        let (chain, _d) = make_chain("ps_pause");
+        assert!(crate::phone_storage::apply_proof(&chain, "acct", "dev", "h1", 100, 399_999).is_ok());
+        let b = chain.store.get_balance("acct", NATIVE_TOKEN);
+        assert!(crate::phone_storage::apply_proof(&chain, "acct", "dev", "h2", 100, 400_000).is_err());
+        assert_eq!(chain.store.get_balance("acct", NATIVE_TOKEN), b, "nothing paid while paused");
+    }
+
     #[test]
     fn unstaked_clock_earns_during_bootstrap_grace() {
         let (chain, _d) = make_chain("clk_grace");

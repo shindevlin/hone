@@ -122,6 +122,7 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
     }
     let _ = chain.store.state_set(&format!("setcert_final:{t}"), &serde_json::to_vec(&serde_json::json!({
         "round": cert.round, "prev": cert.prev, "content_hash": cert.content.hash(), "n": cert.content.hashes.len(),
+        "voters": cert.votes.keys().collect::<Vec<_>>(),
     })).unwrap_or_default());
     let _ = chain.store.state_set(APPLIED_KEY, t.to_string().as_bytes());
     info!("[setcert] epoch {} applied {}/{} certified entries (round {})", t, applied.len(), cert.content.hashes.len(), cert.round);

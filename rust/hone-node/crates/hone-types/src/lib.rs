@@ -190,6 +190,16 @@ pub const SET_CERT_EPOCH: u64 = u64::MAX;
 /// before decide_by; the verdict is computed once, at decide_by, and pays then (never early
 /// on corroboration). Off until rollout + Josh OK.
 pub const USEFULNESS_DECIDE_BY_EPOCH: u64 = u64::MAX;
+/// Useful-only storage (design 2026-11-09 section 3): from here heartbeat-claimed storage
+/// bytes earn nothing (the storage pool recycles until assigned and proven shards exist)
+/// and phone_storage proofs are paused for the useful-phone-storage redesign. Off until
+/// Josh signs off an epoch.
+pub const STORAGE_USEFUL_EPOCH: u64 = u64::MAX;
+/// Clock pay for proven acts only (design sections 2 and 4): a third of the base for the
+/// node's seal in the epoch's finalized quorum, a third for its signature in the epoch's
+/// final decide-by certificate, a third for a backfill answer the requester applied
+/// (receipts). Nothing for being registered; unearned allotment recycles. Off.
+pub const USEFUL_REWARDS_EPOCH: u64 = u64::MAX;
 /// SensorSummary cells at H3 res 7..=9 (coarser cells near a home device). From here a cell
 /// outside 7..=9 is rejected; novelty stays per (cell, window, metric) at the summary's own
 /// resolution, and corroboration also works across resolutions by containment, with the

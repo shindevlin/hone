@@ -31,6 +31,10 @@ pub fn verify_proof(
     expected == submitted_hash
 }
 
+/// STORAGE_USEFUL_EPOCH: phone_storage proofs stop paying (and are refused) from here.
+/// Tests: 400,000.
+pub fn paused_from() -> u64 { if cfg!(test) { 400_000 } else { hone_types::STORAGE_USEFUL_EPOCH } }
+
 pub fn apply_proof(
     chain: &Chain,
     account: &str,
@@ -39,6 +43,8 @@ pub fn apply_proof(
     bytes_proven: u64,
     epoch: u64,
 ) -> Result<()> {
+    anyhow::ensure!(epoch < paused_from(),
+        "phone_storage is paused from epoch {} (it paid for a self-computed hash; redesign as useful phone storage)", paused_from());
     anyhow::ensure!(bytes_proven > 0, "bytes_proven must be positive");
 
     let used_key = proof_used_key(proof_hash);
