@@ -144,7 +144,7 @@ val extractH3Jni by tasks.registering(Copy::class) {
 }
 android {
     sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("h3jni"))
-    if (emulatorBuild) sourceSets["debug"].jniLibs.srcDir("src/emulator/jniLibs")
+    if (emulatorBuild) listOf("debug", "phone").forEach { sourceSets[it].jniLibs.srcDir("src/emulator/jniLibs") }
     packaging {
         resources.excludes += listOf(
             "android-arm/**", "android-arm64/**", "darwin-arm64/**", "darwin-x64/**",
@@ -166,4 +166,4 @@ val checkNoX86 by tasks.registering {
         }
     }
 }
-tasks.matching { it.name == "assembleDebug" || it.name == "assembleRelease" }.configureEach { finalizedBy(checkNoX86) }
+tasks.matching { it.name == "assembleDebug" || it.name == "assembleRelease" || it.name == "assemblePhone" }.configureEach { finalizedBy(checkNoX86) }
