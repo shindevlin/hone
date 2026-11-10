@@ -58,7 +58,7 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
     }
 
     fun summaryCounts(): Pair<Int, Int> = readableDatabase.rawQuery(
-        "SELECT COUNT(*), COALESCE(SUM(queued),0) FROM public_summary", null,
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN queued>0 THEN 1 ELSE 0 END),0) FROM public_summary", null,
     ).use { c -> c.moveToFirst(); c.getInt(0) to c.getInt(1) }
 
     /** Rows not yet handled for the chain, oldest first: (cell, window, json). */
@@ -71,6 +71,19 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
         writableDatabase.update("public_summary", ContentValues().apply { put("queued", 0); put("submitted_at", submittedAt) },
             "cell=? AND window=?", arrayOf(cell, window.toString()))
     }
+
+    /** Keep a row for the chain but out of the queue until the chain accepts its (coarse) cell. */
+    fun holdSummary(cell: String, window: Long) {
+        writableDatabase.update("public_summary", ContentValues().apply { put("queued", 2) },
+            "cell=? AND window=?", arrayOf(cell, window.toString()))
+    }
+
+    /** Held rows back into the queue. Returns how many. */
+    fun releaseHeld(): Int = writableDatabase.update("public_summary", ContentValues().apply { put("queued", 1) }, "queued=2", null)
+
+    /** One-time: rows the old home rule kept map-only go back to the queue (everything goes on chain now). */
+    fun requeueMapOnly(): Int = writableDatabase.update("public_summary", ContentValues().apply { put("queued", 1); putNull("submitted_at") },
+        "queued=0 AND submitted_at=? AND cell<>'unlocated'", arrayOf("-1"))
 
     /** All rows after [rowid] (for the indexer map): (rowid, cell, window, json). */
     fun summariesAfter(rowid: Long, limit: Int): List<SummaryRow> = readableDatabase.rawQuery(

@@ -43,7 +43,7 @@ fun HomeNotice(onChange: () -> Unit) {
                 val where = listOfNotNull(place?.let { "Near $it" }, if (nights > 0) "based on $nights nights here" else null)
                     .joinToString(", ").replaceFirstChar { it.uppercase() }
                 if (where.isNotEmpty()) Text("$where.", color = HoneTextDim)
-                Text("Near home, what this phone shares is only shown as a rough area, and nothing from home goes on chain.",
+                Text("Near home, what this phone shares only shows a rough area of about 5 km², never the house.",
                     style = MaterialTheme.typography.bodySmall, color = HoneTextFaint)
             }
         },

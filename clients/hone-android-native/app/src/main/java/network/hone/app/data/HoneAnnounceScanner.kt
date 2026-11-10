@@ -220,6 +220,7 @@ object HoneAnnounceScanner {
         }
         appCtx?.let { c ->
             runCatching { FlipperLog.add(c, devId, GROUPS[group], count, hash) }
+            runCatching { network.hone.app.sightings.SightingsEngine.onFlipperCommit(GROUPS[group], count) }
             network.hone.app.telemetry.FlipperPublisher.record(c, sensorId, owner, hash, count, GROUP_TYPE[group],
                 sig.hex(), pubkey, null)
         }

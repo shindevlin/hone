@@ -12,8 +12,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Coverage summaries (public_summary rows) to the chain as SENSOR_SUMMARY entries, signed by
  * this device's seat key (owner = "account@<seat pubkey hex>"), and to the indexer map.
- *  - Chain: only once the chain says usefulness is active (active_from_epoch <= tip); one entry
- *    per (res-9 cell, window) with all its metrics; rows older than 7 days are not sent to the
+ *  - Chain: only once the chain says usefulness is active (active_from_epoch <= tip); every
+ *    located row, one entry per (cell, window): res 7 at/near home, on the home Wi-Fi or with no
+ *    home known, else at most res 9; rows older than 7 days are not sent to the
  *    chain (they earn 0 and still cost the fee); paced ~1 per 2 s, at most [PER_ROUND] per round.
  *  - Indexer map (/api/coverage/summaries): every located row, any age, batched every 15 min.
  * Duplicates and replays score 0 on chain, so an accepted row is never resent.
@@ -22,15 +23,43 @@ object CoverageSubmitter {
     private const val TAG = "HoneCoverage"
     const val CHAIN_URL = "${ChainHttp.PUBLIC_BASE}/api/sensor/summary"
 
-    /** True when [cell9] is clear of the saved home (home radius plus the block's own size). */
-    private fun awayFromHome(ctx: android.content.Context, cell9: String): Boolean {
-        val p = ctx.getSharedPreferences("hone_birds", android.content.Context.MODE_PRIVATE)
-        if (!p.contains("home_lat")) return false
-        val c = Cells.center(cell9) ?: return false
+    /** True when [cell] is at or near the saved home (home radius plus a block's size). */
+    private fun nearHome(ctx: Context, cell: String): Boolean {
+        val h = network.hone.app.home.HomeState.home(ctx) ?: return false
+        val c = Cells.center(cell) ?: return true
         val d = FloatArray(1)
-        android.location.Location.distanceBetween(c.first, c.second, p.getFloat("home_lat", 0f).toDouble(), p.getFloat("home_lon", 0f).toDouble(), d)
-        return d[0] > p.getFloat("home_radius_m", 500f) + Cells.EDGE_M[9].toFloat()
+        android.location.Location.distanceBetween(c.first, c.second, h.first, h.second, d)
+        return d[0] <= h.third + Cells.EDGE_M[9].toFloat()
     }
+
+    /** The cell this row goes on chain at (see SensorSummaryWire.chainRes), or null (map only). */
+    fun chainCell(ctx: Context, cell: String, atHome: Boolean): String? {
+        val r = Cells.res(cell)
+        val homeKnown = network.hone.app.home.HomeState.home(ctx) != null
+        val res = SensorSummaryWire.chainRes(r, homeKnown, homeKnown && nearHome(ctx, cell), atHome) ?: return null
+        return if (r == res) cell else Cells.parent(cell, res)
+    }
+
+    /**
+     * The chain accepts res 7-8 summary cells only once its gate is active. Read from the node:
+     * coarse_cells_from_epoch (epoch, active when tip >= it) or summary_min_res (<= 7), in
+     * /api/sensor/usefulness/<owner> or /api/node/info. Cached 10 min.
+     */
+    @Volatile private var coarseGate: Pair<Long, Boolean>? = null
+    fun coarseCellsActive(owner: String): Boolean {
+        coarseGate?.let { (t, v) -> if (System.currentTimeMillis() - t < 10 * 60_000L) return v }
+        val info = ChainHttp.get("/api/node/info")?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val use = ChainHttp.get("/api/sensor/usefulness/$owner")?.let { runCatching { JSONObject(it) }.getOrNull() }
+        if (info == null) return coarseGate?.second ?: false
+        val v = coarseActive(info.optLong("epoch", -1),
+            listOfNotNull(use, info).map { it.optLong("coarse_cells_from_epoch", -1) to it.optInt("summary_min_res", 99) })
+        coarseGate = System.currentTimeMillis() to v
+        return v
+    }
+
+    /** Pure: is the res 7-8 gate open, given the tip and each doc's (coarse_cells_from_epoch, summary_min_res). */
+    fun coarseActive(tip: Long, gates: List<Pair<Long, Int>>): Boolean =
+        gates.any { (from, minRes) -> (from in 1..tip) || minRes <= SensorSummaryWire.MIN_RES }
     const val INDEX_URL = "${Telemetry.API}/coverage/summaries"
     private const val ROUND_MS = 5 * 60_000L
     private const val INDEX_MS = 15 * 60_000L
@@ -77,6 +106,7 @@ object CoverageSubmitter {
         j.optJSONObject("ble")?.let { b -> put("ble.crowd", b.opt("crowd")); put("ble.scan_s", b.opt("scan_s")) }
         j.optJSONObject("hone")?.let { put("hone.devices", it.opt("devices")) }
         put("mobile_ap", j.opt("mobile_ap"))
+        j.optJSONObject("flipper")?.let { f -> listOf("subghz", "wifi", "tags", "ir").forEach { put("flipper.$it", f.opt(it)) } }
         j.optJSONObject("loc")?.let { l -> put("loc.samples", l.opt("samples")); put("loc.acc_m_p50", l.opt("acc_m_p50")) }
         return m.entries.take(SensorSummaryWire.MAX_METRICS).associate { it.key to it.value }
     }
@@ -101,27 +131,35 @@ object CoverageSubmitter {
         val nowW = IdKeys.window()
         val rows = store.queuedSummaries(400)
         if (rows.isEmpty()) return
-        // Rows that can never go to the chain are marked map-only first (no network needed).
-        val eligible = LinkedHashMap<Pair<String, Long>, Triple<String, Long, JSONObject>>()  // (cell9, window) -> best row
+        // Every located row goes on chain; only its place is coarsened (res 7 at/near home, on the
+        // home Wi-Fi or with no home known; elsewhere at most res 9). Res-7 rows wait (held, never
+        // dropped) until the chain's res 7-9 gate is open.
+        val p = prefs(ctx)
+        if (!p.getBoolean("requeue_v24", false)) {
+            val n = runCatching { store.requeueMapOnly() }.getOrDefault(0)
+            p.edit().putBoolean("requeue_v24", true).apply(); Log.i(TAG, "requeued $n map-only rows")
+        }
+        val coarseOk = coarseCellsActive(owner)
+        if (coarseOk) runCatching { store.releaseHeld() }
+        var held = 0
+        val eligible = LinkedHashMap<Pair<String, Long>, Triple<String, Long, JSONObject>>()  // (chain cell, window) -> best row
         for ((cell, w, json) in rows) {
+            if (w >= nowW) continue                                     // window still open
             val j = runCatching { JSONObject(json) }.getOrNull()
-            val r = if (cell == "unlocated") -1 else Cells.res(cell)
-            val c9 = if (r >= 9) Cells.parent(cell, 9) else null
-            // The chain is permanent and public: a res-9 block goes on chain only away from a saved
-            // home. Without a home, or near it, the row stays map-only (the indexer coarsens it).
-            if (c9 != null && !awayFromHome(ctx, c9)) { if (w < nowW) store.markSummary(cell, w, MAP_ONLY); continue }
-            if (j == null || c9 == null || w < nowW - MAX_AGE_WINDOWS || w >= nowW) {
-                if (w < nowW) store.markSummary(cell, w, MAP_ONLY)
-                continue
-            }
-            val k = c9 to w
+            val target = if (cell == "unlocated" || j == null) null else chainCell(ctx, cell, j.optBoolean("at_home"))
+            if (target == null) { store.markSummary(cell, w, MAP_ONLY); continue }
+            val coarse = SensorSummaryWire.res(target) < SensorSummaryWire.MAX_RES
+            if (coarse && !coarseOk) { store.holdSummary(cell, w); held++; continue }
+            if (!coarse && w < nowW - MAX_AGE_WINDOWS) { store.markSummary(cell, w, MAP_ONLY); continue }
+            val k = target to w
             val prev = eligible[k]
-            val samples = j.optJSONObject("loc")?.optInt("samples") ?: 0
+            val samples = j!!.optJSONObject("loc")?.optInt("samples") ?: 0
             if (prev == null || samples > (prev.third.optJSONObject("loc")?.optInt("samples") ?: 0)) {
-                prev?.let { store.markSummary(it.first, it.second, MAP_ONLY) }   // one entry per res-9 cell/window
+                prev?.let { store.markSummary(it.first, it.second, MAP_ONLY) }   // one entry per (cell, window)
                 eligible[k] = Triple(cell, w, j)
             } else store.markSummary(cell, w, MAP_ONLY)
         }
+        if (held > 0) Telemetry.skipped(ctx, "summary_res7", "$held held until the chain accepts res 7 cells")
         if (eligible.isEmpty()) return
         gate(ctx, owner)?.let { Telemetry.skipped(ctx, "summary", it); return }
         val seed = Telemetry.seatSeedForChain(ctx)

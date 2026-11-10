@@ -243,6 +243,7 @@ object SightingsEngine {
         val aps = HashMap<String, Ap>()
         val ble = HashSet<String>()
         val hone = HashSet<String>()
+        val flipper = HashMap<String, Int>()      // Flipper batch group -> readings this window
         val mobile = HashSet<String>()
         val accs = ArrayList<Float>()             // accuracy (m) of each reading in this cell
         val src = HashMap<String, Int>()
@@ -331,10 +332,14 @@ object SightingsEngine {
         val st = store ?: return
         if (window == Long.MIN_VALUE) return
         for ((cell, a) in accs) {
-            if (a.aps.isEmpty() && a.ble.isEmpty() && a.hone.isEmpty()) continue
+            if (a.aps.isEmpty() && a.ble.isEmpty() && a.hone.isEmpty() && a.flipper.isEmpty()) continue
             val located = cell.isNotEmpty()
-            // Queued for the chain only when located and not on the home Wi-Fi (map only otherwise).
-            runCatching { st.putSummary(if (located) cell else "unlocated", window, summaryJson(cell, a).toString(), located && !homeWifiWindow) }
+            // On the home Wi-Fi the row is marked at home (its chain cell is coarsened to res 7); with
+            // no fix there, it is placed in the home's res-7 cell rather than left unlocated.
+            val home = if (homeWifiWindow) appCtx?.let { network.hone.app.home.HomeState.home(it) } else null
+            val c = if (located) cell else home?.let { Cells.cell(it.first, it.second, 7) } ?: ""
+            val js = summaryJson(c, a).apply { if (homeWifiWindow) put("at_home", true) }
+            runCatching { st.putSummary(c.ifEmpty { "unlocated" }, window, js.toString(), c.isNotEmpty()) }
                 .onFailure { Log.e(TAG, "store summary", it) }
         }
         val (n, q) = runCatching { st.summaryCounts() }.getOrDefault(0 to 0)
@@ -380,6 +385,7 @@ object SightingsEngine {
             .put("ble", JSONObject().put("crowd", a.ble.size).put("scan_s", a.bleScanMs / 1000).put("filter", "v1"))
             .put("hone", JSONObject().put("devices", a.hone.size))
             .put("mobile_ap", a.mobile.size)
+            .put("flipper", JSONObject(a.flipper as Map<*, *>))
     }
 
     private fun rssiBucket(r: Int): Int = when {
@@ -559,6 +565,13 @@ object SightingsEngine {
                 a.ble.add(hmac8(dayKey(now), macBytes(r.device.address)))
             }
         }
+    }
+
+    /** A verified Flipper batch (group, reading count) counts toward this window's summary. */
+    fun onFlipperCommit(group: String, count: Int) {
+        if (appCtx == null) return
+        val s = stamp()
+        synchronized(this) { acc(s).flipper.merge(group, count, Int::plus) }
     }
 
     fun onFlipperFrame(devId: String, kind: String, rssi: Int) {

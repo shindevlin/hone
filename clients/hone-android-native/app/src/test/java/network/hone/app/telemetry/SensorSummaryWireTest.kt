@@ -30,4 +30,39 @@ class SensorSummaryWireTest {
         val body = SensorSummaryWire.body("coverage-x", "acct@pp", "", cell, 7, m, Canonical.hex(sig))
         assertTrue(body.contains("\"metrics\":{\"wifi.ap_count\":3}") && body.contains("\"window\":7"))
     }
+
+    @Test fun resolutionComesFromTheCellId() {
+        assertEquals(9, SensorSummaryWire.res("89283082803ffff"))
+        assertEquals(7, SensorSummaryWire.res("872830828ffffff"))
+        assertEquals(-1, SensorSummaryWire.res("87283082bffffff0"))
+        // res 7 and 8 are valid summary cells; finer or coarser are not.
+        SensorSummaryWire.message("hone", "s", "o", "", "872830828ffffff", 1, mapOf("a" to 1L))
+        SensorSummaryWire.message("hone", "s", "o", "", "8828308281fffff", 1, mapOf("a" to 1L))
+        try { SensorSummaryWire.message("hone", "s", "o", "", "8a2830828107fff", 1, mapOf("a" to 1L)); fail() } catch (_: IllegalArgumentException) {}
+        try { SensorSummaryWire.message("hone", "s", "o", "", "862830827ffffff", 1, mapOf("a" to 1L)); fail() } catch (_: IllegalArgumentException) {}
+    }
+
+    @Test fun everythingGoesOnChainOnlyThePlaceIsCoarsened() {
+        // No home known: res 7, whatever the fix.
+        assertEquals(7, SensorSummaryWire.chainRes(11, homeKnown = false, nearHome = false, atHome = false))
+        // At or near home, or on the home Wi-Fi: res 7.
+        assertEquals(7, SensorSummaryWire.chainRes(11, homeKnown = true, nearHome = true, atHome = false))
+        assertEquals(7, SensorSummaryWire.chainRes(9, homeKnown = true, nearHome = false, atHome = true))
+        // Away from home: the row's own resolution, capped at 9.
+        assertEquals(9, SensorSummaryWire.chainRes(11, homeKnown = true, nearHome = false, atHome = false))
+        assertEquals(8, SensorSummaryWire.chainRes(8, homeKnown = true, nearHome = false, atHome = false))
+        assertEquals(7, SensorSummaryWire.chainRes(7, homeKnown = true, nearHome = false, atHome = false))
+        // Only rows coarser than res 7 stay map only.
+        assertEquals(null, SensorSummaryWire.chainRes(6, homeKnown = true, nearHome = false, atHome = false))
+        assertEquals(null, SensorSummaryWire.chainRes(5, homeKnown = false, nearHome = false, atHome = false))
+    }
+
+    @Test fun coarseGateReadsTheNode() {
+        val none = -1L to 99
+        assertEquals(false, CoverageSubmitter.coarseActive(100, listOf(none)))                 // gate not announced
+        assertEquals(false, CoverageSubmitter.coarseActive(100, listOf(101L to 99)))           // announced, not reached
+        assertEquals(true, CoverageSubmitter.coarseActive(101, listOf(101L to 99)))
+        assertEquals(true, CoverageSubmitter.coarseActive(5, listOf(none, -1L to 7)))         // min res reported
+        assertEquals(false, CoverageSubmitter.coarseActive(5, listOf(-1L to 9)))
+    }
 }
