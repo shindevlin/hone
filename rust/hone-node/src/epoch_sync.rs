@@ -291,6 +291,17 @@ pub fn request(cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, node_id: 
     ok
 }
 
+/// Ask peers over gossip for entry bodies by hash (decide-by: a certified set names
+/// entries this node never received). At most 512 hashes per request.
+pub fn request_hashes(cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, node_id: &str, hashes: &[String]) -> bool {
+    if hashes.is_empty() { return false; }
+    let hs = &hashes[..hashes.len().min(512)];
+    let Ok(data) = serde_json::to_vec(&serde_json::json!({
+        "type": "sync_req", "node_id": node_id, "kind": "ents", "from": 1, "to": 1, "hashes": hs, "nonce": now_ms(),
+    })) else { return false };
+    cmd_tx.try_send(crate::net::NetCmd::Broadcast { topic: "hone/consensus", data }).is_ok()
+}
+
 /// Responder rate limit: one answer per (requester, kind, from) per 30 s, and at most one
 /// answer of any kind every 2 s.
 pub fn should_answer(requester: &str, kind: &str, from: u64) -> bool {

@@ -668,6 +668,7 @@ impl Chain {
             return false;
         }
         drop(seen);
+        crate::setcert_apply::note_seen(entry.epoch(), self.current_epoch());
         let mut pool = self.pending.lock();
         pool.push((entry, sig));
         self.persist_pool("pending_pool", &pool.iter().map(|(e, s)| (e.clone(), s.clone(), 0u64)).collect::<Vec<_>>());

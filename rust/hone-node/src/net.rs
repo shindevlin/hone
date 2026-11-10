@@ -62,7 +62,9 @@ pub enum NetworkEvent {
         snaps: serde_json::Value },
     /// A peer is missing epochs: "fin" (its reward driver is stalled on unfinalized
     /// epochs) or "sets" (committed entry sets of seals it missed). Clocks answer.
-    SyncRequest { node_id: String, kind: String, from: u64, to: u64 },
+    SyncRequest { node_id: String, kind: String, from: u64, to: u64, hashes: Vec<String> },
+    /// Decide-by certified sets: set_prop / set_vote / set_cert / sync_ents (setcert_node).
+    SetCert { msg: serde_json::Value },
     /// Committed entry sets a clock sent in answer to a "sets" request.
     SyncSets { msg: serde_json::Value },
     /// State-healer traffic on hone/consensus: a signed checkpoint attestation
@@ -911,7 +913,13 @@ impl Network {
                 let from = json.get("from").and_then(|v| v.as_u64()).unwrap_or(0);
                 let to = json.get("to").and_then(|v| v.as_u64()).unwrap_or(0);
                 if node_id.is_empty() || from == 0 || to < from { return; }
-                self.emit(NetworkEvent::SyncRequest { node_id, kind, from, to });
+                let hashes: Vec<String> = json.get("hashes").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+                self.emit(NetworkEvent::SyncRequest { node_id, kind, from, to, hashes });
+            }
+
+            TOPIC_CONSENSUS if matches!(json.get("type").and_then(|v| v.as_str()),
+                Some("set_prop") | Some("set_vote") | Some("set_cert") | Some("sync_ents")) => {
+                self.emit(NetworkEvent::SetCert { msg: json });
             }
 
             TOPIC_CONSENSUS if json.get("type").and_then(|v| v.as_str()) == Some("sync_sets") => {

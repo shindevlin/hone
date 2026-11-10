@@ -50,6 +50,11 @@ mod inference_sidecar;
 mod state_audit;
 mod state_correct;
 mod epoch_sync;
+mod setcert;
+/// A reward driver this many epochs behind the safe tip asks peers for the finalize meta.
+const FIN_REQUEST_STALL_EPOCHS: u64 = 3;
+mod setcert_apply;
+mod setcert_node;
 mod decide_jury;
 mod local_submit;
 mod state_healer;
@@ -456,6 +461,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         let fin_sync_peers = epoch_sync::peers(&cfg.bootstrap_peers);
         let fin_cmd_tx = net_handle.cmd_tx.clone();
         let fin_node_id = cfg.node_id.clone();
+        tokio::spawn(setcert_node::driver(chain.clone(), net_handle.cmd_tx.clone(), cfg.node_id.clone(),
+            if cfg.is_clock { Arc::clone(&signing_key) } else { Arc::new(None) }, cfg.is_clock));
         tokio::spawn(async move {
             // Track the last epoch we've seeded so empty epochs are only tracked once.
             let mut last_tracked: u64 = 0;
@@ -662,6 +669,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // proposal p1a4f0c7. Until that lands, blocking is correct — a stalled
                         // driver is visible and recoverable, silently recycling someone else's
                         // rewards is neither.
+                        if setcert_apply::active(e) && !setcert_apply::applied(&chain_ref, e) {
+                            break; // its certified entry set is not applied yet
+                        }
                         let meta = match chain_ref.store.get_epoch_meta(e) {
                             Ok(Some(m)) if m["finalized"].as_bool().unwrap_or(false) => m,
                             _ => break, // not finalized yet — leave last_rewarded before e
@@ -798,7 +808,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                     state_healer::driver_exit(last_rewarded);
                     // Stalled well behind the tip on an epoch with no local finalize: peers
                     // finalized it while this node was cut off. Ask them for the meta.
-                    if last_rewarded < stop && safe_tip > last_rewarded.saturating_add(40) {
+                    // Decide-by rollout (Josh 2026-11-09): ask after ~3 epochs, not 40.
+                    if last_rewarded < stop && safe_tip > last_rewarded.saturating_add(FIN_REQUEST_STALL_EPOCHS) {
                         epoch_sync::request_finalize_backfill(&chain_ref, &fin_sync_peers,
                             last_rewarded.saturating_add(1), safe_tip);
                         // No reachable HTTP peer (NAT): ask the clocks over gossip too.
@@ -878,7 +889,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // this node missed (down, booting, transplanted, partitioned), BEFORE
                         // this epoch's entries — they may depend on those nonces. The backfill
                         // runs the name migration at its own epoch if the gap crosses it.
-                        if sealed.quorum >= 2 {
+                        if sealed.quorum >= 2 && !setcert_apply::active(sealed.epoch) {
                             let prev = epoch_sync::last_committed(&chain_ref);
                             if prev > 0 && sealed_epoch > prev + 1 {
                                 epoch_sync::backfill(&chain_ref, &sync_peers, prev + 1, sealed_epoch - 1,
@@ -892,7 +903,16 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                                 Err(e) => error!("[epoch {}] reserved-name migration failed: {}", sealed_epoch, e),
                             }
                         }
-                        let pending = if sealed.quorum >= 2 {
+                        // Decide-by (SET_CERT_EPOCH): this epoch's entries are whatever the
+                        // voters certify (setcert_node); the pool is not drained here.
+                        let certified = setcert_apply::active(sealed_epoch);
+                        if certified && sealed.quorum >= 2 {
+                            setcert_node::on_seal(&chain_ref, &cmd_tx_for_seal, &node_id_c,
+                                ckpt_sk.as_ref().as_ref(), sealed_epoch).await;
+                        }
+                        let pending = if certified {
+                            Vec::new()
+                        } else if sealed.quorum >= 2 {
                             chain_ref.drain_pending_for_seal(sealed_epoch)
                         } else {
                             if chain_ref.pending_count() > 0 {
@@ -902,7 +922,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             Vec::new()
                         };
                         let mut committed_weight: u64 = 0;
-                        if sealed.quorum >= 2 && pending.is_empty() {
+                        if sealed.quorum >= 2 && pending.is_empty() && !certified {
                             epoch_sync::record(&chain_ref, sealed_epoch, &[]);
                         }
                         if !pending.is_empty() {
@@ -952,7 +972,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // vs grouchly, 2026-11-03: 15,000 hunits). epoch_sync runs the same
                         // tick for every epoch it backfills.
                         if sealed.quorum >= 2 {
-                            epoch_sync::epoch_tick(&chain_ref, sealed_epoch, committed_weight);
+                            if !certified { epoch_sync::epoch_tick(&chain_ref, sealed_epoch, committed_weight); }
                             // Decide jury, SHADOW: log outcomes (meta only), then vote on this
                             // epoch's judgment entries off the seal path — a slow or dead
                             // hone-decide can never block or crash the node.
@@ -2037,7 +2057,10 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             Err(err) => warn!("[catchup] rejected votes from '{}': {}", node_id, err),
                         }
                     }
-                    Ok(NetworkEvent::SyncRequest { node_id, kind, from, to }) => {
+                    Ok(NetworkEvent::SetCert { msg }) => {
+                        setcert_node::on_msg(&chain_ref, &echo_cmd_tx, msg).await;
+                    }
+                    Ok(NetworkEvent::SyncRequest { node_id, kind, from, to, hashes }) => {
                         // Clocks answer peers that missed epochs (gossip transport, see
                         // epoch_sync). "fin": a signed catch-up echo of our finalized hashes
                         // plus validator snapshots. "sets": our recorded entry sets.
@@ -2063,6 +2086,14 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                                 let d = epoch_sync::sets_message(&chain_ref, &echo_node_id, from, to);
                                 if d.is_some() { info!("[epoch-sync] answering sets request from {} for {}..{}", node_id, from, to); }
                                 d
+                            }
+                            "ents" | "certs" => {
+                                for m in setcert_node::answer(&chain_ref, &echo_node_id, &kind, from, to, &hashes) {
+                                    if let Ok(d) = serde_json::to_vec(&m) {
+                                        let _ = echo_cmd_tx.send(NetCmd::Broadcast { topic: "hone/consensus", data: d }).await;
+                                    }
+                                }
+                                None
                             }
                             _ => None,
                         };
