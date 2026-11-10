@@ -1221,6 +1221,41 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── Scoped agent key (gated AGENT_KEY_EPOCH) ──────────────────────────
+        LedgerEntry::SetAgentKey { account, agent_pubkey, cap, nonce, epoch, signed_by } => {
+            let _guard = chain.write_lock.lock();
+            if *epoch < crate::agent_key::gate() { bail!("agent keys are not active before epoch {}", crate::agent_key::gate()); }
+            if signed_by != account { bail!("signed_by must equal account"); }
+            if agent_pubkey.len() != 64 || !agent_pubkey.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+                bail!("agent_pubkey must be 64 lowercase hex");
+            }
+            if *cap == 0 { bail!("cap must be positive"); }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            // Active or owner only: never posting, never the agent key itself.
+            if !crate::agent_key::role_signed(chain, signed_by, "active", entry, sig_hex)
+                && !crate::agent_key::role_signed(chain, signed_by, "owner", entry, sig_hex) {
+                bail!("SET_AGENT_KEY must be signed by the active or owner key of '{}'", signed_by);
+            }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, signed_by)?;
+        }
+        LedgerEntry::RevokeAgentKey { account, nonce, epoch, signed_by } => {
+            let _guard = chain.write_lock.lock();
+            if *epoch < crate::agent_key::gate() { bail!("agent keys are not active before epoch {}", crate::agent_key::gate()); }
+            if signed_by != account { bail!("signed_by must equal account"); }
+            if crate::agent_key::key_of(chain, account).is_none() { bail!("'{}' has no agent key", account); }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            if !crate::agent_key::role_signed(chain, signed_by, "active", entry, sig_hex)
+                && !crate::agent_key::role_signed(chain, signed_by, "owner", entry, sig_hex)
+                && !crate::agent_key::agent_signed(chain, signed_by, entry, sig_hex) {
+                bail!("REVOKE_AGENT_KEY must be signed by the active, owner or agent key of '{}'", signed_by);
+            }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, signed_by)?;
+        }
+
         // ── Sensor seats (gated SENSOR_SEATS_EPOCH) ───────────────────────────
         LedgerEntry::SensorSeatRegister { signed_by, nonce, epoch, .. }
         | LedgerEntry::SensorSeatTransfer { signed_by, nonce, epoch, .. }
@@ -1232,7 +1267,10 @@ pub fn validate_and_apply(
             if let LedgerEntry::SensorSeatTransfer { to_owner, .. } = entry { require_key(chain, to_owner)?; }
             require_key(chain, signed_by)?;
             check_nonce(chain, signed_by, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            // Agent key (AGENT_KEY_EPOCH): SENSOR_SEAT_REGISTER of the account's own seat only.
+            if !crate::agent_key::authorizes(chain, entry, sig_hex)? {
+                check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            }
             chain.apply_entry(entry)?;
             bump_nonce(chain, signed_by)?;
         }
@@ -1551,7 +1589,9 @@ pub fn validate_and_apply(
                 || hone_types::parse_device_clock_id(node).map(|(o, _)| o == staker.as_str()).unwrap_or(false);
             let node_signed = signed_by == staker && own_node
                 && clock_key_signed(chain, staker, entry, sig_hex);
-            if !node_signed {
+            // Agent key (AGENT_KEY_EPOCH): own nodes and seats only, within the cap.
+            let agent = !node_signed && crate::agent_key::authorizes(chain, entry, sig_hex)?;
+            if !node_signed && !agent {
                 check_signature(chain, signed_by, entry, sig_hex, "active")?;
             }
             // Non-self staking: blocked only if node has explicitly opted out.
@@ -1588,6 +1628,7 @@ pub fn validate_and_apply(
             // Minimum enforcement is at quorum membership time (registered_clock_nodes),
             // not at stake submission. Users stake from their account onto any device.
             chain.apply_entry(entry)?;
+            if agent { crate::agent_key::record(chain, entry); }
             bump_nonce(chain, staker)?;
         }
 
@@ -1604,7 +1645,9 @@ pub fn validate_and_apply(
             }
             require_key(chain, signed_by)?;
             check_nonce(chain, staker, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            // Agent key (AGENT_KEY_EPOCH): own nodes and seats only; funds return to the staker.
+            let agent = crate::agent_key::authorizes(chain, entry, sig_hex)?;
+            if !agent { check_signature(chain, signed_by, entry, sig_hex, "active")?; }
             let key = format!("role_stake:{}:{}:{}", role, node, staker);
             let current: u64 = chain.store.state_get(&key)
                 .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
@@ -1620,6 +1663,7 @@ pub fn validate_and_apply(
             let noticed = role.as_str() == "sensor"
                 && crate::sensor_seat::notice_unstake(chain, node, staker, *amount, entry.epoch())?;
             if !noticed { chain.apply_entry(entry)?; }
+            if agent { crate::agent_key::record(chain, entry); }
             bump_nonce(chain, staker)?;
         }
 
@@ -3105,7 +3149,7 @@ fn ensure_identity_active(chain: &Chain) -> Result<()> {
 /// than a key looked up from an account. Used for device-key sensor commits, where the
 /// signer is an enrolled device, not an on-chain account. Same canonical message and
 /// strict verification as `check_signature`; a signature is always mandatory.
-fn verify_against_pubkey(
+pub(crate) fn verify_against_pubkey(
     chain: &Chain,
     pubkey_hex: &str,
     entry: &LedgerEntry,

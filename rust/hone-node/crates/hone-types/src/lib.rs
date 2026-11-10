@@ -185,6 +185,12 @@ pub const SENSOR_SEATS_EPOCH: u64 = 355_140; // Josh 2026-11-04 18:44 "turn on s
 pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
 /// Decide-by certified entry sets (setcert.rs). Off until rollout + Josh OK.
 pub const SET_CERT_EPOCH: u64 = u64::MAX;
+/// Scoped "agent" key role (Josh 2026-11-10 08:25): SET_AGENT_KEY / REVOKE_AGENT_KEY, and
+/// agent-signed SENSOR_SEAT_REGISTER / NODE_ROLE_STAKE / NODE_ROLE_UNSTAKE on the account's
+/// own seats and nodes, with total agent-placed stake capped. Off until Josh signs off an epoch.
+pub const AGENT_KEY_EPOCH: u64 = u64::MAX;
+/// Default agent cap: 100 HONE = 100 x 10^10 = 10^12 hunits.
+pub const AGENT_DEFAULT_CAP_HUNITS: u64 = 1_000_000_000_000;
 /// Decide shadow spot checks: from here a sampled node that has no DecideCommit for the vote
 /// epoch gets ONE "no commit" strike for that epoch, instead of one "spot check not
 /// revealed" strike per spot-checked entry (it could not reveal what it never committed).

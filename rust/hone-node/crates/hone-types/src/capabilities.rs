@@ -92,7 +92,8 @@ pub fn required_capability(entry: &LedgerEntry) -> Capability {
         | E::SetKeyPolicy { .. } | E::GrantExternalSigner { .. } | E::RevokeExternalSigner { .. }
         | E::WalletFamilyPublish { .. } | E::WalletFamilyAdd { .. }
         | E::DelegationGrant { .. } | E::DelegationRevoke { .. }
-        | E::PrivateAuthEnroll { .. } => Rotate,
+        | E::PrivateAuthEnroll { .. }
+        | E::SetAgentKey { .. } | E::RevokeAgentKey { .. } => Rotate,
 
         // ── Govern: chain governance / protocol admin ────────────────────────
         E::ChainParameterSet { .. } | E::GovernancePropose { .. } | E::GovernanceVote { .. }

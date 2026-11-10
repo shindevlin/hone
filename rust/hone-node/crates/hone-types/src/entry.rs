@@ -2957,6 +2957,26 @@ pub enum LedgerEntry {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
+
+    // ── Scoped agent key (gated AGENT_KEY_EPOCH) ─────────────────────────────
+    /// Set or rotate the account's agent key. Signed by the account's active or owner key.
+    /// `cap` bounds the total stake the agent key may have placed at any time.
+    SetAgentKey {
+        account: AccountId,
+        agent_pubkey: String,
+        #[serde(default = "default_agent_cap")]
+        cap: Hunits,
+        nonce: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Remove the account's agent key. Signed by active, owner or the agent key itself.
+    RevokeAgentKey {
+        account: AccountId,
+        nonce: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
 }
 
 /// A single chain address within a wallet family.
@@ -2996,6 +3016,8 @@ impl LedgerEntry {
             Self::SensorSeatRegister { epoch, .. } => *epoch,
             Self::SensorSeatTransfer { epoch, .. } => *epoch,
             Self::SensorSeatSet { epoch, .. } => *epoch,
+            Self::SetAgentKey { epoch, .. } => *epoch,
+            Self::RevokeAgentKey { epoch, .. } => *epoch,
             Self::BirdObserve { epoch, .. } => *epoch,
             Self::BirdName { epoch, .. } => *epoch,
             Self::BirdCardClaim { epoch, .. } => *epoch,
@@ -3249,6 +3271,8 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::SetKeyPolicy { .. }
         | LedgerEntry::DelegationGrant { .. }
         | LedgerEntry::DelegationRevoke { .. }
+        | LedgerEntry::SetAgentKey { .. }
+        | LedgerEntry::RevokeAgentKey { .. }
         | LedgerEntry::ChainParameterSet { .. }
         | LedgerEntry::AccountTransfer { .. } => ENTRY_WEIGHT_MICRO,
 
@@ -3478,3 +3502,6 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::DecideReveal { .. } => ENTRY_WEIGHT_SYSTEM,
     }
 }
+
+/// serde default for `SetAgentKey.cap`: 100 HONE.
+pub fn default_agent_cap() -> u64 { crate::AGENT_DEFAULT_CAP_HUNITS }

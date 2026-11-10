@@ -1526,6 +1526,13 @@ impl Chain {
 
             // Set or clear the 2FA policy for a key slot.
             // Policies live on the slot — they survive key rotation.
+            LedgerEntry::SetAgentKey { account, agent_pubkey, cap, epoch, .. } => {
+                let v = serde_json::json!({ "pubkey": agent_pubkey, "cap": cap, "set_epoch": epoch });
+                self.store.state_set(&format!("agent_key:{account}"), &serde_json::to_vec(&v)?)?;
+            }
+            LedgerEntry::RevokeAgentKey { account, .. } => {
+                let _ = self.store.state_delete(&format!("agent_key:{account}"));
+            }
             LedgerEntry::SetKeyPolicy { account, role, twofactor_chain, .. } => {
                 let mut state = self.store.get_account(account)?
                     .ok_or_else(|| anyhow::anyhow!("account '{}' not found", account))?;
