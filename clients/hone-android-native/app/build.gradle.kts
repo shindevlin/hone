@@ -108,7 +108,7 @@ dependencies {
     // QR generation for receive flow (Phase 2) — no copy-paste; show/scan a code.
     implementation("com.google.zxing:core:3.5.3")
     // uniffi runtime dep for the generated bindings (JNA), added in Phase 0b:
-    implementation("net.java.dev.jna:jna:5.14.0@aar")
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
     // Ed25519 verify of HONE BLE announces (lightweight API only, no JCA provider).
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
     // H3 cells for the coverage map (ships an android-arm64 JNI build).
