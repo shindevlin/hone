@@ -455,7 +455,12 @@ pub fn owner_view(chain: &Chain, owner: &str) -> serde_json::Value {
     }
     claims.sort_by_key(|c| std::cmp::Reverse(c["claimed_epoch"].as_u64().unwrap_or(0)));
     claims.truncate(50);
+    let res_gate = cell_res_epoch();
     serde_json::json!({ "owner": owner, "active_from_epoch": hone_types::USEFULNESS_SCORING_EPOCH,
+        // Read by the phone app (CoverageSubmitter.coarseCellsActive): res 7-8 rows are held
+        // until the tip reaches this epoch.
+        "coarse_cells_from_epoch": res_gate,
+        "summary_min_res": if chain.current_epoch() >= res_gate { MIN_CELL_RES } else { MAX_CELL_RES },
         "proven_points": proven_points(chain, &owner), "queued_points": queued(chain, &owner),
         "trust": trust(chain, &owner), "counts": counts, "claims": claims,
         "claim_window_epochs": CLAIM_WINDOW_EPOCHS, "release_cap_per_epoch": RELEASE_CAP_PER_EPOCH })
