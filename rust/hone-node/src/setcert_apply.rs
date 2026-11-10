@@ -63,18 +63,39 @@ pub fn body(chain: &Chain, hash: &str) -> Option<(LedgerEntry, Option<String>)> 
     None
 }
 
-/// Bodies this node can serve for `hashes` (pool and the last 64 recorded sets).
+/// Every body of the last DECIDED_KEEP certified sets, applied or rejected (local memory, not
+/// state). Recorded sets hold only applied entries, so without this a certified entry that
+/// was rejected everywhere could never be served to a node still missing it, and that node
+/// would wait forever (lab soak 2026-11-10: s2 stuck on epoch 40, 22 rejected bodies).
+pub const DECIDED_KEEP: u64 = 128;
+static DECIDED: Mutex<BTreeMap<u64, Vec<(LedgerEntry, Option<String>)>>> = Mutex::new(BTreeMap::new());
+
+fn keep_decided(t: u64, set: &[(LedgerEntry, Option<String>)]) {
+    let mut d = DECIDED.lock().unwrap();
+    d.insert(t, set.to_vec());
+    let floor = t.saturating_sub(DECIDED_KEEP);
+    d.retain(|e, _| *e >= floor);
+}
+
+/// Bodies this node can serve for `hashes` (pool, the last certified sets incl. rejected
+/// entries, and the last 64 recorded sets).
 pub fn serve_bodies(chain: &Chain, hashes: &[String], tip: u64) -> Vec<serde_json::Value> {
     let want: std::collections::BTreeSet<&String> = hashes.iter().collect();
     let mut out = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
     for (e, s) in chain.pending.lock().iter() {
-        if want.contains(&e.hash()) { out.push(serde_json::json!({ "entry": e, "sig": s })); }
+        if want.contains(&e.hash()) && seen.insert(e.hash()) { out.push(serde_json::json!({ "entry": e, "sig": s })); }
+    }
+    for set in DECIDED.lock().unwrap().values() {
+        for (e, s) in set {
+            if want.contains(&e.hash()) && seen.insert(e.hash()) { out.push(serde_json::json!({ "entry": e, "sig": s })); }
+        }
     }
     let v = epoch_sync::serve(chain, tip.saturating_sub(64), tip);
     for ep in v["epochs"].as_array().into_iter().flatten() {
         for r in ep["entries"].as_array().into_iter().flatten() {
             if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
-                if want.contains(&e.hash()) { out.push(r.clone()); }
+                if want.contains(&e.hash()) && seen.insert(e.hash()) { out.push(r.clone()); }
             }
         }
     }
@@ -103,6 +124,7 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
     }
     let _ = crate::identity_nft::migrate_reserved(chain, t);
     set.sort_by_key(|(e, _)| e.hash());
+    keep_decided(t, &set);
     let applied = epoch_sync::apply_set(chain, t, set, Some(t));
     epoch_sync::record(chain, t, &applied);
     epoch_sync::epoch_tick(chain, t, applied.iter().map(|(x, _)| hone_types::entry_weight(x)).sum());
@@ -293,6 +315,25 @@ mod tests {
         let v = epoch_sync::serve(c, applied_upto(c).saturating_sub(64), applied_upto(c));
         v["epochs"].as_array().into_iter().flatten().flat_map(|x| x["entries"].as_array().cloned().unwrap_or_default())
             .any(|r| r["entry"] == serde_json::to_value(e).unwrap())
+    }
+
+    #[test]
+    fn a_rejected_certified_entry_can_still_be_served() {
+        let act = 60u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x54; 32]);
+        let (c, _d) = chain("rej");
+        setup(&c, &sk, "carol");
+        // Bad nonce: certified, then rejected at apply on every node.
+        let (e, s) = xfer(&sk, "carol", "dave", 7, act, 5);
+        let cert = Cert { epoch: act, round: 0, prev: setcert::genesis_prev(act),
+            content: setcert::Content { hashes: vec![e.hash()], reports: vec![] }, votes: Default::default() };
+        offer_body(e.clone(), s);
+        assert_eq!(apply_final(&c, &cert), Ok(0), "rejected at apply");
+        assert!(body(&c, &e.hash()).is_none(), "gone from the pool and the fetch cache");
+        let served = serve_bodies(&c, &[e.hash()], act);
+        assert_eq!(served.len(), 1, "a peer missing it can still fetch it");
+        TEST_EPOCH.with(|c| c.set(None));
     }
 
     #[test]
