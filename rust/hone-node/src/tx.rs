@@ -1285,7 +1285,10 @@ pub fn validate_and_apply(
             }
             if signed_by != owner { bail!("signed_by must match owner"); }
             if sensor_id.is_empty() || sensor_id.len() > 128 { bail!("invalid sensor_id"); }
-            if !crate::usefulness::valid_cell(cell) { bail!("invalid H3 cell '{}'", cell); }
+            if !crate::usefulness::valid_cell_at(cell, *epoch) {
+                bail!("invalid H3 cell '{}' (res {}..={} from epoch {})", cell,
+                    crate::usefulness::MIN_CELL_RES, crate::usefulness::MAX_CELL_RES, crate::usefulness::cell_res_epoch());
+            }
             if metrics.is_empty() || metrics.len() > crate::usefulness::MAX_METRICS
                 || !metrics.keys().all(|m| crate::usefulness::valid_metric(m)) {
                 bail!("SensorSummary needs 1..={} metrics with lowercase names", crate::usefulness::MAX_METRICS);

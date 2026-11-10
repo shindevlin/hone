@@ -183,6 +183,15 @@ pub const NAME_NFT_MIGRATION_EPOCH: u64 = 352_000;
 pub const SENSOR_SEATS_EPOCH: u64 = 355_140; // Josh 2026-11-04 18:44 "turn on sponsorships"
 /// Bird names and cards (BIRD_OBSERVE / BIRD_NAME / BIRD_CARD_CLAIM / BIRD_CARD_SEND). Off.
 pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
+/// SensorSummary cells at H3 res 7..=9 (coarser cells near a home device). From here a cell
+/// outside 7..=9 is rejected; novelty stays per (cell, window, metric) at the summary's own
+/// resolution, and corroboration also works across resolutions by containment, with the
+/// 1-ring rule applied at the coarser resolution. Off until Josh signs off an epoch.
+pub const CELL_RES_RANGE_EPOCH: u64 = u64::MAX;
+/// "lora" and "wifi" metric families: LoRa noise bands (counts 30 % / min 2, SNR 3 dB) and
+/// Wi-Fi fingerprint tokens (`wifi.fp:<8 hex>`) as location context, never paid.
+/// Off until Josh signs off an epoch.
+pub const SENSOR_FAMILIES_EPOCH: u64 = u64::MAX;
 
 /// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
 /// PLACEHOLDER — confirm the exact three founder accounts.
