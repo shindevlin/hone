@@ -26,6 +26,7 @@ This roadmap prioritizes devices that give HONE the most useful, trustworthy, an
 | 7 | ESP32 sensor node | Remote sensing stations at low cost | Wi-Fi | $5-15 | Amazon/AliExpress |
 | 7 | LoRa module/HAT | Long-range, low-power sensor links | SPI/UART | $15-30 | Amazon/AliExpress |
 | 7 | GPS module | Station geolocation and timestamp confidence | UART | $8-15 | Amazon |
+| 8 | 60 GHz mmWave radar (e.g. Infineon BGT60TR13C, Hi-Link LD2450) or 24 GHz Doppler module | **Bird and bat flyover radar.** Pointed at the sky from a perch (Pi, nebra), counts flyovers day and night within ~10-50 m, with speed, signal strength and wingbeat rate (separates birds, bats, insects; rough size). Works in dark, fog, rain and through thin cover; needs a radio path, not a view. Pairs with acoustic listeners: radar says something flew over, audio says what. | SPI/UART/USB | $5-30 | Infineon / Hi-Link / AliExpress |
 
 ## Why each phase matters
 
@@ -34,6 +35,7 @@ This roadmap prioritizes devices that give HONE the most useful, trustworthy, an
 - **Phase 2**: Environmental baseline — minimum context data before adding specialized sensors
 - **Phase 3**: Public health relevance — pollution and air quality data has real commercial buyers
 - **Phase 4-7**: Broader physical-world telemetry network
+- **Phase 8 (radar perches)**: Bird and bat flyover detection without line of sight, counting night migration that phones and microphones miss. Also on the research track: passive RF sensing (motion across existing Wi-Fi/LoRa/sub-GHz links between HONE devices, experimental for birds, better for flocks and large birds) and ingesting public weather-radar migration data where available.
 
 ## What the current build supports
 
