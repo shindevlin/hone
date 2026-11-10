@@ -56,6 +56,7 @@ fun CoverageCard(c: LiveCoverage, onFindMy: () -> Unit) {
         Text("Cell ${c.cell?.let { "$it (r${c.cellRes})" } ?: "unknown (no fix)"}" +
             (c.locAccM?.let { " · ±${it.toInt()} m" } ?: "") + (c.locAgeS?.let { " · ${it}s old" } ?: "") +
             (if (c.locSrc.isNotEmpty()) " · ${c.locSrc}" else "") +
+            (if (c.moveState.isNotEmpty()) " · ${c.moveState}" else "") +
             (if (c.fingerprintCells > 0) " · ${c.fingerprintCells} fp cells" else ""),
             style = line, color = if (c.cell != null) HoneGreen else HoneTextFaint)
         val bands = listOf("2g" to "2.4", "5g" to "5", "6g" to "6").joinToString(" · ") { (k, n) ->

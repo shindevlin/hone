@@ -318,11 +318,6 @@
                         android:textColor="@color/btcpc_text" android:textSize="13sp"
                         android:buttonTint="@color/btcpc_orange" android:checked="true" />
 
-                    <CheckBox android:id="@+id/sensor_steps"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="Step counter"
-                        android:textColor="@color/btcpc_text" android:textSize="13sp"
-                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
 
                     <CheckBox android:id="@+id/sensor_heartrate"
                         android:layout_width="match_parent" android:layout_height="wrap_content"

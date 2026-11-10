@@ -3,7 +3,7 @@
 //! Handles every sensor type the Java service can provide:
 //! accelerometer, linear-acceleration, gravity, gyroscope, orientation,
 //! orientation-geo, light, barometer, magnetometer, proximity,
-//! steps, step-detector, heart-rate, GPS, battery, audio-level.
+//! heart-rate, GPS, battery, audio-level. (Steps dropped 2026-11-09: movement comes from GNSS.)
 //!
 //! Java calls nativeSubmitReading; this builds the LedgerEntry,
 //! applies it locally, and broadcasts over hone/entries gossip.

@@ -232,12 +232,6 @@ public class MainActivity extends AppCompatActivity {
                 != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.BODY_SENSORS);
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION)
-                    != PackageManager.PERMISSION_GRANTED) {
-                needed.add(Manifest.permission.ACTIVITY_RECOGNITION);
-            }
-        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.ACCESS_FINE_LOCATION);

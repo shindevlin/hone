@@ -56,7 +56,7 @@ public class EarnFragment extends Fragment {
     private SwitchCompat sensorsToggle;
     private View         sensorsOptions;
     private CheckBox     cbMotion, cbOrientation, cbEnvironment, cbMagnetometer,
-                         cbProximity, cbSteps, cbHeartrate, cbGps, cbBattery;
+                         cbProximity, cbHeartrate, cbGps, cbBattery;
     private TextView     sensorsStatus;
     private TextView     sensorsDot;
 
@@ -113,7 +113,6 @@ public class EarnFragment extends Fragment {
         cbEnvironment  = view.findViewById(R.id.sensor_environment);
         cbMagnetometer = view.findViewById(R.id.sensor_magnetometer);
         cbProximity    = view.findViewById(R.id.sensor_proximity);
-        cbSteps        = view.findViewById(R.id.sensor_steps);
         cbHeartrate    = view.findViewById(R.id.sensor_heartrate);
         cbGps          = view.findViewById(R.id.sensor_gps);
         cbBattery      = view.findViewById(R.id.sensor_battery);
@@ -142,7 +141,6 @@ public class EarnFragment extends Fragment {
         cbEnvironment.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_ENVIRONMENT));
         cbMagnetometer.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MAGNETOMETER));
         cbProximity.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_PROXIMITY));
-        cbSteps.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_STEPS));
         cbHeartrate.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_HEARTRATE));
         cbGps.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_GPS));
         cbBattery.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_BATTERY));
@@ -153,7 +151,6 @@ public class EarnFragment extends Fragment {
         cbEnvironment.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_ENVIRONMENT, v));
         cbMagnetometer.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_MAGNETOMETER, v));
         cbProximity.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_PROXIMITY, v));
-        cbSteps.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_STEPS, v));
         cbHeartrate.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_HEARTRATE, v));
         cbGps.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_GPS, v));
         cbBattery.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_BATTERY, v));

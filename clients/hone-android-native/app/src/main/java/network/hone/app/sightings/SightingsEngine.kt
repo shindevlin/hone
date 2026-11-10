@@ -74,6 +74,7 @@ data class LiveCoverage(
     val summariesQueued: Int = 0,
     val fingerprintCells: Int = 0,
     val routerPending: String? = null,
+    val moveState: String = "",          // still / walking / fast / unknown, from GNSS (no steps)
 )
 
 /**
@@ -162,8 +163,14 @@ object SightingsEngine {
     @Volatile private var fpFix: Location? = null        // from Wi-Fi fingerprints
     private val locListener = LocationListener { l -> onLocation(l, if (l.provider == "gps") "gps" else l.provider ?: "lm") }
     private var gmsCallback: LocationCallback? = null
+    private val movement = Movement()                    // replaces step counting: GNSS only
 
     private fun onLocation(l: Location, src: String) {
+        synchronized(movement) {
+            movement.add(Movement.Fix(l.elapsedRealtimeNanos / 1_000_000, l.latitude, l.longitude, l.accuracy,
+                if (l.hasSpeed()) l.speed else null,
+                if (Build.VERSION.SDK_INT >= 26 && l.hasSpeedAccuracy()) l.speedAccuracyMetersPerSecond else null))
+        }
         val cur = loc
         if (cur == null || l.time > cur.time + 30_000 || l.accuracy <= cur.accuracy) {
             loc = l; locSrc = src; stampCache = null
@@ -325,10 +332,11 @@ object SightingsEngine {
     private fun finalizeWindow() {
         val st = store ?: return
         if (window == Long.MIN_VALUE) return
+        val mv = synchronized(movement) { movement.take() }
         for ((cell, a) in accs) {
             if (a.aps.isEmpty() && a.ble.isEmpty() && a.hone.isEmpty()) continue
             val located = cell.isNotEmpty()
-            runCatching { st.putSummary(if (located) cell else "unlocated", window, summaryJson(cell, a).toString(), located) }
+            runCatching { st.putSummary(if (located) cell else "unlocated", window, summaryJson(cell, a, mv).toString(), located) }
                 .onFailure { Log.e(TAG, "store summary", it) }
         }
         val (n, q) = runCatching { st.summaryCounts() }.getOrDefault(0 to 0)
@@ -345,7 +353,7 @@ object SightingsEngine {
     }
 
     /** Public summary for one (cell, window), schema v2 in docs/SIGHTINGS.md. No identities. */
-    private fun summaryJson(cell: String, a: Acc): JSONObject {
+    private fun summaryJson(cell: String, a: Acc, mv: Movement.Summary): JSONObject {
         val byBand = a.aps.values.groupingBy { it.band }.eachCount()
         val hist = IntArray(7)
         a.aps.values.forEach { hist[rssiBucket(it.rssi)]++ }
@@ -374,6 +382,8 @@ object SightingsEngine {
             .put("ble", JSONObject().put("crowd", a.ble.size).put("scan_s", a.bleScanMs / 1000).put("filter", "v1"))
             .put("hone", JSONObject().put("devices", a.hone.size))
             .put("mobile_ap", a.mobile.size)
+            .put("move", JSONObject().put("state", mv.state.id).put("still_s", mv.stillS)
+                .put("walk_s", mv.walkS).put("fast_s", mv.fastS).put("via", mv.via))
     }
 
     private fun rssiBucket(r: Int): Int = when {
@@ -412,6 +422,7 @@ object SightingsEngine {
                 seedDerived = seedDerived,
                 issues = issues, summariesStored = n, summariesQueued = q, fingerprintCells = fpc,
                 routerPending = routerCode?.takeIf { System.currentTimeMillis() < it.second }?.first,
+                moveState = synchronized(movement) { movement.peek().state.id },
             )
         }
         _live.value = snap

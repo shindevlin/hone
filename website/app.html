@@ -1941,7 +1941,6 @@
               <option value="network">Network (0.0012)</option>
               <option value="light">Light (0.001)</option>
               <option value="proximity">Proximity (0.001)</option>
-              <option value="steps">Steps (0.001)</option>
               <option value="temperature">Temperature (0.0005)</option>
               <option value="humidity">Humidity (0.0005)</option>
               <option value="battery">Battery (0.0008)</option>
@@ -2808,11 +2807,6 @@ const SENSORS = [
     check: () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
   },
   {
-    id: 'steps', name: 'Step Counter', icon: '\u{1F6B6}',
-    desc: 'Counts steps using device pedometer. Reports step count to the sensor network.',
-    check: () => 'StepCounter' in window || 'Pedometer' in window,
-  },
-  {
     id: 'heading', name: 'Compass Heading', icon: '\u{1F9ED}',
     desc: 'Reports compass heading (absolute orientation) to the network. Shows direction your device is facing.',
     check: () => 'AbsoluteOrientationSensor' in window || typeof DeviceOrientationEvent !== 'undefined',
@@ -3540,35 +3534,6 @@ async function startSensor(id, silent) {
       }
       break;
 
-    case 'steps':
-      try {
-        if ('StepCounter' in window) {
-          const stepper = new StepCounter();
-          stepper.addEventListener('reading', () => {
-            liveValues.steps = stepper.steps + ' steps';
-            updateSensorUI('steps');
-          });
-          stepper.addEventListener('error', () => {
-            liveValues.steps = 'Not available on this device';
-            sensorStates.steps = false;
-            localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
-            updateSensorUI('steps');
-          });
-          stepper.start();
-          sensorWatchers.steps = { type: 'generic', obj: stepper };
-        } else {
-          liveValues.steps = 'Coming soon \u2014 not supported in this browser';
-          sensorStates.steps = false;
-          localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
-          updateSensorUI('steps');
-        }
-      } catch (_) {
-        liveValues.steps = 'Coming soon \u2014 not supported in this browser';
-        sensorStates.steps = false;
-        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
-        updateSensorUI('steps');
-      }
-      break;
 
     case 'heading':
       try {

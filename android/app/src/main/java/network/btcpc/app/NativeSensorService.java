@@ -412,7 +412,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
             // ── Activity / step ───────────────────────────────────────────────
             case Sensor.TYPE_STEP_COUNTER:
             case Sensor.TYPE_STEP_DETECTOR:
-                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_STEPS);
+                return false;   // steps dropped 2026-11-09 (health data); movement comes from GNSS
             // ── Biometric ─────────────────────────────────────────────────────
             case Sensor.TYPE_HEART_RATE:
             case TYPE_HEART_BEAT:

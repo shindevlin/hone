@@ -36,7 +36,6 @@ public class AppPrefs {
     public static final String KEY_SENSOR_ENVIRONMENT = "sensorEnvironment";
     public static final String KEY_SENSOR_MAGNETOMETER= "sensorMagnetometer";
     public static final String KEY_SENSOR_PROXIMITY   = "sensorProximity";
-    public static final String KEY_SENSOR_STEPS       = "sensorSteps";
     public static final String KEY_SENSOR_HEARTRATE   = "sensorHeartrate";
     public static final String KEY_SENSOR_GPS         = "sensorGps";
     public static final String KEY_SENSOR_BATTERY     = "sensorBattery";

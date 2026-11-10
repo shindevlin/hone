@@ -214,13 +214,24 @@ One row per (cell, window), the cell at the resolution its readings supported:
            "channels": {"2g:6": 1, "5g:44": 13}, "scans": 1},
   "ble": {"crowd": 36, "scan_s": 120, "filter": "v1"},
   "hone": {"devices": 2},
-  "mobile_ap": 0
+  "mobile_ap": 0,
+  "move": {"state": "walking", "still_s": 240, "walk_s": 600, "fast_s": 0, "via": "disp"}
 }
 ```
 
 - `loc.weight = sum(1 / acc_m^2)` over the readings: the aggregator combines rows of the
   same and of parent/child cells with inverse-variance weights, so the estimate tightens
   as better readings arrive and a poor reading still contributes, just less.
+- `move` (added 2026-11-09, absent from older builds): how the phone moved in this window,
+  from location fixes only (`Movement.kt`). GNSS Doppler speed when the fix carries one with
+  accuracy <= 1 m/s; otherwise displacement between fixes, counted only when it is more than
+  twice their combined accuracy (moved) or when a walker would have crossed that margin and
+  the phone didn't (still). Classes: still < 0.4 m/s, walking < 2.8 m/s, fast (bike, run or
+  vehicle). `state` is the class with the most time, `unknown` under 2 minutes classified.
+  Seconds are rounded to 10. Replaces step counting: no activity permission, no step counts.
+  Uses: stationary vs travelling listening effort (eBird-style protocol) and a consistency
+  check against the cell trail. It is not an independent anti-spoof check on its own (it
+  comes from the same fixes); the GNSS-sky check (verifiers C4) is that.
 - No identities: no MAC, BSSID, SSID, oid, lid or rid. Signing and the observer identity
   are added by the future chain commit.
 

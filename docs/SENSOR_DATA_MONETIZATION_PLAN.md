@@ -32,7 +32,7 @@ Current native bridge behavior:
 
 - Uses Android `SensorManager`.
 - Lists `Sensor.TYPE_ALL`.
-- Streams known sensors as BTCPC sensor ids: `motion`, `orientation`, `light`, `magnetometer`, `barometer`, `proximity`, `steps`, `heart-rate`.
+- Streams known sensors as BTCPC sensor ids: `motion`, `orientation`, `light`, `magnetometer`, `barometer`, `proximity`, `heart-rate`.
 - Streams unknown native sensors as `android-<type>`, so APK-only sensors are not hidden.
 
 Manifest permissions currently include:
@@ -40,7 +40,6 @@ Manifest permissions currently include:
 - `INTERNET`
 - `ACCESS_FINE_LOCATION`
 - `ACCESS_COARSE_LOCATION`
-- `ACTIVITY_RECOGNITION`
 - `BODY_SENSORS`
 
 Problem: the tracked `package.json` currently does not include Capacitor dependencies or Android scripts, and `android/` is untracked. This means the Android work is present locally but not reproducible from a fresh checkout.
