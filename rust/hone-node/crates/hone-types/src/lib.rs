@@ -210,6 +210,16 @@ pub const CELL_RES_RANGE_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:17 local: L
 /// Wi-Fi fingerprint tokens (`wifi.fp:<8 hex>`) as location context, never paid.
 /// Off until Josh signs off an epoch.
 pub const SENSOR_FAMILIES_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:17 local: LoRa and Wi-Fi at the same activation
+/// Data rules (Josh 2026-11-10 10:50, build and test only): inferred-location summaries
+/// (res 7..=8 with loc.inferred=1 and loc.inferred_age_s). OFF until Josh names an epoch.
+pub const INFERRED_LOC_EPOCH: u64 = u64::MAX;
+/// Summaries with no cell: stored on chain, score nothing. OFF.
+pub const NULL_CELL_EPOCH: u64 = u64::MAX;
+/// Governance anchors of schema-registry hashes (chain param schema:<id>@<version>, write-once). OFF.
+pub const SCHEMA_ANCHOR_EPOCH: u64 = u64::MAX;
+/// From this epoch the governance param live_window_epochs takes effect (paid-archive
+/// encryption). OFF: everything stays public.
+pub const LIVE_WINDOW_EPOCH: u64 = u64::MAX;
 
 /// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
 /// PLACEHOLDER — confirm the exact three founder accounts.

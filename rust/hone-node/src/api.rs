@@ -137,6 +137,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sync/snapshot", get(get_sync_snapshot))
         .route("/api/sync/blocks", get(get_sync_blocks))
         .route("/api/chain/healer", get(get_healer_status))
+        .route("/api/chain/data-rules", get(|State(s): State<AppState>| async move { Json(crate::data_rules::view(&s.chain)) }))
         .route("/api/sync/checkpoint/:epoch/:cursor", get(get_sync_checkpoint))
         .route("/api/sync/epoch_entries", get(get_sync_epoch_entries))
         .route("/api/entry/:hash/status", get(get_entry_status))

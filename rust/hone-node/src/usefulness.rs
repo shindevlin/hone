@@ -307,6 +307,7 @@ fn corroborate_cross_res(chain: &Chain, owner: &str, cell: &str, window: u64, m:
 /// points credited to the owner for `epoch`.
 pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u64,
              metrics: &BTreeMap<String, i64>, epoch: u64) -> (Vec<(String, Verdict)>, u64) {
+    if crate::data_rules::unscored_summary(cell, epoch) { return (Vec::new(), 0); }
     let owner = owner_of(owner);
     let mut out = Vec::new();
     let mut pts = 0u64;

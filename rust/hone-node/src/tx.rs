@@ -468,6 +468,7 @@ pub fn validate_and_apply(
                 bail!("'{}' is not in the governance council", signed_by);
             }
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            if let Err(e) = crate::data_rules::check_param(chain, key, value, *epoch) { bail!("{e}"); }
 
             // Rate-limit stake minimums: new value may not exceed current * (1 + cap_bps/10000).
             // This bounds how fast the minimum can rise within a doubling.
@@ -1323,9 +1324,8 @@ pub fn validate_and_apply(
             }
             if signed_by != owner { bail!("signed_by must match owner"); }
             if sensor_id.is_empty() || sensor_id.len() > 128 { bail!("invalid sensor_id"); }
-            if !crate::usefulness::valid_cell_at(cell, *epoch) {
-                bail!("invalid H3 cell '{}' (res {}..={} from epoch {})", cell,
-                    crate::usefulness::MIN_CELL_RES, crate::usefulness::MAX_CELL_RES, crate::usefulness::cell_res_epoch());
+            if let Err(e) = crate::data_rules::check_summary_location(cell, metrics, *epoch) {
+                bail!("{e}");
             }
             if metrics.is_empty() || metrics.len() > crate::usefulness::MAX_METRICS
                 || !metrics.keys().all(|m| crate::usefulness::valid_metric(m)) {
@@ -3961,6 +3961,64 @@ mod tests {
         let mut early = mk("josh", 4);
         if let LedgerEntry::SensorSummary { epoch, .. } = &mut early { *epoch = 352_699; }
         assert!(validate_and_apply(&chain, &early, Some(&sign(&SigningKey::from_bytes(&[b'j'; 32]), &early))).is_err());
+    }
+
+    #[test]
+    fn data_rules_null_cell_and_inferred_rows_go_on_chain() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "josh", 10_000_000_000_000);
+        let jk = SigningKey::from_bytes(&[b'j'; 32]);
+        let mk = |cell: &str, w: u64, extra: &[(&str, i64)]| {
+            let mut metrics: std::collections::BTreeMap<String, i64> =
+                [("ble.crowd".to_string(), 7i64)].into_iter().collect();
+            for (k, v) in extra { metrics.insert(k.to_string(), *v); }
+            LedgerEntry::SensorSummary { sensor_id: "moto".into(), owner: "josh".into(), batch_hash: String::new(),
+                cell: cell.into(), window: w, metrics, epoch: 352_700, signed_by: "josh".into() }
+        };
+        // Null cell: accepted, stored, no usefulness state written.
+        let n = mk("", 10, &[]);
+        validate_and_apply(&chain, &n, Some(&sign(&jk, &n))).unwrap();
+        assert!(chain.store.state_scan_prefix("usum:moto:10:").is_empty(), "a null-cell row scores nothing");
+        // Inferred res-7 row: accepted; loc.* metrics are context, only ble.crowd is scored.
+        let i = mk("876d74365ffffff", 11, &[("loc.inferred", 1), ("loc.inferred_age_s", 900)]);
+        validate_and_apply(&chain, &i, Some(&sign(&jk, &i))).unwrap();
+        assert!(chain.store.state_get("usum:moto:11:ble.crowd").is_some());
+        assert!(chain.store.state_get("usum:moto:11:loc.inferred").is_none());
+        // Inferred row at res 9 and inferred row without its age: refused.
+        let bad = mk("896d75d960bffff", 12, &[("loc.inferred", 1), ("loc.inferred_age_s", 900)]);
+        assert!(validate_and_apply(&chain, &bad, Some(&sign(&jk, &bad))).is_err());
+        let bad2 = mk("876d74365ffffff", 13, &[("loc.inferred", 1)]);
+        assert!(validate_and_apply(&chain, &bad2, Some(&sign(&jk, &bad2))).is_err());
+    }
+
+    #[test]
+    fn schema_anchor_is_governance_only_and_write_once() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "josh", 10_000_000_000_000);
+        fund(&chain, "mallory", 10_000_000_000_000);
+        let jk = SigningKey::from_bytes(&[b'j'; 32]);
+        let h1 = "ab".repeat(32);
+        let mk = |by: &str, key: &str, value: &str| LedgerEntry::ChainParameterSet {
+            key: key.into(), value: value.into(), signed_by: by.into(), epoch: 352_700, signature: None };
+        let e = mk("josh", "schema:hone.raw.wifi@1", &h1);
+        validate_and_apply(&chain, &e, Some(&sign(&jk, &e))).unwrap();
+        // Same version again (same or another hash): refused.
+        let again = mk("josh", "schema:hone.raw.wifi@1", &"cd".repeat(32));
+        assert!(validate_and_apply(&chain, &again, Some(&sign(&jk, &again))).is_err());
+        // Bad key or hash: refused.
+        for (k, v) in [("schema:Hone@1", h1.as_str()), ("schema:hone.raw.wifi", h1.as_str()), ("schema:hone.raw.wifi@2", "xyz")] {
+            let b = mk("josh", k, v);
+            assert!(validate_and_apply(&chain, &b, Some(&sign(&jk, &b))).is_err(), "{k}");
+        }
+        // Not in the council: refused.
+        let m = mk("mallory", "schema:hone.raw.ble@1", &h1);
+        assert!(validate_and_apply(&chain, &m, Some(&sign(&SigningKey::from_bytes(&[b'm'; 32]), &m))).is_err());
+        // live_window_epochs: integer >= 2880 or "off".
+        for (v, ok) in [("100", false), ("abc", false), ("2880", true), ("off", true)] {
+            let lw = mk("josh", "live_window_epochs", v);
+            assert_eq!(validate_and_apply(&chain, &lw, Some(&sign(&jk, &lw))).is_ok(), ok, "{v}");
+        }
+        assert_eq!(crate::data_rules::live_window_epochs(&chain, 352_700), u64::MAX, "nothing released yet");
     }
 
     #[test]

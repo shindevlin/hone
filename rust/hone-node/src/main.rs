@@ -52,6 +52,7 @@ mod state_correct;
 mod epoch_sync;
 mod setcert;
 mod agent_key;
+mod data_rules;
 /// A reward driver this many epochs behind the safe tip asks peers for the finalize meta.
 const FIN_REQUEST_STALL_EPOCHS: u64 = 3;
 mod setcert_apply;
