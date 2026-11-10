@@ -289,7 +289,7 @@ mod tests {
         // Key changes: none, except self-revoke (next test). The agent key is not an account
         // role key, so posting-level entries are refused too.
         assert!(set_key(&c, 200 * H, AG).is_err());
-        let summary = LedgerEntry::SensorSummary { sensor_id: "x".into(), owner: "josh".into(), batch_hash: String::new(),
+        let summary = LedgerEntry::SensorSummary { prov: None, relay: None, sensor_id: "x".into(), owner: "josh".into(), batch_hash: String::new(),
             cell: "896d75d960bffff".into(), window: 1_993_148, metrics: [("wifi.ap_count".to_string(), 3i64)].into_iter().collect(),
             epoch: E, signed_by: "josh".into() };
         assert!(run(&c, &summary, AG).is_err(), "posting-level entry");

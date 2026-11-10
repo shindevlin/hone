@@ -605,6 +605,12 @@ pub enum LedgerEntry {
         metrics: std::collections::BTreeMap<String, i64>,
         epoch: Epoch,
         signed_by: AccountId,
+        /// Provenance (from PROVENANCE_EPOCH): what, when (the window) and why. Signed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prov: Option<SummaryProvenance>,
+        /// Relayer of a device-signed reading (from RELAY_CREDIT_EPOCH). Not part of the signed data.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay: Option<RelayProof>,
     },
     /// Register a referral-backed sensor seat `owner@seat_pubkey` (owner active key).
     SensorSeatRegister {
@@ -3505,3 +3511,24 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
 
 /// serde default for `SetAgentKey.cap`: 100 HONE.
 pub fn default_agent_cap() -> u64 { crate::AGENT_DEFAULT_CAP_HUNITS }
+
+/// Where a summary comes from (registry hone.raw@1 terms). `dev`: first 16 hex of the device or
+/// seat key; `cls`: device class; `sensor`: sensor or collector name; `schema`: <id>@<version> of
+/// the raw records it summarises; `why`: window | event | gap:<reason>; `loc_src`: location
+/// source, or none:<reason> when the row has no cell.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SummaryProvenance {
+    pub dev: String,
+    pub cls: String,
+    pub sensor: String,
+    pub schema: String,
+    pub why: String,
+    pub loc_src: String,
+}
+
+/// A relayer's signature over SENSOR_RELAY {by, sha256(device-signed message)}.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelayProof {
+    pub by: String,
+    pub sig: String,
+}

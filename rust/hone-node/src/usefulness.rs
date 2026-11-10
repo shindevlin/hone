@@ -307,7 +307,43 @@ fn corroborate_cross_res(chain: &Chain, owner: &str, cell: &str, window: u64, m:
 /// points credited to the owner for `epoch`.
 pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u64,
              metrics: &BTreeMap<String, i64>, epoch: u64) -> (Vec<(String, Verdict)>, u64) {
+    score_ex(chain, sensor_id, owner, cell, window, metrics, epoch, &SummaryCtx { dev: sensor_id.to_owned(), relay: None })
+}
+
+/// Who produced a summary (for independence checks) and who relayed it.
+pub struct SummaryCtx { pub dev: String, pub relay: Option<String> }
+
+/// Presence index of measured (not inferred) rows, at the row's cell and every coarser
+/// ancestor down to res 7, so an inferred row can look for an independent device nearby.
+fn index_presence(chain: &Chain, cell: &str, w: u64, dev: &str) {
+    let Some(c) = h3(cell) else { return };
+    let r = u8::from(c.resolution());
+    for res in MIN_CELL_RES..=r {
+        let a = if res == r { Some(c) } else { h3o::Resolution::try_from(res).ok().and_then(|rr| c.parent(rr)) };
+        if let Some(a) = a { let _ = chain.store.state_set(&format!("upres:{}:{w}:{dev}", hex(a)), b"1"); }
+    }
+}
+
+/// An independent device (not `dev`) reported a measured row in the same or a neighbouring
+/// cell (same resolution) within one window.
+pub fn device_corroborated(chain: &Chain, cell: &str, w: u64, dev: &str) -> bool {
+    let Some(c) = h3(cell) else { return false };
+    for n in disk1(c) {
+        for ww in w.saturating_sub(1)..=w + 1 {
+            let pre = format!("upres:{n}:{ww}:");
+            if chain.store.state_scan_prefix(&pre).iter().any(|(k, _)| &k[pre.len()..] != dev) { return true; }
+        }
+    }
+    false
+}
+
+/// score() with device and relay context (see SummaryCtx).
+pub fn score_ex(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u64,
+             metrics: &BTreeMap<String, i64>, epoch: u64, ctx: &SummaryCtx) -> (Vec<(String, Verdict)>, u64) {
     if crate::data_rules::unscored_summary(cell, epoch) { return (Vec::new(), 0); }
+    let inferred_on = epoch >= crate::data_rules::inferred_epoch();
+    let inferred = inferred_on && metrics.get(crate::data_rules::INFERRED_FLAG) == Some(&1);
+    if inferred_on && !inferred { index_presence(chain, cell, window, &ctx.dev); }
     let owner = owner_of(owner);
     let mut out = Vec::new();
     let mut pts = 0u64;
@@ -359,6 +395,10 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                         let mut cj = serde_json::json!({ "owner": owner, "points": NOVEL_POINTS,
                             "epoch": epoch, "status": "pending", "value": v, "sensor": sensor_id });
                         if epoch >= decide_by_epoch() { cj["decide_by"] = serde_json::json!(epoch + DECIDE_BY_EPOCHS); }
+                        if inferred { cj["inferred"] = serde_json::json!(true); cj["dev"] = serde_json::json!(ctx.dev); }
+                        if let Some(r) = &ctx.relay {
+                            if epoch >= crate::data_rules::relay_epoch() && *r != owner { cj["relay"] = serde_json::json!(r); }
+                        }
                         set_json(chain, &ck, &cj);
                         let _ = chain.store.state_set(&format!("uclaim_o:{owner}:{cell}:{m}:{window}"), b"1");
                         let _ = chain.store.state_set(&format!("uclaim_due:{:016x}:{cell}:{m}:{window}", epoch + CLAIM_WINDOW_EPOCHS), b"1");
@@ -472,12 +512,31 @@ fn settle(chain: &Chain, cell: &str, m: &str, window: u64, proven: bool, epoch: 
     let ck = claim_key(cell, m, window);
     let Some(mut c) = get_json(chain, &ck) else { return };
     if c["status"] != "pending" { return; }
+    let mut proven = proven;
+    // An inferred location earns only when an independent device corroborates it: another
+    // owner's evidence on the claim, or another device's measured row in the same or a
+    // neighbouring cell within one window (Josh 2026-11-10 11:22).
+    if proven && c["inferred"].as_bool() == Some(true) {
+        let corr = c["corr"].as_array().is_some_and(|a| !a.is_empty());
+        if !corr && !device_corroborated(chain, cell, window, c["dev"].as_str().unwrap_or("")) {
+            proven = false;
+            c["void_reason"] = serde_json::json!("inferred_uncorroborated");
+        }
+    }
     c["status"] = serde_json::json!(if proven { "proven" } else { "void" });
     c["settled_epoch"] = serde_json::json!(epoch);
     set_json(chain, &ck, &c);
     if proven {
         let owner = c["owner"].as_str().unwrap_or("").to_owned();
-        credit(chain, &owner, c["points"].as_u64().unwrap_or(0), epoch);
+        let pts = c["points"].as_u64().unwrap_or(0);
+        match c["relay"].as_str().filter(|r| !r.is_empty()) {
+            Some(r) => {
+                let share = pts * crate::data_rules::RELAY_SHARE_BPS / 10_000;
+                credit(chain, &owner, pts - share, epoch);
+                credit(chain, r, share, epoch);
+            }
+            None => credit(chain, &owner, pts, epoch),
+        }
     }
 }
 
@@ -993,5 +1052,71 @@ mod tests {
         assert!(!valid_cell("896D75D960BFFFF"));
         assert!(!valid_cell("abc"));
         assert!(valid_metric("wifi.ap_count") && valid_metric("subghz.433") && !valid_metric("Wifi Count"));
+    }
+
+    // ── data rules (Josh 2026-11-10 11:22) ──
+    const DE: u64 = 365_000; // >= decide-by (360,000) and inferred (352,000) test gates
+    fn p7() -> String { hex(h3(C).unwrap().parent(h3o::Resolution::Seven).unwrap()) }
+    fn ctx(dev: &str, relay: Option<&str>) -> SummaryCtx { SummaryCtx { dev: dev.into(), relay: relay.map(str::to_owned) } }
+    fn inferred(v: i64) -> BTreeMap<String, i64> { m(&[("ble.crowd", v), ("loc.inferred", 1), ("loc.age_s", 300), ("loc.src", 4)]) }
+
+    #[test]
+    fn inferred_row_without_independent_device_earns_nothing() {
+        let (c, _d) = chain();
+        let w = W0 + 400;
+        let (_, p) = score_ex(&c, "flipper-s", "shin", &p7(), w, &inferred(9), DE, &ctx("f1", None));
+        assert_eq!(p, NOVEL_POINTS, "claimed (pending), not paid");
+        // The same device's own measured row nearby does not count.
+        score_ex(&c, "flipper-s", "shin", C, w + 1, &m(&[("wifi.ap_count", 5)]), DE, &ctx("f1", None));
+        release_due(&c, DE + CLAIM_WINDOW_EPOCHS);
+        let cl = get_json(&c, &claim_key(&p7(), "ble.crowd", w)).unwrap();
+        assert_eq!(cl["status"], "void");
+        assert_eq!(cl["void_reason"], "inferred_uncorroborated");
+        // shin's only proven points are the measured wifi row (100), none from the inferred one.
+        assert_eq!(proven_points(&c, "shin"), NOVEL_POINTS);
+    }
+
+    #[test]
+    fn inferred_row_earns_when_another_device_was_there() {
+        let (c, _d) = chain();
+        let w = W0 + 410;
+        score_ex(&c, "flipper-s", "shin", &p7(), w, &inferred(9), DE, &ctx("f1", None));
+        // josh's phone (a different device) measured a res-9 row inside the res-7 cell, next window.
+        score_ex(&c, "coverage-j", "josh", C, w + 1, &m(&[("wifi.ap_count", 7)]), DE, &ctx("p1", None));
+        release_due(&c, DE + CLAIM_WINDOW_EPOCHS);
+        assert_eq!(get_json(&c, &claim_key(&p7(), "ble.crowd", w)).unwrap()["status"], "proven");
+        assert_eq!(proven_points(&c, "shin"), NOVEL_POINTS);
+        // Two windows away does not count.
+        let (c2, _d2) = chain();
+        score_ex(&c2, "flipper-s", "shin", &p7(), w, &inferred(9), DE, &ctx("f1", None));
+        score_ex(&c2, "coverage-j", "josh", C, w + 2, &m(&[("wifi.ap_count", 7)]), DE, &ctx("p1", None));
+        release_due(&c2, DE + CLAIM_WINDOW_EPOCHS);
+        assert_eq!(get_json(&c2, &claim_key(&p7(), "ble.crowd", w)).unwrap()["status"], "void");
+    }
+
+    #[test]
+    fn relayer_gets_its_share_only_for_another_owners_reading() {
+        let (c, _d) = chain();
+        let w = W0 + 420;
+        // shindevlin's Flipper relayed through josh's phone.
+        score_ex(&c, "flipper-s", "shin", C, w, &m(&[("subghz.433", 4)]), DE, &ctx("f1", Some("josh")));
+        // shin's own phone relaying shin's Flipper: no share.
+        score_ex(&c, "flipper-s", "shin", C, w + 50, &m(&[("ir.tv", 2)]), DE, &ctx("f1", Some("shin")));
+        release_due(&c, DE + CLAIM_WINDOW_EPOCHS);
+        let share = NOVEL_POINTS * crate::data_rules::RELAY_SHARE_BPS / 10_000;
+        assert_eq!(proven_points(&c, "josh"), share);
+        assert_eq!(proven_points(&c, "shin"), 2 * NOVEL_POINTS - share);
+        // Before the relay gate: no share recorded.
+        let (c2, _d2) = chain();
+        score_ex(&c2, "flipper-s", "shin", C, w, &m(&[("subghz.433", 4)]), 364_999, &ctx("f1", Some("josh")));
+        release_due(&c2, 364_999 + CLAIM_WINDOW_EPOCHS);
+        assert_eq!(proven_points(&c2, "josh"), 0);
+    }
+
+    #[test]
+    fn null_cell_row_scores_nothing() {
+        let (c, _d) = chain();
+        let (v, p) = score_ex(&c, "coverage-j", "josh", "", W0 + 430, &m(&[("ble.crowd", 3)]), DE, &ctx("p1", None));
+        assert_eq!((v.len(), p), (0, 0));
     }
 }

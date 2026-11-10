@@ -4740,11 +4740,17 @@ struct SensorSummaryBody {
     owner: String,
     #[serde(default)]
     batch_hash: String,
-    cell: String,
+    /// An H3 cell, or "" / null for a row with no location (from NULL_CELL_EPOCH).
+    #[serde(default)]
+    cell: Option<String>,
     window: u64,
     metrics: std::collections::BTreeMap<String, i64>,
     #[serde(default)]
     signature: String,
+    #[serde(default)]
+    prov: Option<hone_types::SummaryProvenance>,
+    #[serde(default)]
+    relay: Option<hone_types::RelayProof>,
 }
 
 /// POST /api/sensor/summary — one public (cell, window) summary, scored for usefulness.
@@ -4755,8 +4761,8 @@ async fn post_sensor_summary(
 ) -> Json<serde_json::Value> {
     let entry = LedgerEntry::SensorSummary {
         sensor_id: b.sensor_id, owner: b.owner.clone(), batch_hash: b.batch_hash,
-        cell: b.cell, window: b.window, metrics: b.metrics,
-        epoch: s.chain.current_epoch(), signed_by: b.owner,
+        cell: b.cell.unwrap_or_default(), window: b.window, metrics: b.metrics,
+        epoch: s.chain.current_epoch(), signed_by: b.owner, prov: b.prov, relay: b.relay,
     };
     apply_and_broadcast(&s, entry, non_empty(&b.signature))
 }

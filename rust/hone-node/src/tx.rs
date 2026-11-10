@@ -86,6 +86,9 @@ pub fn precheck_submission(chain: &Chain, entry: &LedgerEntry, sig_hex: Option<&
     match entry {
         LedgerEntry::SensorDataCommit { sensor_id, owner, .. } =>
             return check_sensor_signature(chain, sensor_id, owner, entry, sig_hex),
+        LedgerEntry::SensorSummary { sensor_id, owner, prov, relay: Some(r), epoch, .. } =>
+            return crate::data_rules::check_relay(chain, sensor_id, owner, entry, sig_hex, r, prov.as_ref(), *epoch)
+                .map_err(|e| anyhow::anyhow!(e)),
         // Authorised by an external-chain signature inside the entry, not an account key.
         LedgerEntry::VerifyChainLink { .. } => return Ok(()),
         _ => {}
@@ -1318,7 +1321,7 @@ pub fn validate_and_apply(
         }
 
         // ── SensorSummary: public (cell, window) summary, scored for usefulness ──
-        LedgerEntry::SensorSummary { sensor_id, owner, cell, metrics, epoch, signed_by, .. } => {
+        LedgerEntry::SensorSummary { sensor_id, owner, cell, metrics, epoch, signed_by, prov, relay, .. } => {
             if *epoch < crate::usefulness::scoring_epoch() {
                 bail!("SensorSummary is not active before epoch {}", crate::usefulness::scoring_epoch());
             }
@@ -1331,7 +1334,11 @@ pub fn validate_and_apply(
                 || !metrics.keys().all(|m| crate::usefulness::valid_metric(m)) {
                 bail!("SensorSummary needs 1..={} metrics with lowercase names", crate::usefulness::MAX_METRICS);
             }
-            if let Some((seat_owner, _)) = hone_types::parse_device_clock_id(signed_by) {
+            if let Err(e) = crate::data_rules::check_provenance(prov.as_ref(), signed_by, cell, metrics, *epoch) { bail!("{e}"); }
+            if let Some(r) = relay {
+                // Relayed: signed by the sensor's own device key, uploaded by `r.by`.
+                if let Err(e) = crate::data_rules::check_relay(chain, sensor_id, owner, entry, sig_hex, r, prov.as_ref(), *epoch) { bail!("{e}"); }
+            } else if let Some((seat_owner, _)) = hone_types::parse_device_clock_id(signed_by) {
                 // A device seat `owner@<pubkey>` (a phone) signs with its own seat key. The
                 // seat must be staked by its owner (clock or decide role), so a made-up
                 // `owner@<any key>` cannot report in someone else's name.
@@ -3649,8 +3656,8 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
             serde_json::json!({ "chain_id": chain_id, "type": "BIRD_SPLIT", "seat": seat, "bird_id": bird_id, "stats": stats, "epoch": epoch }),
         LedgerEntry::BirdCardSend { card, to, nonce, .. } =>
             serde_json::json!({ "chain_id": chain_id, "type": "BIRD_CARD_SEND", "card": card, "to": to, "nonce": nonce }),
-        LedgerEntry::SensorSummary { sensor_id, owner, batch_hash, cell, window, metrics, .. } =>
-            serde_json::json!({
+        LedgerEntry::SensorSummary { sensor_id, owner, batch_hash, cell, window, metrics, prov, .. } => {
+            let mut j = serde_json::json!({
                 "chain_id": chain_id,
                 "type": "SENSOR_SUMMARY",
                 "sensor_id": sensor_id,
@@ -3659,7 +3666,10 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "cell": cell,
                 "window": window,
                 "metrics": metrics,
-            }),
+            });
+            if let Some(p) = prov { j["prov"] = serde_json::to_value(p).unwrap_or_default(); }
+            j
+        }
         LedgerEntry::CoverageReport { reporter, lat, lon, carrier_mcc_mnc, data_hash, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
@@ -3916,7 +3926,7 @@ mod tests {
         fund(&chain, "josh", 10_000_000_000_000);
         let seat_sk = SigningKey::from_bytes(&[0x5e; 32]);
         let seat = format!("josh@{}", hex::encode(seat_sk.verifying_key().to_bytes()));
-        let e = LedgerEntry::SensorSummary { sensor_id: "st".into(), owner: seat.clone(), batch_hash: String::new(),
+        let e = LedgerEntry::SensorSummary { prov: None, relay: None, sensor_id: "st".into(), owner: seat.clone(), batch_hash: String::new(),
             cell: "896d75d960bffff".into(), window: 1_993_148,
             metrics: [("wifi.ap_count".to_string(), 3i64)].into_iter().collect(), epoch: 352_700, signed_by: seat.clone() };
         assert!(precheck_submission(&chain, &e, Some(&sign(&seat_sk, &e))).is_err(), "unstaked seat refused at admission");
@@ -3936,7 +3946,7 @@ mod tests {
         fund(&chain, "josh", 10_000_000_000_000); // posting key seed b'j'
         let seat_sk = SigningKey::from_bytes(&[0x5e; 32]);
         let seat = format!("josh@{}", hex::encode(seat_sk.verifying_key().to_bytes()));
-        let mk = |owner: &str, w: u64| LedgerEntry::SensorSummary {
+        let mk = |owner: &str, w: u64| LedgerEntry::SensorSummary { prov: None, relay: None,
             sensor_id: "moto".into(), owner: owner.into(), batch_hash: String::new(),
             cell: "896d75d960bffff".into(), window: w,
             metrics: [("wifi.ap_count".to_string(), 12i64 + w as i64 * 10)].into_iter().collect(),
@@ -3972,23 +3982,106 @@ mod tests {
             let mut metrics: std::collections::BTreeMap<String, i64> =
                 [("ble.crowd".to_string(), 7i64)].into_iter().collect();
             for (k, v) in extra { metrics.insert(k.to_string(), *v); }
-            LedgerEntry::SensorSummary { sensor_id: "moto".into(), owner: "josh".into(), batch_hash: String::new(),
-                cell: cell.into(), window: w, metrics, epoch: 352_700, signed_by: "josh".into() }
+            let loc = if cell.is_empty() { "none:no_fix" } else if extra.is_empty() { "gps" } else { "last_verified" };
+            LedgerEntry::SensorSummary { prov: Some(test_prov("0123456789abcdef", loc)), relay: None, sensor_id: "moto".into(),
+                owner: "josh".into(), batch_hash: String::new(),
+                cell: cell.into(), window: w, metrics, epoch: 365_000, signed_by: "josh".into() }
         };
+        // Without provenance: refused.
+        let mut bare = mk("896d75d960bffff", 9, &[]);
+        if let LedgerEntry::SensorSummary { prov, .. } = &mut bare { *prov = None; }
+        assert!(validate_and_apply(&chain, &bare, Some(&sign(&jk, &bare))).is_err(), "no provenance, no storage");
+        // Provenance is signed: changing it after signing breaks the signature.
+        let good = mk("896d75d960bffff", 9, &[]);
+        let sig = sign(&jk, &good);
+        let mut tampered = good.clone();
+        if let LedgerEntry::SensorSummary { prov: Some(p), .. } = &mut tampered { p.why = "event".into(); }
+        assert!(validate_and_apply(&chain, &tampered, Some(&sig)).is_err());
         // Null cell: accepted, stored, no usefulness state written.
         let n = mk("", 10, &[]);
         validate_and_apply(&chain, &n, Some(&sign(&jk, &n))).unwrap();
         assert!(chain.store.state_scan_prefix("usum:moto:10:").is_empty(), "a null-cell row scores nothing");
         // Inferred res-7 row: accepted; loc.* metrics are context, only ble.crowd is scored.
-        let i = mk("876d74365ffffff", 11, &[("loc.inferred", 1), ("loc.inferred_age_s", 900)]);
+        let i = mk("876d74365ffffff", 11, &[("loc.inferred", 1), ("loc.age_s", 900)]);
         validate_and_apply(&chain, &i, Some(&sign(&jk, &i))).unwrap();
         assert!(chain.store.state_get("usum:moto:11:ble.crowd").is_some());
         assert!(chain.store.state_get("usum:moto:11:loc.inferred").is_none());
         // Inferred row at res 9 and inferred row without its age: refused.
-        let bad = mk("896d75d960bffff", 12, &[("loc.inferred", 1), ("loc.inferred_age_s", 900)]);
+        let bad = mk("896d75d960bffff", 12, &[("loc.inferred", 1), ("loc.age_s", 900)]);
         assert!(validate_and_apply(&chain, &bad, Some(&sign(&jk, &bad))).is_err());
         let bad2 = mk("876d74365ffffff", 13, &[("loc.inferred", 1)]);
         assert!(validate_and_apply(&chain, &bad2, Some(&sign(&jk, &bad2))).is_err());
+    }
+
+    fn test_prov(dev: &str, loc: &str) -> hone_types::SummaryProvenance {
+        hone_types::SummaryProvenance { dev: dev.into(), cls: "phone".into(), sensor: "coverage".into(),
+            schema: "hone.raw.hdr@1".into(), why: "window".into(), loc_src: loc.into() }
+    }
+
+    #[test]
+    fn summary_wire_message_with_provenance_and_null_cell() {
+        // The exact bytes a device signs (the app's SensorSummaryWire must match): prov comes
+        // after metrics, its keys in this order; a row with no location has "cell":"".
+        let e = LedgerEntry::SensorSummary { sensor_id: "coverage-0123456789abcdef".into(), owner: "josh".into(),
+            batch_hash: String::new(), cell: String::new(), window: 5,
+            metrics: [("obs.none".to_string(), 1i64)].into_iter().collect(), epoch: 365_000, signed_by: "josh".into(),
+            prov: Some(test_prov("0123456789abcdef", "none:no_fix")), relay: Some(hone_types::RelayProof { by: "x".into(), sig: "y".into() }) };
+        assert_eq!(canonical_signing_message(&e, "hone").unwrap(),
+            r#"{"chain_id":"hone","type":"SENSOR_SUMMARY","sensor_id":"coverage-0123456789abcdef","owner":"josh","batch_hash":"","cell":"","window":5,"metrics":{"obs.none":1},"prov":{"dev":"0123456789abcdef","cls":"phone","sensor":"coverage","schema":"hone.raw.hdr@1","why":"window","loc_src":"none:no_fix"}}"#);
+        // Without prov the message is byte-for-byte the old one.
+        let mut old = e.clone();
+        if let LedgerEntry::SensorSummary { prov, relay, cell, .. } = &mut old { *prov = None; *relay = None; *cell = "896d75d960bffff".into(); }
+        assert_eq!(canonical_signing_message(&old, "hone").unwrap(),
+            r#"{"chain_id":"hone","type":"SENSOR_SUMMARY","sensor_id":"coverage-0123456789abcdef","owner":"josh","batch_hash":"","cell":"896d75d960bffff","window":5,"metrics":{"obs.none":1}}"#);
+        // Stored form: no prov/relay keys when absent (old entries serialize unchanged).
+        let j = serde_json::to_string(&old).unwrap();
+        assert!(!j.contains("prov") && !j.contains("relay"));
+    }
+
+    #[test]
+    fn relayed_reading_is_device_signed_and_relayer_signed() {
+        let (chain, _d) = make_chain();
+        fund(&chain, "shindevlin", 10_000_000_000_000);
+        fund(&chain, "josh", 10_000_000_000_000);
+        let dev_sk = SigningKey::from_bytes(&[0x77; 32]);
+        let dev_pk = hex::encode(dev_sk.verifying_key().to_bytes());
+        chain.store.state_set("sensor_devkey:flipper-s-subghz",
+            &serde_json::to_vec(&serde_json::json!({ "device_pubkey": dev_pk, "owner": "shindevlin" })).unwrap()).unwrap();
+        let relay_by = |by: &str, sk: &SigningKey, e: &LedgerEntry| {
+            let msg = canonical_signing_message(e, &chain.chain_id).unwrap();
+            let rm = crate::data_rules::relay_message(&chain.chain_id, by, &msg);
+            hone_types::RelayProof { by: by.into(), sig: hex::encode(sk.sign(rm.as_bytes()).to_bytes()) }
+        };
+        let mut p = test_prov(&dev_pk[..16], "fused"); p.cls = "flipper".into(); p.sensor = "subghz".into();
+        let mk = |w: u64, epoch: u64| LedgerEntry::SensorSummary { sensor_id: "flipper-s-subghz".into(), owner: "shindevlin".into(),
+            batch_hash: String::new(), cell: "896d75d960bffff".into(), window: w,
+            metrics: [("subghz.433".to_string(), 4i64)].into_iter().collect(), epoch, signed_by: "shindevlin".into(),
+            prov: Some(p.clone()), relay: None };
+        let jk = SigningKey::from_bytes(&[b'j'; 32]);
+        // josh relays shindevlin's Flipper reading: device signature plus josh's relay signature.
+        let mut e = mk(1, 365_000);
+        let dsig = sign(&dev_sk, &e);
+        let r = relay_by("josh", &jk, &e);
+        if let LedgerEntry::SensorSummary { relay, .. } = &mut e { *relay = Some(r.clone()); }
+        precheck_submission(&chain, &e, Some(&dsig)).unwrap();
+        // The relayer cannot change the data.
+        let mut t = e.clone();
+        if let LedgerEntry::SensorSummary { metrics, .. } = &mut t { metrics.insert("subghz.433".into(), 99); }
+        assert!(validate_and_apply(&chain, &t, Some(&dsig)).is_err(), "altered data");
+        // Someone else cannot take the relay credit.
+        let mut s2 = e.clone();
+        if let LedgerEntry::SensorSummary { relay: Some(rr), .. } = &mut s2 { rr.by = "shindevlin".into(); }
+        assert!(validate_and_apply(&chain, &s2, Some(&dsig)).is_err(), "relay signed by josh, claimed by another");
+        // Not signed by the device: refused.
+        assert!(validate_and_apply(&chain, &e, Some(&sign(&jk, &e))).is_err(), "relayer signing the data is not enough");
+        validate_and_apply(&chain, &e, Some(&dsig)).unwrap();
+        // Before the relay gate: refused.
+        let mut early = mk(2, 364_999);
+        if let LedgerEntry::SensorSummary { prov, .. } = &mut early { *prov = None; }
+        let esig = sign(&dev_sk, &early);
+        let er = relay_by("josh", &jk, &early);
+        if let LedgerEntry::SensorSummary { relay, .. } = &mut early { *relay = Some(er); }
+        assert!(validate_and_apply(&chain, &early, Some(&esig)).is_err());
     }
 
     #[test]
@@ -4002,6 +4095,9 @@ mod tests {
             key: key.into(), value: value.into(), signed_by: by.into(), epoch: 352_700, signature: None };
         let e = mk("josh", "schema:hone.raw.wifi@1", &h1);
         validate_and_apply(&chain, &e, Some(&sign(&jk, &e))).unwrap();
+        // The registry hash the app agent publishes at honemesh.net/api/raw/schema.
+        let reg = mk("josh", "schema:hone.raw@1", "e03992fb342e682296241112e1668f04d947a942ce1ffc86eb721c24e98531ca");
+        validate_and_apply(&chain, &reg, Some(&sign(&jk, &reg))).unwrap();
         // Same version again (same or another hash): refused.
         let again = mk("josh", "schema:hone.raw.wifi@1", &"cd".repeat(32));
         assert!(validate_and_apply(&chain, &again, Some(&sign(&jk, &again))).is_err());

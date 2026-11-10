@@ -1641,9 +1641,13 @@ impl Chain {
             | LedgerEntry::BirdMerge { .. } | LedgerEntry::BirdMergeConsent { .. } | LedgerEntry::BirdSplit { .. } => {
                 crate::bird_cards::apply(self, entry)?;
             }
-            LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, .. } => {
+            LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, prov, relay, .. } => {
                 crate::sensor_seat::touch(self, owner, *epoch);
-                let (verdicts, pts) = crate::usefulness::score(self, sensor_id, owner, cell, *window, metrics, *epoch);
+                let ctx = crate::usefulness::SummaryCtx {
+                    dev: crate::data_rules::device_of(sensor_id, prov.as_ref()),
+                    relay: relay.as_ref().map(|r| crate::usefulness::owner_of(&r.by)),
+                };
+                let (verdicts, pts) = crate::usefulness::score_ex(self, sensor_id, owner, cell, *window, metrics, *epoch, &ctx);
                 for (m, v) in &verdicts {
                     crate::usefulness::shadow_push(self, sensor_id, owner, cell, *window, m, metrics[m], v);
                 }

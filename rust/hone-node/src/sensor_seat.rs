@@ -354,7 +354,7 @@ pub(crate) mod tests {
         seat_of("joe")
     }
     fn summary(c: &Chain, seat: &str, w: u64) -> Result<String> {
-        let e = LedgerEntry::SensorSummary { sensor_id: "cam".into(), owner: seat.into(), batch_hash: String::new(),
+        let e = LedgerEntry::SensorSummary { prov: None, relay: None, sensor_id: "cam".into(), owner: seat.into(), batch_hash: String::new(),
             cell: "896d75d960bffff".into(), window: w, metrics: [("birds.species".to_string(), w as i64)].into_iter().collect(),
             epoch: 352_700, signed_by: seat.into() };
         validate_and_apply(c, &e, Some(&sig(&key(SEAT_SEED), &e)))

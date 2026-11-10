@@ -220,6 +220,11 @@ pub const SCHEMA_ANCHOR_EPOCH: u64 = u64::MAX;
 /// From this epoch the governance param live_window_epochs takes effect (paid-archive
 /// encryption). OFF: everything stays public.
 pub const LIVE_WINDOW_EPOCH: u64 = u64::MAX;
+/// Provenance (Josh 2026-11-10 11:22): every SENSOR_SUMMARY carries signed `prov` (what, when, why).
+/// Rows without it are refused. OFF.
+pub const PROVENANCE_EPOCH: u64 = u64::MAX;
+/// Relayed summaries (device-signed, uploaded by another account's phone) and the relayer's share. OFF.
+pub const RELAY_CREDIT_EPOCH: u64 = u64::MAX;
 
 /// Founder set for the permalock 2-of-3 multisig that can lift a permanent soulbound.
 /// PLACEHOLDER — confirm the exact three founder accounts.
