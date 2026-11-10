@@ -1293,6 +1293,9 @@ pub fn validate_and_apply(
                 || !metrics.keys().all(|m| crate::usefulness::valid_metric(m)) {
                 bail!("SensorSummary needs 1..={} metrics with lowercase names", crate::usefulness::MAX_METRICS);
             }
+            if !crate::usefulness::flipper_metrics_ok(sensor_id, metrics, *epoch) {
+                bail!("a Flipper reports NFC only as nfc.count");
+            }
             if let Some((seat_owner, _)) = hone_types::parse_device_clock_id(signed_by) {
                 // A device seat `owner@<pubkey>` (a phone) signs with its own seat key. The
                 // seat must be staked by its owner (clock or decide role), so a made-up

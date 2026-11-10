@@ -71,6 +71,47 @@ pub fn valid_cell(cell: &str) -> bool {
         && cell.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// FLIPPER_USEFUL_EPOCH (tests: 360,000).
+pub fn flipper_epoch() -> u64 { if cfg!(test) { 360_000 } else { hone_types::FLIPPER_USEFUL_EPOCH } }
+/// Fastest believable move of one Flipper between two summaries (about 250 km/h).
+pub const FLIPPER_MAX_SPEED_M_S: f64 = 70.0;
+
+pub fn is_flipper(sensor_id: &str) -> bool { sensor_id.starts_with("flipper-") }
+
+/// Metric rule for a summary (checked at submit): from FLIPPER_USEFUL_EPOCH a Flipper may
+/// report NFC only as `nfc.count` (no tag ids, types or other NFC detail).
+pub fn flipper_metrics_ok(sensor_id: &str, metrics: &BTreeMap<String, i64>, epoch: u64) -> bool {
+    !(is_flipper(sensor_id) && epoch >= flipper_epoch()
+      && metrics.keys().any(|m| m.starts_with("nfc.") && m != "nfc.count"))
+}
+
+fn center(cell: &str) -> Option<(f64, f64)> {
+    h3(cell).map(|c| { let ll = h3o::LatLng::from(c); (ll.lat(), ll.lng()) })
+}
+fn meters(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (la1, lo1, la2, lo2) = (a.0.to_radians(), a.1.to_radians(), b.0.to_radians(), b.1.to_radians());
+    let h = ((la2 - la1) / 2.0).sin().powi(2) + la1.cos() * la2.cos() * ((lo2 - lo1) / 2.0).sin().powi(2);
+    2.0 * 6_371_000.0 * h.sqrt().asin()
+}
+
+/// Flipper gate (from FLIPPER_USEFUL_EPOCH): returns false when the summary must not score:
+/// unanchored (no wifi.fp token), or a teleport from the device's last scored position
+/// (faster than FLIPPER_MAX_SPEED_M_S between window starts; same window counts as 900 s).
+/// The summary itself stays on chain either way. Records the last scored position.
+fn flipper_scores(chain: &Chain, sensor_id: &str, cell: &str, window: u64, metrics: &BTreeMap<String, i64>) -> bool {
+    if !metrics.keys().any(|m| m.starts_with("wifi.fp:")) { return false; }
+    let k = format!("uflip_last:{sensor_id}");
+    if let Some(last) = get_json(chain, &k) {
+        let (lc, lw) = (last["cell"].as_str().unwrap_or(""), last["window"].as_u64().unwrap_or(0));
+        if let (Some(a), Some(b)) = (center(lc), center(cell)) {
+            let dt = (window.abs_diff(lw).max(1) * 900) as f64;
+            if meters(a, b) / dt > FLIPPER_MAX_SPEED_M_S { return false; }
+        }
+    }
+    set_json(chain, &k, &serde_json::json!({ "cell": cell, "window": window }));
+    true
+}
+
 /// Epochs from a claim to its single verdict (decide-by, from USEFULNESS_DECIDE_BY_EPOCH).
 pub const DECIDE_BY_EPOCHS: u64 = 2_880;
 
@@ -310,6 +351,9 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
     let owner = owner_of(owner);
     let mut out = Vec::new();
     let mut pts = 0u64;
+    if is_flipper(sensor_id) && epoch >= flipper_epoch() && !flipper_scores(chain, sensor_id, cell, window, metrics) {
+        return (out, pts); // kept on chain, scores nothing (unanchored or teleport)
+    }
     for (m, &v) in metrics {
         if !scored_metric_at(m, epoch) { continue; }
         let dev_key = format!("usum:{sensor_id}:{window}:{m}");
@@ -979,6 +1023,44 @@ mod tests {
         score(&c, "phone-b", "bob", C, W0 + 1, &m(&[("wifi.ap_count", 21)]), G + 5);
         assert_eq!(st(&c, C, W0, "wifi.ap_count"), "proven");
         assert_eq!(proven_points(&c, "bob"), VERIFY_POINTS);
+    }
+
+    const FAR: &str = "896d2903567ffff"; // about 170 km from C
+    #[test]
+    fn flipper_needs_an_anchor_and_scores_like_a_phone() {
+        let (c, _d) = chain();
+        // Before the gate: unchanged (scored like any device).
+        let (_, p) = score(&c, "flipper-aa", "bob", C, W0, &m(&[("subghz.433", 4)]), G - 1);
+        assert_eq!(p, NOVEL_POINTS);
+        // From the gate: unanchored scores nothing.
+        let (v, p) = score(&c, "flipper-bb", "carol", C, W0, &m(&[("ir.tv", 3)]), G);
+        assert_eq!((v.len(), p), (0, 0));
+        // Anchored: the same points as a phone (fp tokens themselves are context).
+        let (_, pf) = score(&c, "flipper-bb", "carol", C, W0 + 1, &m(&[("ir.tv", 3), ("wifi.fp:0a1b2c3d", -60)]), G);
+        let (_, pp) = score(&c, "phone-d", "dave", P8, W0 + 1, &m(&[("ir.tv", 3)]), G);
+        assert_eq!(pf, pp);
+        assert_eq!(pf, NOVEL_POINTS);
+    }
+
+    #[test]
+    fn flipper_teleport_scores_nothing() {
+        let (c, _d) = chain();
+        let fp = ("wifi.fp:0a1b2c3d", -60);
+        assert!(score(&c, "flipper-cc", "erin", C, W0, &m(&[("subghz.433", 2), fp]), G).1 > 0);
+        // 170 km in one window (900 s, about 190 m/s): void.
+        assert_eq!(score(&c, "flipper-cc", "erin", FAR, W0 + 1, &m(&[("subghz.315", 2), fp]), G).1, 0);
+        // The same distance over a day is a normal trip.
+        assert!(score(&c, "flipper-cc", "erin", FAR, W0 + 96, &m(&[("subghz.315", 2), fp]), G).1 > 0);
+    }
+
+    #[test]
+    fn flipper_nfc_is_a_count_only() {
+        let ok = m(&[("nfc.count", 3), ("wifi.fp:0a1b2c3d", -60)]);
+        let bad = m(&[("nfc.count", 3), ("nfc.mifare", 1)]);
+        assert!(flipper_metrics_ok("flipper-x", &ok, G));
+        assert!(!flipper_metrics_ok("flipper-x", &bad, G));
+        assert!(flipper_metrics_ok("flipper-x", &bad, G - 1), "before the gate: unchanged");
+        assert!(flipper_metrics_ok("phone-x", &bad, G), "phones are not affected");
     }
 
     #[test]

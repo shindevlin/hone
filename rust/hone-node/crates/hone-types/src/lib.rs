@@ -190,6 +190,10 @@ pub const SET_CERT_EPOCH: u64 = u64::MAX;
 /// revealed" strike per spot-checked entry (it could not reveal what it never committed).
 /// Off until Josh signs off an epoch.
 pub const DECIDE_SPOTCHECK_COMMIT_EPOCH: u64 = u64::MAX;
+/// Flipper usefulness (design 6b): from here a SENSOR_SUMMARY whose sensor_id starts with
+/// "flipper-" scores like a phone only if it is anchored (at least one wifi.fp token) and
+/// passes the teleport check; NFC may only be reported as `nfc.count`. Off until Josh OK.
+pub const FLIPPER_USEFUL_EPOCH: u64 = u64::MAX;
 /// Usefulness decide-by (decide-by design section 6): a claim made from here gets
 /// decide_by = T + 2,880; corroborations and contradictions count only if applied at or
 /// before decide_by; the verdict is computed once, at decide_by, and pays then (never early
