@@ -71,6 +71,54 @@ pub fn valid_cell(cell: &str) -> bool {
         && cell.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Coarsest and finest H3 resolution a summary cell may have from CELL_RES_RANGE_EPOCH.
+pub const MIN_CELL_RES: u8 = 7;
+pub const MAX_CELL_RES: u8 = 9;
+
+/// The cell-resolution gate. Tests exercise the rule as if it were active from 352,000.
+pub fn cell_res_epoch() -> u64 {
+    if cfg!(test) { 352_000 } else { hone_types::CELL_RES_RANGE_EPOCH }
+}
+/// The lora/wifi metric-family gate. Tests: active from 352,000.
+pub fn families_epoch() -> u64 {
+    if cfg!(test) { 352_000 } else { hone_types::SENSOR_FAMILIES_EPOCH }
+}
+
+fn h3(cell: &str) -> Option<h3o::CellIndex> {
+    u64::from_str_radix(cell, 16).ok().and_then(|v| h3o::CellIndex::try_from(v).ok())
+}
+fn hex(c: h3o::CellIndex) -> String { format!("{:x}", u64::from(c)) }
+
+/// H3 resolution of a cell string (None if it is not a valid cell index).
+pub fn cell_res(cell: &str) -> Option<u8> { h3(cell).map(|c| u8::from(c.resolution())) }
+
+/// Cell check at `epoch`: the format before CELL_RES_RANGE_EPOCH (unchanged), a real H3 cell
+/// at res 7..=9 from it.
+pub fn valid_cell_at(cell: &str, epoch: u64) -> bool {
+    valid_cell(cell)
+        && (epoch < cell_res_epoch()
+            || cell_res(cell).is_some_and(|r| (MIN_CELL_RES..=MAX_CELL_RES).contains(&r)))
+}
+
+/// Noise band at `epoch`: band(), plus the lora/wifi family bands from SENSOR_FAMILIES_EPOCH.
+pub fn band_at(metric: &str, est: i64, epoch: u64) -> i64 {
+    if epoch >= families_epoch() {
+        let m = metric;
+        if m.starts_with("lora.") && !(m.ends_with("rssi_p50") || m.ends_with("rssi_max")) {
+            if m.ends_with("snr_p50") { return 3; }
+            return (est.abs() * 30 / 100).max(2);
+        }
+        if m.starts_with("wifi.fp:") { return 8; }
+    }
+    band(metric, est)
+}
+
+/// scored_metric at `epoch`: from SENSOR_FAMILIES_EPOCH Wi-Fi fingerprint tokens are location
+/// context (an anchor against GPS spoofing), accepted and kept but never scored or paid.
+pub fn scored_metric_at(m: &str, epoch: u64) -> bool {
+    scored_metric(m) && !(epoch >= families_epoch() && m.starts_with("wifi.fp:"))
+}
+
 /// Context metrics describe effort or location quality, not the environment (scan counts,
 /// sample counts, histograms): accepted in a summary but never scored or paid.
 pub fn scored_metric(m: &str) -> bool {
@@ -127,18 +175,77 @@ fn corroborate_ring(chain: &Chain, owner: &str, cell: &str, window: u64, m: &str
     let mut pts = 0;
     for n in ring1(cell) {
         for w in window.saturating_sub(VERIFY_WINDOWS)..=window + VERIFY_WINDOWS {
-            let ck = claim_key(&n, m, w);
-            let Some(c) = get_json(chain, &ck) else { continue };
-            if c["status"] != "pending" || c["owner"].as_str() == Some(owner) { continue; }
-            let Some(cv) = c["value"].as_i64() else { continue };
-            if (v - cv).abs() > band(m, cv) { continue; }
-            let vkey = format!("uver:{n}:{m}:{w}:{owner}");
-            if chain.store.state_get(&vkey).is_some() { continue; }
-            let _ = chain.store.state_set(&vkey, b"1");
-            if let Some(co) = c["owner"].as_str() { add_trust(chain, co, 1); }
-            settle(chain, &n, m, w, true, epoch);
-            credit(chain, owner, VERIFY_POINTS, epoch);
-            pts += VERIFY_POINTS;
+            pts += try_prove(chain, owner, &n, m, w, v, epoch);
+        }
+    }
+    pts
+}
+
+/// A report of (`m`, `v`) by `owner` proves another owner's pending claim at
+/// (`ccell`, `m`, `w`) if `v` is within the claim's noise band. Once per (claim, owner).
+fn try_prove(chain: &Chain, owner: &str, ccell: &str, m: &str, w: u64, v: i64, epoch: u64) -> u64 {
+    let ck = claim_key(ccell, m, w);
+    let Some(c) = get_json(chain, &ck) else { return 0 };
+    if c["status"] != "pending" || c["owner"].as_str() == Some(owner) { return 0; }
+    let Some(cv) = c["value"].as_i64() else { return 0 };
+    if (v - cv).abs() > band_at(m, cv, epoch) { return 0; }
+    let vkey = format!("uver:{ccell}:{m}:{w}:{owner}");
+    if chain.store.state_get(&vkey).is_some() { return 0; }
+    let _ = chain.store.state_set(&vkey, b"1");
+    if let Some(co) = c["owner"].as_str() { add_trust(chain, co, 1); }
+    settle(chain, ccell, m, w, true, epoch);
+    credit(chain, owner, VERIFY_POINTS, epoch);
+    VERIFY_POINTS
+}
+
+/// `cell` and its 1-ring (the cell first).
+fn disk1(c: h3o::CellIndex) -> Vec<String> {
+    let mut out = vec![hex(c)];
+    let mut ring: Vec<String> = c.grid_disk::<Vec<_>>(1).into_iter().filter(|n| *n != c).map(hex).collect();
+    ring.sort();
+    out.extend(ring);
+    out
+}
+
+/// Index key of a pending claim at a finer cell under one of its coarser ancestors (res >= 7),
+/// so a coarse report can find the finer claims it contains.
+fn up_key(ancestor: &str, m: &str, w: u64, cell: &str) -> String { format!("uclaim_up:{ancestor}:{m}:{w}:{cell}") }
+
+fn index_claim_up(chain: &Chain, cell: &str, m: &str, w: u64) {
+    let Some(c) = h3(cell) else { return };
+    let res = u8::from(c.resolution());
+    for r in MIN_CELL_RES..res {
+        let Ok(rr) = h3o::Resolution::try_from(r) else { continue };
+        if let Some(p) = c.parent(rr) { let _ = chain.store.state_set(&up_key(&hex(p), m, w, cell), b"1"); }
+    }
+}
+
+/// Corroboration across resolutions by containment (from CELL_RES_RANGE_EPOCH), with the
+/// 1-ring rule applied at the coarser resolution of the pair:
+/// - a finer report proves a coarser claim whose cell is, or neighbours, the report's
+///   ancestor at the claim's resolution;
+/// - a coarser report proves a finer claim whose ancestor at the report's resolution is the
+///   report's cell or one of its neighbours.
+fn corroborate_cross_res(chain: &Chain, owner: &str, cell: &str, window: u64, m: &str, v: i64, epoch: u64) -> u64 {
+    if trust(chain, owner) < TRUST_FLOOR { return 0; }
+    let Some(c) = h3(cell) else { return 0 };
+    let res = u8::from(c.resolution());
+    let wins = window.saturating_sub(VERIFY_WINDOWS)..=window + VERIFY_WINDOWS;
+    let mut pts = 0;
+    for r in MIN_CELL_RES..res {
+        let Some(p) = h3o::Resolution::try_from(r).ok().and_then(|rr| c.parent(rr)) else { continue };
+        for n in disk1(p) {
+            for w in wins.clone() { pts += try_prove(chain, owner, &n, m, w, v, epoch); }
+        }
+    }
+    for n in disk1(c) {
+        for w in wins.clone() {
+            let pre = format!("uclaim_up:{n}:{m}:{w}:");
+            for (k, _) in chain.store.state_scan_prefix(&pre) {
+                let fine = &k[pre.len()..];
+                if !valid_cell(fine) { continue; }
+                pts += try_prove(chain, owner, fine, m, w, v, epoch);
+            }
         }
     }
     pts
@@ -152,7 +259,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
     let mut out = Vec::new();
     let mut pts = 0u64;
     for (m, &v) in metrics {
-        if !scored_metric(m) { continue; }
+        if !scored_metric_at(m, epoch) { continue; }
         let dev_key = format!("usum:{sensor_id}:{window}:{m}");
         let own_key = format!("usum_o:{owner}:{cell}:{window}:{m}");
         if chain.store.state_get(&dev_key).is_some() || chain.store.state_get(&own_key).is_some() {
@@ -170,7 +277,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                 let ev = est["value"].as_i64().unwrap_or(0);
                 let ew = est["window"].as_u64().unwrap_or(0);
                 let eo = est["owner"].as_str().unwrap_or("");
-                let same = (v - ev).abs() <= band(m, ev);
+                let same = (v - ev).abs() <= band_at(m, ev, epoch);
                 let near = window.abs_diff(ew) <= VERIFY_WINDOWS;
                 if eo != owner && near {
                     if trust(chain, &owner) < TRUST_FLOOR { Verdict::Repeat }
@@ -200,6 +307,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                             "epoch": epoch, "status": "pending", "value": v, "sensor": sensor_id }));
                         let _ = chain.store.state_set(&format!("uclaim_o:{owner}:{cell}:{m}:{window}"), b"1");
                         let _ = chain.store.state_set(&format!("uclaim_due:{:016x}:{cell}:{m}:{window}", epoch + CLAIM_WINDOW_EPOCHS), b"1");
+                        if epoch >= cell_res_epoch() { index_claim_up(chain, cell, m, window); }
                         pts += NOVEL_POINTS;
                     }
                 }
@@ -226,6 +334,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
         }
         // Neighbouring cells: this report may corroborate other owners' pending claims.
         pts += corroborate_ring(chain, &owner, cell, window, m, v, epoch);
+        if epoch >= cell_res_epoch() { pts += corroborate_cross_res(chain, &owner, cell, window, m, v, epoch); }
         out.push((m.clone(), verdict));
     }
     (out, pts)
@@ -597,6 +706,127 @@ mod tests {
         assert_eq!(p, NOVEL_POINTS);
         let (_, p) = score(&c, "fl-b", "natoshisakamoto", C, W0 + 1, &m(&[("subghz.433", 6)]), E0);
         assert_eq!(p, 0);
+    }
+
+    // Cells around C for the cross-resolution tests.
+    const P7: &str = "876d75d96ffffff"; // C's res-7 parent
+    const P8: &str = "886d75d961fffff"; // C's res-8 parent
+    const N7: &str = "876d74365ffffff"; // a res-7 neighbour of P7
+    const C9N7: &str = "896d7436503ffff"; // a res-9 cell inside N7
+    const FAR9: &str = "896d7436003ffff"; // a res-9 cell whose res-7 parent is 2 rings from P7
+    const BEFORE: u64 = 351_999; // test gates (cell res, families) are active from 352,000
+
+    #[test]
+    fn cell_resolution_range_is_gated() {
+        assert_eq!(cell_res(C), Some(9));
+        assert_eq!(cell_res(P7), Some(7));
+        assert_eq!(cell_res(P8), Some(8));
+        for c in [P7, P8, C] { assert!(valid_cell_at(c, E0), "{c} accepted after the gate"); }
+        // Res 6 and res 10: accepted before the gate (format check only), rejected after.
+        for c in ["866d75d97ffffff", "8a6d75d96087fff"] {
+            assert!(valid_cell_at(c, BEFORE), "{c} before the gate");
+            assert!(!valid_cell_at(c, E0), "{c} after the gate");
+        }
+        // A well-formed string that is not an H3 cell: format-only before, rejected after.
+        assert!(valid_cell_at("8fffffffffffff0", BEFORE));
+        assert!(!valid_cell_at("8fffffffffffff0", E0));
+    }
+
+    #[test]
+    fn novelty_is_per_cell_at_its_own_resolution() {
+        let (c, _d) = chain();
+        // A res-7 home summary and a res-9 phone summary of another owner inside it are each
+        // the first report for their own (cell, window, metric): both novel.
+        let (v7, p7) = score(&c, "nebra-wifi", "josh", P7, W0, &m(&[("wifi.ap_count", 30)]), E0);
+        assert_eq!((v7[0].1.clone(), p7), (Verdict::Novel, NOVEL_POINTS));
+        let (v9, _) = score(&c, "phone-b", "bob", C, W0 + 5, &m(&[("wifi.ap_count", 30)]), E0);
+        assert_eq!(v9[0].1, Verdict::Novel);
+        assert!(get_json(&c, &format!("uest:{P7}:wifi.ap_count")).is_some());
+        assert!(get_json(&c, &format!("uest:{C}:wifi.ap_count")).is_some());
+    }
+
+    #[test]
+    fn a_finer_report_proves_a_coarser_claim_it_lies_in_or_next_to() {
+        let (c, _d) = chain();
+        let ck = |cell: &str, w: u64| get_json(&c, &claim_key(cell, "lora.packets", w)).unwrap()["status"].clone();
+        score(&c, "nebra-lora", "josh", P7, W0, &m(&[("lora.packets", 40)]), E0);
+        score(&c, "nebra-lora", "josh", N7, W0 + 10, &m(&[("lora.packets", 40)]), E0);
+        // Same owner's phone inside: never.
+        score(&c, "phone-a", "josh", C, W0 + 1, &m(&[("lora.packets", 40)]), E0 + 1);
+        assert_eq!(ck(P7, W0), "pending");
+        // Another owner far away (res-7 parent 2 rings out): no.
+        score(&c, "gw-b", "bob", FAR9, W0 + 1, &m(&[("lora.packets", 40)]), E0 + 1);
+        assert_eq!(ck(P7, W0), "pending");
+        // Another owner at res 9 inside P7, within the band (30 %): proven.
+        score(&c, "gw-b", "bob", C, W0 + 2, &m(&[("lora.packets", 50)]), E0 + 2);
+        assert_eq!(ck(P7, W0), "proven");
+        // The 1-ring rule at the coarser resolution: a res-8 report inside P7 proves N7's claim
+        // (a res-7 neighbour), once per (claim, owner).
+        assert_eq!(ck(N7, W0 + 10), "pending");
+        let before = proven_points(&c, "carol");
+        score(&c, "gw-c", "carol", P8, W0 + 11, &m(&[("lora.packets", 41)]), E0 + 3);
+        assert_eq!(ck(N7, W0 + 10), "proven");
+        assert_eq!(proven_points(&c, "carol") - before, VERIFY_POINTS);
+    }
+
+    #[test]
+    fn a_coarser_report_proves_finer_claims_it_contains_or_neighbours() {
+        let (c, _d) = chain();
+        let ck = |cell: &str| get_json(&c, &claim_key(cell, "wifi.ap_count", W0)).unwrap()["status"].clone();
+        score(&c, "phone-b", "bob", C, W0, &m(&[("wifi.ap_count", 25)]), E0);
+        score(&c, "phone-c", "carol", C9N7, W0, &m(&[("wifi.ap_count", 25)]), E0);
+        score(&c, "phone-d", "dave", FAR9, W0, &m(&[("wifi.ap_count", 25)]), E0);
+        // josh's res-7 home summary at P7: proves C (inside) and C9N7 (inside a neighbour of P7),
+        // not FAR9 (two rings out at res 7).
+        score(&c, "nebra-wifi", "josh", P7, W0 + 1, &m(&[("wifi.ap_count", 26)]), E0 + 1);
+        assert_eq!(ck(C), "proven");
+        assert_eq!(ck(C9N7), "proven");
+        assert_eq!(ck(FAR9), "pending");
+        assert_eq!(proven_points(&c, "josh"), 2 * VERIFY_POINTS);
+    }
+
+    #[test]
+    fn cross_resolution_corroboration_is_off_before_the_gate() {
+        let (c, _d) = chain();
+        score(&c, "nebra-lora", "josh", P7, W0, &m(&[("lora.packets", 40)]), BEFORE);
+        score(&c, "gw-b", "bob", C, W0 + 1, &m(&[("lora.packets", 40)]), BEFORE);
+        assert_eq!(get_json(&c, &claim_key(P7, "lora.packets", W0)).unwrap()["status"], "pending");
+        assert!(c.store.state_scan_prefix("uclaim_up:").is_empty());
+    }
+
+    #[test]
+    fn lora_and_wifi_family_bands_are_gated() {
+        // LoRa counts: 30 % / min 2 after the gate; 20 % / min 1 before.
+        assert_eq!(band_at("lora.packets", 10, E0), 3);
+        assert_eq!(band_at("lora.packets", 10, BEFORE), 2);
+        assert_eq!(band_at("lora.ch3", 0, E0), 2);
+        assert_eq!(band_at("lora.devaddr_unique", 20, E0), 6);
+        assert_eq!(band_at("lora.snr_p50", 7, E0), 3);
+        assert_eq!(band_at("lora.snr_p50", 7, BEFORE), 1);
+        assert_eq!(band_at("lora.rssi_p50", -110, E0), 6);
+        assert_eq!(band_at("wifi.fp:0a1b2c3d", -60, E0), 8);
+        assert_eq!(band_at("wifi.ap_count", 20, E0), band("wifi.ap_count", 20));
+        // Next window, same day: within the new band is a repeat; before the gate it was novel.
+        let (c, _d) = chain();
+        score(&c, "nebra-lora", "josh", P7, W0, &m(&[("lora.packets", 10), ("lora.snr_p50", 5)]), E0);
+        let (v, p) = score(&c, "nebra-lora", "josh", P7, W0 + 1, &m(&[("lora.packets", 13), ("lora.snr_p50", 8)]), E0);
+        assert_eq!(p, 0);
+        assert!(v.iter().all(|(_, x)| *x == Verdict::Repeat));
+        let (c2, _d2) = chain();
+        score(&c2, "nebra-lora", "josh", P7, W0, &m(&[("lora.packets", 10), ("lora.snr_p50", 5)]), BEFORE);
+        let (_, p) = score(&c2, "nebra-lora", "josh", P7, W0 + 1, &m(&[("lora.packets", 13), ("lora.snr_p50", 8)]), BEFORE);
+        assert_eq!(p, 2 * NOVEL_POINTS);
+    }
+
+    #[test]
+    fn wifi_fingerprint_tokens_are_context_after_the_gate() {
+        let (c, _d) = chain();
+        let s = m(&[("wifi.ap_count", 29), ("wifi.fp:0a1b2c3d", -48), ("wifi.fp:99887766", -61)]);
+        let (v, p) = score(&c, "nebra-wifi", "josh", P7, W0, &s, E0);
+        assert_eq!((v.len(), p), (1, NOVEL_POINTS));
+        let (c2, _d2) = chain();
+        let (v, p) = score(&c2, "nebra-wifi", "josh", P7, W0, &s, BEFORE);
+        assert_eq!((v.len(), p), (3, 3 * NOVEL_POINTS));
     }
 
     #[test]
