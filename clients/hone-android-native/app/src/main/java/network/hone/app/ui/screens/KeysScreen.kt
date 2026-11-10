@@ -61,7 +61,7 @@ fun KeysScreen(onBack: () -> Unit, onFindMy: () -> Unit, onNode: () -> Unit, vm:
                 detail = "The owner key controls the account and stays off this phone. Keep its backup safe; nobody at Honemesh can recover it.")
             HorizontalDivider(color = HoneOutline)
             ExpertRow("Sending key", "active key", if (hasActive) "On this phone" else "Not here", if (hasActive) HoneGreen else HoneTextDim,
-                detail = "Sends HONE and backs people. Locked to your fingerprint or screen lock; every use asks first.") {
+                detail = "Sends HONE and backs people. Encrypted with your password; every use shows what it signs and asks for the password.") {
                 LineButton(if (hasActive) "Manage" else "Add sending key") { keySheet = true }
             }
             HorizontalDivider(color = HoneOutline)

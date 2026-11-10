@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: the active key vault and agent key never leave the phone (no cloud backup, no device-to-device copy). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="hone-node/wallet_active.v2" />
+        <exclude domain="file" path="hone-node/wallet_active.v2.tmp" />
+        <exclude domain="file" path="hone-node/wallet_active.pub" />
+        <exclude domain="file" path="hone-node/wallet_active.bio" />
+        <exclude domain="file" path="hone-node/wallet_active.enc" />
+        <exclude domain="file" path="hone-node/agent_key.enc" />
+        <exclude domain="file" path="hone-node/agent_key.pub" />
+        <exclude domain="sharedpref" path="hone_vault.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="hone-node/wallet_active.v2" />
+        <exclude domain="file" path="hone-node/wallet_active.v2.tmp" />
+        <exclude domain="file" path="hone-node/wallet_active.pub" />
+        <exclude domain="file" path="hone-node/wallet_active.bio" />
+        <exclude domain="file" path="hone-node/wallet_active.enc" />
+        <exclude domain="file" path="hone-node/agent_key.enc" />
+        <exclude domain="file" path="hone-node/agent_key.pub" />
+        <exclude domain="sharedpref" path="hone_vault.xml" />
+    </device-transfer>
+</data-extraction-rules>

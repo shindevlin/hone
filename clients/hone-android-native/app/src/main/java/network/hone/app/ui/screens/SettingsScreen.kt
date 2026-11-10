@@ -75,6 +75,13 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
 
         FlipperDevicesCard(onOpen = { onOpen("flipper") }, title = "Your devices")
 
+        Section("Account keys") {
+            val hasActive = remember { network.hone.app.data.ActiveKeyVault.has(ctx) }
+            Text(if (hasActive) "Sending key on this phone, locked with your password." else "Sending key, agent key and what your agent has staked.",
+                style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
+            OutlinedButton({ onOpen("accountkeys") }, modifier = Modifier.fillMaxWidth()) { Text("Account keys") }
+        }
+
         if (simple) TextButton({ advanced = !advanced }) {
             Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_advanced) + if (advanced) " ▾" else " ▸")
         }

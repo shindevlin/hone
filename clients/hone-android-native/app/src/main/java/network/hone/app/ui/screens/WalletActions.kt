@@ -27,6 +27,7 @@ import network.hone.app.data.ActiveKeyVault
 import network.hone.app.data.CanonicalMessage
 import network.hone.app.data.ChainHttp
 import network.hone.app.data.WalletChain
+import network.hone.app.data.VaultPrompt
 import network.hone.app.ui.theme.HoneTextDim
 import network.hone.app.ui.theme.HoneTextFaint
 
@@ -36,68 +37,22 @@ private fun Context.activity(): FragmentActivity? {
     return null
 }
 
-/** Active-key import / remove. Checked against the chain, stored under a biometric-gated
- *  Keystore key, never logged and never shown again. */
-@Composable
-fun ActiveKeyCard(account: String, onChanged: () -> Unit = {}) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var has by remember { mutableStateOf(ActiveKeyVault.has(ctx)) }
-    var hex by remember { mutableStateOf("") }
-    var err by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var confirmRemove by remember { mutableStateOf(false) }
-    val line = MaterialTheme.typography.labelSmall
-
-    fun submit() {
-        val h = hex.trim().lowercase()
-        if (!h.matches(Regex("[0-9a-f]{64}"))) { err = "Expected 64 hex characters (0-9, a-f); got ${h.length}"; return }
-        val act = ctx.activity() ?: run { err = "No activity for the fingerprint prompt"; return }
-        hex = ""; err = null; busy = true
-        scope.launch {
-            val chainPub = withContext(Dispatchers.IO) { runCatching { WalletChain.account(account)?.activePub }.getOrNull() }
-            err = ActiveKeyVault.import(act, h, chainPub)
-            has = ActiveKeyVault.has(ctx); busy = false; onChanged()
-        }
-    }
-
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Sending key", fontWeight = FontWeight.SemiBold)
-        Text("active key", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint, fontFamily = network.hone.app.ui.theme.HoneMono)
-        if (has) {
-            Text("On this phone · ${ActiveKeyVault.pub(ctx)?.take(10)}… · every send or backing asks for your fingerprint or screen lock",
-                style = line, color = HoneTextDim)
-            TextButton(onClick = { confirmRemove = true }) { Text("Remove key") }
-        } else {
-            Text("Sending and backing need @$account's ACTIVE key (not the posting key used for birds). " +
-                "It is checked against the chain, stored encrypted and locked to your fingerprint or screen lock.",
-                style = line, color = HoneTextDim)
-            OutlinedTextField(value = hex, onValueChange = { hex = it.trim(); err = null }, singleLine = true,
-                label = { Text("active private key (64 hex)") }, isError = err != null,
-                supportingText = { Text(err ?: "${hex.length}/64") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done, autoCorrectEnabled = false),
-                keyboardActions = KeyboardActions(onDone = { submit() }), modifier = Modifier.fillMaxWidth())
-            Button(onClick = { submit() }, enabled = hex.isNotEmpty() && !busy, modifier = Modifier.fillMaxWidth()) {
-                Text(if (busy) "Checking…" else "Import active key")
-            }
-        }
-    }
-    if (confirmRemove) AlertDialog(onDismissRequest = { confirmRemove = false },
-        title = { Text("Remove active key?") },
-        text = { Text("This phone will no longer be able to send or back anyone. Your account and funds are not affected.") },
-        confirmButton = { TextButton(onClick = { ActiveKeyVault.remove(ctx); has = false; confirmRemove = false; onChanged() }) { Text("Remove") } },
-        dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } })
-}
-
 /** A reviewed action: rows to show, the message to sign (nonce fetched at confirm time), and the submit call. */
 internal class Plan(
     val title: String,
     val rows: List<Pair<String, String>>,
     val warning: String?,
-    val sign: (nonce: Long, chainId: String) -> String,
+    val sign: (nonce: Long, chainId: String) -> String = { _, _ -> error("no message") },
     val submit: (nonce: Long, epoch: Long, sig: String) -> WalletChain.Submit,
-)
+    /** For entries whose signed bytes include the epoch: sign and submit with the same epoch. */
+    val signAt: ((nonce: Long, chainId: String, epoch: Long) -> String)? = null,
+    /** What the password screen shows. Defaults to the title, the "Amount" row and the "To"/"Who" row. */
+    confirm: VaultPrompt.Confirm? = null,
+) {
+    val confirm: VaultPrompt.Confirm = confirm ?: VaultPrompt.Confirm(title, null,
+        rows.firstOrNull { it.first == "To" || it.first == "Who" }?.second ?: "-",
+        amountLabel = rows.firstOrNull { it.first == "Amount" }?.second)
+}
 
 internal sealed class Step {
     data object Form : Step()
@@ -123,9 +78,9 @@ internal fun Flow(account: String, title: String, step: Step, setStep: (Step) ->
                 }
                 p.warning?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Button(enabled = p.warning == null, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp), onClick = {
-                    val act = ctx.activity() ?: run { setStep(Step.Failed("No activity for the fingerprint prompt")); return@Button }
+                    val act = ctx.activity() ?: run { setStep(Step.Failed("No activity for the password prompt")); return@Button }
                     scope.launch { runPlan(act, account, p, setStep) }
-                }) { Text("Confirm with fingerprint", fontWeight = FontWeight.SemiBold) }
+                }) { Text("Continue to password", fontWeight = FontWeight.SemiBold) }
                 OutlinedButton(onClick = { setStep(Step.Form) }, modifier = Modifier.fillMaxWidth()) { Text("Back") }
             }
             is Step.Working -> Row { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Spacer(Modifier.width(12.dp)); Text(step.text) }
@@ -157,13 +112,13 @@ private suspend fun runPlan(act: FragmentActivity, account: String, p: Plan, set
         setStep(Step.Failed("The stored key no longer matches @$account's active key on chain. Remove it and import the current one.")); return
     }
     val nonce = acct.nonce + 1
-    val msg = p.sign(nonce, info.chainId)
-    when (val s = ActiveKeyVault.sign(act, msg, p.title, p.rows.joinToString(" · ") { it.second })) {
+    val msg = p.signAt?.invoke(nonce, info.chainId, info.epoch) ?: p.sign(nonce, info.chainId)
+    when (val s = ActiveKeyVault.sign(act, msg, p.confirm)) {
         is ActiveKeyVault.Signed.Failed -> setStep(Step.Failed(s.reason))
         is ActiveKeyVault.Signed.Ok -> {
             setStep(Step.Working("Submitting…"))
             val r = withContext(Dispatchers.IO) {
-                runCatching { p.submit(nonce, WalletChain.nodeInfo().epoch, s.signatureHex) }
+                runCatching { p.submit(nonce, if (p.signAt != null) info.epoch else WalletChain.nodeInfo().epoch, s.signatureHex) }
                     .getOrElse { WalletChain.Submit(false, null, it.message) }
             }
             val hash = r.hash
@@ -218,7 +173,8 @@ fun SendFlow(account: String, inline: Boolean = false) {
                             memo.takeIf { it.isNotBlank() }?.let { "Note" to it }),
                         if (dest == account) "You can't send to yourself" else if (after < 0) "Not enough balance (${WalletChain.fmt(bal)})" else null,
                         sign = { n, chain -> CanonicalMessage.transfer(chain, account, dest, amt, WalletChain.TOKEN, n) },
-                        submit = { n, _, sig -> WalletChain.submitTransfer(account, dest, amt, memo.ifBlank { null }, n, sig) }))
+                        submit = { n, _, sig -> WalletChain.submitTransfer(account, dest, amt, memo.ifBlank { null }, n, sig) },
+                        confirm = VaultPrompt.Confirm("Send HONE", amt, "@$dest", listOf("Fee" to WalletChain.fmt(fee)))))
                 }
             }
         }) { Text(if (busy) "Checking…" else "Review") }
@@ -290,7 +246,9 @@ fun DelegateFlow(account: String, inline: Boolean = false, initialNode: String? 
                                 "Fee" to WalletChain.fmt(fee), "Balance after" to (if (after >= 0) WalletChain.fmt(after) else "-")),
                             warn,
                             sign = { n, chain -> CanonicalMessage.nodeRoleStake(chain, u0, n0, r0, account, amt, n) },
-                            submit = { n, epoch, sig -> WalletChain.submitRoleStake(u0, n0, r0, account, amt, epoch, n, sig) }))
+                            submit = { n, epoch, sig -> WalletChain.submitRoleStake(u0, n0, r0, account, amt, epoch, n, sig) },
+                            confirm = VaultPrompt.Confirm(if (u0) "Take back stake ($r0)" else "Stake ($r0)", amt,
+                                if (u0) "@$account (from @$n0)" else "@$n0", listOf("Fee" to WalletChain.fmt(fee)))))
                     }
                 }
             }) { Text(if (busy) "Checking…" else "Review") }

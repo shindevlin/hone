@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older (allowBackup is false as well): never back up the active key vault or agent key. -->
+<full-backup-content>
+    <exclude domain="file" path="hone-node/wallet_active.v2" />
+    <exclude domain="file" path="hone-node/wallet_active.v2.tmp" />
+    <exclude domain="file" path="hone-node/wallet_active.pub" />
+    <exclude domain="file" path="hone-node/wallet_active.bio" />
+    <exclude domain="file" path="hone-node/wallet_active.enc" />
+    <exclude domain="file" path="hone-node/agent_key.enc" />
+    <exclude domain="file" path="hone-node/agent_key.pub" />
+    <exclude domain="sharedpref" path="hone_vault.xml" />
+</full-backup-content>

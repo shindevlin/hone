@@ -69,6 +69,8 @@ fun HoneApp() {
     // HONE light colours are opt-in until they have been checked on a phone (Settings > Advanced).
     network.hone.app.ui.theme.ThemeMode.light = honeMode && AppMode.light(ctx)
     key(honeMode) { AppShell(honeMode) }
+    // Confirm + password for every active-key signature, whichever screen asked.
+    network.hone.app.ui.screens.VaultPromptHost()
 }
 
 @Composable
@@ -166,6 +168,11 @@ private fun AppShell(honeMode: Boolean) {
             composable("findthings") { network.hone.app.ui.screens.FindThingsScreen(onBack = { nav.popBackStack() }, onAdvanced = { nav.navigate("findmy") }) }
             composable("cards") { network.hone.app.ui.screens.CardsScreen(onBack = { nav.popBackStack() }) }
             composable("findmy") { network.hone.app.ui.screens.FindMyScreen(onBack = { nav.popBackStack() }) }
+            composable("accountkeys") { network.hone.app.ui.screens.AccountKeysScreen(onBack = { nav.popBackStack() },
+                onAddAgent = { nav.navigate("agentkey") }, onAgentWallet = { nav.navigate("agentwallet") }) }
+            composable("agentkey") { network.hone.app.ui.screens.AgentKeyScreen(onBack = { nav.popBackStack() }) }
+            composable("agentwallet") { network.hone.app.ui.screens.AgentWalletScreen(onBack = { nav.popBackStack() },
+                onAddAgent = { nav.navigate("agentkey") }) }
             composable(Dest.Sensors.route) { SensorsScreen() }
             composable(Dest.Birds.route) { BirdsScreen() }
             composable(Dest.Settings.route) { SettingsScreen(simple = simple, onOpen = { nav.navigate(it) }, onSignIn = { firstRun = true }) }

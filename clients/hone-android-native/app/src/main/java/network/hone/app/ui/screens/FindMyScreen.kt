@@ -217,13 +217,14 @@ fun FindMyScreen(onBack: () -> Unit) {
     }
 }
 
-/** Signs with the wallet's active key (biometric per signature). */
+/** Signs with the wallet's active key (confirm screen + password per signature). */
 private fun signer(ctx: android.content.Context, title: String): suspend (String) -> String? = { msg ->
     var c: android.content.Context? = ctx
     while (c is android.content.ContextWrapper && c !is androidx.fragment.app.FragmentActivity) c = c.baseContext
     val act = c as? androidx.fragment.app.FragmentActivity
     if (act == null || !network.hone.app.data.ActiveKeyVault.has(ctx)) null
-    else (network.hone.app.data.ActiveKeyVault.sign(act, msg, title, "Signs a Memory entry with your active key")
+    else (network.hone.app.data.ActiveKeyVault.sign(act, msg,
+            network.hone.app.data.VaultPrompt.Confirm(title, null, "Your account memory (Find My sharing entry)"))
         as? network.hone.app.data.ActiveKeyVault.Signed.Ok)?.signatureHex
 }
 
