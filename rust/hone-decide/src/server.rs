@@ -265,6 +265,9 @@ fn vote(d: &Decider, reg: &Registry, store: &mut jury::Store, model_hash: &str,
     if req.epoch <= sealed {
         return Ok((409, json!({"error": format!("epoch {} is at or below the highest sealed epoch {sealed}", req.epoch)})));
     }
+    if store.newest > 0 && req.epoch > store.max_acceptable() && store.maybe_resync(req.epoch) {
+        eprintln!("[decide] vote store resynced to epoch {} (no vote accepted for {} s)", req.epoch, jury::RESYNC_IDLE_S);
+    }
     if store.newest > 0 && req.epoch > store.max_acceptable() {
         bail!("epoch {} is too far ahead of the newest epoch seen ({}; max now {})", req.epoch, store.newest, store.max_acceptable());
     }

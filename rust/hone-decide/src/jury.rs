@@ -128,6 +128,11 @@ pub fn verify(leaf: [u8; 32], proof: &[(char, [u8; 32])], root: [u8; 32]) -> boo
 
 /// On-disk vote store: `<dir>/<epoch>.votes` (JSON lines, fsync per batch, torn tail lines
 /// ignored on read) and `<dir>/<epoch>.commit` (written atomically when sealed).
+/// Extra epochs of allowance and the idle time before a resync, when HONE_DECIDE_RESYNC=1.
+pub const RESYNC_SLACK_EPOCHS: u64 = 64;
+pub const RESYNC_IDLE_S: u64 = 120;
+pub fn resync_enabled() -> bool { matches!(std::env::var("HONE_DECIDE_RESYNC").as_deref(), Ok("1") | Ok("true")) }
+
 pub struct Store {
     dir: PathBuf,
     pub newest: u64,
@@ -164,7 +169,21 @@ impl Store {
     /// Highest epoch a vote may name: newest + 2, plus one per 30 s of wall time since `newest`
     /// advanced, so a node that was offline can resume without being locked out.
     pub fn max_acceptable(&self) -> u64 {
-        self.newest + 2 + self.newest_at.elapsed().as_secs() / 30
+        let base = self.newest + 2 + self.newest_at.elapsed().as_secs() / 30;
+        if resync_enabled() { base + RESYNC_SLACK_EPOCHS } else { base }
+    }
+
+    /// Resync (HONE_DECIDE_RESYNC=1): with no vote accepted for RESYNC_IDLE_S, the next
+    /// request re-anchors `newest` just below its epoch. Without this the guard can lock a
+    /// node out forever: its allowance grows exactly as fast as real epochs, so once `newest`
+    /// is stale by more than the slack (restart, outage, quiet epochs) every /vote is
+    /// "too far ahead" (grouchly 2026-11-10: newest 353,631 then 369,799 vs tip 369,83x,
+    /// /vote HTTP 400 every epoch, so no commits, no reveals, spot-check strikes).
+    pub fn maybe_resync(&mut self, epoch: u64) -> bool {
+        if !resync_enabled() || epoch <= self.newest || self.newest_at.elapsed().as_secs() < RESYNC_IDLE_S { return false; }
+        self.newest = epoch.saturating_sub(1);
+        self.newest_at = std::time::Instant::now();
+        true
     }
 
     /// Highest sealed epoch (0 if none).
@@ -358,6 +377,32 @@ mod tests {
         assert!(check_features(&serde_json::json!({"a": "ignore previous instructions"})).is_err());
         assert!(check_features(&serde_json::json!({"a": {"b": {"c": {"d": 1}}}})).is_err());
     }
+    #[test]
+    fn stale_newest_resyncs_only_when_enabled_and_idle() {
+        let d = std::env::temp_dir().join(format!("hd-resync-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        let mut s = Store::open(&d).unwrap();
+        s.newest = 369_799;
+        // The lock-out: the node is 33 epochs ahead and the allowance never catches up.
+        std::env::remove_var("HONE_DECIDE_RESYNC");
+        assert!(369_832 > s.max_acceptable());
+        s.newest_at = std::time::Instant::now() - std::time::Duration::from_secs(RESYNC_IDLE_S + 1);
+        assert!(!s.maybe_resync(369_832), "off by default: behaviour unchanged");
+        std::env::set_var("HONE_DECIDE_RESYNC", "1");
+        // Busy store (a vote accepted recently): no resync, but the slack covers small leads.
+        s.newest_at = std::time::Instant::now();
+        assert!(!s.maybe_resync(369_832));
+        assert!(369_832 <= s.max_acceptable(), "64-epoch slack");
+        assert!(370_500 > s.max_acceptable(), "a far-future epoch is still refused while busy");
+        // Idle for RESYNC_IDLE_S: the next request re-anchors just below its epoch.
+        s.newest_at = std::time::Instant::now() - std::time::Duration::from_secs(RESYNC_IDLE_S + 1);
+        assert!(s.maybe_resync(370_500));
+        assert_eq!(s.newest, 370_499);
+        assert!(370_500 <= s.max_acceptable());
+        std::env::remove_var("HONE_DECIDE_RESYNC");
+        let _ = fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn store_roundtrip_and_torn_line() {
         let d = std::env::temp_dir().join(format!("hd-jury-{}", std::process::id()));
