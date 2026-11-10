@@ -258,6 +258,7 @@ object SoundSensing {
         val human = p.humanIdx.maxOfOrNull { probs[it] } ?: 0f
         if (human > HUMAN_MAX) {
             win.framesHuman++
+            runCatching { network.hone.app.raw.RawRecorder.onSpeechDropped(System.currentTimeMillis()) }   // marker only; no audio kept
             _live.value = _live.value.copy(
                 framesHeard = _live.value.framesHeard + 1,
                 framesHuman = _live.value.framesHuman + 1,
@@ -376,6 +377,7 @@ object SoundSensing {
             }
             f.appendText(sb.toString())
             network.hone.app.telemetry.Telemetry.birdDetection()
+            for (d in top) runCatching { network.hone.app.raw.RawRecorder.onBird(d.name, d.conf, "perch-v2", d.atMs) }
             for (d in top) network.hone.app.engage.Engagement.onDetection(ctx, d.name, d.atMs, d.conf)
         }
     }

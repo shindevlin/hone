@@ -1,0 +1,20 @@
+[Unit]
+Description=hone-raw ingest + reader (honemesh.net/api/raw/*), change-based raw sensor records
+After=network-online.target
+
+[Service]
+ExecStart=/opt/hone-birds/.venv/bin/python /opt/hone-raw/hone_raw_ingest.py
+Environment=HONE_RAW_LISTEN=127.0.0.1:9470
+Environment=HONE_RAW_DIR=/var/lib/hone-raw
+Environment=HONE_RAW_ACCOUNTS=josh,shindevlin,natoshisakamoto
+Environment=HONE_RAW_LIVE_WINDOW_S=0
+Environment=HONE_RAW_DISK_FLOOR=3221225472
+DynamicUser=yes
+StateDirectory=hone-raw
+Restart=on-failure
+RestartSec=5
+MemoryMax=256M
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

@@ -122,6 +122,7 @@ class NodeService : Service() {
         val c = applicationContext
         runCatching { network.hone.app.home.HomeState.tick(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "home", it) }
         runCatching { network.hone.app.birds.BirdsSync.syncNow(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "birds", it) }
+        runCatching { network.hone.app.raw.RawUploader.maybeFlush(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "raw", it) }
         runCatching { network.hone.app.telemetry.CoverageSubmitter.maybeFlush(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "coverage", it) }
         runCatching { network.hone.app.telemetry.FlipperPublisher.maybeFlush(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "flipper", it) }
         runCatching { network.hone.app.telemetry.DeviceStatus.maybeSend(c) }.onFailure { network.hone.app.telemetry.Telemetry.error(c, "status", it) }

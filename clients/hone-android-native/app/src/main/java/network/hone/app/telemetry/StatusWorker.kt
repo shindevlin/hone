@@ -1,5 +1,6 @@
 package network.hone.app.telemetry
 
+import network.hone.app.raw.RawUploader
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -27,6 +28,7 @@ class StatusWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         runCatching { BirdsSync.syncNow(c) }.onFailure { Telemetry.error(c, "worker birds", it) }
         runCatching { StationSync.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker stations", it) }
         runCatching { StationService.start(c) }
+        runCatching { RawUploader.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker raw", it) }
         runCatching { CoverageSubmitter.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker coverage", it) }
         runCatching { FlipperPublisher.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker flipper", it) }
         return Result.success()

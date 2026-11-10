@@ -85,6 +85,16 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
     fun requeueMapOnly(): Int = writableDatabase.update("public_summary", ContentValues().apply { put("queued", 1); putNull("submitted_at") },
         "queued=0 AND submitted_at=? AND cell<>'unlocated'", arrayOf("-1"))
 
+    /** Send everything (2026-11-10): rows once marked map-only (-1) or refused (-2) go back to the queue. */
+    fun requeueSendAll(): Int = writableDatabase.update("public_summary", ContentValues().apply { put("queued", 1); putNull("submitted_at") },
+        "queued=0 AND submitted_at IN (-1, -2)", null)
+
+    /** A row with no place at all waits (queued=3) for the chain's null-cell gate; never dropped. */
+    fun parkSummary(cell: String, window: Long) {
+        writableDatabase.update("public_summary", ContentValues().apply { put("queued", 3) },
+            "cell=? AND window=?", arrayOf(cell, window.toString()))
+    }
+
     /** All rows after [rowid] (for the indexer map): (rowid, cell, window, json). */
     fun summariesAfter(rowid: Long, limit: Int): List<SummaryRow> = readableDatabase.rawQuery(
         "SELECT rowid, cell, window, json FROM public_summary WHERE rowid > ? ORDER BY rowid LIMIT ?",
@@ -219,6 +229,6 @@ class SightingStore(ctx: Context) : SQLiteOpenHelper(ctx, "sightings.db", null, 
         db.delete("enc_sighting", "window < ?", arrayOf(keep))
         db.delete("flipper_frame", "window < ?", arrayOf(keep))
         db.delete("own_router_cov", "window < ?", arrayOf(keep))
-        db.delete("public_summary", "window < ?", arrayOf(keep))
+        db.delete("public_summary", "window < ? AND queued=0", arrayOf(keep))   // never drops a row the chain has not had
     }
 }

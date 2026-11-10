@@ -12,10 +12,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Coverage summaries (public_summary rows) to the chain as SENSOR_SUMMARY entries, signed by
  * this device's seat key (owner = "account@<seat pubkey hex>"), and to the indexer map.
- *  - Chain: only once the chain says usefulness is active (active_from_epoch <= tip); every
- *    located row, one entry per (cell, window): res 7 at/near home, on the home Wi-Fi or with no
- *    home known, else at most res 9; rows older than 7 days are not sent to the
- *    chain (they earn 0 and still cost the fee); paced ~1 per 2 s, at most [PER_ROUND] per round.
+ *  - Chain: only once the chain says usefulness is active (active_from_epoch <= tip); EVERY row
+ *    (Josh 2026-11-10 "send everything"): every row per (cell, window), any age (old rows keep their
+ *    window and simply earn no claim), and unlocated rows at the device's own coarse area flagged
+ *    loc.inferred=1 (loc.src, loc.age_s). Res 7 at/near home, on the home Wi-Fi or with no home
+ *    known, else at most res 9. batch_hash = sha256 of the window's raw blob (RawRecorder).
+ *    A row with no area at all waits (queued=3) for the chain's null-cell gate; nothing is dropped.
+ *    Paced ~1 per 2 s, at most [PER_ROUND] per round.
  *  - Indexer map (/api/coverage/summaries): every located row, any age, batched every 15 min.
  * Duplicates and replays score 0 on chain, so an accepted row is never resent.
  */
@@ -139,27 +142,28 @@ object CoverageSubmitter {
             val n = runCatching { store.requeueMapOnly() }.getOrDefault(0)
             p.edit().putBoolean("requeue_v24", true).apply(); Log.i(TAG, "requeued $n map-only rows")
         }
+        if (!p.getBoolean("requeue_v27", false)) {
+            val n = runCatching { store.requeueSendAll() }.getOrDefault(0)
+            p.edit().putBoolean("requeue_v27", true).apply(); Log.i(TAG, "send everything: requeued $n map-only/refused rows")
+        }
         val coarseOk = coarseCellsActive(owner)
         if (coarseOk) runCatching { store.releaseHeld() }
         var held = 0
-        val eligible = LinkedHashMap<Pair<String, Long>, Triple<String, Long, JSONObject>>()  // (chain cell, window) -> best row
+        var parked = 0
+        val eligible = ArrayList<Pair<Pair<String, Long>, Triple<String, Long, JSONObject>>>()  // ((chain cell, window), row)
         for ((cell, w, json) in rows) {
             if (w >= nowW) continue                                     // window still open
-            val j = runCatching { JSONObject(json) }.getOrNull()
-            val target = if (cell == "unlocated" || j == null) null else chainCell(ctx, cell, j.optBoolean("at_home"))
-            if (target == null) { store.markSummary(cell, w, MAP_ONLY); continue }
+            val j = runCatching { JSONObject(json) }.getOrNull() ?: JSONObject()
+            // Unlocated rows go at the device's own coarse area (AreaLocator), flagged inferred.
+            val base = if (cell == "unlocated") j.optString("area_cell").takeIf { SensorSummaryWire.CELL.matches(it) } else cell
+            if (base == null) { store.parkSummary(cell, w); parked++; continue }     // no area at all: null-cell gate
+            val target = chainCell(ctx, base, j.optBoolean("at_home")) ?: run { store.parkSummary(cell, w); parked++; null } ?: continue
             val coarse = SensorSummaryWire.res(target) < SensorSummaryWire.MAX_RES
             if (coarse && !coarseOk) { store.holdSummary(cell, w); held++; continue }
-            if (!coarse && w < nowW - MAX_AGE_WINDOWS) { store.markSummary(cell, w, MAP_ONLY); continue }
-            val k = target to w
-            val prev = eligible[k]
-            val samples = j!!.optJSONObject("loc")?.optInt("samples") ?: 0
-            if (prev == null || samples > (prev.third.optJSONObject("loc")?.optInt("samples") ?: 0)) {
-                prev?.let { store.markSummary(it.first, it.second, MAP_ONLY) }   // one entry per (cell, window)
-                eligible[k] = Triple(cell, w, j)
-            } else store.markSummary(cell, w, MAP_ONLY)
+            eligible.add((target to w) to Triple(cell, w, j))                     // every row, any age
         }
         if (held > 0) Telemetry.skipped(ctx, "summary_res7", "$held held until the chain accepts res 7 cells")
+        if (parked > 0) Telemetry.skipped(ctx, "summary_nocell", "$parked with no area at all wait for the chain's null-cell gate")
         if (eligible.isEmpty()) return
         gate(ctx, owner)?.let { Telemetry.skipped(ctx, "summary", it); return }
         val seed = Telemetry.seatSeedForChain(ctx)
@@ -168,10 +172,17 @@ object CoverageSubmitter {
         for ((k, row) in eligible) {
             if (sent >= PER_ROUND) break
             val (c9, w) = k
-            val met = metrics(row.third).filterKeys { SensorSummaryWire.METRIC.matches(it) }
-            if (met.isEmpty()) { store.markSummary(row.first, row.second, MAP_ONLY); continue }
-            val msg = SensorSummaryWire.message("hone", sensorId, owner, "", c9, w, met)
-            val body = SensorSummaryWire.body(sensorId, owner, "", c9, w, met, Canonical.hex(Canonical.sign(seed, msg)))
+            val met = LinkedHashMap(metrics(row.third).filterKeys { SensorSummaryWire.METRIC.matches(it) }.entries.take(SensorSummaryWire.MAX_METRICS - 4)
+                .associate { it.key to it.value })
+            if (row.third.optBoolean("loc_inferred")) {
+                met["loc.inferred"] = 1L
+                met["loc.src"] = locSrcCode(row.third.optString("loc_src"))
+                if (row.third.has("loc_age_s")) met["loc.age_s"] = row.third.optLong("loc_age_s")
+            }
+            if (met.isEmpty()) met["obs.none"] = 1L                       // nothing observed is a reading too
+            val bh = runCatching { network.hone.app.raw.RawRecorder.shaFor(ctx, w) }.getOrDefault("")
+            val msg = SensorSummaryWire.message("hone", sensorId, owner, bh, c9, w, met)
+            val body = SensorSummaryWire.body(sensorId, owner, bh, c9, w, met, Canonical.hex(Canonical.sign(seed, msg)))
             val r = Telemetry.post(CHAIN_URL, body)
             when {
                 r == null -> { Telemetry.upload(ctx, "summary", false, "offline"); return }
@@ -194,6 +205,10 @@ object CoverageSubmitter {
         }
         Log.i(TAG, "summary round: $sent sent")
     }
+
+    /** loc.src metric: 1 gps/fused, 2 network, 3 wifi_fp, 4 last verified, 5 ip, 6 home Wi-Fi, 0 none. */
+    fun locSrcCode(s: String): Long = when (s) {
+        "gps", "fused" -> 1; "network" -> 2; "wifi_fp" -> 3; "last_verified" -> 4; "ip" -> 5; "home_wifi" -> 6; else -> 0 }
 
     /** Every located row (any age) to the indexer coverage map, signed like the other uploads. */
     private fun indexRound(ctx: Context) {

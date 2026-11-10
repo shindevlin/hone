@@ -269,6 +269,7 @@ object SightingsEngine {
         val c = ctx.applicationContext
         appCtx = c
         store = SightingStore(c)
+        runCatching { network.hone.app.raw.RawRecorder.start(c) }
 
         rollWindow(c, System.currentTimeMillis())
         startLocation(c)
@@ -324,6 +325,7 @@ object SightingsEngine {
         IdAdvertiser.ensure(c, wkey!!)              // new key + new advertising set(s) (address)
         scheduleAlarm(c, IdKeys.windowStartMs(w + 1))
         store?.prune(w)
+        runCatching { network.hone.app.raw.RawRecorder.pruneShas(c, w) }
         Log.i(TAG, "window $w")
     }
 
@@ -331,6 +333,7 @@ object SightingsEngine {
     private fun finalizeWindow() {
         val st = store ?: return
         if (window == Long.MIN_VALUE) return
+        val area = appCtx?.let { runCatching { network.hone.app.raw.AreaLocator.current(it, bestFix()) }.getOrNull() }
         for ((cell, a) in accs) {
             if (a.aps.isEmpty() && a.ble.isEmpty() && a.hone.isEmpty() && a.flipper.isEmpty()) continue
             val located = cell.isNotEmpty()
@@ -338,12 +341,24 @@ object SightingsEngine {
             // no fix there, it is placed in the home's res-7 cell rather than left unlocated.
             val home = if (homeWifiWindow) appCtx?.let { network.hone.app.home.HomeState.home(it) } else null
             val c = if (located) cell else home?.let { Cells.cell(it.first, it.second, 7) } ?: ""
-            val js = summaryJson(c, a).apply { if (homeWifiWindow) put("at_home", true) }
-            runCatching { st.putSummary(c.ifEmpty { "unlocated" }, window, js.toString(), c.isNotEmpty()) }
+            val js = summaryJson(c, a).apply {
+                if (homeWifiWindow) put("at_home", true)
+                if (!located) {
+                    // Send everything (Josh 2026-11-10): the reading still goes on chain, at the device's
+                    // own coarse area (network, Wi-Fi fingerprint or last verified cell), flagged inferred.
+                    put("loc_inferred", true)
+                    put("loc_src", if (home != null) "home_wifi" else area?.src ?: "none")
+                    area?.ageS?.let { put("loc_age_s", it) }
+                    if (c.isEmpty()) area?.cell?.let { put("area_cell", it) }
+                }
+            }
+            runCatching { st.putSummary(c.ifEmpty { "unlocated" }, window, js.toString(), true) }
                 .onFailure { Log.e(TAG, "store summary", it) }
         }
         val (n, q) = runCatching { st.summaryCounts() }.getOrDefault(0 to 0)
         Log.i(TAG, "window $window closed: ${accs.size} cell(s); summaries stored=$n queued=$q")
+        runCatching { network.hone.app.raw.RawRecorder.closeWindow(window, area ?: network.hone.app.raw.AreaLocator.Area(null, null, "none", null, true, null)) }
+            .onFailure { Log.e(TAG, "raw window", it) }
     }
 
     private fun bandsSupported(c: Context): List<String> {
@@ -541,7 +556,7 @@ object SightingsEngine {
 
     @SuppressLint("MissingPermission")
     private suspend fun crowdScan(c: Context) {
-        if (!hasScan(c)) { delay(BLE_CROWD_SCAN_MS); return }
+        if (!hasScan(c)) { network.hone.app.raw.RawRecorder.onBleScanDone(false); delay(BLE_CROWD_SCAN_MS); return }
         val sc = bleScanner(c) ?: run { delay(BLE_CROWD_SCAN_MS); return }
         val sb = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
         if (bleAdapter(c)?.isLeExtendedAdvertisingSupported == true) sb.setLegacy(false)
@@ -549,6 +564,7 @@ object SightingsEngine {
         val ok = runCatching { sc.startScan(crowdFilters, sb.build(), crowdCallback) }.isSuccess
         delay(BLE_CROWD_SCAN_MS)
         runCatching { sc.stopScan(crowdCallback) }
+        network.hone.app.raw.RawRecorder.onBleScanDone(ok)
         if (ok) synchronized(this) { acc(stamp()).bleScanMs += SystemClock.elapsedRealtime() - t0 }
     }
 
@@ -557,6 +573,7 @@ object SightingsEngine {
     private val crowdCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, r: ScanResult) {
             crowdResults++
+            runCatching { network.hone.app.raw.RawRecorder.onBleAdvert(r.device.address, r.rssi) }
             network.hone.app.telemetry.Telemetry.bleAdvert()
             val now = System.currentTimeMillis()
             val s = stamp()
@@ -576,6 +593,7 @@ object SightingsEngine {
 
     fun onFlipperFrame(devId: String, kind: String, rssi: Int) {
         network.hone.app.telemetry.Telemetry.flipperFrame()
+        runCatching { network.hone.app.raw.RawRecorder.onFlipperFrame(devId, rssi) }
         if (appCtx == null) return
         val s = stamp()
         val now = System.currentTimeMillis()
@@ -630,13 +648,14 @@ object SightingsEngine {
     @SuppressLint("MissingPermission")
     @Synchronized
     private fun ingestWifi(c: Context) {
-        if (!hasLocation(c)) return
+        if (!hasLocation(c)) { val t = System.currentTimeMillis(); network.hone.app.raw.RawRecorder.wifiDenied(t - 60_000, t); return }
         val wm = c.getSystemService(WifiManager::class.java) ?: return
         val results = runCatching { wm.scanResults }.getOrNull() ?: return
         val nowUs = SystemClock.elapsedRealtimeNanos() / 1000
         val fresh = results.filter { nowUs - it.timestamp < 120_000_000L && it.timestamp > lastIngestTs }
         if (fresh.isEmpty()) return
         lastIngestTs = fresh.maxOf { it.timestamp }
+        runCatching { network.hone.app.raw.RawRecorder.onWifiScan(fresh) }
         val now = System.currentTimeMillis()
         val pk = privKey(c)
         @Suppress("DEPRECATION")
