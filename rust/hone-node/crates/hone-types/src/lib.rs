@@ -185,6 +185,11 @@ pub const SENSOR_SEATS_EPOCH: u64 = 355_140; // Josh 2026-11-04 18:44 "turn on s
 pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
 /// Decide-by certified entry sets (setcert.rs). Off until rollout + Josh OK.
 pub const SET_CERT_EPOCH: u64 = u64::MAX;
+/// Decide shadow spot checks: from here a sampled node that has no DecideCommit for the vote
+/// epoch gets ONE "no commit" strike for that epoch, instead of one "spot check not
+/// revealed" strike per spot-checked entry (it could not reveal what it never committed).
+/// Off until Josh signs off an epoch.
+pub const DECIDE_SPOTCHECK_COMMIT_EPOCH: u64 = u64::MAX;
 /// Usefulness decide-by (decide-by design section 6): a claim made from here gets
 /// decide_by = T + 2,880; corroborations and contradictions count only if applied at or
 /// before decide_by; the verdict is computed once, at decide_by, and pays then (never early
