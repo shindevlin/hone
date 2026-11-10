@@ -185,6 +185,11 @@ pub const SENSOR_SEATS_EPOCH: u64 = 355_140; // Josh 2026-11-04 18:44 "turn on s
 pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
 /// Decide-by certified entry sets (setcert.rs). Off until rollout + Josh OK.
 pub const SET_CERT_EPOCH: u64 = u64::MAX;
+/// Usefulness decide-by (decide-by design section 6): a claim made from here gets
+/// decide_by = T + 2,880; corroborations and contradictions count only if applied at or
+/// before decide_by; the verdict is computed once, at decide_by, and pays then (never early
+/// on corroboration). Off until rollout + Josh OK.
+pub const USEFULNESS_DECIDE_BY_EPOCH: u64 = u64::MAX;
 /// SensorSummary cells at H3 res 7..=9 (coarser cells near a home device). From here a cell
 /// outside 7..=9 is rejected; novelty stays per (cell, window, metric) at the summary's own
 /// resolution, and corroboration also works across resolutions by containment, with the

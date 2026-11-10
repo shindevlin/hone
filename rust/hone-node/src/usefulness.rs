@@ -71,6 +71,53 @@ pub fn valid_cell(cell: &str) -> bool {
         && cell.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Epochs from a claim to its single verdict (decide-by, from USEFULNESS_DECIDE_BY_EPOCH).
+pub const DECIDE_BY_EPOCHS: u64 = 2_880;
+
+/// The usefulness decide-by gate. Tests exercise it from 360,000 (older tests stay on the
+/// immediate rule).
+pub fn decide_by_epoch() -> u64 {
+    if cfg!(test) { 360_000 } else { hone_types::USEFULNESS_DECIDE_BY_EPOCH }
+}
+
+/// A claim made under decide-by carries its `decide_by` epoch.
+fn deferred(c: &serde_json::Value) -> bool { c.get("decide_by").and_then(|v| v.as_u64()).is_some() }
+
+/// Record evidence on a pending decide-by claim: `kind` = "corr" | "contra", once per owner,
+/// only if applied at or before its decide_by. Returns true if recorded.
+fn note(chain: &Chain, ccell: &str, m: &str, w: u64, kind: &str, by: &str, epoch: u64) -> bool {
+    let ck = claim_key(ccell, m, w);
+    let Some(mut c) = get_json(chain, &ck) else { return false };
+    if c["status"] != "pending" { return false; }
+    let Some(db) = c["decide_by"].as_u64() else { return false };
+    if epoch > db { return false; }
+    let mut list: Vec<String> = c[kind].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    if list.iter().any(|x| x == by) { return false; }
+    list.push(by.to_owned());
+    list.sort();
+    c[kind] = serde_json::json!(list);
+    set_json(chain, &ck, &c);
+    true
+}
+
+/// The single verdict of a claim at its due epoch. Legacy claims (no decide_by): proven,
+/// as before. Decide-by claims: proven unless contradicted by at least as many owners as
+/// corroborated it; then the owner's trust moves (+1 per corroborator, -2 per contradictor),
+/// the owner is paid and each corroborator gets VERIFY_POINTS, all at decide_by.
+fn decide(chain: &Chain, cell: &str, m: &str, w: u64, epoch: u64) {
+    let Some(c) = get_json(chain, &claim_key(cell, m, w)) else { return };
+    if !deferred(&c) { settle(chain, cell, m, w, true, epoch); return; }
+    if c["status"] != "pending" { return; }
+    let list = |k: &str| -> Vec<String> { c[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default() };
+    let (corr, contra) = (list("corr"), list("contra"));
+    let proven = contra.is_empty() || corr.len() > contra.len();
+    let owner = c["owner"].as_str().unwrap_or("").to_owned();
+    let dt = corr.len() as i64 - 2 * contra.len() as i64;
+    if dt != 0 { add_trust(chain, &owner, dt); }
+    settle(chain, cell, m, w, proven, epoch);
+    if proven { for v in &corr { credit(chain, v, VERIFY_POINTS, epoch); } }
+}
+
 /// Coarsest and finest H3 resolution a summary cell may have from CELL_RES_RANGE_EPOCH.
 pub const MIN_CELL_RES: u8 = 7;
 pub const MAX_CELL_RES: u8 = 9;
@@ -191,6 +238,11 @@ fn try_prove(chain: &Chain, owner: &str, ccell: &str, m: &str, w: u64, v: i64, e
     if (v - cv).abs() > band_at(m, cv, epoch) { return 0; }
     let vkey = format!("uver:{ccell}:{m}:{w}:{owner}");
     if chain.store.state_get(&vkey).is_some() { return 0; }
+    if deferred(&c) {
+        // Decide-by: evidence only; verdict and pay at decide_by.
+        if note(chain, ccell, m, w, "corr", owner, epoch) { let _ = chain.store.state_set(&vkey, b"1"); }
+        return 0;
+    }
     let _ = chain.store.state_set(&vkey, b"1");
     if let Some(co) = c["owner"].as_str() { add_trust(chain, co, 1); }
     settle(chain, ccell, m, w, true, epoch);
@@ -303,8 +355,10 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                 if window.saturating_mul(900).saturating_add(MAX_CLAIM_AGE_S) >= unix_at(epoch) {
                     let ck = claim_key(cell, m, window);
                     if chain.store.state_get(&ck).is_none() {
-                        set_json(chain, &ck, &serde_json::json!({ "owner": owner, "points": NOVEL_POINTS,
-                            "epoch": epoch, "status": "pending", "value": v, "sensor": sensor_id }));
+                        let mut cj = serde_json::json!({ "owner": owner, "points": NOVEL_POINTS,
+                            "epoch": epoch, "status": "pending", "value": v, "sensor": sensor_id });
+                        if epoch >= decide_by_epoch() { cj["decide_by"] = serde_json::json!(epoch + DECIDE_BY_EPOCHS); }
+                        set_json(chain, &ck, &cj);
                         let _ = chain.store.state_set(&format!("uclaim_o:{owner}:{cell}:{m}:{window}"), b"1");
                         let _ = chain.store.state_set(&format!("uclaim_due:{:016x}:{cell}:{m}:{window}", epoch + CLAIM_WINDOW_EPOCHS), b"1");
                         if epoch >= cell_res_epoch() { index_claim_up(chain, cell, m, window); }
@@ -313,21 +367,30 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                 }
             }
             Verdict::Verify => {
-                let vkey = format!("uver:{cell}:{m}:{}:{owner}", est.as_ref().and_then(|e| e["window"].as_u64()).unwrap_or(0));
+                let ew = est.as_ref().and_then(|e| e["window"].as_u64());
+                let vkey = format!("uver:{cell}:{m}:{}:{owner}", ew.unwrap_or(0));
+                let dclaim = ew.and_then(|w| get_json(chain, &claim_key(cell, m, w))).filter(deferred);
                 if chain.store.state_get(&vkey).is_none() {
-                    let _ = chain.store.state_set(&vkey, b"1");
-                    add_trust(chain, &est_owner, 1);
-                    if let Some(ew) = est.as_ref().and_then(|e| e["window"].as_u64()) {
-                        settle(chain, cell, m, ew, true, epoch);
+                    if dclaim.is_some() {
+                        // Decide-by: evidence only; verdict and pay at decide_by.
+                        if note(chain, cell, m, ew.unwrap_or(0), "corr", &owner, epoch) { let _ = chain.store.state_set(&vkey, b"1"); }
+                    } else {
+                        let _ = chain.store.state_set(&vkey, b"1");
+                        add_trust(chain, &est_owner, 1);
+                        if let Some(ew) = ew { settle(chain, cell, m, ew, true, epoch); }
+                        credit(chain, &owner, VERIFY_POINTS, epoch);
+                        pts += VERIFY_POINTS;
                     }
-                    credit(chain, &owner, VERIFY_POINTS, epoch);
-                    pts += VERIFY_POINTS;
                 }
             }
             Verdict::Contradict => {
-                add_trust(chain, &est_owner, -2);
-                if let Some(ew) = est.as_ref().and_then(|e| e["window"].as_u64()) {
-                    settle(chain, cell, m, ew, false, epoch);
+                let ew = est.as_ref().and_then(|e| e["window"].as_u64());
+                let dclaim = ew.and_then(|w| get_json(chain, &claim_key(cell, m, w))).filter(deferred);
+                if dclaim.is_some() {
+                    note(chain, cell, m, ew.unwrap_or(0), "contra", &owner, epoch);
+                } else {
+                    add_trust(chain, &est_owner, -2);
+                    if let Some(ew) = ew { settle(chain, cell, m, ew, false, epoch); }
                 }
             }
             _ => {}
@@ -432,7 +495,7 @@ pub fn release_due(chain: &Chain, epoch: u64) -> usize {
         if due > epoch { break; }
         let mut parts = rest[17..].splitn(3, ':');
         let (Some(cell), Some(m), Some(w)) = (parts.next(), parts.next(), parts.next()) else { continue };
-        if let Ok(w) = w.parse::<u64>() { settle(chain, cell, m, w, true, epoch); n += 1; }
+        if let Ok(w) = w.parse::<u64>() { decide(chain, cell, m, w, epoch); n += 1; }
         let _ = chain.store.state_delete(&k);
     }
     release_queues(chain, epoch);
@@ -827,6 +890,95 @@ mod tests {
         let (c2, _d2) = chain();
         let (v, p) = score(&c2, "nebra-wifi", "josh", P7, W0, &s, BEFORE);
         assert_eq!((v.len(), p), (3, 3 * NOVEL_POINTS));
+    }
+
+    const G: u64 = 360_000; // test decide-by gate
+    fn st(c: &Chain, cell: &str, w: u64, m: &str) -> serde_json::Value { get_json(c, &claim_key(cell, m, w)).unwrap()["status"].clone() }
+
+    #[test]
+    fn decide_by_claim_waits_and_pays_once_at_decide_by() {
+        let (c, _d) = chain();
+        score(&c, "phone-a", "josh", C, W0, &m(&[("wifi.ap_count", 20)]), G);
+        let cl = get_json(&c, &claim_key(C, "wifi.ap_count", W0)).unwrap();
+        assert_eq!(cl["decide_by"].as_u64(), Some(G + DECIDE_BY_EPOCHS));
+        // Same-cell verification and a ring neighbour: evidence only, nothing paid, still pending.
+        let (_, p) = score(&c, "phone-b", "bob", C, W0 + 1, &m(&[("wifi.ap_count", 21)]), G + 1);
+        let n = ring1(C);
+        let (_, p2) = score(&c, "fl-c", "carol", &n[0], W0 + 1, &m(&[("wifi.ap_count", 20)]), G + 2);
+        assert_eq!((p, p2), (0, NOVEL_POINTS)); // carol's own novel claim only
+        assert_eq!(st(&c, C, W0, "wifi.ap_count"), "pending");
+        assert_eq!(proven_points(&c, "josh") + proven_points(&c, "bob") + proven_points(&c, "carol"), 0);
+        assert_eq!(trust(&c, "josh"), 0);
+        // Not before decide_by.
+        release_due(&c, G + DECIDE_BY_EPOCHS - 1);
+        assert_eq!(st(&c, C, W0, "wifi.ap_count"), "pending");
+        release_due(&c, G + DECIDE_BY_EPOCHS);
+        assert_eq!(st(&c, C, W0, "wifi.ap_count"), "proven");
+        assert_eq!(proven_points(&c, "josh"), NOVEL_POINTS);
+        assert_eq!(proven_points(&c, "bob"), VERIFY_POINTS);
+        assert_eq!(proven_points(&c, "carol"), VERIFY_POINTS); // carol's own claim (in n[0]) is due 2 epochs later
+        assert_eq!(trust(&c, "josh"), 2);
+        // Settled once: running the due epoch again changes nothing.
+        release_due(&c, G + DECIDE_BY_EPOCHS + 1);
+        assert_eq!(proven_points(&c, "josh"), NOVEL_POINTS);
+    }
+
+    #[test]
+    fn decide_by_verdict_does_not_depend_on_arrival_order() {
+        // One corroboration and one contradiction: a tie voids, in either order.
+        // Two corroborations and one contradiction: proven, in any order.
+        let run = |order: &[(&str, &str, i64)]| -> (serde_json::Value, u64, i64) {
+            let (c, _d) = chain();
+            score(&c, "phone-a", "josh", C, W0, &m(&[("wifi.ap_count", 20)]), G);
+            for (i, (dev, own, v)) in order.iter().enumerate() {
+                score(&c, dev, own, C, W0 + 1, &m(&[("wifi.ap_count", *v)]), G + 1 + i as u64);
+            }
+            release_due(&c, G + DECIDE_BY_EPOCHS);
+            (st(&c, C, W0, "wifi.ap_count"), proven_points(&c, "josh"), trust(&c, "josh"))
+        };
+        let (a, b) = (("pb", "bob", 21), ("pc", "carol", 90));
+        assert_eq!(run(&[a, b]), run(&[b, a]));
+        assert_eq!(run(&[a, b]).0, "void");
+        let d = ("pd", "dave", 19);
+        let r1 = run(&[a, b, d]); let r2 = run(&[b, d, a]); let r3 = run(&[d, a, b]);
+        assert_eq!(r1, r2); assert_eq!(r2, r3);
+        assert_eq!(r1.0, "proven");
+        assert_eq!((r1.1, r1.2), (NOVEL_POINTS, 2 - 2));
+    }
+
+    #[test]
+    fn decide_by_ignores_evidence_after_decide_by() {
+        let (c, _d) = chain();
+        score(&c, "phone-a", "josh", C, W0, &m(&[("wifi.ap_count", 20)]), G);
+        // A contradiction applied after decide_by (release not run yet): ignored.
+        assert!(!note(&c, C, "wifi.ap_count", W0, "contra", "bob", G + DECIDE_BY_EPOCHS + 1));
+        assert!(note(&c, C, "wifi.ap_count", W0, "corr", "carol", G + DECIDE_BY_EPOCHS));
+        assert!(!note(&c, C, "wifi.ap_count", W0, "corr", "carol", G + 5), "once per owner");
+        release_due(&c, G + DECIDE_BY_EPOCHS + 1);
+        assert_eq!(st(&c, C, W0, "wifi.ap_count"), "proven");
+        assert_eq!(proven_points(&c, "carol"), VERIFY_POINTS);
+    }
+
+    #[test]
+    fn decide_by_cross_resolution_evidence_also_waits() {
+        let (c, _d) = chain();
+        score(&c, "nebra-lora", "josh", P7, W0, &m(&[("lora.packets", 40)]), G);
+        score(&c, "gw-b", "bob", C, W0 + 1, &m(&[("lora.packets", 44)]), G + 1);
+        assert_eq!(st(&c, P7, W0, "lora.packets"), "pending");
+        assert_eq!(proven_points(&c, "bob"), 0);
+        release_due(&c, G + DECIDE_BY_EPOCHS);
+        assert_eq!(st(&c, P7, W0, "lora.packets"), "proven");
+        assert_eq!(proven_points(&c, "bob"), VERIFY_POINTS);
+    }
+
+    #[test]
+    fn claims_before_the_gate_keep_the_immediate_rule() {
+        let (c, _d) = chain();
+        score(&c, "phone-a", "josh", C, W0, &m(&[("wifi.ap_count", 20)]), G - 10);
+        assert!(get_json(&c, &claim_key(C, "wifi.ap_count", W0)).unwrap().get("decide_by").is_none());
+        score(&c, "phone-b", "bob", C, W0 + 1, &m(&[("wifi.ap_count", 21)]), G + 5);
+        assert_eq!(st(&c, C, W0, "wifi.ap_count"), "proven");
+        assert_eq!(proven_points(&c, "bob"), VERIFY_POINTS);
     }
 
     #[test]

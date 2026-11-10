@@ -69,6 +69,18 @@ pub fn driver_exit(cursor: u64) {
 /// True while the healer has stopped this node (diverged, rebasing).
 pub fn halted() -> bool { HALTED.load(Ordering::SeqCst) }
 
+/// Healer alerts raised outside a checkpoint verdict (e.g. decide-by: a certified body
+/// missing for BODY_HALT_EPOCHS). Newest last, at most 20. Shown in /api/healer status.
+static ALERTS: parking_lot::Mutex<Vec<(u64, String)>> = parking_lot::Mutex::new(Vec::new());
+pub fn raise_alert(epoch: u64, msg: String) {
+    let mut a = ALERTS.lock();
+    if a.last().map(|(_, m)| m == &msg).unwrap_or(false) { return; }
+    a.push((epoch, msg));
+    if a.len() > 20 { a.remove(0); }
+}
+pub fn clear_alerts(prefix: &str) { ALERTS.lock().retain(|(_, m)| !m.starts_with(prefix)); }
+pub fn alerts() -> Vec<(u64, String)> { ALERTS.lock().clone() }
+
 /// React to a verdict on one of our own checkpoints. In `heal` mode a Diverged verdict
 /// HALTS the node at once (no seals, reward votes, catch-up votes or submissions) and
 /// returns true: the caller asks the attesters for the canonical snapshot. The halt is
@@ -373,6 +385,7 @@ impl Healer {
             "last_verdict": v.map(|(e, r, v)| serde_json::json!({
                 "epoch": e, "cursor": r, "verdict": format!("{:?}", v)})),
             "attestations": self.tally.lock().summary(),
+            "alerts": alerts().into_iter().map(|(e, m)| serde_json::json!({"epoch": e, "alert": m})).collect::<Vec<_>>(),
         })
     }
 

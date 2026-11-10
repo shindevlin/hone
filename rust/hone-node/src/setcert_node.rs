@@ -14,6 +14,19 @@ use crate::setcert_apply as sa;
 
 static ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
 
+/// A final epoch whose bodies are still missing this many epochs later halts applying
+/// (it already waits; nothing after it applies) and raises a healer alert.
+pub const BODY_HALT_EPOCHS: u64 = 20;
+/// (epoch waiting for bodies, current epoch when that wait began).
+static STALL: Mutex<(u64, u64)> = parking_lot::const_mutex((0, 0));
+
+/// Healer-alert decision for a wait on `next` at `cur` (pure, so it is testable).
+pub fn body_wait_alert(stall: &mut (u64, u64), next: u64, cur: u64) -> Option<u64> {
+    if stall.0 != next { *stall = (next, cur); }
+    let waited = cur.saturating_sub(stall.1);
+    (waited >= BODY_HALT_EPOCHS).then_some(waited)
+}
+
 fn voters_now(chain: &Chain) -> Vec<String> {
     crate::clock::reward_voters(&crate::clock::registered_clock_nodes(&chain.store, chain.current_epoch()))
 }
@@ -135,8 +148,18 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
                 break;
             };
             match sa::apply_final(&chain, &cert) {
-                Ok(_) => {}
+                Ok(_) => {
+                    let was = STALL.lock().0 == next;
+                    if was { *STALL.lock() = (0, 0); crate::state_healer::clear_alerts("setcert:"); }
+                }
                 Err(missing) => {
+                    let waited = body_wait_alert(&mut STALL.lock(), next, cur);
+                    if let Some(w) = waited {
+                        crate::state_healer::raise_alert(next, format!(
+                            "setcert: epoch {next} certified but {} bodies still missing after {w} epochs; applying halted",
+                            missing.len()));
+                        tracing::error!("[setcert] HEALER ALERT: epoch {} missing {} bodies for {} epochs; applying halted", next, missing.len(), w);
+                    }
                     if now_ms().saturating_sub(last_fetch) > 3_000 {
                         last_fetch = now_ms();
                         warn!("[setcert] epoch {} waits for {} missing bodies; fetching by hash", next, missing.len());
@@ -146,5 +169,20 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn missing_body_alert_after_20_epochs_of_the_same_wait() {
+        let mut st = (0, 0);
+        assert_eq!(body_wait_alert(&mut st, 500, 505), None);
+        assert_eq!(body_wait_alert(&mut st, 500, 524), None);
+        assert_eq!(body_wait_alert(&mut st, 500, 525), Some(20));
+        // A new epoch waiting restarts the count.
+        assert_eq!(body_wait_alert(&mut st, 501, 530), None);
+        assert_eq!(body_wait_alert(&mut st, 501, 550), Some(20));
     }
 }
