@@ -17,8 +17,8 @@ android {
         applicationId = "network.hone.app"   // HONE brand — matches the Rust JNI/uniffi package
         minSdk = 26                            // 8.0+ (foreground services, notification channels)
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.14.0"
+        versionCode = 26
+        versionName = "1.14.1"
         // Commit shown in the signed device status.
         buildConfigField("String", "GIT_COMMIT", "\"" + (runCatching {
             ProcessBuilder("git", "rev-parse", "--short=8", "HEAD").directory(rootDir).start()
@@ -45,7 +45,24 @@ android {
             applicationIdSuffix = ".debug"
             isDebuggable = true
         }
+        // What phones get (adb, updater, listeners): ./gradlew assemblePhone. Same package as
+        // the installed app (network.hone.app.debug) and the same signing key as the debug
+        // builds before it, so phones upgrade in place and keep their seat keys, but NOT
+        // debuggable (Android 16 shows a 16 KB compatibility warning for debuggable apps).
+        create("phone") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".debug"
+            isDebuggable = false
+            isJniDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("debug")
+        }
     }
+
+    // Native libraries stay uncompressed and 16 KB page aligned in the APK.
+    packaging { jniLibs { useLegacyPackaging = false } }
+    // lintVital crashes inside lint on this project (lint bug); debug builds never ran it either.
+    lint { checkReleaseBuilds = false }
 
     buildFeatures { compose = true; buildConfig = true }
     androidResources { noCompress += "tflite" }
@@ -102,9 +119,9 @@ dependencies {
     // Perch v2 on-device (LiteRT, the TensorFlow Lite runtime).
     implementation("com.google.ai.edge.litert:litert:2.3.2")
     // In-app bird photos with capture evidence (focus distance, parallax, motion).
-    implementation("androidx.camera:camera-camera2:1.3.4")
-    implementation("androidx.camera:camera-lifecycle:1.3.4")
-    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
     // Bird maps: MapLibre (BSD-2) with OpenFreeMap tiles (no key).
     implementation("org.maplibre.gl:android-sdk:11.13.5")
 
