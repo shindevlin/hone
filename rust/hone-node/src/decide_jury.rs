@@ -22,6 +22,20 @@ use tracing::{info, warn};
 
 use crate::chain::Chain;
 
+/// DECIDE_SPOTCHECK_COMMIT_EPOCH (tests: 0, i.e. on).
+pub fn spotcheck_commit_epoch() -> u64 { if cfg!(test) { 0 } else { hone_types::DECIDE_SPOTCHECK_COMMIT_EPOCH } }
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SpotOutcome { Ok, NoCommit, NotRevealed }
+
+/// One spot check's result. Before the gate: a missing reveal is a strike, as before.
+/// From the gate: a node with no commit for the vote epoch gets one NoCommit (per vote
+/// epoch, `already_nocommit` guards repeats) and no per-entry strikes.
+pub fn spot_outcome(gate_on: bool, committed: bool, revealed: bool, already_nocommit: bool) -> SpotOutcome {
+    if gate_on && !committed { return if already_nocommit { SpotOutcome::Ok } else { SpotOutcome::NoCommit }; }
+    if revealed { SpotOutcome::Ok } else { SpotOutcome::NotRevealed }
+}
+
 pub fn shadow_enabled() -> bool {
     matches!(std::env::var("DECIDE_JURY_SHADOW").as_deref(), Ok("1") | Ok("true"))
 }
@@ -333,8 +347,19 @@ pub fn shadow_tick(chain: &Chain, epoch: u64) {
     if let Some(sd) = seed(chain, drawn) {
         let ve = drawn.saturating_sub(2);
         for (n, eh) in spot_checks(&sd, &sample_for_epoch(chain, ve)) {
-            if rec_get(chain, &format!("decide_reveal:{}:{}", eh, n)).is_none() {
+            let nk = format!("decide_nocommit:{:016x}:{}", ve, n);
+            match spot_outcome(epoch >= spotcheck_commit_epoch(),
+                rec_get(chain, &format!("decide_commit:{:016x}:{}", ve, n)).is_some(),
+                rec_get(chain, &format!("decide_reveal:{}:{}", eh, n)).is_some(),
+                rec_get(chain, &nk).is_some()) {
+                SpotOutcome::Ok => {}
+                SpotOutcome::NoCommit => {
+                    let _ = rec_put(chain, &nk, &serde_json::json!({ "epoch": epoch }));
+                    strike(chain, &n, "no commit for a spot-checked vote epoch");
+                }
+                SpotOutcome::NotRevealed => {
                 strike(chain, &n, "spot check not revealed");
+                }
             }
         }
     }
@@ -666,6 +691,20 @@ mod tests {
         assert_eq!(count(&[r("normal", 200), r("normal", 100), r("spam", 220)]), Outcome::Escalate9b);
         assert_eq!(count(&[r("normal", 200), r("normal", 210), r("spam", 220), r("spam", 220)]), Outcome::Escalate9b);
         assert_eq!(count(&[]), Outcome::Escalate9b);
+    }
+
+    #[test]
+    fn spot_checks_strike_a_non_committer_once_not_per_entry() {
+        use SpotOutcome::*;
+        // Before the gate: unchanged (every unrevealed spot check strikes).
+        assert_eq!(spot_outcome(false, false, false, false), NotRevealed);
+        assert_eq!(spot_outcome(false, true, true, false), Ok);
+        // From the gate: no commit -> one NoCommit for the vote epoch, then nothing more.
+        assert_eq!(spot_outcome(true, false, false, false), NoCommit);
+        assert_eq!(spot_outcome(true, false, false, true), Ok);
+        // A committer who does not reveal is still struck.
+        assert_eq!(spot_outcome(true, true, false, false), NotRevealed);
+        assert_eq!(spot_outcome(true, true, true, false), Ok);
     }
 
     #[test]
