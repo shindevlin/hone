@@ -102,13 +102,32 @@ pub struct Engine {
     certs: BTreeMap<u64, BTreeMap<String, Cert>>,
     final_: BTreeMap<u64, Cert>,
     mine: BTreeMap<u64, VoteState>,
+    /// After a restart: the last epoch this node applied and its final cert digest (from
+    /// chain state). Finality and voting continue from it; certs before it are not needed.
+    anchor: Option<(u64, String)>,
+    /// A voter never votes again for an epoch at or below this (its own highest vote before a
+    /// restart, kept outside the engine), so a restart can never make it vote twice.
+    vote_floor: u64,
 }
 
 impl Engine {
     pub fn new(chain: &str, activation: u64, mut voters: Vec<String>) -> Self {
         voters.sort(); voters.dedup();
         Engine { chain: chain.into(), activation, voters, props: Default::default(), prop_first_ms: Default::default(),
-            tallies: Default::default(), certs: Default::default(), final_: Default::default(), mine: Default::default() }
+            tallies: Default::default(), certs: Default::default(), final_: Default::default(), mine: Default::default(),
+            anchor: None, vote_floor: 0 }
+    }
+    /// Highest epoch this engine has voted for.
+    pub fn max_voted(&self) -> Option<u64> { self.mine.keys().next_back().copied() }
+    pub fn set_vote_floor(&mut self, epoch: u64) { self.vote_floor = self.vote_floor.max(epoch); }
+    /// Resume after a restart from the last applied epoch and its final cert digest.
+    pub fn resume(&mut self, epoch: u64, digest: String) {
+        if epoch >= self.activation && self.last_final().map_or(true, |lf| lf < epoch) { self.anchor = Some((epoch, digest)); }
+    }
+    /// Digest of the final cert of `epoch` (in memory, or the resume anchor).
+    fn final_digest(&self, epoch: u64) -> Option<String> {
+        if let Some(c) = self.final_.get(&epoch) { return Some(c.digest(&self.chain)); }
+        self.anchor.as_ref().filter(|(e, _)| *e == epoch).map(|(_, d)| d.clone())
     }
     pub fn voters(&self) -> &[String] { &self.voters }
     pub fn set_voters(&mut self, mut v: Vec<String>) { v.sort(); v.dedup(); self.voters = v; }
@@ -121,7 +140,10 @@ impl Engine {
     }
 
     pub fn final_cert(&self, epoch: u64) -> Option<&Cert> { self.final_.get(&epoch) }
-    pub fn last_final(&self) -> Option<u64> { self.final_.keys().next_back().copied() }
+    pub fn last_final(&self) -> Option<u64> {
+        let f = self.final_.keys().next_back().copied();
+        match (f, self.anchor.as_ref().map(|a| a.0)) { (Some(x), Some(y)) => Some(x.max(y)), (x, y) => x.or(y) }
+    }
     pub fn certs_at(&self, epoch: u64) -> usize { self.certs.get(&epoch).map(|m| m.len()).unwrap_or(0) }
 
     /// Hashes already decided on the chain this node builds on (final certs, plus the
@@ -141,7 +163,7 @@ impl Engine {
     }
     fn prev_for(&self, epoch: u64) -> Option<String> {
         if epoch == self.activation { return Some(genesis_prev(self.activation)); }
-        self.chosen(epoch - 1).map(|c| c.digest(&self.chain))
+        self.chosen(epoch - 1).map(|c| c.digest(&self.chain)).or_else(|| self.final_digest(epoch - 1))
     }
 
     pub fn propose(&mut self, me: &str, epoch: u64, mut hashes: Vec<String>, d_report: u64, now_ms: u64, sign: Sign) -> Option<Prop> {
@@ -168,7 +190,7 @@ impl Engine {
 
     /// Vote (or re-vote a later round) for `epoch` when the rules allow it.
     pub fn maybe_vote(&mut self, me: &str, epoch: u64, now_ms: u64, sign: Sign) -> Option<Vote> {
-        if !self.is_voter(me) || epoch < self.activation || self.final_.contains_key(&epoch) { return None; }
+        if !self.is_voter(me) || epoch < self.activation || epoch <= self.vote_floor || self.final_.contains_key(&epoch) { return None; }
         let props = self.props.get(&epoch)?;
         let all = self.voters.iter().all(|v| props.contains_key(v));
         let waited = now_ms.saturating_sub(*self.prop_first_ms.get(&epoch).unwrap_or(&now_ms)) >= PROP_WAIT_MS;
@@ -181,8 +203,13 @@ impl Engine {
         let reports: Vec<(String, u64)> = props.values().map(|p| (p.voter.clone(), p.d_report)).collect();
         let content = Content { hashes, reports };
         let have_cert = self.certs_at(epoch) > 0;
+        // Highest round any voter has reached for this epoch. A voter behind it (late, or
+        // restarted) joins that round at once with its union content; otherwise voters stuck
+        // on different rounds with unchanged content would never meet on one digest.
+        let r_seen = self.tallies.values().filter(|(v, _)| v.epoch == epoch).map(|(v, _)| v.round).max().unwrap_or(0);
         let (round, prev) = match self.mine.get(&epoch) {
-            None => (0, self.prev_for(epoch)?),
+            None => (r_seen, self.prev_for(epoch)?),
+            Some(st) if !have_cert && r_seen > st.round => (r_seen, st.prev.clone()),
             Some(st) => {
                 if have_cert || now_ms.saturating_sub(st.at_ms) < RETRY_MS { return None; }
                 // Prev stays locked; relock only to a strictly lower competing cert of T-1
@@ -242,7 +269,7 @@ impl Engine {
             let Some(here) = self.certs.get(&e) else { break };
             let Some(next) = self.certs.get(&(e + 1)) else { break };
             let expected_prev = if e == self.activation { Some(genesis_prev(self.activation)) }
-                else { self.final_.get(&(e - 1)).map(|c| c.digest(&self.chain)) };
+                else { self.final_digest(e - 1) };
             let pick = here.iter()
                 .filter(|(_, c)| Some(&c.prev) == expected_prev.as_ref())
                 .find(|(d, _)| next.values().any(|n| &n.prev == *d))
@@ -285,6 +312,13 @@ mod tests {
     /// random delays and drops (re-sent later); a non-voting observer follows by gossip.
     /// Every node must finalize the identical sequence of certs.
     fn run(seed: u64, voters: &[&str], epochs: u64, drop_pct: u64) -> Vec<Vec<(u64, String)>> {
+        run_r(seed, voters, epochs, drop_pct, None)
+    }
+
+    /// `restart = Some((node, step))`: at `step` the node loses its engine and resumes from
+    /// its last final epoch (as chain state holds it), then fetches final certs like the
+    /// "certs" gossip request does.
+    fn run_r(seed: u64, voters: &[&str], epochs: u64, drop_pct: u64, restart: Option<(usize, u64)>) -> Vec<Vec<(u64, String)>> {
         let act = 1_000;
         let vs: Vec<String> = voters.iter().map(|s| s.to_string()).collect();
         let n = vs.len() + 1; // + observer
@@ -298,6 +332,23 @@ mod tests {
             t = step * 1_000;
             let epoch = act + step / 30;
             let phase = step % 30;
+            if let Some((r, at)) = restart {
+                if step == at {
+                    let lf = eng[r].last_final().expect("restart after some finality");
+                    let dg = eng[r].final_digest(lf).unwrap();
+                    let mv = eng[r].max_voted().unwrap_or(0);
+                    eng[r] = Engine::new("hone-test", act, vs.clone());
+                    eng[r].resume(lf, dg);
+                    eng[r].set_vote_floor(mv);
+                    q.retain(|(_, to, _)| *to != r); // in-flight messages to it are lost
+                }
+                if step > at && step % 10 == 0 {
+                    let (from, to) = (eng[r].last_final().unwrap_or(act) + 1, eng[(r + 1) % n].last_final().unwrap_or(0));
+                    for e in from..=to.min(from + 31) {
+                        if let Some(c) = eng[(r + 1) % n].final_cert(e).cloned() { q.push_back((t + 500, r, Msg::C(c))); }
+                    }
+                }
+            }
             // Proposals at the seal (phase 5), each voter holding a random subset of due
             // entries (late gossip): what it misses it proposes at a later epoch.
             if phase == 5 && epoch < act + epochs {
@@ -358,6 +409,18 @@ mod tests {
                     assert_eq!(&fin[0][..common], &f[..common], "seed {seed} node {i} diverged");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_restarted_voter_resumes_from_its_last_applied_epoch() {
+        for seed in [3u64, 11, 77, 512, 4096] {
+            let fin = run_r(seed, &["josh", "natoshisakamoto", "shindevlin"], 40, 10, Some((2, 300)));
+            let base: BTreeMap<u64, String> = fin[0].iter().cloned().collect();
+            let after: Vec<&(u64, String)> = fin[2].iter().filter(|(e, _)| *e > 1_000 + 12).collect();
+            assert!(after.len() >= 20, "seed {seed}: restarted voter finalized only {}", after.len());
+            for (e, d) in after { assert_eq!(base.get(e), Some(d), "seed {seed}: restarted voter diverged at {e}"); }
+            assert!(fin[0].len() >= 30, "seed {seed}: others kept going");
         }
     }
 

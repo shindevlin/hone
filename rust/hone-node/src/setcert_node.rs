@@ -32,10 +32,37 @@ fn voters_now(chain: &Chain) -> Vec<String> {
 }
 
 pub fn engine(chain: &Chain) -> &'static Mutex<Engine> {
-    ENGINE.get_or_init(|| Mutex::new(Engine::new(&chain.chain_id, sa::activation(), voters_now(chain))))
+    ENGINE.get_or_init(|| {
+        let mut e = Engine::new(&chain.chain_id, sa::activation(), voters_now(chain));
+        // After a restart, continue from the last applied epoch (its final cert is in state).
+        let up = sa::applied_upto(chain);
+        if up >= sa::activation() {
+            if let Some(f) = chain.store.state_get(&format!("setcert_final:{up}"))
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+                let d = crate::setcert::digest(&chain.chain_id, up, f["round"].as_u64().unwrap_or(0) as u32,
+                    f["content_hash"].as_str().unwrap_or_default(), f["prev"].as_str().unwrap_or_default());
+                e.resume(up, d);
+            }
+        }
+        if let Some(v) = std::fs::read_to_string(voted_path()).ok().and_then(|s| s.trim().parse::<u64>().ok()) { e.set_vote_floor(v); }
+        Mutex::new(e)
+    })
 }
 
 fn now_ms() -> u64 { crate::utils::now_ms() }
+
+/// Local (not chain) record of this voter's highest voted epoch, so a restart never votes twice.
+fn voted_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var("HONE_DATA_DIR").unwrap_or_else(|_| ".".into())).join("setcert_voted")
+}
+fn record_voted(epoch: u64) {
+    let p = voted_path();
+    let cur = std::fs::read_to_string(&p).ok().and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
+    if epoch > cur {
+        let tmp = p.with_extension("tmp");
+        if std::fs::write(&tmp, epoch.to_string()).is_ok() { let _ = std::fs::rename(&tmp, &p); }
+    }
+}
 
 fn verifier(chain: &Chain) -> impl Fn(&str, &str, &str) -> bool + '_ {
     move |voter: &str, msg: &str, sig: &str| crate::verify_clock_signature(chain, voter, msg.as_bytes(), sig).is_ok()
@@ -133,6 +160,7 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
             }
             (out, e.finalize())
         };
+        if let Some(m) = votes.iter().map(|v| v.epoch).max() { record_voted(m); }
         for v in votes { send(&cmd_tx, serde_json::json!({ "type": "set_vote", "vote": v, "nonce": now_ms() })).await; }
         let _ = finals;
         // Apply final certs strictly in order.
