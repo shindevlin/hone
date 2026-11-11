@@ -45,6 +45,15 @@ pub fn engine(chain: &Chain) -> &'static Mutex<Engine> {
             }
         }
         if let Some(v) = std::fs::read_to_string(voted_path()).ok().and_then(|s| s.trim().parse::<u64>().ok()) { e.set_vote_floor(v); }
+        // Own PROPs and votes sent before a restart: re-send exactly those.
+        if let Some(j) = std::fs::read(own_path()).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+            let props: Vec<Prop> = serde_json::from_value(j["props"].clone()).unwrap_or_default();
+            let votes: Vec<Vote> = serde_json::from_value(j["votes"].clone()).unwrap_or_default();
+            if !props.is_empty() || !votes.is_empty() {
+                info!("[setcert] restored {} own prop(s) and {} vote(s) from before the restart", props.len(), votes.len());
+            }
+            e.restore_own(props, votes);
+        }
         Mutex::new(e)
     })
 }
@@ -55,6 +64,31 @@ fn now_ms() -> u64 { crate::utils::now_ms() }
 fn voted_path() -> std::path::PathBuf {
     std::path::PathBuf::from(std::env::var("HONE_DATA_DIR").unwrap_or_else(|_| ".".into())).join("setcert_voted")
 }
+/// Local record of this voter's own PROPs and latest votes of non-final epochs, written
+/// before they are sent (restored after a restart, see Engine::restore_own).
+fn own_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var("HONE_DATA_DIR").unwrap_or_else(|_| ".".into())).join("setcert_own.json")
+}
+fn persist_own(e: &Engine, me: &str) {
+    let from = e.last_final().map(|x| x + 1).unwrap_or(e.activation);
+    let (props, votes) = e.own_since(me, from);
+    let p = own_path();
+    let tmp = p.with_extension("tmp");
+    let body = serde_json::to_vec(&serde_json::json!({ "props": props, "votes": votes })).unwrap_or_default();
+    if std::fs::write(&tmp, body).is_ok() { let _ = std::fs::rename(&tmp, &p); }
+}
+
+/// (epoch with no certificate, alert raised) for the gap alert.
+static GAP: Mutex<u64> = parking_lot::const_mutex(0);
+
+fn out_msg(o: &sa::Out) -> serde_json::Value {
+    match o {
+        sa::Out::P(p) => serde_json::json!({ "type": "set_prop", "prop": p, "nonce": now_ms() }),
+        sa::Out::V(v) => serde_json::json!({ "type": "set_vote", "vote": v, "nonce": now_ms() }),
+        sa::Out::C(c) => serde_json::json!({ "type": "set_cert", "cert": c, "nonce": now_ms() }),
+    }
+}
+
 fn record_voted(epoch: u64) {
     let p = voted_path();
     let cur = std::fs::read_to_string(&p).ok().and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
@@ -89,7 +123,9 @@ pub async fn on_seal(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetC
     let p = {
         let mut e = engine(chain).lock();
         e.set_voters(voters_now(chain));
-        e.propose(me, t, hashes, sa::d_report(), now_ms(), &sign_with(sk))
+        let p = e.propose(me, t, hashes, sa::d_report(), now_ms(), &sign_with(sk));
+        if p.is_some() { persist_own(&e, me); }
+        p
     };
     if let Some(p) = p {
         send(cmd_tx, serde_json::json!({ "type": "set_prop", "prop": p, "nonce": now_ms() })).await;
@@ -144,25 +180,46 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
     sk: Arc<Option<ed25519_dalek::SigningKey>>, is_clock: bool)
 {
     let mut last_fetch = 0u64;
+    let mut last_rb = 0u64;
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let cur = chain.current_epoch();
         if !sa::active(cur) { continue; }
-        let (votes, finals) = {
+        let rebroadcast = now_ms().saturating_sub(last_rb) >= sa::REBROADCAST_MS;
+        if rebroadcast { last_rb = now_ms(); }
+        let (new, rb, finals) = {
             let mut e = engine(&chain).lock();
             e.set_voters(voters_now(&chain));
-            let mut out = Vec::new();
+            let (mut new, mut rb) = (Vec::new(), Vec::new());
             if let (true, Some(k)) = (is_clock, sk.as_ref().as_ref()) {
-                let from = e.last_final().map(|x| x + 1).unwrap_or(e.activation).max(cur.saturating_sub(64));
-                for t in from..=cur {
-                    if let Some(v) = e.maybe_vote(&me, t, now_ms(), &sign_with(k)) { out.push(v); }
-                }
+                (new, rb) = sa::voter_step(&mut e, &chain, &me, cur, now_ms(), sa::d_report(), rebroadcast, &sign_with(k));
+                // Persist before sending: a restart re-sends these, never different ones.
+                if !new.is_empty() { persist_own(&e, &me); }
             }
-            (out, e.finalize())
+            (new, rb, e.finalize())
         };
-        if let Some(m) = votes.iter().map(|v| v.epoch).max() { record_voted(m); }
-        for v in votes { send(&cmd_tx, serde_json::json!({ "type": "set_vote", "vote": v, "nonce": now_ms() })).await; }
+        if let Some(m) = new.iter().filter_map(|o| if let sa::Out::V(v) = o { Some(v.epoch) } else { None }).max() { record_voted(m); }
+        let catchup_props = new.iter().filter(|o| matches!(o, sa::Out::P(p) if p.epoch + 2 <= cur)).count();
+        if catchup_props > 0 { info!("[setcert] catch-up: proposed {} sealed epoch(s) without a prop", catchup_props); }
+        for o in new.iter().chain(rb.iter()) { send(&cmd_tx, out_msg(o)).await; }
         let _ = finals;
+        // Gap alert: no certificate for the next epoch long after its seal.
+        {
+            let next = sa::applied_upto(&chain) + 1;
+            let mut g = GAP.lock();
+            if cur >= next + sa::GAP_ALERT_EPOCHS {
+                if *g != next {
+                    *g = next;
+                    crate::state_healer::raise_alert(next, format!(
+                        "setcert: no certificate for epoch {next} after {} epochs; finalization stalled", sa::GAP_ALERT_EPOCHS));
+                    tracing::error!("[setcert] HEALER ALERT: no certificate for epoch {} after {} epochs (tip {})", next, sa::GAP_ALERT_EPOCHS, cur);
+                }
+            } else if *g != 0 && next > *g {
+                *g = 0;
+                crate::state_healer::clear_alerts("setcert: no certificate");
+                info!("[setcert] certificates resumed (next {next}, tip {cur})");
+            }
+        }
         // Apply final certs strictly in order.
         loop {
             let next = sa::applied_upto(&chain) + 1;

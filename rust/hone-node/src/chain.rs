@@ -669,10 +669,37 @@ impl Chain {
         }
         drop(seen);
         crate::setcert_apply::note_seen(entry.epoch(), self.current_epoch());
+        self.pool_save(&entry, &sig);
         let mut pool = self.pending.lock();
         pool.push((entry, sig));
-        self.persist_pool("pending_pool", &pool.iter().map(|(e, s)| (e.clone(), s.clone(), 0u64)).collect::<Vec<_>>());
         true
+    }
+
+    /// Pending pool persistence, one meta key per entry (append on push, delete on decide).
+    /// It used to rewrite the whole pool on every push, which grows quadratically while a
+    /// backlog builds (2,635 entries after the 2026-11-11 stall).
+    const POOL_PREFIX: &'static str = "pending_pool:e:";
+    fn pool_save(&self, e: &LedgerEntry, sig: &Option<String>) {
+        let _ = self.store.state_set(&format!("{}{}", Self::POOL_PREFIX, e.hash()),
+            &serde_json::to_vec(&serde_json::json!({ "entry": e, "sig": sig })).unwrap_or_default());
+    }
+    /// Forget persisted pool entries (decided by a certified set).
+    pub fn pool_forget(&self, hashes: &[String]) {
+        for h in hashes { let _ = self.store.state_delete(&format!("{}{}", Self::POOL_PREFIX, h)); }
+    }
+    fn pool_clear(&self) {
+        let mut keys = Vec::new();
+        self.store.for_each_meta_prefix(Self::POOL_PREFIX, |k, _| keys.push(k.to_owned()));
+        for k in keys { let _ = self.store.state_delete(&k); }
+    }
+    fn pool_load(&self) -> Vec<(LedgerEntry, Option<String>)> {
+        let mut out = Vec::new();
+        self.store.for_each_meta_prefix(Self::POOL_PREFIX, |_, v| {
+            if let Ok(r) = serde_json::from_slice::<serde_json::Value>(v) {
+                if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) { out.push((e, r["sig"].as_str().map(str::to_owned))); }
+            }
+        });
+        out
     }
 
     /// Pending pool and outbox survive a restart (local meta, not in state_root). An entry a
@@ -709,10 +736,14 @@ impl Chain {
     /// At startup: reload what was pending / in the outbox when the node stopped. Entries
     /// that committed meanwhile are rejected at seal by exactly-once.
     pub fn restore_pools(&self) -> (usize, usize) {
-        let p = self.load_pool("pending_pool");
+        // Legacy whole-pool blob (before per-entry keys): migrate once, then drop it.
+        let legacy = self.load_pool("pending_pool");
+        let _ = self.store.state_delete("pending_pool");
+        let mut p: Vec<(LedgerEntry, Option<String>)> = legacy.into_iter().map(|(e, s, _)| (e, s)).collect();
+        p.extend(self.pool_load());
         let o = self.load_pool("outbox_pool");
         let (np, no) = (p.len(), o.len());
-        for (e, s, _) in p { self.push_pending(e, s); }
+        for (e, s) in p { self.push_pending(e, s); }
         *self.outbox.lock() = o;
         (np, no)
     }
@@ -752,7 +783,7 @@ impl Chain {
         let drained = pool.drain(..).collect();
         drop(pool);
         self.seen_entries.lock().clear();
-        self.persist_pool("pending_pool", &[]);
+        self.pool_clear();
         drained
     }
 

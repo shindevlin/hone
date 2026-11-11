@@ -533,6 +533,35 @@ mod tests {
         assert_eq!(c.restore_pools().0, 0);
     }
 
+    /// Pool persistence is one key per entry: a push writes only that entry, a decided entry
+    /// is forgotten, and the legacy whole-pool blob is migrated once.
+    #[test]
+    fn pending_pool_persists_per_entry_and_forgets_decided() {
+        let sk = SigningKey::from_bytes(&[0x43; 32]);
+        let d = tempfile::tempdir().unwrap();
+        let st = crate::store::Store::open(d.path()).unwrap();
+        let es: Vec<_> = (1..=3).map(|n| xfer(&sk, n, 500 + n)).collect();
+        {
+            let a = Chain::new(st.clone(), "a".into(), "hone-test".into());
+            for (e, s) in &es { a.push_pending(e.clone(), s.clone()); }
+            let mut n = 0; st.for_each_meta_prefix("pending_pool:e:", |_, _| n += 1);
+            assert_eq!(n, 3, "one key per entry");
+            assert!(st.state_get("pending_pool").is_none(), "no whole-pool rewrite");
+            a.pool_forget(&[es[1].0.hash()]);
+        }
+        // A legacy blob from the previous binary is migrated and removed.
+        let (old, olds) = xfer(&sk, 9, 509);
+        st.state_set("pending_pool", &serde_json::to_vec(&serde_json::json!([{ "entry": old, "sig": olds, "first": 0 }])).unwrap()).unwrap();
+        let b = Chain::new(st.clone(), "a".into(), "hone-test".into());
+        assert_eq!(b.restore_pools().0, 3, "two kept + one legacy");
+        assert!(st.state_get("pending_pool").is_none());
+        let hs: Vec<String> = b.drain_pending_sorted().into_iter().map(|(e, _)| e.hash()).collect();
+        assert!(hs.contains(&es[0].0.hash()) && hs.contains(&es[2].0.hash()) && hs.contains(&old.hash()));
+        assert!(!hs.contains(&es[1].0.hash()), "forgotten entry stays forgotten");
+        let mut n = 0; st.for_each_meta_prefix("pending_pool:e:", |_, _| n += 1);
+        assert_eq!(n, 0, "drained pool leaves nothing behind");
+    }
+
     /// Gossip transport: B missed 101..=103 and has no HTTP peer. A clock's "sets" answer
     /// is accepted only for the range B is waiting on, and applying it converges B on A.
     #[test]

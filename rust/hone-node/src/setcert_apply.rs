@@ -39,6 +39,49 @@ pub fn applied(chain: &Chain, epoch: u64) -> bool { epoch <= applied_upto(chain)
 /// The delay d in force for entries dated `epoch`.
 pub fn d(chain: &Chain) -> u64 { read_u64(chain, D_KEY).unwrap_or(setcert::D_START) }
 
+/// Epochs a voter works on at once beyond its first non-final epoch (catch-up batch).
+pub const CATCHUP_BATCH: u64 = 32;
+/// Own PROPs / votes / chosen certs of stuck epochs are re-broadcast this often.
+pub const REBROADCAST_MS: u64 = 10_000;
+/// No certificate this many epochs behind the tip raises a healer alert.
+pub const GAP_ALERT_EPOCHS: u64 = 20;
+
+/// A message a voter step wants gossiped.
+#[derive(Debug, Clone)]
+pub enum Out { P(setcert::Prop), V(setcert::Vote), C(setcert::Cert) }
+
+/// One voter tick (pure over engine and chain, shared by the node driver and the tests):
+///  - PROP for every sealed epoch (t + 2 <= cur) from the first non-final one on that this
+///    voter holds no PROP for (lost in a partition, or the node was down at that seal);
+///  - votes for first..=first+CATCHUP_BATCH (no fixed look-back from the tip);
+///  - when `rebroadcast`: own PROPs, latest votes and chosen certs of stuck epochs
+///    (t + 3 <= cur), so a partition or a lost message never ends liveness.
+/// Returns (new messages, re-broadcast messages).
+pub fn voter_step(e: &mut setcert::Engine, chain: &Chain, me: &str, cur: u64, now_ms: u64, d_report: u64,
+                  rebroadcast: bool, sign: setcert::Sign) -> (Vec<Out>, Vec<Out>) {
+    e.set_tip(cur);
+    let first = e.last_final().map(|x| x + 1).unwrap_or(e.activation);
+    let hi = cur.min(first + CATCHUP_BATCH);
+    let (mut new, mut rb) = (Vec::new(), Vec::new());
+    for t in first..=hi {
+        if t + 2 <= cur && e.own_prop(me, t).is_none() {
+            if let Some(p) = e.propose(me, t, due_hashes(chain, t), d_report, now_ms, sign) { new.push(Out::P(p)); }
+        }
+    }
+    for t in first..=hi {
+        if let Some(v) = e.maybe_vote(me, t, now_ms, sign) { new.push(Out::V(v)); }
+    }
+    if rebroadcast {
+        for t in first..=hi {
+            if t + 3 > cur { break; }
+            if let Some(p) = e.own_prop(me, t) { rb.push(Out::P(p.clone())); }
+            if let Some(v) = e.own_vote(t) { rb.push(Out::V(v.clone())); }
+            if let Some(c) = e.chosen(t) { rb.push(Out::C(c.clone())); }
+        }
+    }
+    (new, rb)
+}
+
 /// Hashes a voter proposes for T: pool entries due by T.
 pub fn due_hashes(chain: &Chain, t: u64) -> Vec<String> {
     let d = d(chain);
@@ -118,6 +161,7 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
         let mut pool = chain.pending.lock();
         pool.retain(|(e, _)| cert.content.hashes.binary_search(&e.hash()).is_err());
     }
+    chain.pool_forget(&cert.content.hashes);
     {
         let mut f = FETCHED.lock().unwrap();
         for h in &cert.content.hashes { f.remove(h); }
@@ -173,6 +217,7 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use sha2::Digest;
 
+    const D_TEST: u64 = 3;
     struct Rng(u64);
     impl Rng { fn next(&mut self) -> u64 { self.0 ^= self.0 << 13; self.0 ^= self.0 >> 7; self.0 ^= self.0 << 17; self.0 } }
 
@@ -307,6 +352,175 @@ mod tests {
                     assert_eq!(bal("carol"), (0..40u64).filter(|i| i % 2 == 1).map(|i| 2_000 + i).sum::<u64>());
                 }
             }
+        }
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// Incident 2026-11-11 replay at scale. Three clock voters; two funded senders submit one
+    /// transfer each per epoch for 760 epochs (nonces in order). From act+15 every voter is cut
+    /// off from every other for 730 epochs: all PROPs, votes, certs and entry gossip are lost,
+    /// and each transfer reaches only the node it was submitted to. Then the network heals and
+    /// the voters catch up with voter_step (re-proposals, no look-back limit, re-broadcast).
+    /// Mid catch-up one voter restarts: a fresh engine resumed from chain state, its persisted
+    /// own PROPs/votes restored, its pool reloaded from disk. Required: every node applies every
+    /// epoch, each transfer exactly at its own epoch (t = epoch + d, none stale or rejected),
+    /// and identical balance roots per epoch on every node.
+    #[test]
+    fn total_partition_730_epoch_backlog_catch_up_and_restart() {
+        let act = 500u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let d = D_TEST;
+        let voters = vec!["josh".to_string(), "natoshisakamoto".to_string(), "shindevlin".to_string()];
+        let sk_a = SigningKey::from_bytes(&[0x61; 32]);
+        let sk_b = SigningKey::from_bytes(&[0x62; 32]);
+        let dirs: Vec<tempfile::TempDir> = (0..3).map(|_| tempfile::tempdir().unwrap()).collect();
+        let stores: Vec<crate::store::Store> = dirs.iter().map(|d| crate::store::Store::open(d.path()).unwrap()).collect();
+        let mut nodes: Vec<Chain> = stores.iter().enumerate().map(|(i, st)| Chain::new(st.clone(), format!("cu-{i}"), "hone-test".into())).collect();
+        for c in &nodes { setup(c, &sk_a, "alice"); setup(c, &sk_b, "bob"); }
+        let mut eng: Vec<Engine> = (0..3).map(|_| Engine::new("hone-test", act, voters.clone())).collect();
+        let n_ep = 760u64;
+        let (part_from, part_to) = (act + 15, act + 15 + 730);
+        let mut rng = Rng(2026_1111);
+        let mut q: Vec<(u64, usize, Msg)> = Vec::new();
+        let mut txs = Vec::new();
+        for i in 0..n_ep {
+            let ep = act + i;
+            let a = xfer(&sk_a, "alice", "carol", i + 1, ep, 10_000 + i);
+            let b = xfer(&sk_b, "bob", "carol", i + 1, ep, 20_000 + i);
+            for (k, x) in [a, b].into_iter().enumerate() {
+                let at = (ep - act) * 30_000 + rng.next() % 20_000;
+                if ep >= part_from && ep < part_to { q.push((at, (i as usize + k) % 3, Msg::E(x.0.clone(), x.1.clone()))); }
+                else { for to in 0..3 { q.push((at + rng.next() % 5_000, to, Msg::E(x.0.clone(), x.1.clone()))); } }
+                txs.push((ep, x.0.hash()));
+            }
+        }
+        let part = |t_ms: u64| { let e = act + t_ms / 30_000; e >= part_from && e < part_to };
+        let mut roots: Vec<BTreeMap<u64, String>> = vec![BTreeMap::new(); 3];
+        let mut restarted = false;
+        let mut stalled_seen = false;
+        let total_s = (n_ep + 160) * 30;
+        for sec in 0..total_s {
+            let t = sec * 1_000;
+            let epoch = act + sec / 30;
+            let cut = part(t);
+            let mut due: Vec<(u64, usize, Msg)> = Vec::new();
+            let mut rest = Vec::new();
+            for x in q.drain(..) { if x.0 <= t { due.push(x) } else { rest.push(x) } }
+            q = rest;
+            while !due.is_empty() {
+                let k = (rng.next() as usize) % due.len();
+                let (_, to, m) = due.swap_remove(k);
+                let c = &nodes[to];
+                match m {
+                    Msg::E(e, s) => { if !applied_hash(c, &e) { c.push_pending(e, s); } }
+                    Msg::P(p) => { eng[to].on_prop(p, t, &verify); }
+                    Msg::V(v) => { let _ = eng[to].on_vote(v, &verify); }
+                    Msg::C(cert) => { eng[to].on_cert(cert, &verify); }
+                }
+            }
+            // Gossip helper: everything between nodes is lost while partitioned.
+            let mut send = |q: &mut Vec<(u64, usize, Msg)>, from: usize, m: Msg, rng: &mut Rng| {
+                if cut { return; }
+                for j in 0..3 { if j != from { q.push((t + 200 + rng.next() % 3_000, j, m.clone())); } }
+            };
+            for (i, v) in voters.iter().enumerate() {
+                let s = signer(v);
+                if sec % 30 == 5 {
+                    let hs = due_hashes(&nodes[i], epoch);
+                    if let Some(p) = eng[i].propose(v, epoch, hs, d, t, &s) { send(&mut q, i, Msg::P(p), &mut rng); }
+                }
+                let (new, rb) = voter_step(&mut eng[i], &nodes[i], v, epoch, t, d, sec % 10 == 0, &s);
+                for o in new.into_iter().chain(rb) {
+                    let m = match o { Out::P(p) => Msg::P(p), Out::V(v) => Msg::V(v), Out::C(c) => Msg::C(c) };
+                    send(&mut q, i, m, &mut rng);
+                }
+            }
+            for i in 0..3 {
+                eng[i].finalize();
+                // A node behind its peers asks for final certs (the "certs" request, answered
+                // from the peers' engines), as the driver does when next + 3 < tip.
+                if !cut && sec % 10 == 0 {
+                    let next = applied_upto(&nodes[i]) + 1;
+                    if eng[i].final_cert(next).is_none() && next + 3 < epoch {
+                        for j in 0..3 { if j == i { continue; }
+                            for e in next..next + 32 {
+                                if let Some(c) = eng[j].final_cert(e).cloned() { q.push((t + 500, i, Msg::C(c))); }
+                            }
+                        }
+                    }
+                }
+                loop {
+                    let next = applied_upto(&nodes[i]) + 1;
+                    let Some(cert) = eng[i].final_cert(next).cloned() else { break };
+                    match apply_final(&nodes[i], &cert) {
+                        Ok(_) => {
+                            roots[i].insert(next, nodes[i].store.balance_merkle_root());
+                            // Every entry of this epoch's record is dated exactly next - d.
+                            let rec = epoch_sync::serve(&nodes[i], next, next);
+                            for r in rec["epochs"][0]["entries"].as_array().into_iter().flatten() {
+                                let e: LedgerEntry = serde_json::from_value(r["entry"].clone()).unwrap();
+                                assert_eq!(e.epoch() + d, next, "node {i}: entry dated {} applied at {next}", e.epoch());
+                            }
+                        }
+                        Err(missing) => {
+                            if cut { break; }
+                            let mut got = false;
+                            for j in 0..3 { if j == i { continue; }
+                                for r in serve_bodies(&nodes[j], &missing, epoch) {
+                                    if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
+                                        offer_body(e, r["sig"].as_str().map(str::to_owned)); got = true;
+                                    }
+                                }
+                            }
+                            if !got { break; }
+                        }
+                    }
+                }
+            }
+            if cut && epoch == part_to - 1 && sec % 30 == 29 {
+                for c in &nodes { assert!(applied_upto(c) < part_from, "nothing certifies while every voter is cut off"); }
+                stalled_seen = true;
+            }
+            // Restart voter 1 mid catch-up.
+            if !restarted && !cut && applied_upto(&nodes[1]) >= part_from + 300 {
+                restarted = true;
+                let me = &voters[1];
+                let lf = eng[1].last_final().unwrap();
+                let (props, votes) = eng[1].own_since(me, lf + 1);
+                let floor = eng[1].max_voted().unwrap_or(0);
+                nodes[1] = Chain::new(stores[1].clone(), "cu-1".into(), "hone-test".into());
+                let (np, _) = nodes[1].restore_pools();
+                let mut e = Engine::new("hone-test", act, voters.clone());
+                let up = applied_upto(&nodes[1]);
+                let f: serde_json::Value = serde_json::from_slice(&nodes[1].store.state_get(&format!("setcert_final:{up}")).unwrap()).unwrap();
+                e.resume(up, setcert::digest("hone-test", up, f["round"].as_u64().unwrap() as u32,
+                    f["content_hash"].as_str().unwrap(), f["prev"].as_str().unwrap()));
+                e.set_vote_floor(floor);
+                e.restore_own(props, votes);
+                eng[1] = e;
+                q.retain(|(_, to, _)| *to != 1); // in-flight messages to it are lost
+                let _ = np;
+            }
+        }
+        assert!(stalled_seen && restarted, "scenario ran: partition {stalled_seen}, restart {restarted}");
+        let last = act + n_ep - 1 + d;
+        for (i, c) in nodes.iter().enumerate() {
+            assert!(applied_upto(c) >= last, "node {i}: applied only to {} of {last}", applied_upto(c));
+        }
+        for i in 1..3 {
+            for (e, r) in roots[0].range(..=last) { if let Some(x) = roots[i].get(e) { assert_eq!(x, r, "node {i} epoch {e}"); } }
+        }
+        let want: u64 = (0..n_ep).map(|i| 10_000 + i + 20_000 + i).sum();
+        for (i, c) in nodes.iter().enumerate() {
+            assert_eq!(c.store.get_balance("carol", hone_types::NATIVE_TOKEN), want, "node {i}: every transfer applied once");
+            for (ep, h) in &txs {
+                let st = c.entry_status(h);
+                assert_eq!(st["status"], "committed", "node {i}: {h} ({ep}) {st}");
+                // The in-memory result map does not survive the restart (node 1): there the
+                // per-epoch record check above (every applied entry dated next - d) covers it.
+                if let Some(at) = st["epoch"].as_u64() { assert_eq!(at, ep + d, "node {i}: applied at its own epoch"); }
+            }
+            assert_eq!(epoch_sync::last_committed(c), applied_upto(c), "records follow in order");
         }
         TEST_EPOCH.with(|c| c.set(None));
     }

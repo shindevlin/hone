@@ -19,6 +19,14 @@
 //! 4. FINAL: cert(T) is final once a cert for T+1 names it as prev. Voters lock prev, so a
 //!    quorum can only ever build on one cert per epoch and finality is unique.
 //!
+//! Liveness after lost messages (incident 2026-11-11: a 2.5-minute LAN outage at 08:00Z lost
+//! the PROPs of 373081 on every voter; no cert ever formed and nothing after it could, since
+//! each vote names the cert of T-1): a voter (re)proposes every sealed epoch it holds no PROP
+//! for, votes from its first non-final epoch on (no fixed look-back), and re-broadcasts its
+//! own PROPs, latest votes and chosen certs of stuck epochs. Its own PROPs and votes are
+//! persisted before they are sent and restored after a restart, so it re-sends exactly what
+//! it sent before instead of going silent or voting different content.
+//!
 //! Nodes apply final epochs strictly in order, only with every body in hand (fetched by
 //! hash over gossip when missing). Nothing is guessed: a node that lacks a cert or a body
 //! waits. Time-based rules (PROP_WAIT_MS, RETRY_MS) affect liveness only, never which
@@ -30,6 +38,10 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const PROP_WAIT_MS: u64 = 6_000;
 pub const RETRY_MS: u64 = 8_000;
 pub const RELOCK_MS: u64 = 30_000;
+/// PROP wait for an epoch already 3+ behind the tip (catch-up): long enough for every voter's
+/// re-broadcast (REBROADCAST_MS = 10 s) to arrive, so a set is never built from a quorum of
+/// PROPs while the missing one is merely in flight (its entries would go stale later).
+pub const CATCHUP_PROP_WAIT_MS: u64 = 25_000;
 pub const MIN_OPERATORS: usize = 2;
 pub const MAX_SET: usize = 2_000;
 pub const D_MIN: u64 = 2;
@@ -106,8 +118,13 @@ pub struct Engine {
     /// chain state). Finality and voting continue from it; certs before it are not needed.
     anchor: Option<(u64, String)>,
     /// A voter never votes again for an epoch at or below this (its own highest vote before a
-    /// restart, kept outside the engine), so a restart can never make it vote twice.
+    /// restart, kept outside the engine), so a restart can never make it vote twice, unless
+    /// its own vote state for that epoch was restored (then it continues that state).
     vote_floor: u64,
+    /// This node's latest signed vote per epoch (re-broadcast and persisted).
+    my_votes: BTreeMap<u64, Vote>,
+    /// Current tip as the driver last saw it (only selects the PROP wait).
+    tip: u64,
 }
 
 impl Engine {
@@ -115,7 +132,33 @@ impl Engine {
         voters.sort(); voters.dedup();
         Engine { chain: chain.into(), activation, voters, props: Default::default(), prop_first_ms: Default::default(),
             tallies: Default::default(), certs: Default::default(), final_: Default::default(), mine: Default::default(),
-            anchor: None, vote_floor: 0 }
+            anchor: None, vote_floor: 0, my_votes: Default::default(), tip: 0 }
+    }
+    pub fn set_tip(&mut self, tip: u64) { self.tip = self.tip.max(tip); }
+    /// This node's PROP for `epoch`, if it made one.
+    pub fn own_prop(&self, me: &str, epoch: u64) -> Option<&Prop> { self.props.get(&epoch)?.get(me) }
+    /// This node's latest vote for `epoch`.
+    pub fn own_vote(&self, epoch: u64) -> Option<&Vote> { self.my_votes.get(&epoch) }
+    /// Own PROPs and latest votes for epochs from `from` on (what a restart must restore).
+    pub fn own_since(&self, me: &str, from: u64) -> (Vec<Prop>, Vec<Vote>) {
+        let props = self.props.range(from..).filter_map(|(_, m)| m.get(me).cloned()).collect();
+        let votes = self.my_votes.range(from..).map(|(_, v)| v.clone()).collect();
+        (props, votes)
+    }
+    /// After a restart: reinstate this node's own PROPs and latest votes (persisted before
+    /// they were sent). Votes re-enter the tally and the per-epoch vote state, so the node
+    /// continues its rounds with the same locked prev instead of being silenced by the floor.
+    pub fn restore_own(&mut self, props: Vec<Prop>, votes: Vec<Vote>) {
+        for p in props {
+            if p.epoch < self.activation { continue; }
+            self.props.entry(p.epoch).or_default().entry(p.voter.clone()).or_insert(p);
+        }
+        for v in votes {
+            if v.epoch < self.activation || self.final_.contains_key(&v.epoch) { continue; }
+            self.mine.insert(v.epoch, VoteState { round: v.round, prev: v.prev.clone(), content: v.content.clone(), at_ms: 0, prev_locked_at: 0 });
+            self.my_votes.insert(v.epoch, v.clone());
+            let _ = self.on_vote(v, &accept_own);
+        }
     }
     /// Highest epoch this engine has voted for.
     pub fn max_voted(&self) -> Option<u64> { self.mine.keys().next_back().copied() }
@@ -168,12 +211,14 @@ impl Engine {
 
     pub fn propose(&mut self, me: &str, epoch: u64, mut hashes: Vec<String>, d_report: u64, now_ms: u64, sign: Sign) -> Option<Prop> {
         if !self.is_voter(me) || epoch < self.activation { return None; }
+        // One PROP per voter and epoch: never replace one already sent (peers keep the first).
+        if self.own_prop(me, epoch).is_some() { return None; }
         let decided = self.decided(epoch);
         hashes.retain(|h| !decided.contains(h));
         hashes.sort(); hashes.dedup(); hashes.truncate(MAX_SET);
         let mut p = Prop { epoch, voter: me.into(), hashes, d_report, sig: String::new() };
         p.sig = sign(&prop_message(&self.chain, &p));
-        self.prop_first_ms.entry(epoch).or_insert(now_ms);
+        let _ = now_ms; // the PROP wait starts at the first PEER prop (on_prop), not our own
         self.props.entry(epoch).or_default().insert(me.into(), p.clone());
         Some(p)
     }
@@ -190,10 +235,12 @@ impl Engine {
 
     /// Vote (or re-vote a later round) for `epoch` when the rules allow it.
     pub fn maybe_vote(&mut self, me: &str, epoch: u64, now_ms: u64, sign: Sign) -> Option<Vote> {
-        if !self.is_voter(me) || epoch < self.activation || epoch <= self.vote_floor || self.final_.contains_key(&epoch) { return None; }
+        if !self.is_voter(me) || epoch < self.activation || self.final_.contains_key(&epoch) { return None; }
+        if epoch <= self.vote_floor && !self.mine.contains_key(&epoch) { return None; }
         let props = self.props.get(&epoch)?;
         let all = self.voters.iter().all(|v| props.contains_key(v));
-        let waited = now_ms.saturating_sub(*self.prop_first_ms.get(&epoch).unwrap_or(&now_ms)) >= PROP_WAIT_MS;
+        let wait = if epoch + 3 <= self.tip { CATCHUP_PROP_WAIT_MS } else { PROP_WAIT_MS };
+        let waited = now_ms.saturating_sub(*self.prop_first_ms.get(&epoch).unwrap_or(&now_ms)) >= wait;
         if !(all || (waited && props.len() >= self.quorum())) { return None; }
         let decided = self.decided(epoch);
         let mut hs: BTreeSet<String> = props.values().flat_map(|p| p.hashes.iter().cloned()).collect();
@@ -226,6 +273,7 @@ impl Engine {
         let mut v = Vote { epoch, round, voter: me.into(), prev: prev.clone(), content: content.clone(), sig: String::new() };
         v.sig = sign(&v.digest(&self.chain));
         self.mine.insert(epoch, VoteState { round, prev, content, at_ms: now_ms, prev_locked_at: locked_at });
+        self.my_votes.insert(epoch, v.clone());
         let _ = self.on_vote(v.clone(), &accept_own);
         Some(v)
     }
@@ -286,6 +334,7 @@ impl Engine {
             self.prop_first_ms.retain(|k, _| *k >= keep);
             self.certs.retain(|k, _| *k >= keep);
             self.mine.retain(|k, _| *k >= keep);
+            self.my_votes.retain(|k, _| *k >= keep);
             self.tallies.retain(|_, (v, _)| v.epoch >= keep);
             while self.final_.len() > 4_096 { let k = *self.final_.keys().next().unwrap(); self.final_.remove(&k); }
         }
@@ -396,6 +445,34 @@ mod tests {
         }
         let _ = t;
         eng.iter().map(|e| e.final_.iter().map(|(k, c)| (*k, c.digest("hone-test"))).collect()).collect()
+    }
+
+    #[test]
+    fn restored_own_votes_are_resent_not_silenced_and_props_never_replaced() {
+        let vs = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut e = Engine::new("hone-test", 1_000, vs.clone());
+        let sa = signer("a");
+        let p = e.propose("a", 1_000, vec!["h1".into()], 3, 0, &sa).unwrap();
+        assert!(e.propose("a", 1_000, vec!["h2".into()], 3, 1, &sa).is_none(), "one prop per epoch");
+        for v in ["b", "c"] {
+            let s = signer(v);
+            let mut q = Engine::new("hone-test", 1_000, vs.clone());
+            let pp = q.propose(v, 1_000, vec!["h1".into()], 3, 0, &s).unwrap();
+            e.on_prop(pp, 0, &verify);
+        }
+        let v = e.maybe_vote("a", 1_000, 0, &sa).unwrap();
+        // Restart: floor = 1000, own prop and vote restored.
+        let (props, votes) = e.own_since("a", 1_000);
+        assert_eq!((props.len(), votes.len()), (1, 1));
+        let mut r = Engine::new("hone-test", 1_000, vs.clone());
+        r.set_vote_floor(1_000);
+        r.restore_own(props, votes);
+        assert_eq!(r.own_prop("a", 1_000), Some(&p));
+        assert_eq!(r.own_vote(1_000), Some(&v));
+        // Without restore the floor silences it; with restore it holds its vote state.
+        let mut silent = Engine::new("hone-test", 1_000, vs.clone());
+        silent.set_vote_floor(1_000);
+        assert!(silent.maybe_vote("a", 1_000, 99_000, &sa).is_none());
     }
 
     #[test]
