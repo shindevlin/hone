@@ -31,10 +31,7 @@ use std::sync::Arc;
 
 use hone_types::LedgerEntry;
 use nostr_sdk::prelude::*;
-use nostr_sdk::{
-    Client, EventBuilder, Filter, Keys, Kind, RelayPoolNotification, SecretKey, Tag, TagKind,
-    SingleLetterTag, Alphabet,
-};
+use libp2p::futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
@@ -143,7 +140,7 @@ async fn try_start(
     );
 
     // Build the client.
-    let client = Client::builder().signer(keys.clone()).build();
+    let client = Client::builder().build();
 
     // Register relays.
     for url in &relay_urls {
@@ -159,9 +156,9 @@ async fn try_start(
     // filtering only indexes single-letter tags (NIP-01).
     let filter = Filter::new()
         .kind(Kind::Custom(kind_num))
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::P), ["hone"]);
+        .custom_tag(SingleLetterTag::LOWERCASE_P, "hone");
 
-    if let Err(e) = client.subscribe(vec![filter], None).await {
+    if let Err(e) = client.subscribe(filter).await {
         warn!("nostr: subscription failed: {}", e);
         return None;
     }
@@ -247,7 +244,7 @@ fn load_or_generate_keys(chain: &Arc<Chain>) -> Keys {
 // ---------------------------------------------------------------------------
 
 async fn run_receive_loop(
-    notifications: &mut tokio::sync::broadcast::Receiver<RelayPoolNotification>,
+    notifications: &mut (impl libp2p::futures::Stream<Item = ClientNotification> + Unpin),
     chain:         &Arc<Chain>,
     cmd_tx:        &mpsc::Sender<NetCmd>,
     chain_id:      &str,
@@ -256,20 +253,16 @@ async fn run_receive_loop(
     let expected_kind = Kind::Custom(kind_num);
 
     loop {
-        let notification = match notifications.recv().await {
-            Ok(n) => n,
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                warn!("nostr: receive loop lagged by {} notifications", n);
-                continue;
-            }
-            Err(_) => {
-                warn!("nostr: relay pool notification channel closed");
+        let notification = match notifications.next().await {
+            Some(n) => n,
+            None => {
+                warn!("nostr: client notification stream closed");
                 break;
             }
         };
 
         let event = match notification {
-            RelayPoolNotification::Event { event, .. } => event,
+            ClientNotification::Event { event, .. } => event,
             _ => continue,
         };
 
@@ -281,7 +274,8 @@ async fn run_receive_loop(
         // Validate the `chain` tag matches our chain_id (client-side isolation).
         let chain_matches = event
             .tags
-            .find(TagKind::custom("chain"))
+            .iter()
+            .find(|t| t.kind() == "chain")
             .and_then(|t| t.content())
             .map(|v| v == chain_id)
             .unwrap_or(false);
@@ -367,10 +361,10 @@ async fn run_send_loop(
 
         // Build and sign the event.
         let event_result = EventBuilder::new(event_kind.clone(), content)
-            .tag(Tag::custom(TagKind::custom("p"),     ["hone"]))
-            .tag(Tag::custom(TagKind::custom("chain"), [chain_id.as_str()]))
-            .tag(Tag::custom(TagKind::custom("h"),     [entry_hash_hex.as_str()]))
-            .sign_with_keys(&keys);
+            .tag(Tag::custom("p",     ["hone"]))
+            .tag(Tag::custom("chain", [chain_id.as_str()]))
+            .tag(Tag::custom("h",     [entry_hash_hex.as_str()]))
+            .finalize(&keys);
 
         let event = match event_result {
             Ok(e) => e,
@@ -381,7 +375,7 @@ async fn run_send_loop(
         };
 
         // Publish to all connected relays.
-        match client.send_event(event).await {
+        match client.send_event(&event).await {
             Ok(output) => {
                 debug!(
                     "nostr: published entry to {} relay(s)",
@@ -486,5 +480,32 @@ mod tests {
             result.is_none(),
             "expected None when HONE_NOSTR_RELAYS resolves to an empty list"
         );
+    }
+}
+
+#[cfg(test)]
+mod wire_tests {
+    use super::*;
+
+    /// Events must keep the same JSON tags across nostr-sdk upgrades so nodes on
+    /// different versions keep reading each other's relay traffic.
+    #[test]
+    fn event_tags_wire_format_is_stable() {
+        let keys = Keys::generate();
+        let ev = EventBuilder::new(Kind::Custom(DEFAULT_KIND), "{}")
+            .tag(Tag::custom("p", ["hone"]))
+            .tag(Tag::custom("chain", ["hone-testnet"]))
+            .tag(Tag::custom("h", ["00ff"]))
+            .finalize(&keys)
+            .unwrap();
+        assert!(ev.verify().is_ok());
+        let json: serde_json::Value = serde_json::from_str(&ev.as_json()).unwrap();
+        assert_eq!(json["kind"], serde_json::json!(21337));
+        assert_eq!(
+            json["tags"],
+            serde_json::json!([["p", "hone"], ["chain", "hone-testnet"], ["h", "00ff"]])
+        );
+        let chain = ev.tags.iter().find(|t| t.kind() == "chain").and_then(|t| t.content());
+        assert_eq!(chain, Some("hone-testnet"));
     }
 }
