@@ -89,9 +89,9 @@ parking_lot = "0.12"
 # Versions pinned to match the proven hone-android/src/llm.rs stack.
 # Optional + behind the `inference-embedded` feature so non-inference nodes stay
 # lean and the candle build weight is opt-in. See docs/INFERENCE_EMBED_SPEC.md.
-candle-core = { version = "0.10", default-features = false, optional = true }
-candle-transformers = { version = "0.10", default-features = false, optional = true }
-candle-nn = { version = "0.10", default-features = false, optional = true }
+candle-core = { version = "0.11", default-features = false, optional = true }
+candle-transformers = { version = "0.11", default-features = false, optional = true }
+candle-nn = { version = "0.11", default-features = false, optional = true }
 tokenizers = { version = "0.20", default-features = false, features = ["onig"], optional = true }
 # hf-hub removed 2026-07-07: inference_engine.rs loads GGUF models from the
 # local model store (HONE_MODEL / HONE_MODEL_DIR) with no auto-download, so

@@ -40,9 +40,9 @@ libp2p = { version = "0.56", features = [
 sled = "0.34"
 
 # Inference — candle CPU backend for on-device GGUF models
-candle-core = { version = "0.10", default-features = false }
-candle-transformers = { version = "0.10", default-features = false }
-candle-nn = { version = "0.10", default-features = false }
+candle-core = { version = "0.11", default-features = false }
+candle-transformers = { version = "0.11", default-features = false }
+candle-nn = { version = "0.11", default-features = false }
 tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
 hf-hub = { version = "0.3", default-features = false, features = ["tokio", "online"] }
 # Vendored: hf-hub's "online" feature pulls an independent reqwest 0.11 -> native-tls
