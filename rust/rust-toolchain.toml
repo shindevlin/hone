@@ -1,16 +1,13 @@
 # Pinned toolchain for reproducible builds.
 #
-# WHY 1.90.0 specifically: rustc 1.93 and 1.95 trigger an internal compiler
-# error (ICE) on `hone-node`'s `api` module during the dead-code / resolver
-# pass (query stack: check_mod_deathness / resolver_for_lowering_raw).
-# 1.90.0 does not hit the ICE. The only thing that previously forced >=1.93
-# was `matrix-sdk` (a Matrix alt-transport), now behind the off-by-default
-# `matrix` cargo feature — so core hone-node builds and tests clean on 1.90.
+# 1.99.1 (2026-11): the hone-node ICE that pinned us to 1.90.0 (rustc 1.93 and
+# 1.95 crashed in check_mod_deathness / resolver_for_lowering_raw on the `api`
+# module) does not reproduce on 1.99.1: `cargo check -p hone-node` and
+# `cargo test --workspace` pass. Newer dependencies need it anyway:
+# alloy 2 needs 1.91, egui/eframe 0.34 need 1.92, candle 0.11 needs a rustc
+# where core::arch::x86_64::__cpuid_count is safe (not 1.90).
 #
-# See docs/PLAN_FABLE5_STABILIZATION.md Phase 0 for the full diagnosis.
-#
-# When the upstream rustc ICE is fixed (or matrix-sdk drops its 1.93 floor),
-# revisit this pin and consider moving back to `stable`.
+# See docs/PLAN_FABLE5_STABILIZATION.md Phase 0 for the old diagnosis.
 [toolchain]
-channel = "1.90.0"
+channel = "1.99.1"
 components = ["rustfmt", "clippy"]
