@@ -59,7 +59,7 @@ libp2p = { version = "0.57", features = [
 # core hone-node build/test on a toolchain that avoids the ICE. Enable with
 # `--features matrix` once the toolchain issue is resolved.
 matrix-sdk = { version = "0.17", default-features = false, features = ["markdown"], optional = true }
-nostr-sdk = { version = "0.37" }
+nostr-sdk = { version = "0.45" }
 rustls = { version = "0.23", features = ["ring"], default-features = false }
 
 # HTTP client (peer discovery — Hive + TON registry queries; streaming for agent chat)
