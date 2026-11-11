@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 hone-license = { path = "../hone-license" }
 hone-types = { path = "../hone-node/crates/hone-types" }
-libp2p = { version = "0.56", features = [
+libp2p = { version = "0.57", features = [
     "tcp", "quic", "noise", "yamux",
     "gossipsub", "kad", "identify", "ping", "macros", "tokio",
 ] }

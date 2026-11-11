@@ -49,7 +49,7 @@ blake2 = "0.10"
 everscale-types = { version = "0.1", default-features = false, features = ["sync"] }
 
 # Networking
-libp2p = { version = "0.56", features = [
+libp2p = { version = "0.57", features = [
     "tcp", "quic", "noise", "yamux", "websocket", "dns",
     "gossipsub", "kad", "identify", "ping", "macros", "tokio", "mdns",
 ] }
