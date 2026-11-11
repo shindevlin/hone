@@ -1,0 +1,376 @@
+{
+  "registry/00_deploy": {
+    "error": null,
+    "events": [],
+    "gas_used": 3080,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "5f5f7374617465",
+        "10:845c3bf178cc31b72157d6ed6271d8d70840275ca0e70ffb05425bef4432fbd1"
+      ],
+      [
+        "5f5f7761736d",
+        "170462:6c14091dac03b2145fe0f1ea58e0223330a369a34b2e63aedc7db1e59b8aaeae"
+      ]
+    ],
+    "success": true
+  },
+  "registry/01_register_profile": {
+    "error": null,
+    "events": [
+      {
+        "account": "alice",
+        "event": "register",
+        "key": "profile",
+        "standard": "hone-registry"
+      }
+    ],
+    "gas_used": 28180,
+    "logs": [
+      "[registry] alice set profile=ipfs://Qmtest"
+    ],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "5f5f7374617465",
+        "10:845c3bf178cc31b72157d6ed6271d8d70840275ca0e70ffb05425bef4432fbd1"
+      ],
+      [
+        "650d000000616c6963652370726f66696c65",
+        "17:586ad663b074b7517077fb0caa108e6db4af571db4e2c2d491a6efa0518e8aac"
+      ],
+      [
+        "6b05000000616c696365",
+        "15:199986c1e9d19d335fb0bbe9375059bcc2593cb9dddb5ec0ddaf4812bdb410ac"
+      ]
+    ],
+    "success": true
+  },
+  "registry/02_register_second": {
+    "error": null,
+    "events": [
+      {
+        "account": "alice",
+        "event": "register",
+        "key": "k2",
+        "standard": "hone-registry"
+      }
+    ],
+    "gas_used": 27801,
+    "logs": [
+      "[registry] alice set k2=v2"
+    ],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "5f5f7374617465",
+        "10:845c3bf178cc31b72157d6ed6271d8d70840275ca0e70ffb05425bef4432fbd1"
+      ],
+      [
+        "6508000000616c696365236b32",
+        "6:0ced6fb7d694137ac69ee14ac5e33e261037325da2a4fe9c5e04677542eb7e37"
+      ],
+      [
+        "6b05000000616c696365",
+        "21:04a2c8be8290565056754a511e87a175cf00984619066522161180fe1cc6d5b4"
+      ]
+    ],
+    "success": true
+  },
+  "registry/03_register_bob": {
+    "error": null,
+    "events": [
+      {
+        "account": "bob",
+        "event": "register",
+        "key": "profile",
+        "standard": "hone-registry"
+      }
+    ],
+    "gas_used": 26565,
+    "logs": [
+      "[registry] bob set profile=bob-data"
+    ],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "5f5f7374617465",
+        "10:845c3bf178cc31b72157d6ed6271d8d70840275ca0e70ffb05425bef4432fbd1"
+      ],
+      [
+        "650b000000626f622370726f66696c65",
+        "12:5056728f912778bf78b7f629d60bf56c461e59760c07068a3a1fd758d5557ff5"
+      ],
+      [
+        "6b03000000626f62",
+        "15:199986c1e9d19d335fb0bbe9375059bcc2593cb9dddb5ec0ddaf4812bdb410ac"
+      ]
+    ],
+    "success": true
+  },
+  "registry/04_overwrite": {
+    "error": null,
+    "events": [
+      {
+        "account": "alice",
+        "event": "register",
+        "key": "k2",
+        "standard": "hone-registry"
+      }
+    ],
+    "gas_used": 25217,
+    "logs": [
+      "[registry] alice set k2=v2b"
+    ],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "5f5f7374617465",
+        "10:845c3bf178cc31b72157d6ed6271d8d70840275ca0e70ffb05425bef4432fbd1"
+      ],
+      [
+        "6508000000616c696365236b32",
+        "7:2b705cf95cb98aef3a3a4fe9f631eb1aa5fc451e497520943e169c01755af84b"
+      ]
+    ],
+    "success": true
+  },
+  "registry/05_get": {
+    "error": null,
+    "events": [],
+    "gas_used": 13820,
+    "logs": [],
+    "pending_transfers": [],
+    "result": "ipfs://Qmtest",
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": true
+  },
+  "registry/06_get_missing": {
+    "error": null,
+    "events": [],
+    "gas_used": 12287,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": true
+  },
+  "registry/07_list_keys": {
+    "error": null,
+    "events": [],
+    "gas_used": 11252,
+    "logs": [],
+    "pending_transfers": [],
+    "result": [
+      "profile",
+      "k2"
+    ],
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": true
+  },
+  "registry/08_count": {
+    "error": null,
+    "events": [],
+    "gas_used": 10842,
+    "logs": [],
+    "pending_transfers": [],
+    "result": 2,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": true
+  },
+  "registry/09_has": {
+    "error": null,
+    "events": [],
+    "gas_used": 13186,
+    "logs": [],
+    "pending_transfers": [],
+    "result": true,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": true
+  },
+  "registry/10_bad_args": {
+    "error": "key must not be empty",
+    "events": [],
+    "gas_used": 10387,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": false
+  },
+  "registry/11_unknown_method": {
+    "error": "method not found: no_such_method",
+    "events": [],
+    "gas_used": 1530,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": false
+  },
+  "registry/12_out_of_gas": {
+    "error": "trap",
+    "events": [],
+    "gas_used": 1000,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": false
+  },
+  "wat/big_br_table": {
+    "error": null,
+    "events": [],
+    "gas_used": 31576,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "72",
+        "64:fc917e4867738ce645f51071407879f454805eb3e74c42325e33eeac75e7e9f6"
+      ]
+    ],
+    "success": true
+  },
+  "wat/bulk_memory_grow": {
+    "error": null,
+    "events": [],
+    "gas_used": 21,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "72",
+        "64:1ae226cea6c38b2937078be8d86730a6944a3807daf21b1c286bc37e3fb44207"
+      ]
+    ],
+    "success": true
+  },
+  "wat/fuel_loop": {
+    "error": null,
+    "events": [],
+    "gas_used": 1500015,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "72",
+        "64:c0bf888fd9dabf918cfc7cebc57571266367c611c8ca0f5a9955bb01e9d8f23e"
+      ]
+    ],
+    "success": true
+  },
+  "wat/nan_canonicalization": {
+    "error": null,
+    "events": [],
+    "gas_used": 38,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "72",
+        "64:1fcab1170832bc3cbe885081a14b6a3332925954ba4eda0938460a838a08234e"
+      ]
+    ],
+    "success": true
+  },
+  "wat/out_of_fuel": {
+    "error": "trap",
+    "events": [],
+    "gas_used": 50000,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": false
+  },
+  "wat/simd_f64x2_splat": {
+    "error": null,
+    "events": [],
+    "gas_used": 32,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [
+      [
+        "72",
+        "64:57eda0299ca9be36bb01a13c8c8a44f3c29cb9591be6541f31298ce90659f91e"
+      ]
+    ],
+    "success": true
+  },
+  "wat/trap_div_by_zero": {
+    "error": "trap",
+    "events": [],
+    "gas_used": 0,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": false
+  },
+  "wat/trap_int_overflow": {
+    "error": "trap",
+    "events": [],
+    "gas_used": 0,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": false
+  },
+  "wat/trap_oob": {
+    "error": "trap",
+    "events": [],
+    "gas_used": 0,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": false
+  },
+  "wat/trap_unreachable": {
+    "error": "trap",
+    "events": [],
+    "gas_used": 1,
+    "logs": [],
+    "pending_transfers": [],
+    "result": null,
+    "storage_deletes": [],
+    "storage_writes": [],
+    "success": false
+  }
+}

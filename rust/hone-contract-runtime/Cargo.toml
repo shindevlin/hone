@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 hone-license = { path = "../hone-license" }
-wasmtime = { version = "23" }
+wasmtime = { version = "36" }
 base64 = "0.22"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -31,3 +31,6 @@ hex = "0.4"
 opt-level = 3
 lto = true
 codegen-units = 1
+
+[dev-dependencies]
+wat = "1"
