@@ -10,11 +10,8 @@ use crate::proof;
 // Cached tract model — loaded once per model_id, reused across work units.
 // Avoids the 2-3s load time on every inference job.
 struct CachedModel {
-    plan: tract_onnx::prelude::SimplePlan<
-        tract_onnx::prelude::TypedFact,
-        Box<dyn tract_onnx::prelude::TypedOp>,
-        tract_onnx::prelude::Graph<tract_onnx::prelude::TypedFact, Box<dyn tract_onnx::prelude::TypedOp>>,
-    >,
+    // tract 0.22+: into_runnable() returns Arc<TypedRunnableModel>.
+    plan: std::sync::Arc<tract_onnx::prelude::TypedRunnableModel>,
     tokenizer: tokenizers::Tokenizer,
 }
 
@@ -574,7 +571,7 @@ fn run_inference_sync(
     ])?;
 
     // CLS embedding as compute proof — shape [1, seq, hidden] or [1, hidden]
-    let out = outputs[0].to_array_view::<f32>()?;
+    let out = outputs[0].to_plain_array_view::<f32>()?;
     let flat: Vec<f32> = out.iter().take(64).cloned().collect();
     let bytes: Vec<u8> = flat.iter().flat_map(|f| f.to_le_bytes()).collect();
     Ok((hex::encode(&bytes), seq_actual as u32))
