@@ -71,3 +71,34 @@ fn validate_posting_key(creds: &str) -> Result<AuthUser, StatusCode> {
     // no signature challenge at this layer since we're a local sidecar)
     Ok(AuthUser { username: account.to_string() })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jsonwebtoken::{encode, EncodingKey, Header};
+
+    fn token(secret: &str, exp: u64) -> String {
+        let claims = Claims { username: "alice".into(), exp };
+        encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).unwrap()
+    }
+
+    fn now() -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+    }
+
+    #[test]
+    fn jwt_roundtrip_hs256() {
+        let user = validate_jwt(&token("s3cret", now() + 3600), "s3cret").unwrap();
+        assert_eq!(user.username, "alice");
+    }
+
+    #[test]
+    fn jwt_wrong_secret_rejected() {
+        assert!(validate_jwt(&token("s3cret", now() + 3600), "other").is_err());
+    }
+
+    #[test]
+    fn jwt_expired_rejected() {
+        assert!(validate_jwt(&token("s3cret", now() - 3600), "s3cret").is_err());
+    }
+}
