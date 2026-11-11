@@ -18,7 +18,7 @@ wasmtime = { version = "23" }
 tokio = { version = "1", features = ["full"] }
 
 # State
-rocksdb = { version = "0.22", default-features = false }
+rocksdb = { version = "0.25", default-features = false }
 
 # API
 axum = { version = "0.7", features = ["json"] }
