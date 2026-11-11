@@ -80,7 +80,7 @@ hone/                   (repo dir name predates the HONE rebrand)
     hone-p2p/        ← libp2p DHT sidecar
     hone-market/     ← commerce HTTP service
     hone-gnss-capture/ ← GNSS RTCM3 capture
-  ludicrous/             ← Warp fork (HONE terminal)
+  ludicrous/             ← (Rio terminal fork removed 2026-11; plugin kept)
     plugins/ludicrous/   ← Claude Code plugin
   clients/
     hone-desktop/       ← Electron/Tauri desktop app (dir not yet renamed)

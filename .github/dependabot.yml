@@ -23,8 +23,6 @@ updates:
 - {package-ecosystem: cargo, directory: "/rust/hone-wallet-create", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
 - {package-ecosystem: cargo, directory: "/android/rust/hone-miner", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
 - {package-ecosystem: cargo, directory: "/clients/hone-desktop/src-tauri", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
-- {package-ecosystem: cargo, directory: "/ludicrous", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
-- {package-ecosystem: cargo, directory: "/ludicrous/rio-window", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
 - {package-ecosystem: npm, directory: "/", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
 - {package-ecosystem: npm, directory: "/bots/honebot", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
 - {package-ecosystem: npm, directory: "/bots/honewalletbot", open-pull-requests-limit: 0, schedule: {interval: weekly}, groups: {security: {applies-to: security-updates, patterns: ["*"]}}}
