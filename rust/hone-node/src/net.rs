@@ -903,3 +903,32 @@ fn multiaddr_to_http(addr: &Multiaddr) -> Option<String> {
     if *ip == "127.0.0.1" || ip.starts_with("169.254.") { return None; }
     Some(format!("http://{}:4242", ip))
 }
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    /// The PeerId for a fixed ed25519 seed must not change across libp2p
+    /// upgrades: a different value would give every node a new network
+    /// identity on restart. Value checked on libp2p 0.56.0 and 0.57.1.
+    #[test]
+    fn peer_id_from_fixed_seed_is_stable() {
+        let kp = libp2p::identity::Keypair::ed25519_from_bytes([7u8; 32]).unwrap();
+        assert_eq!(
+            kp.public().to_peer_id().to_string(),
+            "12D3KooWRawPbxPtP1eZaJpumGnyWX2DcUyd3RQnydr3eAto4Az7"
+        );
+    }
+
+    /// load_or_create_keypair persists the key and returns the same identity
+    /// when it is loaded again.
+    #[test]
+    fn p2p_key_persists_across_restarts() {
+        let dir = std::env::temp_dir().join(format!("hone-p2p-key-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let first = load_or_create_keypair(&dir).unwrap().public().to_peer_id();
+        let second = load_or_create_keypair(&dir).unwrap().public().to_peer_id();
+        assert_eq!(first, second);
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
