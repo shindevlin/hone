@@ -13,7 +13,7 @@ path = "src/main.rs"
 hone-license = { path = "../hone-license" }
 hone-types = { path = "crates/hone-types" }
 hone-contract-runtime = { path = "../hone-contract-runtime" }
-wasmtime = { version = "23" }
+wasmtime = { version = "36" }
 # Async
 tokio = { version = "1", features = ["full"] }
 
