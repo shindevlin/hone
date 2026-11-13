@@ -24,7 +24,7 @@ use crate::chain::Chain;
 
 /// Entries submitted more than this many epochs in the past are rejected.
 /// Prevents mempool spam from replaying old entries after long network partitions.
-const STALE_WINDOW: u64 = 5;
+pub(crate) const STALE_WINDOW: u64 = 5;
 
 /// Read the current base fee from sled. Falls back to BASE_FEE_INITIAL_HUNITS on cold start.
 fn read_base_fee(chain: &Chain) -> u64 {
