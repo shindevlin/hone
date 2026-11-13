@@ -92,6 +92,8 @@ object BirdsSync {
         val acct = account(ctx) ?: run { Telemetry.skipped(ctx, "birds", "no account"); return }
         // window -> cell -> species -> (best conf, count)
         val byWin = sortedMapOf<Long, HashMap<String, HashMap<String, Pair<Double, Int>>>>()
+        // "window|cell|species" -> (first heard ms, highest speaker score or -1): hard-birds broadcast checks
+        val firstPb = HashMap<String, Pair<Long, Double>>()
         val labels = Birds.labels(ctx)
         val rejected = labels.filterValues { !it }.keys
         var unlocated = 0
@@ -110,6 +112,9 @@ object BirdsSync {
             val sp = byWin.getOrPut(w) { HashMap() }.getOrPut(cell) { HashMap() }
             val prev = sp[j.getString("name")]
             sp[j.getString("name")] = Pair(maxOf(prev?.first ?: 0.0, j.getDouble("conf")), (prev?.second ?: 0) + 1)
+            val fk = "$w|$cell|${j.getString("name")}"
+            val fp = firstPb[fk]
+            firstPb[fk] = Pair(minOf(fp?.first ?: Long.MAX_VALUE, j.getLong("t")), maxOf(fp?.second ?: -1.0, j.optDouble("pb", -1.0)))
         }
         if (unlocated > 0) Telemetry.skipped(ctx, "birds", "$unlocated detections without a location fix")
         val show = prefs(ctx).getBoolean("show_name", false)
@@ -124,7 +129,12 @@ object BirdsSync {
                     .put("window", w).put("cell", cell).put("model", Perch.MODEL_ID)
                     .put("species", JSONArray().apply {
                         sp.forEach { (name, v) ->
-                            put(JSONObject().put("name", name).put("conf_q8", (v.first * 2.55).toInt().coerceIn(0, 255)).put("frames", v.second))
+                            val o = JSONObject().put("name", name).put("conf_q8", (v.first * 2.55).toInt().coerceIn(0, 255)).put("frames", v.second)
+                            firstPb["$w|$cell|$name"]?.let { (t0, pb) ->
+                                o.put("t", t0 / 1000)
+                                if (pb >= 0) o.put("playback_q8", (pb * 255).toInt().coerceIn(0, 255))
+                            }
+                            put(o)
                         }
                     })
                 payload.put("account", acct).put("show_name", show).put("occ", 1)

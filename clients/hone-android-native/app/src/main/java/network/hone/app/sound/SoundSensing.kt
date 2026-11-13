@@ -294,7 +294,8 @@ object SoundSensing {
             if (ls == null || seq - ls > 1) win.events[d.name] = (win.events[d.name] ?: 0) + 1
             win.lastSeq[d.name] = seq
         }
-        if (top.isNotEmpty()) logDetections(top, p.lastEmbedding)
+        // Speaker signature of this frame (shadow mode, hard-birds §1.2): goes with the detections, no audio kept.
+        if (top.isNotEmpty()) logDetections(top, p.lastEmbedding, Playback.score(frame))
         // Voiceprints, shadow mode: after the human-speech check, nothing shown or sent.
         if (ctx != null) for (d in top) VoiceprintShadow.observe(ctx, d.name, p.lastEmbedding, d.atMs, d.conf)
         val s = _live.value
@@ -357,7 +358,7 @@ object SoundSensing {
     @Volatile private var appCtx: Context? = null
 
     /** Private detection history for the Birds tab: time, species, confidence, fix. Device only. */
-    private fun logDetections(top: List<Detection>, emb: FloatArray) {
+    private fun logDetections(top: List<Detection>, emb: FloatArray, playback: Float) {
         val ctx = appCtx ?: return
         val fix = network.hone.app.home.HomeState.fixOrHome(ctx)
         runCatching {
@@ -372,6 +373,7 @@ object SoundSensing {
             for (d in top) {
                 val j = JSONObject().put("t", d.atMs).put("name", d.name).put("conf", round1(d.conf * 100.0))
                 if (network.hone.app.birds.Range.isRare(ctx, d.name)) j.put("rare", true)
+                j.put("pb", Math.round(playback * 100) / 100.0)
                 if (fix != null) j.put("lat", fix.latitude).put("lon", fix.longitude).put("acc", fix.accuracy.toDouble())
                 sb.append(j.toString()).append('\n')
             }
