@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import network.hone.app.birds.BirdChainSubmitter
 import network.hone.app.birds.BirdsSync
 import network.hone.app.home.HomeState
 import network.hone.app.station.StationService
@@ -30,6 +31,7 @@ class StatusWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         runCatching { StationService.start(c) }
         runCatching { RawUploader.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker raw", it) }
         runCatching { CoverageSubmitter.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker coverage", it) }
+        runCatching { BirdChainSubmitter.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker bird chain", it) }
         runCatching { FlipperPublisher.maybeFlush(c) }.onFailure { Telemetry.error(c, "worker flipper", it) }
         return Result.success()
     }
