@@ -106,11 +106,14 @@ fn note(chain: &Chain, ccell: &str, m: &str, w: u64, kind: &str, by: &str, epoch
 /// the owner is paid and each corroborator gets VERIFY_POINTS, all at decide_by.
 fn decide(chain: &Chain, cell: &str, m: &str, w: u64, epoch: u64) {
     let Some(c) = get_json(chain, &claim_key(cell, m, w)) else { return };
-    if !deferred(&c) { settle(chain, cell, m, w, true, epoch); return; }
+    let rare = is_rare(&c);
+    if rare { let _ = chain.store.state_delete(&format!("ubrare:{m}:{cell}:{w}")); }
+    // A rare bird is never proven by just surviving its window (hard-birds §3.3).
+    if !deferred(&c) { settle(chain, cell, m, w, !rare, epoch); return; }
     if c["status"] != "pending" { return; }
     let list = |k: &str| -> Vec<String> { c[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default() };
     let (corr, contra) = (list("corr"), list("contra"));
-    let proven = contra.is_empty() || corr.len() > contra.len();
+    let proven = if rare { corr.len() > contra.len() } else { contra.is_empty() || corr.len() > contra.len() };
     let owner = c["owner"].as_str().unwrap_or("").to_owned();
     let dt = corr.len() as i64 - 2 * contra.len() as i64;
     if dt != 0 { add_trust(chain, &owner, dt); }
@@ -129,6 +132,90 @@ pub fn cell_res_epoch() -> u64 {
 /// The lora/wifi metric-family gate. Tests: active from 352,000.
 pub fn families_epoch() -> u64 {
     if cfg!(test) { 352_000 } else { hone_types::SENSOR_FAMILIES_EPOCH }
+}
+
+// ── Birds (hard-birds §3, from BIRD_EARN_EPOCH) ─────────────────────────────────────
+//
+// A bird metric's value is 1 (heard, or an in-app photo: a photo earns like a heard bird) or
+// RARE_VALUE (outside the species' range prior where it was heard):
+// - `bird.sp:<genus>_<species>`  a species: NOVEL_POINTS;
+// - `bird.ge:<genus>`, `bird.gr:<group>`  a genus or a hard group (ducks, parrots, gulls ...):
+//   GROUP_POINTS, about a quarter of a species;
+// - `bird.up:<genus>_<species>`  an upgrade: an in-app photo names the species of the SAME
+//   owner's genus/group claim at the same (cell, window). It is scored as that species'
+//   claim and pays UPGRADE_POINTS (the rest of NOVEL_POINTS), once per genus/group claim, and
+//   only if that claim exists and was not voided. A genus must match the species' genus; group
+//   membership was checked by the indexer and the attested app. (Upgrades are same-account
+//   today, so the listener is the photographer: no extra photographer share, which would
+//   make group-then-upgrade pay more than reporting the species.)
+// Rare claims (value RARE_VALUE) wait RARE_WINDOW_EPOCHS (72 h) and are proven only by an
+// independent owner's matching report within RARE_CORR_WINDOWS and one ring: never by just
+// surviving the window. Names: lowercase letters and '_' only.
+pub const GROUP_POINTS: u64 = 25;
+pub const UPGRADE_POINTS: u64 = NOVEL_POINTS - GROUP_POINTS;
+pub const RARE_VALUE: i64 = 2;
+/// 72 h of 30 s epochs.
+pub const RARE_WINDOW_EPOCHS: u64 = 8_640;
+/// 72 h of 15-minute windows.
+pub const RARE_CORR_WINDOWS: u64 = 288;
+
+/// The bird gate. Tests: active from 352,000.
+pub fn bird_epoch() -> u64 {
+    if cfg!(test) { 352_000 } else { hone_types::BIRD_EARN_EPOCH }
+}
+
+/// (kind, name) of a well-formed bird metric: kind is sp, ge, gr or up.
+pub fn bird_parts(m: &str) -> Option<(&str, &str)> {
+    let rest = m.strip_prefix("bird.")?;
+    let (kind, name) = rest.split_once(':')?;
+    if !matches!(kind, "sp" | "ge" | "gr" | "up") { return None; }
+    if name.is_empty() || !name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') { return None; }
+    if name.starts_with('_') || name.ends_with('_') { return None; }
+    let binomial = name.contains('_');
+    if matches!(kind, "sp" | "up") != binomial { return None; }
+    Some((kind, name))
+}
+
+fn is_rare(c: &serde_json::Value) -> bool { c["rare"].as_bool() == Some(true) }
+
+/// `a` and `b` are the same cell or neighbours, compared at the coarser resolution of the two.
+fn near_cells(a: &str, b: &str) -> bool {
+    let (Some(ca), Some(cb)) = (h3(a), h3(b)) else { return false };
+    let r = ca.resolution().min(cb.resolution());
+    let (Some(pa), Some(pb)) = (ca.parent(r), cb.parent(r)) else { return false };
+    pa == pb || pb.grid_disk::<Vec<_>>(1).contains(&pa)
+}
+
+/// The same owner's genus/group claim an upgrade to species `name` at (`cell`, `window`) can
+/// consume: the genus claim first, then the first group claim (sorted). None if there is none
+/// or it was voided or already upgraded.
+fn upgrade_base(chain: &Chain, owner: &str, cell: &str, window: u64, name: &str) -> Option<String> {
+    let genus = name.split('_').next().unwrap_or("");
+    let mut cands = vec![format!("bird.ge:{genus}")];
+    let pre = format!("uclaim_o:{owner}:{cell}:bird.gr:");
+    let suffix = format!(":{window}");
+    for (k, _) in chain.store.state_scan_prefix(&pre) {
+        if let Some(g) = k[pre.len()..].strip_suffix(&suffix) { cands.push(format!("bird.gr:{g}")); }
+    }
+    cands.into_iter().find(|bm| {
+        get_json(chain, &claim_key(cell, bm, window)).is_some_and(|c|
+            c["owner"].as_str() == Some(owner) && c["status"] != "void" && c.get("upgraded_to").is_none())
+    })
+}
+
+/// A bird report proves other owners' pending RARE claims of the same metric up to
+/// RARE_CORR_WINDOWS away, in the same cell or a neighbour (at the coarser resolution).
+fn corroborate_rare(chain: &Chain, owner: &str, cell: &str, window: u64, m: &str, v: i64, epoch: u64) -> u64 {
+    if trust(chain, owner) < TRUST_FLOOR { return 0; }
+    let pre = format!("ubrare:{m}:");
+    let mut pts = 0;
+    for (k, _) in chain.store.state_scan_prefix(&pre) {
+        let Some((ccell, w)) = k[pre.len()..].split_once(':') else { continue };
+        let Ok(w) = w.parse::<u64>() else { continue };
+        if w.abs_diff(window) > RARE_CORR_WINDOWS || !near_cells(cell, ccell) { continue; }
+        pts += try_prove(chain, owner, ccell, m, w, v, epoch);
+    }
+    pts
 }
 
 fn h3(cell: &str) -> Option<h3o::CellIndex> {
@@ -157,6 +244,9 @@ pub fn band_at(metric: &str, est: i64, epoch: u64) -> i64 {
         }
         if m.starts_with("wifi.fp:") { return 8; }
     }
+    // Heard (1) and heard-but-rare-here (2) are the same presence: a range prior differs by
+    // phone, so it never contradicts.
+    if epoch >= bird_epoch() && metric.starts_with("bird.") { return 1; }
     band(metric, est)
 }
 
@@ -312,6 +402,30 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
     let mut pts = 0u64;
     for (m, &v) in metrics {
         if !scored_metric_at(m, epoch) { continue; }
+        // Birds: points by kind, upgrades scored as the species, malformed rows skipped.
+        let mut novel_pts = NOVEL_POINTS;
+        let mut base: Option<String> = None;
+        let mut rare = false;
+        let up_m;
+        let m = if epoch >= bird_epoch() && m.starts_with("bird.") {
+            let Some((kind, name)) = bird_parts(m) else { continue };
+            if v != 1 && v != RARE_VALUE { continue; }
+            rare = v == RARE_VALUE;
+            match kind {
+                "ge" | "gr" => { novel_pts = GROUP_POINTS; m }
+                "up" => {
+                    up_m = format!("bird.sp:{name}");
+                    let Some(b) = upgrade_base(chain, &owner, cell, window, name) else {
+                        out.push((m.clone(), Verdict::Repeat));
+                        continue;
+                    };
+                    base = Some(b);
+                    novel_pts = UPGRADE_POINTS;
+                    &up_m
+                }
+                _ => m,
+            }
+        } else { m };
         let dev_key = format!("usum:{sensor_id}:{window}:{m}");
         let own_key = format!("usum_o:{owner}:{cell}:{window}:{m}");
         if chain.store.state_get(&dev_key).is_some() || chain.store.state_get(&own_key).is_some() {
@@ -355,14 +469,29 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                 if window.saturating_mul(900).saturating_add(MAX_CLAIM_AGE_S) >= unix_at(epoch) {
                     let ck = claim_key(cell, m, window);
                     if chain.store.state_get(&ck).is_none() {
-                        let mut cj = serde_json::json!({ "owner": owner, "points": NOVEL_POINTS,
+                        let mut cj = serde_json::json!({ "owner": owner, "points": novel_pts,
                             "epoch": epoch, "status": "pending", "value": v, "sensor": sensor_id });
-                        if epoch >= decide_by_epoch() { cj["decide_by"] = serde_json::json!(epoch + DECIDE_BY_EPOCHS); }
+                        let hold = if rare { RARE_WINDOW_EPOCHS } else { CLAIM_WINDOW_EPOCHS };
+                        if epoch >= decide_by_epoch() {
+                            cj["decide_by"] = serde_json::json!(epoch + if rare { RARE_WINDOW_EPOCHS } else { DECIDE_BY_EPOCHS });
+                        }
+                        if rare {
+                            cj["rare"] = serde_json::json!(true);
+                            let _ = chain.store.state_set(&format!("ubrare:{m}:{cell}:{window}"), b"1");
+                        }
+                        if let Some(b) = &base {
+                            cj["upgrades"] = serde_json::json!(b);
+                            let bk = claim_key(cell, b, window);
+                            if let Some(mut bc) = get_json(chain, &bk) {
+                                bc["upgraded_to"] = serde_json::json!(m);
+                                set_json(chain, &bk, &bc);
+                            }
+                        }
                         set_json(chain, &ck, &cj);
                         let _ = chain.store.state_set(&format!("uclaim_o:{owner}:{cell}:{m}:{window}"), b"1");
-                        let _ = chain.store.state_set(&format!("uclaim_due:{:016x}:{cell}:{m}:{window}", epoch + CLAIM_WINDOW_EPOCHS), b"1");
+                        let _ = chain.store.state_set(&format!("uclaim_due:{:016x}:{cell}:{m}:{window}", epoch + hold), b"1");
                         if epoch >= cell_res_epoch() { index_claim_up(chain, cell, m, window); }
-                        pts += NOVEL_POINTS;
+                        pts += novel_pts;
                     }
                 }
             }
@@ -398,6 +527,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
         // Neighbouring cells: this report may corroborate other owners' pending claims.
         pts += corroborate_ring(chain, &owner, cell, window, m, v, epoch);
         if epoch >= cell_res_epoch() { pts += corroborate_cross_res(chain, &owner, cell, window, m, v, epoch); }
+        if epoch >= bird_epoch() && m.starts_with("bird.") { pts += corroborate_rare(chain, &owner, cell, window, m, v, epoch); }
         out.push((m.clone(), verdict));
     }
     (out, pts)
@@ -444,8 +574,9 @@ pub fn owner_view(chain: &Chain, owner: &str) -> serde_json::Value {
     let mut claims = Vec::new();
     for (k, _) in chain.store.state_scan_prefix(&pre) {
         let rest = &k[pre.len()..];
-        let mut p = rest.splitn(3, ':');
-        let (Some(cell), Some(m), Some(w)) = (p.next(), p.next(), p.next()) else { continue };
+        // Read-only view: the metric may contain ':' (bird.sp:...), the window is last.
+        let Some((cell, mw)) = rest.split_once(':') else { continue };
+        let Some((m, w)) = mw.rsplit_once(':') else { continue };
         let Ok(w) = w.parse::<u64>() else { continue };
         let Some(c) = get_json(chain, &claim_key(cell, m, w)) else { continue };
         let st = c["status"].as_str().unwrap_or("pending").to_owned();
@@ -498,8 +629,15 @@ pub fn release_due(chain: &Chain, epoch: u64) -> usize {
         let rest = &k["uclaim_due:".len()..];
         let Some(due) = rest.get(..16).and_then(|h| u64::from_str_radix(h, 16).ok()) else { continue };
         if due > epoch { break; }
-        let mut parts = rest[17..].splitn(3, ':');
-        let (Some(cell), Some(m), Some(w)) = (parts.next(), parts.next(), parts.next()) else { continue };
+        let (cell, m, w) = if epoch >= bird_epoch() {
+            let Some((cell, mw)) = rest[17..].split_once(':') else { continue };
+            let Some((m, w)) = mw.rsplit_once(':') else { continue };
+            (cell, m, w)
+        } else {
+            let mut parts = rest[17..].splitn(3, ':');
+            let (Some(cell), Some(m), Some(w)) = (parts.next(), parts.next(), parts.next()) else { continue };
+            (cell, m, w)
+        };
         if let Ok(w) = w.parse::<u64>() { decide(chain, cell, m, w, epoch); n += 1; }
         let _ = chain.store.state_delete(&k);
     }
@@ -984,6 +1122,117 @@ mod tests {
         score(&c, "phone-b", "bob", C, W0 + 1, &m(&[("wifi.ap_count", 21)]), G + 5);
         assert_eq!(st(&c, C, W0, "wifi.ap_count"), "proven");
         assert_eq!(proven_points(&c, "bob"), VERIFY_POINTS);
+    }
+
+    // ── birds ──
+    const SP: &str = "bird.sp:anas_discors";
+
+    #[test]
+    fn bird_metrics_are_parsed_strictly() {
+        assert_eq!(bird_parts("bird.sp:anas_discors"), Some(("sp", "anas_discors")));
+        assert_eq!(bird_parts("bird.gr:ducks"), Some(("gr", "ducks")));
+        assert_eq!(bird_parts("bird.ge:amazona"), Some(("ge", "amazona")));
+        for bad in ["bird.sp:anas", "bird.gr:anas_discors", "bird.xx:ducks", "bird.sp:", "bird.sp:_anas_x", "bird.sp:anas_2", "bird.up:ducks"] {
+            assert!(bird_parts(bad).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn species_pays_full_group_and_genus_a_quarter() {
+        let (c, _d) = chain();
+        let (_, p) = score(&c, "ph", "josh", C, W0, &m(&[(SP, 1), ("bird.gr:ducks", 1), ("bird.ge:amazona", 1)]), E0);
+        assert_eq!(p, NOVEL_POINTS + 2 * GROUP_POINTS);
+        let (_, p) = score(&c, "ph", "josh", C, W0 + 1, &m(&[("bird.sp:Anas discors", 1), ("bird.sp:turdus_grayi", 7)]), E0);
+        assert_eq!(p, 0, "malformed names and values are skipped");
+        release_due(&c, E0 + CLAIM_WINDOW_EPOCHS);
+        assert_eq!(proven_points(&c, "josh"), NOVEL_POINTS + 2 * GROUP_POINTS);
+    }
+
+    #[test]
+    fn upgrade_pays_the_rest_once_and_only_on_an_own_group_claim() {
+        let (c, _d) = chain();
+        // No group claim: an upgrade earns nothing and claims nothing.
+        let (v, p) = score(&c, "ph", "josh", C, W0, &m(&[("bird.up:anas_discors", 1)]), E0);
+        assert_eq!((v[0].1.clone(), p), (Verdict::Repeat, 0));
+        assert!(claim(&c, W0, SP).is_none());
+        // Someone else's group claim cannot be upgraded by josh.
+        score(&c, "pb", "bob", C, W0 + 4, &m(&[("bird.gr:parrots", 1)]), E0);
+        let (_, p) = score(&c, "ph", "josh", C, W0 + 4, &m(&[("bird.up:anas_discors", 1)]), E0);
+        assert_eq!(p, 0);
+        // Own group claim, then the photo's upgrade: 25 + 75 = one species.
+        let w = W0 + 8;
+        score(&c, "ph", "josh", C, w, &m(&[("bird.gr:ducks", 1)]), E0);
+        let (_, p) = score(&c, "cam", "josh", C, w, &m(&[("bird.up:anas_discors", 1)]), E0 + 1);
+        assert_eq!(p, UPGRADE_POINTS);
+        assert_eq!(claim(&c, w, SP).unwrap()["upgrades"], "bird.gr:ducks");
+        assert_eq!(claim(&c, w, "bird.gr:ducks").unwrap()["upgraded_to"], SP);
+        // Once: a second upgrade (another species, same window) has no base left.
+        let (_, p) = score(&c, "cam", "josh", C, w, &m(&[("bird.up:spatula_clypeata", 1)]), E0 + 2);
+        assert_eq!(p, 0);
+        // The upgraded species counts as heard: the same species again is a duplicate.
+        let (v, _) = score(&c, "ph", "josh", C, w, &m(&[(SP, 1)]), E0 + 3);
+        assert_eq!(v[0].1, Verdict::Duplicate);
+        // A genus claim upgrades only a species of that genus.
+        let w2 = W0 + 12;
+        score(&c, "ph", "josh", C, w2, &m(&[("bird.ge:amazona", 1)]), E0);
+        assert_eq!(score(&c, "cam", "josh", C, w2, &m(&[("bird.up:anas_discors", 1)]), E0).1, 0);
+        assert_eq!(score(&c, "cam", "josh", C, w2, &m(&[("bird.up:amazona_albifrons", 1)]), E0).1, UPGRADE_POINTS);
+        release_due(&c, E0 + 2 + CLAIM_WINDOW_EPOCHS);
+        assert_eq!(proven_points(&c, "josh"), 2 * (GROUP_POINTS + UPGRADE_POINTS));
+    }
+
+    #[test]
+    fn rare_birds_pay_only_on_independent_corroboration_within_72_hours() {
+        let (c, _d) = chain();
+        let c0 = h3(C).unwrap();
+        let inner: Vec<_> = c0.grid_disk(2);
+        let other = hex(c0.grid_disk::<Vec<_>>(4).into_iter().find(|x| !inner.contains(x)).unwrap());
+        let other = other.as_str(); // 3+ rings from C
+        score(&c, "ph", "josh", C, W0, &m(&[("bird.sp:aix_sponsa", RARE_VALUE)]), E0);
+        score(&c, "ph2", "josh", other, W0, &m(&[("bird.sp:aix_sponsa", RARE_VALUE)]), E0);
+        assert!(!near_cells(C, other));
+        let cl = claim(&c, W0, "bird.sp:aix_sponsa").unwrap();
+        assert_eq!(cl["rare"], true);
+        // Surviving the usual 24 h window proves nothing.
+        release_due(&c, E0 + CLAIM_WINDOW_EPOCHS);
+        assert_eq!(claim(&c, W0, "bird.sp:aix_sponsa").unwrap()["status"], "pending");
+        // A different owner hears it 2 days later next door, not as rare on their phone: proves it.
+        let n = ring1(C);
+        score(&c, "pb", "bob", &n[0], W0 + 192, &m(&[("bird.sp:aix_sponsa", 1)]), E0 + 5_760);
+        assert_eq!(claim(&c, W0, "bird.sp:aix_sponsa").unwrap()["status"], "proven");
+        assert_eq!(proven_points(&c, "josh"), NOVEL_POINTS);
+        // Josh's other rare claim was never corroborated: void at 72 h, no pay.
+        release_due(&c, E0 + RARE_WINDOW_EPOCHS);
+        assert_eq!(get_json(&c, &claim_key(other, "bird.sp:aix_sponsa", W0)).unwrap()["status"], "void");
+        assert_eq!(proven_points(&c, "josh"), NOVEL_POINTS);
+        assert!(c.store.state_scan_prefix("ubrare:").is_empty(), "rare index cleaned up");
+        // Josh's own second device never corroborates his rare bird.
+        score(&c, "ph", "josh", C, W0 + 400, &m(&[("bird.sp:mergus_merganser", RARE_VALUE)]), E0 + 6_000);
+        score(&c, "ph2", "josh", n[1].as_str(), W0 + 401, &m(&[("bird.sp:mergus_merganser", 1)]), E0 + 6_001);
+        assert_eq!(claim(&c, W0 + 400, "bird.sp:mergus_merganser").unwrap()["status"], "pending");
+    }
+
+    #[test]
+    fn rare_under_decide_by_needs_a_corroborator() {
+        let (c, _d) = chain();
+        score(&c, "ph", "josh", C, W0, &m(&[("bird.sp:aix_sponsa", RARE_VALUE)]), G);
+        score(&c, "ph", "josh", C, W0, &m(&[("bird.gr:ducks", RARE_VALUE)]), G);
+        assert_eq!(claim(&c, W0, "bird.sp:aix_sponsa").unwrap()["decide_by"].as_u64(), Some(G + RARE_WINDOW_EPOCHS));
+        score(&c, "pb", "bob", C, W0 + 100, &m(&[("bird.sp:aix_sponsa", 1)]), G + 3_000);
+        release_due(&c, G + RARE_WINDOW_EPOCHS);
+        assert_eq!(st(&c, C, W0, "bird.sp:aix_sponsa"), "proven");
+        assert_eq!(st(&c, C, W0, "bird.gr:ducks"), "void", "no corroborator, no pay");
+        assert_eq!(proven_points(&c, "josh"), NOVEL_POINTS);
+        assert_eq!(proven_points(&c, "bob") >= VERIFY_POINTS, true);
+    }
+
+    #[test]
+    fn heard_and_rare_here_never_contradict() {
+        let (c, _d) = chain();
+        score(&c, "ph", "josh", C, W0, &m(&[(SP, 1)]), E0);
+        let (v, _) = score(&c, "pb", "bob", C, W0 + 1, &m(&[(SP, RARE_VALUE)]), E0 + 1);
+        assert_eq!(v[0].1, Verdict::Verify);
+        assert_eq!(claim(&c, W0, SP).unwrap()["status"], "proven");
     }
 
     #[test]
