@@ -37,7 +37,9 @@ pub fn applied_upto(chain: &Chain) -> u64 { read_u64(chain, APPLIED_KEY).unwrap_
 pub fn applied(chain: &Chain, epoch: u64) -> bool { epoch <= applied_upto(chain) }
 
 /// The delay d in force for entries dated `epoch`.
-pub fn d(chain: &Chain) -> u64 { read_u64(chain, D_KEY).unwrap_or(setcert::D_START) }
+/// Current d, capped at D_MAX (a stored d from before the cap, e.g. 10, is ignored at once).
+pub fn d(chain: &Chain) -> u64 { read_u64(chain, D_KEY).unwrap_or(setcert::D_START).min(setcert::D_MAX) }
+const _: () = assert!(setcert::D_MAX < crate::tx::STALE_WINDOW, "d must stay inside the stale window");
 
 /// Epochs a voter works on at once beyond its first non-final epoch (catch-up batch).
 pub const CATCHUP_BATCH: u64 = 32;
@@ -120,8 +122,47 @@ fn keep_decided(t: u64, set: &[(LedgerEntry, Option<String>)]) {
     d.retain(|e, _| *e >= floor);
 }
 
-/// Bodies this node can serve for `hashes` (pool, the last certified sets incl. rejected
-/// entries, and the last 64 recorded sets).
+/// Every certified set (applied AND rejected bodies) for epoch_sync::KEEP_EPOCHS, by epoch,
+/// plus a hash -> epoch index, so a node lagging far behind can fetch any body it is missing.
+/// The old look-back (pool, last 128 certified sets in memory, recorded sets within 64 epochs
+/// of the TIP) left grouchly halted at 373972 and nebra at 373304 on 2026-11-11: the bodies
+/// they needed were behind every peer's window. Local meta only (not in any consensus root).
+const BODIES_PREFIX: &str = "setcert_bodies:";
+const CERT_PREFIX: &str = "setcert_cert:";
+/// The final cert this node applied for `t` (kept for the keep window), for "certs" answers.
+pub fn applied_cert(chain: &Chain, t: u64) -> Option<Cert> {
+    chain.store.state_get(&format!("{CERT_PREFIX}{t:016x}")).and_then(|b| serde_json::from_slice(&b).ok())
+}
+const BH_PREFIX: &str = "setcert_bh:";
+
+fn persist_certified(chain: &Chain, t: u64, set: &[(LedgerEntry, Option<String>)]) {
+    let rows: Vec<serde_json::Value> = set.iter().map(|(e, s)| serde_json::json!({ "entry": e, "sig": s })).collect();
+    let _ = chain.store.state_set(&format!("{BODIES_PREFIX}{t:016x}"), &serde_json::to_vec(&rows).unwrap_or_default());
+    for (e, _) in set { let _ = chain.store.state_set(&format!("{BH_PREFIX}{}", e.hash()), t.to_string().as_bytes()); }
+    if t > epoch_sync::KEEP_EPOCHS {
+        let k = format!("{BODIES_PREFIX}{:016x}", t - epoch_sync::KEEP_EPOCHS);
+        if let Some(b) = chain.store.state_get(&k) {
+            for r in serde_json::from_slice::<Vec<serde_json::Value>>(&b).unwrap_or_default() {
+                if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
+                    let _ = chain.store.state_delete(&format!("{BH_PREFIX}{}", e.hash()));
+                }
+            }
+            let _ = chain.store.state_delete(&k);
+        }
+    }
+}
+
+/// A certified body by hash from the persisted sets (applied or rejected).
+pub fn certified_body(chain: &Chain, hash: &str) -> Option<serde_json::Value> {
+    let t: u64 = chain.store.state_get(&format!("{BH_PREFIX}{hash}"))
+        .and_then(|b| String::from_utf8(b).ok()).and_then(|s| s.parse().ok())?;
+    let b = chain.store.state_get(&format!("{BODIES_PREFIX}{t:016x}"))?;
+    serde_json::from_slice::<Vec<serde_json::Value>>(&b).ok()?.into_iter()
+        .find(|r| serde_json::from_value::<LedgerEntry>(r["entry"].clone()).map(|e| e.hash() == hash).unwrap_or(false))
+}
+
+/// Bodies this node can serve for `hashes`: the pool, the last certified sets in memory, the
+/// persisted certified sets (whole keep window), then recorded sets back to the keep window.
 pub fn serve_bodies(chain: &Chain, hashes: &[String], tip: u64) -> Vec<serde_json::Value> {
     let want: std::collections::BTreeSet<&String> = hashes.iter().collect();
     let mut out = Vec::new();
@@ -134,13 +175,26 @@ pub fn serve_bodies(chain: &Chain, hashes: &[String], tip: u64) -> Vec<serde_jso
             if want.contains(&e.hash()) && seen.insert(e.hash()) { out.push(serde_json::json!({ "entry": e, "sig": s })); }
         }
     }
-    let v = epoch_sync::serve(chain, tip.saturating_sub(64), tip);
-    for ep in v["epochs"].as_array().into_iter().flatten() {
-        for r in ep["entries"].as_array().into_iter().flatten() {
-            if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
-                if want.contains(&e.hash()) && seen.insert(e.hash()) { out.push(r.clone()); }
+    for h in &want {
+        if seen.contains(*h) { continue; }
+        if let Some(r) = certified_body(chain, h) { seen.insert((*h).clone()); out.push(r); }
+    }
+    // Sets applied before the persisted index existed: scan recorded sets back over the whole
+    // keep window, newest first, in chunks (rare: only for bodies nobody else holds).
+    let mut hi = tip;
+    let floor = tip.saturating_sub(epoch_sync::KEEP_EPOCHS);
+    while seen.len() < want.len() && hi > floor {
+        let lo = hi.saturating_sub(256).max(floor);
+        let v = epoch_sync::serve(chain, lo, hi);
+        for ep in v["epochs"].as_array().into_iter().flatten() {
+            for r in ep["entries"].as_array().into_iter().flatten() {
+                if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
+                    if want.contains(&e.hash()) && seen.insert(e.hash()) { out.push(r.clone()); }
+                }
             }
         }
+        if lo == floor { break; }
+        hi = lo.saturating_sub(1);
     }
     out.truncate(hashes.len());
     out
@@ -169,6 +223,9 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
     let _ = crate::identity_nft::migrate_reserved(chain, t);
     set.sort_by_key(|(e, _)| e.hash());
     keep_decided(t, &set);
+    persist_certified(chain, t, &set);
+    let _ = chain.store.state_set(&format!("{CERT_PREFIX}{t:016x}"), &serde_json::to_vec(cert).unwrap_or_default());
+    if t > epoch_sync::KEEP_EPOCHS { let _ = chain.store.state_delete(&format!("{CERT_PREFIX}{:016x}", t - epoch_sync::KEEP_EPOCHS)); }
     let applied = epoch_sync::apply_set(chain, t, set, Some(t));
     epoch_sync::record(chain, t, &applied);
     epoch_sync::epoch_tick(chain, t, applied.iter().map(|(x, _)| hone_types::entry_weight(x)).sum());
@@ -198,6 +255,9 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
 /// consensus: it is only this voter's report; the certified median decides d.
 static LAGS: Mutex<Vec<u64>> = Mutex::new(Vec::new());
 pub fn note_seen(entry_epoch: u64, now_epoch: u64) {
+    // Only live propagation counts: an entry first seen more than 2 * D_MAX epochs after its
+    // date is backlog (a pool restored after a restart, a catch-up), not gossip lag.
+    if now_epoch.saturating_sub(entry_epoch) > 2 * setcert::D_MAX { return; }
     let mut l = LAGS.lock().unwrap();
     l.push(now_epoch.saturating_sub(entry_epoch));
     if l.len() > 2_000 { let n = l.len() - 2_000; l.drain(..n); }
@@ -523,6 +583,74 @@ mod tests {
             assert_eq!(epoch_sync::last_committed(c), applied_upto(c), "records follow in order");
         }
         TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// grouchly/nebra 2026-11-11: a lagging node needs a body certified far behind every
+    /// peer's tip (not in any pool, out of the in-memory 128 sets and the 64-epoch recorded
+    /// window). Both an applied and a rejected body must still be servable from the peer.
+    #[test]
+    fn a_body_certified_far_behind_the_tip_is_still_served() {
+        let act = 7_000u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x71; 32]);
+        let (c, _d) = chain("deep");
+        setup(&c, &sk, "dora");
+        let (good, gs) = xfer(&sk, "dora", "eve", 1, act, 5);
+        let (bad, bs) = xfer(&sk, "dora", "eve", 9, act, 6); // nonce gap: certified, rejected
+        let mut hs = vec![good.hash(), bad.hash()]; hs.sort();
+        offer_body(good.clone(), gs); offer_body(bad.clone(), bs);
+        let mut prev = setcert::genesis_prev(act);
+        for t in act..act + 400 {
+            let content = setcert::Content { hashes: if t == act + 3 { hs.clone() } else { vec![] }, reports: vec![] };
+            let cert = Cert { epoch: t, round: 0, prev: prev.clone(), content, votes: Default::default() };
+            prev = cert.digest("hone-test");
+            assert!(apply_final(&c, &cert).is_ok(), "epoch {t}");
+        }
+        let tip = act + 400;
+        let served = serve_bodies(&c, &[good.hash(), bad.hash()], tip);
+        let got: Vec<String> = served.iter().filter_map(|r| serde_json::from_value::<LedgerEntry>(r["entry"].clone()).ok()).map(|e| e.hash()).collect();
+        assert!(got.contains(&good.hash()), "applied body 397 epochs behind the tip");
+        assert!(got.contains(&bad.hash()), "rejected body 397 epochs behind the tip");
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// Offline inventory of a node's pending pool from a COPY of its state store (never a live
+    /// node): HONE_INV_DB=<copy of state dir> cargo test inventory_pool -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn inventory_pool_from_store_copy() {
+        let p = std::env::var("HONE_INV_DB").expect("HONE_INV_DB");
+        let st = crate::store::Store::open(std::path::Path::new(&p)).unwrap();
+        let mut rows: Vec<serde_json::Value> = st.state_get("pending_pool")
+            .and_then(|b| serde_json::from_slice::<Vec<serde_json::Value>>(&b).ok()).unwrap_or_default();
+        st.for_each_meta_prefix("pending_pool:e:", |_, v| { if let Ok(r) = serde_json::from_slice(v) { rows.push(r); } });
+        for r in rows {
+            let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) else { continue };
+            let j = serde_json::to_value(&e).unwrap();
+            let who = ["signed_by", "from", "owner", "node", "reporter", "account"].iter()
+                .find_map(|k| j[*k].as_str().map(str::to_owned)).unwrap_or_default();
+            println!("INV {}", serde_json::json!({ "hash": e.hash(), "type": j["type"], "epoch": e.epoch(), "who": who,
+                "system": crate::tx::is_system_entry(&e) }));
+        }
+    }
+
+    /// 2026-11-11: restored backlog entries inflated every voter's lag report to 10, d ratcheted
+    /// to 10 and every user entry was certified 10 epochs late and rejected as stale. Now:
+    /// backlog first-sightings are not lag, d_report and d never exceed D_MAX (< STALE_WINDOW),
+    /// and a stored d of 10 is capped at once.
+    #[test]
+    fn d_never_leaves_the_stale_window() {
+        for _ in 0..3_000 { note_seen(100, 1_500); } // a restored pool: 1,400 epochs "late"
+        assert!(d_report() <= setcert::D_MAX && d_report() <= 3, "backlog is not gossip lag: {}", d_report());
+        for _ in 0..3_000 { note_seen(1_000, 1_007); } // genuinely slow gossip
+        assert_eq!(d_report(), setcert::D_MAX);
+        let (c, _d) = chain("dcap");
+        c.store.state_set(D_KEY, b"10").unwrap();
+        assert_eq!(d(&c), setcert::D_MAX);
+        assert!(setcert::D_MAX < crate::tx::STALE_WINDOW);
+        let mut cur = setcert::D_START;
+        for _ in 0..50 { cur = setcert::next_d(cur, &[10, 10, 10]); }
+        assert_eq!(cur, setcert::D_MAX, "reports of 10 still end at D_MAX");
     }
 
     fn applied_hash(c: &Chain, e: &LedgerEntry) -> bool {

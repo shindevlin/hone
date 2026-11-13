@@ -45,7 +45,11 @@ pub const CATCHUP_PROP_WAIT_MS: u64 = 25_000;
 pub const MIN_OPERATORS: usize = 2;
 pub const MAX_SET: usize = 2_000;
 pub const D_MIN: u64 = 2;
-pub const D_MAX: u64 = 10;
+/// Never above tx::STALE_WINDOW - 1: an entry is certified at its epoch + d and rejected as
+/// stale beyond epoch + STALE_WINDOW (5), so d >= 6 rejects EVERY user entry. It was 10 and
+/// the 2026-11-11 catch-up ratcheted d to 10 (lag reports inflated by restored backlog
+/// entries): 2,557 entries were certified late and rejected.
+pub const D_MAX: u64 = 4;
 pub const D_START: u64 = 3;
 pub const D_PERIOD: u64 = 120;
 pub const D_DELAY: u64 = 60;
@@ -125,6 +129,12 @@ pub struct Engine {
     my_votes: BTreeMap<u64, Vote>,
     /// Current tip as the driver last saw it (only selects the PROP wait).
     tip: u64,
+    /// Quorum certs received for epochs at or below our last final epoch that we never held
+    /// as final (fetched with the "certs" request by a node whose applying lags: grouchly
+    /// 373972 and nebra 373304 on 2026-11-11, by then outside every engine's final_ window).
+    lag_pool: BTreeMap<u64, Vec<Cert>>,
+    /// Final certs accepted from lag_pool as a chain from the applied anchor (see advance_lag).
+    lag_final: BTreeMap<u64, Cert>,
 }
 
 impl Engine {
@@ -132,7 +142,7 @@ impl Engine {
         voters.sort(); voters.dedup();
         Engine { chain: chain.into(), activation, voters, props: Default::default(), prop_first_ms: Default::default(),
             tallies: Default::default(), certs: Default::default(), final_: Default::default(), mine: Default::default(),
-            anchor: None, vote_floor: 0, my_votes: Default::default(), tip: 0 }
+            anchor: None, vote_floor: 0, my_votes: Default::default(), tip: 0, lag_pool: Default::default(), lag_final: Default::default() }
     }
     pub fn set_tip(&mut self, tip: u64) { self.tip = self.tip.max(tip); }
     /// This node's PROP for `epoch`, if it made one.
@@ -182,7 +192,34 @@ impl Engine {
         n >= self.quorum() && ops.len() >= MIN_OPERATORS.min(self.voters.len())
     }
 
-    pub fn final_cert(&self, epoch: u64) -> Option<&Cert> { self.final_.get(&epoch) }
+    pub fn final_cert(&self, epoch: u64) -> Option<&Cert> { self.final_.get(&epoch).or_else(|| self.lag_final.get(&epoch)) }
+
+    /// Extend the lagging chain from the applied anchor (`epoch`, digest of its final cert):
+    /// accept cert(t) for t = epoch+1, epoch+2, ... while a pooled cert of t names the
+    /// previous accepted digest as prev AND a pooled cert of t+1 names cert(t) (the same
+    /// finality rule as finalize: a cert is final once the next epoch's cert builds on it).
+    /// Every cert in the pool already passed the quorum check in on_cert. Returns how many.
+    pub fn advance_lag(&mut self, epoch: u64, digest: &str) -> usize {
+        self.lag_final.retain(|k, _| *k > epoch);
+        self.lag_pool.retain(|k, _| *k > epoch);
+        let (mut t, mut prev) = match self.lag_final.iter().next_back() {
+            Some((k, c)) if self.lag_final.len() as u64 == k - epoch => (*k + 1, c.digest(&self.chain)),
+            _ => { self.lag_final.clear(); (epoch + 1, digest.to_owned()) }
+        };
+        let mut n = 0;
+        loop {
+            let Some(here) = self.lag_pool.get(&t) else { break };
+            let named = |d: &str| self.lag_pool.get(&(t + 1)).is_some_and(|v| v.iter().any(|x| x.prev == d))
+                || self.final_.get(&(t + 1)).is_some_and(|x| x.prev == d)
+                || self.certs.get(&(t + 1)).is_some_and(|m| m.values().any(|x| x.prev == d));
+            // Of the quorum certs building on `prev`, the one the next epoch's cert names.
+            let Some(c) = here.iter().filter(|c| c.prev == prev).find(|c| named(&c.digest(&self.chain))).cloned() else { break };
+            let d = c.digest(&self.chain);
+            self.lag_final.insert(t, c);
+            prev = d; t += 1; n += 1;
+        }
+        n
+    }
     pub fn last_final(&self) -> Option<u64> {
         let f = self.final_.keys().next_back().copied();
         match (f, self.anchor.as_ref().map(|a| a.0)) { (Some(x), Some(y)) => Some(x.max(y)), (x, y) => x.or(y) }
@@ -298,7 +335,15 @@ impl Engine {
         let good: BTreeMap<String, String> = c.votes.iter()
             .filter(|(v, s)| self.is_voter(v) && verify(v, &d, s)).map(|(a, b)| (a.clone(), b.clone())).collect();
         if !self.quorum_ok(&good) { return false; }
-        self.add_cert(Cert { votes: good, ..c })
+        let c = Cert { votes: good, ..c };
+        // Behind our own finality and not held as final: keep it for a lagging applier.
+        if self.last_final().is_some_and(|lf| c.epoch <= lf) && !self.final_.contains_key(&c.epoch) {
+            let v = self.lag_pool.entry(c.epoch).or_default();
+            if !v.iter().any(|x| x.digest(&self.chain) == d) && v.len() < 4 { v.push(c); }
+            while self.lag_pool.len() > 8_192 { let k = *self.lag_pool.keys().next_back().unwrap(); self.lag_pool.remove(&k); }
+            return true;
+        }
+        self.add_cert(c)
     }
 
     fn add_cert(&mut self, c: Cert) -> bool {
@@ -447,6 +492,46 @@ mod tests {
         eng.iter().map(|e| e.final_.iter().map(|(k, c)| (*k, c.digest("hone-test"))).collect()).collect()
     }
 
+    /// A node applies far behind its own finality (its final_ window long since moved on):
+    /// fetched quorum certs are accepted only as a chain from its applied anchor, each named
+    /// by the next; a competing quorum cert that no successor names is never accepted.
+    #[test]
+    fn lagging_applier_accepts_only_a_named_chain_of_fetched_certs() {
+        let vs = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mk = |epoch: u64, round: u32, prev: &str, tag: &str| {
+            let content = Content { hashes: vec![format!("{tag}{epoch}")], reports: vec![] };
+            let d = digest("hone-test", epoch, round, &content.hash(), prev);
+            let votes = vs.iter().map(|v| (v.clone(), format!("{v}|{}", sha(d.as_bytes())))).collect();
+            Cert { epoch, round, prev: prev.to_owned(), content, votes }
+        };
+        // The real chain 1001..=1100 built on the applied anchor 1000.
+        let anchor = "anchor-digest".to_string();
+        let mut chainv = Vec::new();
+        let mut prev = anchor.clone();
+        for t in 1_001..=1_100 { let c = mk(t, 0, &prev, "h"); prev = c.digest("hone-test"); chainv.push(c); }
+        let mut e = Engine::new("hone-test", 900, vs.clone());
+        // Our own finality is far ahead (as if final_ moved on): resume anchor at 5000.
+        e.resume(5_000, "far".into());
+        // A competing quorum cert for 1001 that nobody builds on, plus the real chain.
+        assert!(e.on_cert(mk(1_001, 1, &anchor, "x"), &verify));
+        for c in &chainv { assert!(e.on_cert(c.clone(), &verify)); }
+        let n = e.advance_lag(1_000, &anchor);
+        assert_eq!(n, 99, "1001..1099 are final (1100 is not named yet)");
+        assert_eq!(e.final_cert(1_001).unwrap().content.hashes[0], "h1001");
+        assert!(e.final_cert(1_100).is_none());
+        // Applying 1001..1050 then advancing again keeps the chain.
+        let d1050 = chainv[49].digest("hone-test");
+        assert_eq!(e.advance_lag(1_050, &d1050), 0, "nothing new: 1051..1099 stay accepted");
+        assert!(e.final_cert(1_050).is_none() && e.final_cert(1_051).is_some() && e.final_cert(1_099).is_some());
+        // The next cert arrives and names 1100: exactly one more becomes final.
+        assert!(e.on_cert(mk(1_101, 0, &prev, "h"), &verify));
+        assert_eq!(e.advance_lag(1_050, &d1050), 1);
+        assert!(e.final_cert(1_100).is_some());
+        // A forged cert without a quorum is refused at on_cert.
+        let mut f = mk(1_101, 0, &prev, "h"); f.votes.retain(|k, _| k == "a");
+        assert!(!e.on_cert(f, &verify));
+    }
+
     #[test]
     fn restored_own_votes_are_resent_not_silenced_and_props_never_replaced() {
         let vs = vec!["a".to_string(), "b".to_string(), "c".to_string()];
@@ -541,7 +626,8 @@ mod tests {
         assert_eq!(next_d(3, &[9, 9, 9]), 4);
         assert_eq!(next_d(3, &[1, 1]), 2);
         assert_eq!(next_d(2, &[0]), 2);
-        assert_eq!(next_d(10, &[50]), 10);
+        assert_eq!(next_d(D_MAX, &[50]), D_MAX);
+        assert_eq!(next_d(10, &[50]), 9, "a stored d above the cap steps down");
         assert_eq!(next_d(5, &[]), 5);
         assert_eq!(next_d(4, &[2, 4, 9]), 4);
     }

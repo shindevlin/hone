@@ -168,7 +168,7 @@ pub fn answer(chain: &Chain, me: &str, kind: &str, from: u64, to: u64, hashes: &
         }
         "certs" => {
             let e = engine(chain).lock();
-            (from..=to.min(from + 31)).filter_map(|t| e.final_cert(t).cloned())
+            (from..=to.min(from + 31)).filter_map(|t| e.final_cert(t).cloned().or_else(|| sa::applied_cert(chain, t)))
                 .map(|c| serde_json::json!({ "type": "set_cert", "cert": c, "nonce": now_ms() })).collect()
         }
         _ => vec![],
@@ -218,6 +218,16 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
                 *g = 0;
                 crate::state_healer::clear_alerts("setcert: no certificate");
                 info!("[setcert] certificates resumed (next {next}, tip {cur})");
+            }
+        }
+        // A lagging applier: accept fetched final certs as a chain from what it applied.
+        {
+            let up = sa::applied_upto(&chain);
+            if let Some(f) = chain.store.state_get(&format!("setcert_final:{up}")).and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+                let d = crate::setcert::digest(&chain.chain_id, up, f["round"].as_u64().unwrap_or(0) as u32,
+                    f["content_hash"].as_str().unwrap_or_default(), f["prev"].as_str().unwrap_or_default());
+                let n = engine(&chain).lock().advance_lag(up, &d);
+                if n > 0 { info!("[setcert] lagging apply: accepted {n} fetched final cert(s) from {}", up + 1); }
             }
         }
         // Apply final certs strictly in order.
