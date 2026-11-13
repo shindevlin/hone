@@ -16,6 +16,8 @@ def check(name, cond):
     ok += 1
     print("ok", name)
 
+# The playback checks are tested as if live; shadow mode is checked at the end.
+H.PLAYBACK_HOLD_Q8, H.CROWD_PLAYBACK_Q8 = 179, 102
 B.verify = lambda body: (json.loads(body["payload"]), "pub-" + json.loads(body["payload"])["account"], 1)
 B.wiki_dhash = lambda latin: None
 
@@ -119,5 +121,10 @@ check("...but never a known-recording hold", row("fp1")[0]["verified"] == 2)
 out = B.add_photo({"payload": json.dumps({"v": 1, "latin": "Turdus grayi", "t": T * 1000, "license": "UFL", "ufl_agreed_ms": 1,
                                           "account": "a3", "evidence": {"in_app": False}, "cell": far}), "jpeg_b64": jpeg()})
 check("a photo without in-app evidence is not a sighting", out["sighting"] is False)
+
+# shadow mode (the default): a high speaker score is stored but holds nothing
+H.PLAYBACK_HOLD_Q8, H.CROWD_PLAYBACK_Q8 = 256, 256
+sighting("s1", SS, [{"name": "Turdus grayi", "conf_q8": 220, "playback_q8": 250, "t": T}], sid="shadow1")
+check("shadow mode: speaker score stored, nothing held", row("shadow1")[0]["verified"] == 1 and row("shadow1")[0]["playback_q8"] == 250)
 
 print(f"\n{ok} checks passed")

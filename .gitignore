@@ -107,3 +107,4 @@ reports/health/
 reports/devlog/
 reports/opsec/
 .dryrun/
+services/hone-birds/models/*.onnx

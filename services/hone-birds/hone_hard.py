@@ -13,6 +13,7 @@ Levels. A sighting entry may carry "level": "species" (default) | "genus" | "gro
 Broadcast and playback (none is decisive alone; all hold, none rejects):
   "fp_match": true      the phone matched a known reference recording   -> held (2), never public
   "playback_q8": 0-255  the phone's speaker-signature score; >= PLAYBACK_HOLD_Q8 -> held for review (5)
+                        (SHADOW MODE until calibrated: stored, holds nothing; see PLAYBACK_LIVE)
   "t": unix seconds of the first frame; enables the crowd check: the same taxon from >= CROWD_DEVICES
        accounts in >= CROWD_CELLS res-7 cells, two of them > CROWD_KM apart, within +-CROWD_S, AND a sign
        it isn't just a common bird singing everywhere (out of range in one of the cells, or a playback
@@ -34,9 +35,12 @@ import re
 import h3
 
 # OURS: tune freely.
-PLAYBACK_HOLD_Q8 = 179      # 0.7
+# The phones' speaker score (playback_q8) starts in SHADOW MODE: stored on every row, holds nothing, until it has
+# been calibrated on real reports (13 Nov). Flip PLAYBACK_LIVE to let it hold (>= 0.7) and count in the crowd check.
+PLAYBACK_LIVE = False
+PLAYBACK_HOLD_Q8 = 179 if PLAYBACK_LIVE else 256      # 0.7 when live; 256 = never
 CROWD_DEVICES, CROWD_CELLS, CROWD_KM, CROWD_S = 5, 3, 20.0, 60
-CROWD_PLAYBACK_Q8 = 102     # 0.4: "some playback signal" for the crowd check's second condition
+CROWD_PLAYBACK_Q8 = 102 if PLAYBACK_LIVE else 256     # 0.4: "some playback signal" for the crowd check
 UPGRADE_WINDOWS = 2         # 15-min windows either side (about 30 min)
 GENUS = re.compile(r"^[A-Z][a-z]+$")
 

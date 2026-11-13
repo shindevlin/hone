@@ -34,6 +34,8 @@ API (all JSON):
   Hard birds (hone_hard.py): species entries may carry "level" (species|genus|group), "t" (first frame, unix s),
   "playback_q8", "fp_match", "flock"; photos may carry "cell" (res <= 9) to count as a sighting and upgrade a
   nearby genus/group record. Held rows: GET /api/birds/admin/held, POST /api/birds/admin/release {"sid"} (admin).
+  POST /api/birds/voicecheck {"audio_b64"}: speech check of a library clip before it is published (Silero VAD,
+  in RAM, nothing stored). Only services on this machine may call it, never through Caddy (hone_voicecheck.py).
 """
 import base64, hashlib, hmac, io, json, os, re, sqlite3, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from PIL import Image
@@ -327,6 +329,7 @@ devices.init(db, lock, posting_key)
 accounts.init(db, lock, devices.bind)
 web.init(db, lock)
 import hone_hard as hard  # noqa: E402  hard birds: group levels, photo sightings, broadcast holds
+import hone_voicecheck as voicecheck  # noqa: E402  speech check for library clips (local callers only)
 hard.migrate(db, sqlite3)
 for col in ("source TEXT", "tier TEXT", "station TEXT"):
     try:
@@ -754,6 +757,8 @@ class H(BaseHTTPRequestHandler):
         sys.stderr.write("%s %s\n" % (self.command, self.path.split("?")[0]))
 
     def do_POST(self):
+        if urlparse(self.path).path == "/api/birds/voicecheck":
+            return self._voicecheck()
         ip = self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0]
         if limited(ip):
             return self._send(429, {"error": "slow down"})
@@ -820,6 +825,20 @@ class H(BaseHTTPRequestHandler):
             # apart from a refused one.
             sys.stderr.write("REJECT %s: %s\n" % (urlparse(self.path).path, str(e)[:160]))
             return self._send(400, {"error": str(e)[:200]})
+
+    def _voicecheck(self):
+        # Library clips only, and only from services on this machine (Birderlands' server): Caddy always adds
+        # X-Forwarded-For, so anything that came in from outside is refused.
+        if self.client_address[0] != "127.0.0.1" or self.headers.get("X-Forwarded-For"):
+            return self._send(403, {"error": "local callers only"})
+        n = int(self.headers.get("Content-Length", 0))
+        if n <= 0 or n > MAX_BODY:
+            return self._send(413, {"error": "body size"})
+        try:
+            body = json.loads(self.rfile.read(n))
+            return self._send(200, voicecheck.check_clip(base64.b64decode(body["audio_b64"])))
+        except Exception as e:
+            return self._send(400, {"error": str(e)[:200], "speech": None})
 
     def _accounts_post(self, path, body):
         if path == "/api/accounts/signup":
