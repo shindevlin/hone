@@ -127,4 +127,36 @@ H.PLAYBACK_HOLD_Q8, H.CROWD_PLAYBACK_Q8 = 256, 256
 sighting("s1", SS, [{"name": "Turdus grayi", "conf_q8": 220, "playback_q8": 250, "t": T}], sid="shadow1")
 check("shadow mode: speaker score stored, nothing held", row("shadow1")[0]["verified"] == 1 and row("shadow1")[0]["playback_q8"] == 250)
 
+# 6. chain rows: what the phone may send to the chain (bird.* usefulness metrics)
+sighting("r1", SS, [{"name": "Aix sponsa", "conf_q8": 240}], sid="rare1")
+late = now_w + 10
+cr = H.chain_rows(B.db, "u1", 0, late)
+mets = {(r["sid"], r["metric"], r["value"]) for r in cr["rows"]}
+check("an upgraded group row and its upgrade go to the chain",
+      ("up1:0", "bird.gr:ducks", 1) in mets and ("up1:0:up", "bird.up:anas_discors", 1) in mets)
+check("an in-app photo sighting goes as a species", any(m == "bird.sp:anas_discors" and s.startswith("photo:") for s, m, _ in mets))
+a1 = {r["sid"]: (r["metric"], r["value"]) for r in H.chain_rows(B.db, "a1", 0, late)["rows"]}
+check("species, genus and group metrics", a1.get("sp1:0") == ("bird.sp:turdus_grayi", 1)
+      and a1.get("ge1:0") == ("bird.ge:amazona", 1) and a1.get("gr1:0") == ("bird.gr:ducks", 1))
+check("a genus held back as unlikely is not offered", "ge2:0" not in a1)
+a2 = {r["sid"] for r in H.chain_rows(B.db, "a2", 0, late)["rows"]}
+check("held rows never go to the chain; released ones do", "fp1:0" not in a2 and "pb1:0" in a2)
+check("broadcast-held rows never go to the chain", not H.chain_rows(B.db, "d0", 0, late)["rows"])
+check("a rare unconfirmed bird goes with value 2", [(r["metric"], r["value"]) for r in H.chain_rows(B.db, "r1", 0, late)["rows"]]
+      == [("bird.sp:aix_sponsa", 2)])
+early = H.chain_rows(B.db, "a1", 0, now_w)
+check("a window is offered only 30 min after it closes", early["rows"] == [] and early["upto"] == now_w - 2)
+check("names the chain can't take are skipped", H.chain_metric("species", None, "Turdus grayi", None) == "bird.sp:turdus_grayi"
+      and H.chain_metric("species", None, "Columba livia-domestica", "species") == "bird.sp:columba_livia_domestica"
+      and H.chain_metric("group", "ducks", "Anatidae sp.", "group") == "bird.gr:ducks"
+      and H.chain_metric("species", None, "X" * 40 + " y", "species") is None)
+def cr_req(**kw):
+    return {"payload": json.dumps({"v": 1, "kind": "chain_rows", "account": "a1", "after": 0, "ts": int(time.time()), **kw})}
+check("the signed route answers with a cursor", "upto" in B.chain_rows(cr_req()))
+for bad in (cr_req(ts=int(time.time()) - 3600), cr_req(kind="sightings")):
+    try:
+        B.chain_rows(bad); check("stale or wrong-kind request refused", False)
+    except ValueError:
+        check("stale or wrong-kind request refused", True)
+
 print(f"\n{ok} checks passed")

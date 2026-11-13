@@ -137,6 +137,57 @@ def taxon_in_range(names, genera):
     return any(n.split(" ")[0] in genera for n in names)
 
 
+# ── Chain rows (hard-birds §3): what the phone may send to the chain as bird.* usefulness metrics ──
+# Only rows that are public or rare-pending (verified 1, 3, 4) or an upgraded group row (6). Held rows never.
+# A window is offered CHAIN_LAG_WINDOWS after it closes, so the crowd check has seen the other reports.
+CHAIN_LAG_WINDOWS = 2      # OURS: 30 min
+CHAIN_MAX_WINDOWS = 50     # windows per answer; the phone pages with "after"
+EARNABLE = (1, 3, 4, 6)
+
+
+def _mname(s):
+    s = re.sub(r"[^a-z_]", "", str(s).lower().replace(" ", "_").replace("-", "_"))
+    return re.sub(r"_+", "_", s).strip("_")
+
+
+def chain_metric(level, taxon, latin, earn_class):
+    """The chain metric of an earnable row, or None. Must match usefulness.rs bird_parts():
+    bird.sp:<genus>_<species> | bird.ge:<genus> | bird.gr:<group> | bird.up:<genus>_<species>, at most 40 chars."""
+    ec = earn_class or level or "species"
+    if ec in ("species", "photo", "upgrade"):
+        name = _mname(latin)
+        m = ("bird.up:" if ec == "upgrade" else "bird.sp:") + name if "_" in name else None
+    elif ec == "genus":
+        name = _mname(str(latin).split(" ")[0])
+        m = "bird.ge:" + name if name and "_" not in name else None
+    elif ec == "group":
+        name = _mname(taxon or GROUP_BY_NAME.get(latin, ""))
+        m = "bird.gr:" + name if name and "_" not in name else None
+    else:
+        m = None
+    return m if m and len(m) <= 40 else None
+
+
+def chain_rows(db, account, after, now_w):
+    """The account's earnable rows in windows (after, now_w - CHAIN_LAG_WINDOWS], oldest first, at most
+    CHAIN_MAX_WINDOWS windows. "upto" is the cursor for the next call. Value 2 = rare here (3, 4)."""
+    upto = max(int(after), now_w - CHAIN_LAG_WINDOWS)
+    q = "FROM sightings WHERE account=? AND window>? AND window<=? AND verified IN (1,3,4,6)"
+    wins = [w for (w,) in db.execute("SELECT DISTINCT window " + q + " ORDER BY window LIMIT ?",
+                                     (account, after, upto, CHAIN_MAX_WINDOWS)).fetchall()]
+    if len(wins) == CHAIN_MAX_WINDOWS:
+        upto = wins[-1]
+    rows = []
+    if wins:
+        for sid, cell, w, latin, v, level, taxon, ec in db.execute(
+                "SELECT sid, cell, window, latin, verified, level, taxon, earn_class " + q + " ORDER BY window, sid",
+                (account, after, upto)).fetchall():
+            m = chain_metric(level, taxon, latin, ec)
+            if m:
+                rows.append({"sid": sid, "cell": cell, "window": w, "metric": m, "value": 2 if v in (3, 4) else 1})
+    return {"rows": rows, "upto": upto, "lag_windows": CHAIN_LAG_WINDOWS}
+
+
 def km(c1, c2):
     a, b = h3.cell_to_latlng(c1), h3.cell_to_latlng(c2)
     p1, p2, dl = math.radians(a[0]), math.radians(b[0]), math.radians(b[1] - a[1])

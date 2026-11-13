@@ -34,6 +34,8 @@ API (all JSON):
   Hard birds (hone_hard.py): species entries may carry "level" (species|genus|group), "t" (first frame, unix s),
   "playback_q8", "fp_match", "flock"; photos may carry "cell" (res <= 9) to count as a sighting and upgrade a
   nearby genus/group record. Held rows: GET /api/birds/admin/held, POST /api/birds/admin/release {"sid"} (admin).
+  POST /api/birds/chain_rows (signed {"kind":"chain_rows","account","after","ts"}): the account's earnable bird rows
+  as chain metrics (bird.sp:/ge:/gr:/up:), windows (after, now-30 min], for its usefulness summaries.
   POST /api/birds/voicecheck {"audio_b64"}: speech check of a library clip before it is published (Silero VAD,
   in RAM, nothing stored). Only services on this machine may call it, never through Caddy (hone_voicecheck.py).
 """
@@ -583,6 +585,18 @@ def add_sighting(body):
     return {"ok": True, "stored": len(rows), "first_in_area": first, "held": len(held)}
 
 
+def chain_rows(body):
+    """The account's own earnable bird rows for the chain (bird.* usefulness metrics). Signed by the account's
+    posting key like every upload, fresh (ts within 10 min), because it reveals the account's cells."""
+    p, _pub, verified = verify(body)
+    if p.get("kind") != "chain_rows" or not verified:
+        raise ValueError("kind chain_rows, signed by the account's current posting key")
+    if abs(int(p.get("ts", 0)) - time.time()) > 600:
+        raise ValueError("stale request")
+    with lock:
+        return hard.chain_rows(db, p["account"], int(p.get("after", 0)), int(time.time()) // 900)
+
+
 def add_photo(body):
     p, pub, verified = verify(body)
     if not LATIN.match(p["latin"]):
@@ -786,6 +800,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, add_photo(body))
             if path == "/api/birds/windows":
                 return self._send(200, add_window(body))
+            if path == "/api/birds/chain_rows":
+                return self._send(200, chain_rows(body))
             if path == "/api/birds/labels":
                 return self._send(200, add_labels(body))
             if path == "/api/birds/admin/release":
