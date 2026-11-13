@@ -31,6 +31,9 @@ API (all JSON):
   GET  /api/birds/occupancy?cell=<res<=7 cell>   local view (status words; exact cells for map tiers)
   GET  /api/birds/occupancy/map?res=5|7          likely/confirmed/rare species per cell
   GET  /api/birds/occupancy/changes?since=<t>    arrivals/departures (indexer only, no chain)
+  Hard birds (hone_hard.py): species entries may carry "level" (species|genus|group), "t" (first frame, unix s),
+  "playback_q8", "fp_match", "flock"; photos may carry "cell" (res <= 9) to count as a sighting and upgrade a
+  nearby genus/group record. Held rows: GET /api/birds/admin/held, POST /api/birds/admin/release {"sid"} (admin).
 """
 import base64, hashlib, hmac, io, json, os, re, sqlite3, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from PIL import Image
@@ -185,6 +188,15 @@ def _range_bg(c3):
         _range_q.discard(c3)
 
 
+def range_names(cell):
+    """The region's species list if cached (else None, and a background fetch is started)."""
+    c3 = area(cell)
+    with lock:
+        r = db.execute("SELECT species, updated FROM ranges WHERE cell=?", (c3,)).fetchone()
+    in_range(cell, "")
+    return None if not r else json.loads(r[0])
+
+
 def in_range(cell, latin):
     """True/False if the range for this cell is cached; None if not known yet (then fetched
     in the background, so every area a listener reports from gets a prior)."""
@@ -314,6 +326,8 @@ def verify(body):
 devices.init(db, lock, posting_key)
 accounts.init(db, lock, devices.bind)
 web.init(db, lock)
+import hone_hard as hard  # noqa: E402  hard birds: group levels, photo sightings, broadcast holds
+hard.migrate(db, sqlite3)
 for col in ("source TEXT", "tier TEXT", "station TEXT"):
     try:
         db.execute("ALTER TABLE sightings ADD COLUMN " + col)
@@ -492,17 +506,28 @@ def add_sighting(body):
     source = p.get("source") if p.get("source") in ("phone", "station") else "phone"
     tier = p.get("tier") if p.get("tier") in ("A", "B", "C") else None
     station = str(p.get("station", ""))[:16] if re.fullmatch(r"[0-9a-f]{16}", str(p.get("station", ""))) else None
-    rows = []
+    rows, extra = [], {}
     for i, s in enumerate(p["species"][:20]):
-        name = s["name"]
-        if not LATIN.match(name):
+        lv = hard.parse(s, LATIN)
+        if not lv:
             continue
+        level, taxon, name, genera = lv
         v = verified
-        if v and in_range(cell, name) is False:
+        rng = in_range(cell, name) if level == "species" else hard.taxon_in_range(range_names(cell), genera)
+        if v and rng is False:
             # Not recorded in this region (GBIF): "unlikely here". Vagrants happen, so very confident
             # reports are kept as unconfirmed rare (3) and published only once another account or a
             # photo confirms them (4); weaker ones are held back (2). Neither is public until then.
             v = 3 if int(s["conf_q8"]) >= RARE_MIN_Q8 else 2
+        hold, pb = None, int(s.get("playback_q8") or 0)
+        if v and s.get("fp_match") is True:
+            v, hold = 2, "known-recording"      # a known reference recording: never public
+        elif v and pb >= hard.PLAYBACK_HOLD_Q8:
+            v, hold = hard.HELD_REVIEW, "playback"
+        t0 = s.get("t")
+        t_first = int(t0) if isinstance(t0, (int, float)) and abs(int(t0) - int(p["window"]) * 900) <= 1800 else None
+        extra[f"{sid}:{i}"] = (level, taxon, t_first, pb or None, 1 if s.get("fp_match") is True else 0,
+                               1 if s.get("flock") is True else 0, hold, level)
         rows.append((f"{sid}:{i}", int(p["window"]), cell, res, name, int(s["conf_q8"]),
                      int(s.get("frames", 1)), str(p.get("model", ""))[:64],
                      p["account"], pub, int(time.time()), v, 1 if p.get("show_name") else 0, source, tier, station))
@@ -519,10 +544,14 @@ def add_sighting(body):
                 first.append(r[4])
         db.executemany("INSERT OR IGNORE INTO sightings(sid,window,cell,res,latin,conf_q8,frames,model,account,pub,received,"
                        "verified,show_name,source,tier,station) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        db.executemany("UPDATE sightings SET level=?, taxon=?, t_first=?, playback_q8=?, fp_match=?, flock=?, hold=?, "
+                       "earn_class=? WHERE sid=?", [(*e, k) for k, e in extra.items()])
         # Occupancy: phones from v8 send their evidence as listening windows ("occ": 1); older
         # phones and camera stations feed it from sightings (positive evidence only).
         if not p.get("occ"):
             for r in rows:
+                if extra[r[0]][0] != "species":
+                    continue  # occupancy scores species only
                 occupancy.ingest_sighting(r[2], r[4], r[5], r[6], r[1], occupancy.listener_of(r[8]), r[11])
         # A rare report is confirmed (4) when a different account reports the same species
         # in the same res-3 area within 72 h (288 windows).
@@ -536,8 +565,19 @@ def add_sighting(body):
                 if area(o[1]) == c3]
             if others:
                 db.executemany("UPDATE sightings SET verified=4 WHERE sid=?", [(o[0],) for o in others] + [(r[0],)])
+        # Broadcast check: the same taxon at the same minute from many accounts far apart (hone_hard.py).
+        held = set()
+        for r in rows:
+            t_first = extra[r[0]][2]
+            if t_first is None or r[11] not in (1, 3, 4):
+                continue
+            for x in hard.crowd_check(db, r[4], t_first, in_range):
+                held.add(x)
+        if held:
+            db.executemany("UPDATE sightings SET verified=?, hold='broadcast' WHERE sid=? AND verified IN (1,3,4)",
+                           [(hard.HELD_REVIEW, x) for x in held])
         db.commit()
-    return {"ok": True, "stored": len(rows), "first_in_area": first}
+    return {"ok": True, "stored": len(rows), "first_in_area": first, "held": len(held)}
 
 
 def add_photo(body):
@@ -574,8 +614,19 @@ def add_photo(body):
             w = int(p["t"]) // 900_000
             db.execute("UPDATE sightings SET verified=4 WHERE verified=3 AND latin=? AND account=? AND ABS(window-?)<=288",
                        (p["latin"], p["account"], w))
+        # Hard birds: the same photo releases this account's held (5) reports of the species, and with a cell it is
+        # a sighting of its own and upgrades a nearby genus/group record (hone_hard.py).
+        added, upgraded = 0, []
+        if ev_ok and verified == 1:
+            w = int(p["t"]) // 900_000
+            db.execute("UPDATE sightings SET verified=1, hold='released-photo' WHERE verified=? AND latin=? AND account=? "
+                       "AND ABS(window-?)<=288", (hard.HELD_REVIEW, p["latin"], p["account"], w))
+            if p.get("cell"):
+                added, upgraded = hard.photo_sighting(db, pid, p["latin"], p["account"], pub, p["t"], str(p["cell"]),
+                                                      1 if p.get("show_name") else 0, in_range, int(time.time()))
         db.commit()
-    return {"ok": True, "id": pid, "url": f"/api/birds/photos/{pid}.jpg", "evidence_ok": ev_ok}
+    return {"ok": True, "id": pid, "url": f"/api/birds/photos/{pid}.jpg", "evidence_ok": ev_ok,
+            "sighting": bool(added), "upgraded": len(upgraded)}
 
 
 # ── photo evidence, duplicates, storage ──────────────────────────────────────────────────
@@ -674,6 +725,12 @@ def public_sighting(r):
     out["account"] = r["account"] if r["show_name"] else None   # verified either way; name only on opt-in
     out["rare"] = {3: "unconfirmed", 4: "confirmed"}.get(r["verified"])
     out["source"] = r.get("source") or "phone"
+    if r.get("level") and r["level"] != "species":
+        out["level"] = r["level"]
+    if r.get("flock"):
+        out["flock"] = True
+    if r.get("upgraded_from"):
+        out["upgraded"] = True
     if r.get("tier"):
         out["tier"] = r["tier"]
     return out
@@ -726,6 +783,14 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, add_window(body))
             if path == "/api/birds/labels":
                 return self._send(200, add_labels(body))
+            if path == "/api/birds/admin/release":
+                if not devices.admin(self.headers):
+                    return self._send(403, {"error": "forbidden"})
+                with lock:
+                    n = db.execute("UPDATE sightings SET verified=1, hold='released' WHERE sid=? AND verified=?",
+                                   (str(body.get("sid", ""))[:96], hard.HELD_REVIEW)).rowcount
+                    db.commit()
+                return self._send(200, {"ok": True, "released": n})
             if path == "/api/birds/admin/posting-keys":
                 # Refreshed by the n8n workflow "HONE: birds posting-key refresh" on grouchly.
                 token = os.environ.get("HONE_BIRDS_ADMIN_TOKEN", "")
@@ -912,6 +977,11 @@ class H(BaseHTTPRequestHandler):
             m = re.match(r"^/api/devices/seals/([^/]+)$", path)
             if m:
                 return self._send(200, devices.get_seals(unquote(m.group(1))))
+            if path == "/api/birds/admin/held":
+                if not devices.admin(self.headers):
+                    return self._send(403, {"error": "forbidden"})
+                return self._send(200, {"held": q("SELECT sid, window, latin, level, hold, playback_q8, fp_match FROM sightings "
+                                                  "WHERE verified IN (2,5) AND hold IS NOT NULL ORDER BY window DESC LIMIT 500")})
             if path == "/api/devices/admin/unbound":
                 if not devices.admin(self.headers):
                     return self._send(403, {"error": "forbidden"})
