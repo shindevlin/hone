@@ -176,6 +176,83 @@ pub fn bird_parts(m: &str) -> Option<(&str, &str)> {
     Some((kind, name))
 }
 
+/// Perch v2 class names (binomials, lowercased, ' ' and '-' as '_'): the only species a `bird.sp:` /
+/// `bird.up:` metric may name. Built from huggingface.co/Arm/perch-v2-int8-litert assets/class_names.json
+/// (sha256 51d8f01a..., 14,795 classes, 14,595 binomials). Updating it is a release, like any constant.
+static BIRD_SPECIES_TXT: &str = include_str!("../assets/bird_species.txt");
+/// The hard groups (Birderlands engine/Groups.kt, hone-birds hone_hard.GROUPS).
+pub const BIRD_GROUPS: &[&str] = &["ducks", "parrots", "gulls", "hummingbirds", "hawks", "owls", "herons", "doves",
+    "woodpeckers", "flycatchers"];
+
+fn bird_names() -> &'static (std::collections::BTreeSet<&'static str>, std::collections::BTreeSet<&'static str>) {
+    static N: std::sync::OnceLock<(std::collections::BTreeSet<&'static str>, std::collections::BTreeSet<&'static str>)> =
+        std::sync::OnceLock::new();
+    N.get_or_init(|| {
+        let sp: std::collections::BTreeSet<&str> = BIRD_SPECIES_TXT.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        let ge = sp.iter().filter_map(|s| s.split('_').next()).collect();
+        (sp, ge)
+    })
+}
+
+/// A well-formed bird metric that names a known species, genus or group.
+pub fn bird_known(m: &str) -> bool {
+    let Some((kind, name)) = bird_parts(m) else { return false };
+    let (sp, ge) = bird_names();
+    match kind {
+        "sp" | "up" => sp.contains(name),
+        "ge" => ge.contains(name),
+        _ => BIRD_GROUPS.contains(&name),
+    }
+}
+
+// ── Metric allow-list (from METRIC_ALLOWLIST_EPOCH) ──────────────────────────────────
+// Without it any invented name is "new" in every cell. Names the known producers send (phone
+// CoverageSubmitter, Flipper relay, LoRa gateway), and room for ambient noise. Context metrics
+// (loc.*, *.scans, *.scan_s, *.samples, rssi histograms, wifi.fp:) are never scored anyway.
+pub const ALLOWED_METRICS: &[&str] = &[
+    "wifi.ap_count", "wifi.rssi_p50", "wifi.rssi_max", "wifi.band.2g", "wifi.band.5g", "wifi.band.6g",
+    "wifi.distinct_devices", "wifi.probes",
+    "ble.crowd", "hone.devices", "hone.network", "mobile_ap", "obs.none",
+    "flipper.subghz", "flipper.wifi", "flipper.tags", "flipper.ir",
+    "ir.count", "nfc.count", "rfid.count", "ibutton.count",
+    "lora.packets", "lora.snr_p50", "lora.rssi_p50", "lora.rssi_max", "lora.devaddr_unique",
+    "noise.db_p50", "noise.db_max", "noise.events",
+];
+/// Sub-GHz bands (integer MHz) the Flipper rotates through.
+pub const SUBGHZ_MHZ: &[u32] = &[300, 303, 304, 310, 315, 318, 390, 418, 433, 434, 438, 868, 915, 925];
+
+/// The allow-list gate. Tests: active from 365,000 (older tests keep invented names).
+pub fn allowlist_epoch() -> u64 {
+    if cfg!(test) { 365_000 } else { hone_types::METRIC_ALLOWLIST_EPOCH }
+}
+
+/// May this metric earn (from the allow-list gate)?
+pub fn allowed_metric(m: &str) -> bool {
+    if ALLOWED_METRICS.contains(&m) { return true; }
+    if m.starts_with("bird.") { return bird_known(m); }
+    if let Some(c) = m.strip_prefix("lora.ch") {
+        return !c.is_empty() && c.len() <= 2 && c.bytes().all(|b| b.is_ascii_digit()) && c.parse::<u32>().is_ok_and(|n| n < 64)
+            && (c == "0" || !c.starts_with('0'));
+    }
+    if let Some(f) = m.strip_prefix("subghz.") {
+        return f.parse::<u32>().is_ok_and(|n| SUBGHZ_MHZ.contains(&n) && f == n.to_string());
+    }
+    false
+}
+
+/// GET /api/sensor/metrics: every metric name the chain holds an estimate for, with its cell count and
+/// whether it is on the allow-list (read-only; for checking the list before the gate is set).
+pub fn metrics_view(chain: &Chain) -> serde_json::Value {
+    let mut n = BTreeMap::<String, u64>::new();
+    for (k, _) in chain.store.state_scan_prefix("uest:") {
+        if let Some((_, m)) = k["uest:".len()..].split_once(':') { *n.entry(m.to_owned()).or_default() += 1; }
+    }
+    let rows: Vec<serde_json::Value> = n.into_iter().map(|(m, cells)| serde_json::json!({ "metric": m, "cells": cells,
+        "scored": scored_metric(&m), "allowed": allowed_metric(&m) })).collect();
+    serde_json::json!({ "metric_allowlist_from_epoch": hone_types::METRIC_ALLOWLIST_EPOCH,
+        "bird_earn_from_epoch": hone_types::BIRD_EARN_EPOCH, "tip": chain.current_epoch(), "metrics": rows })
+}
+
 fn is_rare(c: &serde_json::Value) -> bool { c["rare"].as_bool() == Some(true) }
 
 /// `a` and `b` are the same cell or neighbours, compared at the coarser resolution of the two.
@@ -402,6 +479,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
     let mut pts = 0u64;
     for (m, &v) in metrics {
         if !scored_metric_at(m, epoch) { continue; }
+        if epoch >= allowlist_epoch() && !allowed_metric(m) { continue; }
         // Birds: points by kind, upgrades scored as the species, malformed rows skipped.
         let mut novel_pts = NOVEL_POINTS;
         let mut base: Option<String> = None;
@@ -409,6 +487,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
         let up_m;
         let m = if epoch >= bird_epoch() && m.starts_with("bird.") {
             let Some((kind, name)) = bird_parts(m) else { continue };
+            if !bird_known(m) { continue; }  // real species, genera and groups only: invented names earn nothing
             if v != 1 && v != RARE_VALUE { continue; }
             rare = v == RARE_VALUE;
             match kind {
@@ -591,6 +670,9 @@ pub fn owner_view(chain: &Chain, owner: &str) -> serde_json::Value {
         // Read by the phone app (CoverageSubmitter.coarseCellsActive): res 7-8 rows are held
         // until the tip reaches this epoch.
         "coarse_cells_from_epoch": res_gate,
+        // Read by the phone app (BirdChainSubmitter): bird.* rows are sent only from this epoch.
+        "bird_earn_from_epoch": hone_types::BIRD_EARN_EPOCH,
+        "metric_allowlist_from_epoch": hone_types::METRIC_ALLOWLIST_EPOCH,
         "summary_min_res": if chain.current_epoch() >= res_gate { MIN_CELL_RES } else { MAX_CELL_RES },
         "proven_points": proven_points(chain, &owner), "queued_points": queued(chain, &owner),
         "trust": trust(chain, &owner), "counts": counts, "claims": claims,
@@ -1125,14 +1207,14 @@ mod tests {
     }
 
     // ── birds ──
-    const SP: &str = "bird.sp:anas_discors";
+    const SP: &str = "bird.sp:anas_acuta";
 
     #[test]
     fn bird_metrics_are_parsed_strictly() {
-        assert_eq!(bird_parts("bird.sp:anas_discors"), Some(("sp", "anas_discors")));
+        assert_eq!(bird_parts("bird.sp:anas_acuta"), Some(("sp", "anas_acuta")));
         assert_eq!(bird_parts("bird.gr:ducks"), Some(("gr", "ducks")));
         assert_eq!(bird_parts("bird.ge:amazona"), Some(("ge", "amazona")));
-        for bad in ["bird.sp:anas", "bird.gr:anas_discors", "bird.xx:ducks", "bird.sp:", "bird.sp:_anas_x", "bird.sp:anas_2", "bird.up:ducks"] {
+        for bad in ["bird.sp:anas", "bird.gr:anas_acuta", "bird.xx:ducks", "bird.sp:", "bird.sp:_anas_x", "bird.sp:anas_2", "bird.up:ducks"] {
             assert!(bird_parts(bad).is_none(), "{bad}");
         }
     }
@@ -1152,17 +1234,17 @@ mod tests {
     fn upgrade_pays_the_rest_once_and_only_on_an_own_group_claim() {
         let (c, _d) = chain();
         // No group claim: an upgrade earns nothing and claims nothing.
-        let (v, p) = score(&c, "ph", "josh", C, W0, &m(&[("bird.up:anas_discors", 1)]), E0);
+        let (v, p) = score(&c, "ph", "josh", C, W0, &m(&[("bird.up:anas_acuta", 1)]), E0);
         assert_eq!((v[0].1.clone(), p), (Verdict::Repeat, 0));
         assert!(claim(&c, W0, SP).is_none());
         // Someone else's group claim cannot be upgraded by josh.
         score(&c, "pb", "bob", C, W0 + 4, &m(&[("bird.gr:parrots", 1)]), E0);
-        let (_, p) = score(&c, "ph", "josh", C, W0 + 4, &m(&[("bird.up:anas_discors", 1)]), E0);
+        let (_, p) = score(&c, "ph", "josh", C, W0 + 4, &m(&[("bird.up:anas_acuta", 1)]), E0);
         assert_eq!(p, 0);
         // Own group claim, then the photo's upgrade: 25 + 75 = one species.
         let w = W0 + 8;
         score(&c, "ph", "josh", C, w, &m(&[("bird.gr:ducks", 1)]), E0);
-        let (_, p) = score(&c, "cam", "josh", C, w, &m(&[("bird.up:anas_discors", 1)]), E0 + 1);
+        let (_, p) = score(&c, "cam", "josh", C, w, &m(&[("bird.up:anas_acuta", 1)]), E0 + 1);
         assert_eq!(p, UPGRADE_POINTS);
         assert_eq!(claim(&c, w, SP).unwrap()["upgrades"], "bird.gr:ducks");
         assert_eq!(claim(&c, w, "bird.gr:ducks").unwrap()["upgraded_to"], SP);
@@ -1175,7 +1257,7 @@ mod tests {
         // A genus claim upgrades only a species of that genus.
         let w2 = W0 + 12;
         score(&c, "ph", "josh", C, w2, &m(&[("bird.ge:amazona", 1)]), E0);
-        assert_eq!(score(&c, "cam", "josh", C, w2, &m(&[("bird.up:anas_discors", 1)]), E0).1, 0);
+        assert_eq!(score(&c, "cam", "josh", C, w2, &m(&[("bird.up:anas_acuta", 1)]), E0).1, 0);
         assert_eq!(score(&c, "cam", "josh", C, w2, &m(&[("bird.up:amazona_albifrons", 1)]), E0).1, UPGRADE_POINTS);
         release_due(&c, E0 + 2 + CLAIM_WINDOW_EPOCHS);
         assert_eq!(proven_points(&c, "josh"), 2 * (GROUP_POINTS + UPGRADE_POINTS));
@@ -1233,6 +1315,37 @@ mod tests {
         let (v, _) = score(&c, "pb", "bob", C, W0 + 1, &m(&[(SP, RARE_VALUE)]), E0 + 1);
         assert_eq!(v[0].1, Verdict::Verify);
         assert_eq!(claim(&c, W0, SP).unwrap()["status"], "proven");
+    }
+
+    #[test]
+    fn only_known_bird_names_earn() {
+        assert!(bird_known("bird.sp:anas_acuta") && bird_known("bird.up:amazona_albifrons"));
+        assert!(bird_known("bird.ge:amazona") && bird_known("bird.gr:ducks"));
+        assert!(!bird_known("bird.sp:anas_madeupii") && !bird_known("bird.ge:fakeus") && !bird_known("bird.gr:penguins"));
+        let (c, _d) = chain();
+        let (_, p) = score(&c, "ph", "josh", C, W0, &m(&[("bird.sp:anas_madeupii", 1), ("bird.sp:zzz_zzz", 1)]), E0);
+        assert_eq!(p, 0, "invented species earn nothing");
+    }
+
+    #[test]
+    fn allow_list_stops_invented_metric_names() {
+        for ok in ["wifi.ap_count", "ble.crowd", "mobile_ap", "lora.packets", "lora.ch0", "lora.ch63", "subghz.433",
+                   "subghz.868", "bird.sp:anas_acuta", "noise.db_p50", "obs.none"] {
+            assert!(allowed_metric(ok), "{ok}");
+        }
+        for bad in ["wifi.m1", "wifi.x", "lora.ch64", "lora.ch07", "subghz.432", "subghz.0433", "foo.bar", "bird.sp:anas_madeupii", "ble.crowd2"] {
+            assert!(!allowed_metric(bad), "{bad}");
+        }
+        let (c, _d) = chain();
+        let s: BTreeMap<String, i64> = (0..20).map(|i| (format!("wifi.m{i}"), 10 + i)).chain([("wifi.ap_count".to_string(), 5)]).collect();
+        let (v, p) = score(&c, "ph", "josh", C, W0, &s, 365_000);
+        assert_eq!((v.len(), p), (1, NOVEL_POINTS), "only the listed name is scored");
+        let (c2, _d2) = chain();
+        assert_eq!(score(&c2, "ph", "josh", C, W0, &s, 364_999).1, 21 * NOVEL_POINTS, "before the gate: unchanged");
+        assert!(get_json(&c, "uest:896d75d960bffff:wifi.m1").is_none(), "unlisted names leave no estimate");
+        let view = metrics_view(&c);
+        assert_eq!(view["metrics"][0]["metric"], "wifi.ap_count");
+        assert_eq!(view["metrics"][0]["allowed"], true);
     }
 
     #[test]

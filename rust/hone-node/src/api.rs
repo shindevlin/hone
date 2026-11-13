@@ -261,6 +261,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/coverage/report", post(post_coverage_report))
         .route("/api/sensor/summary", post(post_sensor_summary))
         .route("/api/sensor/usefulness/:owner", get(get_sensor_usefulness))
+        .route("/api/sensor/metrics", get(|State(s): State<AppState>| async move { Json(crate::usefulness::metrics_view(&s.chain)) }))
         .route("/api/account/:account/agent-key", get(|State(s): State<AppState>, axum::extract::Path(a): axum::extract::Path<String>| async move {
             Json(crate::agent_key::view(&s.chain, &a)) }))
         .route("/api/account/agent-key/set", post(|State(s): State<AppState>, Json(b): Json<serde_json::Value>| async move { post_typed(&s, "SET_AGENT_KEY", b) }))

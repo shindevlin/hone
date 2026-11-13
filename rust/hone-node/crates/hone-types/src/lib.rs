@@ -188,6 +188,10 @@ pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
 /// birds paid only on an independent owner's corroboration within 72 h. Off until Josh signs
 /// off an epoch.
 pub const BIRD_EARN_EPOCH: u64 = u64::MAX;
+/// Metric allow-list (Josh 2026-11-13 "ok"): from here only listed metric names (and known bird
+/// names) are scored and paid; any other name is still accepted as map data but earns nothing.
+/// Off until Josh signs off an epoch (check GET /api/sensor/metrics against live data first).
+pub const METRIC_ALLOWLIST_EPOCH: u64 = u64::MAX;
 /// Decide-by certified entry sets (setcert.rs). Off until rollout + Josh OK.
 pub const SET_CERT_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:08 local "ok, build it and turn it on"
 /// Scoped "agent" key role (Josh 2026-11-10 08:25): SET_AGENT_KEY / REVOKE_AGENT_KEY, and
