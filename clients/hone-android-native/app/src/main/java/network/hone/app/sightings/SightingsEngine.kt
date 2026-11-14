@@ -92,6 +92,8 @@ object SightingsEngine {
     private const val TAG = "HoneSight"
     const val INFO_SIGHTING = "hone-sighting-v1"
     private const val BLE_CROWD_EVERY_MS = 60_000L
+    /** Screen off on battery: one crowd scan every 3 min (still 5 per 15-min window). */
+    private const val BLE_CROWD_EVERY_SAVER_MS = 180_000L
     private const val BLE_CROWD_SCAN_MS = 8_000L
     private const val WIFI_UNTHROTTLED_MS = 120_000L
     private const val WIFI_FOREGROUND_MS = 30_000L
@@ -215,15 +217,17 @@ object SightingsEngine {
         if (!hasLocation(ctx)) return
         val lm = ctx.getSystemService(LocationManager::class.java)
         if (hasGms(ctx)) runCatching {
-            // Play services fused location, high accuracy (GPS + Wi-Fi + cell + sensors), 60 s.
+            // Play services fused location, balanced (Wi-Fi + cell, no GPS), 60 s: coverage cells are res 9
+            // (~170 m), which Wi-Fi/cell fixes reach; GPS every minute was most of Hone's battery (14 Nov).
+            // GPS fixes other apps request still arrive through the passive listener below.
             val cb = object : LocationCallback() {
                 override fun onLocationResult(r: LocationResult) { r.lastLocation?.let { onLocation(it, "fused-gms") } }
             }
-            val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 60_000L)
-                .setMinUpdateIntervalMillis(20_000L).setMinUpdateDistanceMeters(0f).build()
+            val req = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 60_000L)
+                .setMinUpdateIntervalMillis(30_000L).setMinUpdateDistanceMeters(0f).build()
             LocationServices.getFusedLocationProviderClient(ctx).requestLocationUpdates(req, cb, Looper.getMainLooper())
             gmsCallback = cb
-            Log.i(TAG, "location via Play services fused, high accuracy")
+            Log.i(TAG, "location via Play services fused, balanced")
         }.onFailure { Log.w(TAG, "GMS location failed: ${it.message}") }
         if (gmsCallback == null && lm != null) runCatching {
             val providers = lm.allProviders
@@ -278,7 +282,7 @@ object SightingsEngine {
         registerWifi(c)
         jobs = listOf(
             scope.launch { while (isActive) { tick(); delay(5_000) } },
-            scope.launch { while (isActive) { crowdScan(c); delay(BLE_CROWD_EVERY_MS - BLE_CROWD_SCAN_MS) } },
+            scope.launch { while (isActive) { crowdScan(c); delay(crowdEveryMs(c) - BLE_CROWD_SCAN_MS) } },
             scope.launch { wifiLoop(c) },
             scope.launch { while (isActive) { runCatching { FindMy.refreshShared(c, store!!) }; delay(30 * 60_000L) } },
         )
@@ -557,11 +561,21 @@ object SightingsEngine {
             svc.map { ScanFilter.Builder().setServiceData(ParcelUuid.fromString("0000$it-0000-1000-8000-00805F9B34FB"), ByteArray(0)).build() }
     }
 
+    /** Screen off and not charging: the background-saver cadence. */
+    private fun saver(c: Context): Boolean {
+        val interactive = runCatching { c.getSystemService(android.os.PowerManager::class.java)?.isInteractive }.getOrNull() ?: true
+        val charging = runCatching { c.getSystemService(android.os.BatteryManager::class.java)?.isCharging }.getOrNull() ?: false
+        return !interactive && !charging
+    }
+
+    private fun crowdEveryMs(c: Context) = if (saver(c)) BLE_CROWD_EVERY_SAVER_MS else BLE_CROWD_EVERY_MS
+
     @SuppressLint("MissingPermission")
     private suspend fun crowdScan(c: Context) {
         if (!hasScan(c)) { network.hone.app.raw.RawRecorder.onBleScanDone(false); delay(BLE_CROWD_SCAN_MS); return }
         val sc = bleScanner(c) ?: run { delay(BLE_CROWD_SCAN_MS); return }
-        val sb = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+        val sb = ScanSettings.Builder().setScanMode(
+            if (saver(c)) ScanSettings.SCAN_MODE_BALANCED else ScanSettings.SCAN_MODE_LOW_LATENCY)
         if (bleAdapter(c)?.isLeExtendedAdvertisingSupported == true) sb.setLegacy(false)
         val t0 = SystemClock.elapsedRealtime()
         val ok = runCatching { sc.startScan(crowdFilters, sb.build(), crowdCallback) }.isSuccess

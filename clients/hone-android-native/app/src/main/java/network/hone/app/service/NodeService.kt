@@ -76,7 +76,9 @@ class NodeService : Service() {
         startForegroundCompat(buildNotification("Starting sensor node…"))
         if (network.hone.app.telemetry.Telemetry.serviceStartedMs == 0L)
             network.hone.app.telemetry.Telemetry.serviceStartedMs = System.currentTimeMillis()
-        capture.start()
+        // Only what an operator asked to submit; nothing when no channels are configured (battery).
+        capture.stop()
+        capture.startBackground(loadSubmission()?.channels.orEmpty())
         // Keep listening for HONE device announces while the node runs in the background.
         network.hone.app.data.HoneAnnounceScanner.start(applicationContext)
         // Coverage sensing + rotating-id advert (spec 1a/1b/2a).

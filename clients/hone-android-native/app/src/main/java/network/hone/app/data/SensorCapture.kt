@@ -86,6 +86,25 @@ class SensorCapture(private val ctx: Context) : SensorEventListener, LocationLis
 
     fun availableCount(): Int = _channels.value.count { it.available }
 
+    /**
+     * Background capture for the node service: only the [channels] an operator configured for
+     * SensorDataCommit, batched (the commit only needs counts every 30 s), and GNSS only if listed.
+     * With no channels nothing is registered: the service used to keep 7 sensors at ~5 Hz and GPS
+     * every 10 s running all day for a read-only capture nobody read (battery, 14 Nov).
+     */
+    fun startBackground(channels: Set<String>) {
+        for ((id, type, _) in onboard) {
+            if (id !in channels) continue
+            sm.getDefaultSensor(type)?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL, BATCH_US) }
+        }
+        if ("gnss" in channels && hasLocationPermission()) {
+            try {
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 60_000L, 25f, this)
+            } catch (_: SecurityException) { }
+        }
+    }
+
+    /** Full live capture (Sensors screen, app in the foreground). */
     fun start() {
         for ((_, type, _) in onboard) {
             sm.getDefaultSensor(type)?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
@@ -143,6 +162,11 @@ class SensorCapture(private val ctx: Context) : SensorEventListener, LocationLis
         val n = counts[id] ?: 0L
         counts[id] = 0L
         return n
+    }
+
+    private companion object {
+        /** Let the sensor hub hold events up to 20 s, so the CPU can sleep between commits. */
+        const val BATCH_US = 20_000_000
     }
 
     private fun magnitude(v: FloatArray) =
