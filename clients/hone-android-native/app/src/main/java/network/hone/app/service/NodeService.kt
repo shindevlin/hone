@@ -90,11 +90,56 @@ class NodeService : Service() {
             (network.hone.app.data.NodeRepositories.get(applicationContext)
                 as? network.hone.app.data.BridgeNodeRepository)?.ensureStarted()
         }
+        watchNetwork()
         if (loop?.isActive != true) loop = scope.launch { runLoop() }
         return START_STICKY
     }
 
     private fun dataDir(): File = File(filesDir, "hone-node").apply { mkdirs() }
+
+    // ── Seat and network changes (battery, 14 Nov) ─────────────────────────────────
+    // The seat's libp2p connections stay on the network they were opened on. Opened on mobile
+    // data, they kept streaming over (roaming) mobile data for hours after the phone was back
+    // on Wi-Fi. When the default network changes between Wi-Fi and mobile data, the seat is
+    // restarted so it reconnects over the new one (at most once every 2 min).
+    private var netCb: android.net.ConnectivityManager.NetworkCallback? = null
+    @Volatile private var lastTransport: String? = null
+    @Volatile private var lastSeatRestartMs = 0L
+
+    private fun watchNetwork() {
+        if (netCb != null) return
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(n: android.net.Network, caps: android.net.NetworkCapabilities) {
+                val t = when {
+                    caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ||
+                        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "wifi"
+                    caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+                    else -> "other"
+                }
+                val prev = lastTransport
+                lastTransport = t
+                if (prev != null && prev != t) restartSeat("default network $prev -> $t")
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(cb) }.onSuccess { netCb = cb }
+    }
+
+    private fun restartSeat(why: String) {
+        if (!File(dataDir(), "witness_account").exists()) return
+        val now = System.currentTimeMillis()
+        if (now - lastSeatRestartMs < 120_000L) return
+        lastSeatRestartMs = now
+        scope.launch {
+            delay(5_000)   // let the new network settle
+            val repo = network.hone.app.data.NodeRepositories.get(applicationContext)
+                as? network.hone.app.data.BridgeNodeRepository ?: return@launch
+            Log.i(TAG, "restarting the seat: $why")
+            runCatching { repo.stop() }
+            delay(1_000)
+            runCatching { repo.ensureStarted() }
+        }
+    }
 
     private fun loadSubmission(): Submission? = runCatching {
         val f = File(dataDir(), "sensor_settings.json")
@@ -218,6 +263,8 @@ class NodeService : Service() {
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
     override fun onDestroy() {
+        netCb?.let { cb -> runCatching { getSystemService(android.net.ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } }
+        netCb = null
         network.hone.app.sightings.SightingsEngine.stop()
         network.hone.app.sound.SoundSensing.stop()
         capture.stop()

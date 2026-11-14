@@ -82,12 +82,18 @@ pub async fn run_swarm(
     let local_peer_id = PeerId::from(&keypair.public());
     info!("net: local peer {}", local_peer_id);
 
-    // Gossipsub config — same mesh parameters as desktop node.
+    // A witness seat (seals only) or a read-only observer is a LIGHT phone seat. Its seal is
+    // sha256(epoch), so it needs nothing but the seals topic. Subscribing to entries, blocks
+    // and consensus made the phone receive and forward the whole mesh (~14 KB/s, about 1 GB a
+    // day, on mobile data too: most of Hone's battery on the Pixel, 14 Nov). Light seats join
+    // only hone/seals, keep a small mesh and stay a DHT client.
+    let light = cfg.read_only || cfg.seals_only;
+    let (mesh_n, mesh_lo, mesh_hi) = if light { (4, 2, 6) } else { (6, 4, 12) };
     let gossipsub_cfg = gossipsub::ConfigBuilder::default()
         .heartbeat_interval(Duration::from_secs(10))
-        .mesh_n(6)
-        .mesh_n_low(4)
-        .mesh_n_high(12)
+        .mesh_n(mesh_n)
+        .mesh_n_low(mesh_lo)
+        .mesh_n_high(mesh_hi)
         .build()
         .expect("gossipsub config");
 
@@ -108,7 +114,8 @@ pub async fn run_swarm(
     // On-wire topic = "{chain_id}/{key}", exactly like hone-node (net.rs: t_seals etc.).
     // Without the chain prefix the phone joined topics no desktop node uses, so it
     // never received a message and its publishes failed with NoPeersSubscribedToTopic.
-    for topic_str in &["hone/entries", "hone/seals", "hone/blocks", "hone/consensus"] {
+    let topics: &[&str] = if light { &["hone/seals"] } else { &["hone/entries", "hone/seals", "hone/blocks", "hone/consensus"] };
+    for topic_str in topics {
         let topic = gossipsub::IdentTopic::new(format!("{}/{}", cfg.chain_id, topic_str));
         gossipsub.subscribe(&topic).ok();
     }
@@ -116,7 +123,7 @@ pub async fn run_swarm(
     // Kademlia DHT for peer discovery.
     let kad_store = kad::store::MemoryStore::new(local_peer_id);
     let mut kad = kad::Behaviour::new(local_peer_id, kad_store);
-    kad.set_mode(Some(kad::Mode::Server));
+    kad.set_mode(Some(if light { kad::Mode::Client } else { kad::Mode::Server }));
 
     // Identify so peers learn our observed address.
     let identify = identify::Behaviour::new(identify::Config::new(
