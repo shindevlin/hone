@@ -4,73 +4,77 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.json.JSONObject
 import java.security.MessageDigest
-import java.util.Base64
 
 /**
- * A HONE firmware release as published at https://honemesh.net/app/firmware/manifest.json.
+ * A HONE firmware release in the firmware agent's release format (hone-2.2.0 onwards):
+ *   manifest.json      { name, version, tag, commit, target: "f7", built, package,
+ *                        install: { rpc_upload_dir, upload_from, start, recovery },
+ *                        signature: { alg: "ed25519", file: "manifest.json.sig", pubkey_pem_sha256 },
+ *                        files: [ { path, size, sha256 }, ... ] }
+ *   manifest.json.sig  64-byte detached ed25519 signature over the exact bytes of manifest.json
+ * File paths are relative to the manifest URL. Only files under install.upload_from (the standard Flipper
+ * update folder: update.fuf, firmware.dfu, radio.bin, resources.ths, ...) go to the Flipper, into
+ * install.rpc_upload_dir; install.start is the update.fuf the Flipper's updater runs.
  *
- * Envelope (format "hone-fw-manifest@1"):
- *   { "format": "hone-fw-manifest@1", "key_id": "<16 hex>", "body": "<JSON text>", "sig": "<base64 ed25519>" }
- * The signature covers the UTF-8 bytes of "hone-fw-manifest@1\n" + body, exactly as published, so no JSON
- * canonicalisation is needed. body:
- *   { "version": "1.4.0", "channel": "hone" | "official", "target": 7, "min_app": 29,
- *     "files": [ { "name": "update.fuf", "size": 123, "sha256": "<64 hex>", "url": "f7-1.4.0/update.fuf" }, ... ] }
- * The package is the standard Flipper update folder (update.fuf + firmware.dfu + resources, ...); it is copied
- * to /ext/update/<version>/ and the Flipper's own updater checks and flashes it from the SD card.
- *
- * The private release key stays on grouchly. The app only pins public keys and refuses everything else.
+ * The private release key stays on grouchly (~/.config/hone-release). The app pins public keys only.
  */
 object FirmwarePackage {
-    const val FORMAT = "hone-fw-manifest@1"
     const val MANIFEST_URL = "https://honemesh.net/app/firmware/manifest.json"
 
     /**
-     * Pinned release public keys (32-byte ed25519, hex). Empty = this build cannot install firmware
-     * (fail closed). Set from the firmware agent's published key; never the private key.
+     * Pinned release public keys (raw 32-byte ed25519, hex). Empty = this build installs nothing.
+     * hone release key: release-ed25519.pub.pem, sha256(pem) 74655e46b50257e3ff9e386a528dfcca20d030f4c0e36a036452aabd56dc9f6c.
      */
-    val RELEASE_KEYS: List<String> = listOf()
+    val RELEASE_KEYS: List<String> = listOf("27ef54588674c3391e660056d873b89136e75125b5a433de0747191baa94a10d")
 
     data class FwFile(val name: String, val size: Long, val sha256: String, val url: String)
-    data class Release(val version: String, val channel: String, val target: Int, val minApp: Int, val files: List<FwFile>) {
+    data class Release(val version: String, val tag: String, val target: String, val minApp: Int,
+                       val uploadDir: String, val start: String, val files: List<FwFile>) {
+        /** Files that go to the Flipper; [FwFile.name] is the name inside [uploadDir]. */
         val manifest: FwFile? get() = files.firstOrNull { it.name == "update.fuf" }
         val totalBytes: Long get() = files.sumOf { it.size }
     }
 
     class Refused(msg: String) : Exception(msg)
 
-    fun keyId(pub: ByteArray): String = sha256Hex(pub).take(16)
+    /** Ed25519 check of [sig] over [msg] against any pinned key. */
+    fun signedBy(msg: ByteArray, sig: ByteArray, keys: List<String>): Boolean = sig.size == 64 && keys.any { k ->
+        runCatching {
+            val pub = hex(k); require(pub.size == 32)
+            Ed25519Signer().run { init(false, Ed25519PublicKeyParameters(pub, 0)); update(msg, 0, msg.size); verifySignature(sig) }
+        }.getOrDefault(false)
+    }
 
-    /** Verifies the envelope against [keys] and parses the body. Throws [Refused] on anything wrong. */
-    fun verify(envelope: String, keys: List<String> = RELEASE_KEYS, appVersionCode: Int = Int.MAX_VALUE): Release {
+    /** Verifies manifest.json against its detached signature and parses it. Throws [Refused] on anything wrong. */
+    fun verify(manifest: ByteArray, sig: ByteArray, keys: List<String> = RELEASE_KEYS, appVersionCode: Int = Int.MAX_VALUE): Release {
         if (keys.isEmpty()) throw Refused("no release key is pinned in this app build")
-        val e = runCatching { JSONObject(envelope) }.getOrElse { throw Refused("manifest is not JSON") }
-        if (e.optString("format") != FORMAT) throw Refused("unknown manifest format")
-        val body = e.optString("body").ifEmpty { throw Refused("manifest has no body") }
-        val sig = runCatching { Base64.getDecoder().decode(e.optString("sig")) }.getOrNull()
-        if (sig == null || sig.size != 64) throw Refused("manifest is not signed")
-        val msg = (FORMAT + "\n" + body).toByteArray(Charsets.UTF_8)
-        val ok = keys.any { k ->
-            runCatching {
-                val pub = hex(k); require(pub.size == 32)
-                Ed25519Signer().run { init(false, Ed25519PublicKeyParameters(pub, 0)); update(msg, 0, msg.size); verifySignature(sig) }
-            }.getOrDefault(false)
-        }
-        if (!ok) throw Refused("manifest signature does not match the HONE release key")
-        val b = JSONObject(body)
-        val fa = b.optJSONArray("files") ?: throw Refused("manifest lists no files")
-        val files = (0 until fa.length()).map { fa.getJSONObject(it) }.map {
-            FwFile(it.getString("name"), it.getLong("size"), it.getString("sha256").lowercase(), it.getString("url"))
-        }
-        for (f in files) {
-            if (!Regex("[A-Za-z0-9._-]{1,64}").matches(f.name) || f.name.startsWith(".")) throw Refused("bad file name ${f.name}")
-            if (!Regex("[0-9a-f]{64}").matches(f.sha256)) throw Refused("bad hash for ${f.name}")
-            if (f.size <= 0) throw Refused("bad size for ${f.name}")
-        }
-        val version = b.optString("version")
+        if (sig.size != 64) throw Refused("manifest is not signed")
+        if (!signedBy(manifest, sig, keys)) throw Refused("manifest signature does not match the HONE release key")
+        val m = runCatching { JSONObject(manifest.toString(Charsets.UTF_8)) }.getOrElse { throw Refused("manifest is not JSON") }
+        if (m.optJSONObject("signature")?.optString("alg", "ed25519") != "ed25519") throw Refused("unsupported signature")
+        if (m.optString("target") != "f7") throw Refused("package is not for Flipper Zero (f7)")
+        val version = m.optString("version")
         if (!Regex("[0-9A-Za-z._-]{1,32}").matches(version)) throw Refused("bad version")
-        val r = Release(version, b.optString("channel", "hone"), b.optInt("target", 7), b.optInt("min_app", 0), files)
+        val inst = m.optJSONObject("install") ?: throw Refused("manifest has no install section")
+        val dir = inst.optString("rpc_upload_dir").trimEnd('/')
+        val from = inst.optString("upload_from").let { if (it.isEmpty() || it.endsWith("/")) it else "$it/" }
+        val start = inst.optString("start")
+        if (!Regex("/ext/update/[A-Za-z0-9._-]{1,64}").matches(dir)) throw Refused("bad upload folder")
+        if (start != "$dir/update.fuf") throw Refused("update must start from $dir/update.fuf")
+        val fa = m.optJSONArray("files") ?: throw Refused("manifest lists no files")
+        val files = (0 until fa.length()).map { fa.getJSONObject(it) }.mapNotNull {
+            val path = it.getString("path")
+            if (path.startsWith("/") || path.contains("..") || path.contains("\\") || !Regex("[A-Za-z0-9._/-]{1,128}").matches(path))
+                throw Refused("bad file path $path")
+            val sha = it.getString("sha256").lowercase(); val size = it.getLong("size")
+            if (!Regex("[0-9a-f]{64}").matches(sha)) throw Refused("bad hash for $path")
+            if (size <= 0) throw Refused("bad size for $path")
+            if (!path.startsWith(from)) null                       // e.g. the .tgz bundle: not uploaded
+            else path.removePrefix(from).also { n -> if (n.isEmpty() || n.contains("/")) throw Refused("bad file path $path") }
+                .let { n -> FwFile(n, size, sha, path) }
+        }
+        val r = Release(version, m.optString("tag", version), "f7", m.optInt("min_app", 0), dir, start, files)
         if (r.manifest == null) throw Refused("package has no update.fuf")
-        if (r.target != 7) throw Refused("package is not for Flipper Zero (f7)")
         if (r.minApp > appVersionCode) throw Refused("this firmware needs a newer HONE app")
         return r
     }

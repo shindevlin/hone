@@ -1,0 +1,57 @@
+{
+  "name": "HONE Flipper firmware",
+  "version": "2.2.0",
+  "tag": "hone-2.2.0",
+  "commit": "c9c20cf1",
+  "target": "f7",
+  "built": "2026-11-14T20:09:54Z",
+  "package": "flipper-z-f7-update-hone-2.2.0.tgz",
+  "install": {
+    "rpc_upload_dir": "/ext/update/f7-update-hone-2.2.0",
+    "upload_from": "f7-update-hone-2.2.0/",
+    "start": "/ext/update/f7-update-hone-2.2.0/update.fuf",
+    "recovery": "Hold LEFT+BACK until the Flipper resets, release BACK and keep LEFT held until the LED is blue (DFU), then qFlipper 'Repair'. The STM32 ROM DFU bootloader lives in system memory; an update package cannot change it."
+  },
+  "signature": {
+    "alg": "ed25519",
+    "file": "manifest.json.sig",
+    "pubkey_pem_sha256": "74655e46b50257e3ff9e386a528dfcca20d030f4c0e36a036452aabd56dc9f6c"
+  },
+  "files": [
+    {
+      "path": "flipper-z-f7-update-hone-2.2.0.tgz",
+      "size": 1607178,
+      "sha256": "621bb0a1e250f9fabf2d6b7315548a2e5f0df3c1297f55e5c1339abbc7b384c1"
+    },
+    {
+      "path": "f7-update-hone-2.2.0/firmware.dfu",
+      "size": 796425,
+      "sha256": "bef2b965b0ef2a74b0dfe609105051854ddcf6dbcd354f4e4c45d9cb2df3c80b"
+    },
+    {
+      "path": "f7-update-hone-2.2.0/radio.bin",
+      "size": 151732,
+      "sha256": "1145b7d2a7d21df6f33ddb62c6a6535f8d13a7390e307ae31ba9eeecda3c0834"
+    },
+    {
+      "path": "f7-update-hone-2.2.0/resources.ths",
+      "size": 886742,
+      "sha256": "5bc39ca77bd720429997a139a51d37fdd974638b37beea8b368950dfeefa74e8"
+    },
+    {
+      "path": "f7-update-hone-2.2.0/splash.bin",
+      "size": 528,
+      "sha256": "a6f9a8cb1325203e6c6edd4c48ddc9bf7b27c9f8e9075893ea594b92235f614a"
+    },
+    {
+      "path": "f7-update-hone-2.2.0/update.fuf",
+      "size": 1579,
+      "sha256": "8373538c94f9320ba1108c4115d9915950da55767e73d0f44113a4b14683a89e"
+    },
+    {
+      "path": "f7-update-hone-2.2.0/updater.bin",
+      "size": 115773,
+      "sha256": "73a24753610bcbc65dd0d827d836b84e50f2322b3e0684f783d1eaa227302087"
+    }
+  ]
+}

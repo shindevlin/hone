@@ -55,16 +55,18 @@ Code: app/src/main/java/network/hone/app/fw/.
   `start_rpc_session\r` to the CLI, then speaks RPC. Otherwise the bonded Flipper over BLE (serial service
   8fe5b3d5-...0000, RX ...62fe0000 write, TX ...61fe0000 indicate, flow control ...63fe0000 4-byte credit).
   A plugged-in Flipper opens HONE (USB_DEVICE_ATTACHED); the user grants USB access with no pairing.
-- Manifest: https://honemesh.net/app/firmware/manifest.json, `hone-fw-manifest@1`
-  `{format, key_id, body, sig}`. The ed25519 signature covers `"hone-fw-manifest@1\n" + body`, byte-exact.
-  body = `{version, channel, target: 7, min_app, files: [{name, size, sha256, url}]}`. The app pins public
-  keys only (FirmwarePackage.RELEASE_KEYS) and fails closed while that list is empty. The private release
-  key stays on grouchly.
+- Manifest: the firmware agent's release format (hone-2.2.0 onwards), at
+  https://honemesh.net/app/firmware/manifest.json plus `manifest.json.sig`, a 64-byte detached ed25519
+  signature over the exact manifest bytes. The manifest carries version, target "f7", an install section
+  (rpc_upload_dir, upload_from, start) and files (path, size, sha256). Only files under upload_from go to
+  the Flipper; the .tgz bundle does not. The app pins the raw public key (FirmwarePackage.RELEASE_KEYS,
+  27ef5458...a10d, from release-ed25519.pub.pem, pem sha256 74655e46...9f6c) and fails closed if that list
+  is empty. The private release key stays on grouchly in ~/.config/hone-release.
 - Never brick:
   - refuse an unsigned, tampered or wrong-key manifest, a target other than f7, or a bad name or hash;
   - every downloaded file must match its signed size and sha256;
   - the Flipper must be at >= 30 % battery or charging, with room on the SD card;
-  - copy to /ext/update/hone-<version>/; files already there with the right md5 are skipped, so a retry resumes;
+  - copy to the manifest's rpc_upload_dir (must be under /ext/update/); files already there with the right md5 are skipped, so a retry resumes;
   - check every md5 on the Flipper;
   - SystemUpdateRequest must return OK before the reboot (mode UPDATE). The Flipper's own updater then
     flashes from the SD card;

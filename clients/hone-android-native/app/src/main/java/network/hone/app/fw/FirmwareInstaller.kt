@@ -19,7 +19,7 @@ import java.net.URL
  * Flipper must be at 30 % battery or charging and have room; the update only starts when the Flipper's
  * updater accepts the package (SystemUpdateRequest OK). The Flipper flashes from its SD card, so a lost
  * link after that point does not matter; before that point nothing on the Flipper has changed except
- * files in /ext/update/<version>/, and a retry resumes (files already there with the right md5 are skipped).
+ * files in the release's /ext/update/ folder, and a retry resumes (files already there with the right md5 are skipped).
  */
 class FirmwareInstaller(private val ctx: Context) {
     sealed class State {
@@ -37,7 +37,7 @@ class FirmwareInstaller(private val ctx: Context) {
     fun link(): String = if (UsbFlipper.find(ctx) != null) "USB" else if (BleFlipper.bonded(ctx).isNotEmpty()) "Bluetooth" else "none"
 
     suspend fun fetchRelease(url: String = FirmwarePackage.MANIFEST_URL, appVersionCode: Int): FirmwarePackage.Release =
-        withContext(Dispatchers.IO) { FirmwarePackage.verify(get(url).toString(Charsets.UTF_8), appVersionCode = appVersionCode) }
+        withContext(Dispatchers.IO) { FirmwarePackage.verify(get(url), get("$url.sig"), appVersionCode = appVersionCode) }
 
     /** Full install; safe to call again after a failure (resumes). */
     suspend fun install(appVersionCode: Int, url: String = FirmwarePackage.MANIFEST_URL) {
@@ -62,7 +62,7 @@ class FirmwareInstaller(private val ctx: Context) {
             if (free < rel.totalBytes + 1_048_576) { _state.value = State.Failed(step, "SD card is full: needs ${rel.totalBytes / 1024} KB free"); return }
 
             step = Step.UPLOAD
-            val dir = "/ext/update/hone-${rel.version}"
+            val dir = rel.uploadDir
             s.mkdir("/ext/update"); s.mkdir(dir)
             var sent = 0L
             for (f in rel.files) {
@@ -82,7 +82,7 @@ class FirmwareInstaller(private val ctx: Context) {
             }
 
             step = Step.START; _state.value = State.Working(step)
-            val code = s.update("$dir/update.fuf")
+            val code = s.update(rel.start)
             if (code != 0L) { _state.value = State.Failed(step, "the Flipper refused the package (code $code); nothing was changed", retry = false); return }
 
             step = Step.REBOOT; _state.value = State.Working(step)
@@ -118,7 +118,7 @@ class FirmwareInstaller(private val ctx: Context) {
 
     /** Downloads into the app cache, keeping verified files from earlier attempts. */
     private suspend fun download(rel: FirmwarePackage.Release, manifestUrl: String): Map<String, File> = withContext(Dispatchers.IO) {
-        val dir = File(ctx.cacheDir, "fw/${rel.version}").apply { mkdirs() }
+        val dir = File(ctx.cacheDir, "fw/${rel.tag}").apply { mkdirs() }
         var got = 0L
         rel.files.associate { f ->
             val out = File(dir, f.name)
