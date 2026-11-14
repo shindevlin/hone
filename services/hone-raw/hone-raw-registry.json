@@ -1,7 +1,7 @@
 {
   "registry": "hone.raw",
-  "version": 2,
-  "updated": "2026-11-10",
+  "version": 3,
+  "updated": "2026-11-14",
   "about": "Change-based, self-describing sensor records from HONE devices. One JSON object per line (JSONL), gzip-compressed per 15-minute window (window = floor(unix_seconds / 900)). Times are RFC3339 UTC. Any moment can be rebuilt from the last keyframe plus later events: appeared/changed set a key, disappeared removes it, unchanged and gap change nothing.",
   "privacy": "Personal identifiers never appear in the clear: Wi-Fi BSSIDs and SSIDs, BLE MACs and LoRa DevAddrs are replaced by tokens (truncated SHA-256 over area, ISO week and the identifier). Human speech is never recorded (bird clips only). Locations are H3 cells, coarsened to res 7 at or near home or with no home known, at most res 9 elsewhere.",
   "events": {
@@ -384,6 +384,319 @@
           }
         }
       }
+    },
+    "hone.raw.kf@3": {
+      "description": "Keyframe: the full state. Sent once per device per UTC day, at boot, and after any gap. v3 adds required obs_type.",
+      "json_schema": {
+        "type": "object",
+        "required": [
+          "cls",
+          "dev",
+          "loc",
+          "obs_type",
+          "s",
+          "sen",
+          "state",
+          "t",
+          "why"
+        ],
+        "properties": {
+          "s": {
+            "const": "hone.raw.kf@3"
+          },
+          "t": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "why": {
+            "type": "string"
+          },
+          "state": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "v": {
+                  "type": "number"
+                },
+                "a": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "dev": {
+            "type": "string"
+          },
+          "cls": {
+            "type": "string"
+          },
+          "sen": {
+            "type": "string"
+          },
+          "loc": {
+            "type": "string"
+          },
+          "obs_type": {
+            "enum": [
+              "aircraft",
+              "birds_noise",
+              "ble_density",
+              "cell_coverage",
+              "device",
+              "foot_traffic",
+              "light",
+              "location",
+              "lora",
+              "outage_signal",
+              "presence",
+              "pressure",
+              "subghz",
+              "temp_humidity",
+              "wifi_env",
+              "*"
+            ]
+          }
+        }
+      }
+    },
+    "hone.raw.ev@3": {
+      "description": "One change event. v3 adds required obs_type.",
+      "json_schema": {
+        "type": "object",
+        "required": [
+          "cls",
+          "dev",
+          "e",
+          "k",
+          "loc",
+          "obs_type",
+          "s",
+          "sen",
+          "t",
+          "why"
+        ],
+        "properties": {
+          "s": {
+            "const": "hone.raw.ev@3"
+          },
+          "t": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "e": {
+            "enum": [
+              "appeared",
+              "disappeared",
+              "changed",
+              "unchanged",
+              "gap"
+            ]
+          },
+          "k": {
+            "type": "string"
+          },
+          "v": {
+            "type": "number"
+          },
+          "prev": {
+            "type": "number"
+          },
+          "a": {
+            "type": "object"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "forced": {
+            "type": "boolean"
+          },
+          "reason": {
+            "enum": [
+              "offline",
+              "permission_denied",
+              "speech_deleted",
+              "no_signal",
+              "sensor_absent",
+              "app_stopped"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dev": {
+            "type": "string"
+          },
+          "cls": {
+            "type": "string"
+          },
+          "sen": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "loc": {
+            "type": "string"
+          },
+          "obs_type": {
+            "enum": [
+              "aircraft",
+              "birds_noise",
+              "ble_density",
+              "cell_coverage",
+              "device",
+              "foot_traffic",
+              "light",
+              "location",
+              "lora",
+              "outage_signal",
+              "presence",
+              "pressure",
+              "subghz",
+              "temp_humidity",
+              "wifi_env",
+              "*"
+            ]
+          }
+        }
+      }
+    },
+    "hone.raw.obs@2": {
+      "description": "An observation payload that is not state: a LoRa packet exactly as received, a HONE Flipper's signed frame relayed unaltered, a phone and Flipper heard together (pairing). Rebuild ignores it. v3 adds required obs_type.",
+      "json_schema": {
+        "type": "object",
+        "required": [
+          "cls",
+          "dev",
+          "k",
+          "loc",
+          "obs_type",
+          "s",
+          "sen",
+          "t",
+          "why"
+        ],
+        "properties": {
+          "s": {
+            "const": "hone.raw.obs@2"
+          },
+          "t": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "k": {
+            "type": "string"
+          },
+          "dev": {
+            "type": "string"
+          },
+          "cls": {
+            "type": "string"
+          },
+          "sen": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "loc": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string",
+            "description": "LoRa: PHYPayload base64 as received (LoRaWAN payloads stay encrypted; the 4-byte DevAddr inside is in the clear)."
+          },
+          "freq": {
+            "type": "number",
+            "description": "MHz"
+          },
+          "datr": {
+            "type": "string"
+          },
+          "codr": {
+            "type": "string"
+          },
+          "chan": {
+            "type": "integer"
+          },
+          "rfch": {
+            "type": "integer"
+          },
+          "rssi": {
+            "type": "number",
+            "description": "dBm"
+          },
+          "lsnr": {
+            "type": "number",
+            "description": "dB"
+          },
+          "stat": {
+            "type": "integer",
+            "description": "1 CRC ok, -1 CRC bad"
+          },
+          "size": {
+            "type": "integer",
+            "description": "bytes"
+          },
+          "tmst": {
+            "type": "integer",
+            "description": "concentrator microseconds"
+          },
+          "modu": {
+            "type": "string"
+          },
+          "frame": {
+            "type": "string",
+            "description": "Flipper: the signed BLE frame base64, unaltered (its own Ed25519 signature inside)."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Flipper frame kind: announce | commit"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner named in the Flipper's signed announce"
+          },
+          "relay_by": {
+            "type": "string",
+            "description": "Account of the phone that heard and relayed it"
+          },
+          "pair": {
+            "type": "object",
+            "description": "Phone and Flipper heard together: {flipper, owner, rssi_max, first, last}; their readings corroborate each other."
+          },
+          "obs_type": {
+            "enum": [
+              "aircraft",
+              "birds_noise",
+              "ble_density",
+              "cell_coverage",
+              "device",
+              "foot_traffic",
+              "light",
+              "location",
+              "lora",
+              "outage_signal",
+              "presence",
+              "pressure",
+              "subghz",
+              "temp_humidity",
+              "wifi_env",
+              "*"
+            ]
+          }
+        }
+      }
     }
   },
   "keys": {
@@ -434,7 +747,8 @@
     "env.pressure_pa": {
       "unit": "Pa",
       "what": "Barometric pressure (SI pascals; 1 hPa = 100 Pa).",
-      "deadband": "10 Pa"
+      "deadband": "10 Pa",
+      "obs_type": "pressure"
     },
     "env.light_lux": {
       "unit": "lx",
@@ -455,7 +769,39 @@
         "conf": "model confidence 0-1",
         "clip": "sha256 of the bird-only audio clip, if kept"
       }
+    },
+    "cell:<token>": {
+      "unit": "dBm",
+      "what": "One mobile cell heard: value is RSRP (LTE/NR), RSCP (UMTS) or RSSI (GSM/CDMA). Cell id hashed with MCC-MNC.",
+      "attrs": {
+        "rat": "LTE | NR | UMTS | GSM | CDMA",
+        "op": "MCC-MNC",
+        "reg": "1 = serving/registered",
+        "rsrq": "dB",
+        "sinr": "dB",
+        "band": "band or ARFCN group"
+      },
+      "deadband": "6 dB",
+      "obs_type": "cell_coverage"
     }
   },
-  "provenance": "Every record carries provenance (Josh 2026-11-10 11:22): dev = device id (first 16 hex of its key), cls = device class, sen = sensor id (described in the header's sensors table), why = purpose or reason (scan, sample, scan:deadband, scan:missing_2, sample:deadband, marker:window_end, forced_sample:15min, keyframe:<boot|day|gap>, gap:<reason>, lora_uplink:<crc_ok|crc_bad>, flipper_relay:<announce|commit>, pairing:flipper_near), loc = where the window's area came from (gps, fused, network, wifi_fp, last_verified, fixed, ip) or none. Records without them are refused by the ingest."
+  "provenance": "Every record carries provenance (Josh 2026-11-10 11:22): dev = device id (first 16 hex of its key), cls = device class, sen = sensor id (described in the header's sensors table), why = purpose or reason (scan, sample, scan:deadband, scan:missing_2, sample:deadband, marker:window_end, forced_sample:15min, keyframe:<boot|day|gap>, gap:<reason>, lora_uplink:<crc_ok|crc_bad>, flipper_relay:<announce|commit>, pairing:flipper_near), loc = where the window's area came from (gps, fused, network, wifi_fp, last_verified, fixed, ip) or none. Records without them are refused by the ingest. v3 adds obs_type (one of obs_types) on every record; keyframes carry obs_type '*'.",
+  "obs_types": {
+    "pressure": "Barometric air pressure (Pa).",
+    "temp_humidity": "Ambient air temperature (degC) and relative humidity (%RH).",
+    "light": "Ambient light (lx).",
+    "cell_coverage": "Mobile network coverage: carrier (MCC-MNC), RAT (LTE/NR/...), RSRP/RSRQ/SINR or the RAT's equivalent; cell id hashed.",
+    "wifi_env": "Wi-Fi environment: access points (tokens) and their signal.",
+    "ble_density": "Bluetooth LE devices around (tokens rotate daily) and their signal.",
+    "subghz": "Sub-GHz radio activity (Flipper and other sub-GHz receivers).",
+    "lora": "LoRa / LoRaWAN uplinks heard (packets as received plus PHY metadata).",
+    "aircraft": "Aircraft transponders heard (ADS-B / Mode S).",
+    "birds_noise": "Bird detections and ambient sound level (speech is never kept).",
+    "outage_signal": "Signs of an outage: coverage, Wi-Fi or power disappearing across many devices in a cell.",
+    "foot_traffic": "People passing: BLE crowd counts and their change over time.",
+    "device": "The recording device itself (device temperature, battery). Never air temperature.",
+    "presence": "Another HONE device heard (Flipper relay, pairing, travel group).",
+    "location": "Position fixes (kept on the owner's device; only coarse cells leave it)."
+  },
+  "travel_groups": "An owner's devices travel together (a Flipper with the owner's phones by default). When a Flipper reading arrives without a live phone link, its place is the phone's on-device track interpolated at the reading's timestamp, accepted only with a co-location proof: the radio environments both devices saw (Wi-Fi tokens, BLE density, sub-GHz peaks) score at or above the threshold (0.35, Wi-Fi Jaccard >= 0.2 when both have Wi-Fi), plus a home anchor (the next sighting matches the home fingerprint). Match: loc = travel_group and provenance carries proof = sha256 of the evidence. No match: tier C (inferred)."
 }

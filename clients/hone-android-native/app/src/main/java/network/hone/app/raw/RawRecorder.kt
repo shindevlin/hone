@@ -40,7 +40,7 @@ object RawRecorder {
     private val sensorsFound = LinkedHashMap<String, String>()       // key -> description (header)
     private val sensorIds = linkedMapOf(                              // key or family -> sensor id (every record's "sen")
         "wifi" to "android-wifi-scan", "ble" to "android-ble-scan", "flipper" to "hone-flipper-ble",
-        "bird" to "perch-v2", "audio" to "mic-speech-gate", "dev.temp_c" to "battery-thermistor")
+        "bird" to "perch-v2", "audio" to "mic-speech-gate", "dev.temp_c" to "battery-thermistor", "cell" to "android-telephony")
     private val near = LinkedHashMap<String, MutableMap<String, Any?>>()   // Flipper heard close this window
     private val lastAnnounce = HashMap<String, Long>()
 
@@ -53,8 +53,9 @@ object RawRecorder {
         val c = ctx.applicationContext; app = c
         val now = System.currentTimeMillis()
         startClimate(c)
+        phoneCaps = runCatching { Capabilities.phone(c) }.getOrDefault(emptySet())
         enc = ChangeEncoder(network.hone.app.telemetry.Telemetry.deviceId(c), "phone", sensorIds,
-            if (AreaLocator.salt(c) != "none") "last_verified" else "none")
+            if (AreaLocator.salt(c) != "none") "last_verified" else "none", caps = phoneCaps)
         started = true
         day = utcDay(now)
         val lastW = prefs(c).getLong("last_window", -1)
@@ -152,6 +153,54 @@ object RawRecorder {
     }
 
     private const val NEAR_DBM = -75
+    private var phoneCaps: Set<String> = emptySet()
+
+    /** This phone plus the owner's Flippers heard in the last 2 h (several allowed), with their caps. */
+    private fun travelGroup(c: Context): List<Capabilities.Dev> {
+        val me = network.hone.app.telemetry.Telemetry.seatAccount(c)
+        val now = System.currentTimeMillis()
+        val flippers = runCatching { network.hone.app.data.HoneAnnounceScanner.devices.value.values }.getOrDefault(emptyList())
+            .filter { it.signatureOk && it.owner.isNotEmpty() && it.owner == me && now - it.lastSeenMs < 2 * 3_600_000L }
+            .map { Capabilities.Dev(it.deviceId, "flipper", Capabilities.flipper(it.caps)) }
+        return listOf(Capabilities.Dev(network.hone.app.telemetry.Telemetry.deviceId(c), "phone", phoneCaps)) + flippers
+    }
+
+    // ── cell coverage (every minute at most; deadband 6 dB; forced sample each window) ──
+    @Volatile private var lastCellMs = 0L
+    private var cellAbsent = false
+    fun pollCell() {
+        val c = app ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastCellMs < 60_000) return
+        lastCellMs = now
+        val cells = runCatching { CellCoverage.read(c) }.getOrNull()
+        synchronized(lock) {
+            if (!started) return
+            if (cells == null) { cellAbsent = true; return }
+            cellAbsent = false
+            if (cells.isEmpty()) enc.gap(now - 60_000, now, "cell", "no_signal")
+            enc.observeSet(now, "cell", cells.associate { (k, v, a) -> k to (v to a) })
+            full.add(mapOf("t" to now, "cell" to cells.associate { (k, v, a) -> k to listOf(v, a) }))
+        }
+    }
+
+    /** Per-window radio environment (Wi-Fi tokens, BLE count) kept 7 days on the device for travel-group proofs. */
+    private fun saveEnv(c: Context, w: Long) {
+        val wifi = enc.reported.keys.filter { it.startsWith("wifi:") }.sorted()
+        val ble = enc.reported.keys.count { it.startsWith("ble:") }
+        runCatching {
+            val f = File(c.filesDir, "hone-node/env_history.jsonl")
+            f.appendText(RawFmt.json(mapOf("w" to w, "wifi" to wifi, "ble" to ble)) + "\n")
+            if (f.length() > 4L shl 20) f.writeText(f.readLines().takeLast(7 * 96).joinToString("") { it + "\n" })
+        }
+    }
+
+    /** Radio environment of window [w] from the on-device history, or null. */
+    fun envAt(c: Context, w: Long): TravelGroup.Env? = runCatching {
+        File(c.filesDir, "hone-node/env_history.jsonl").takeIf { it.exists() }?.readLines()?.lastOrNull { it.startsWith("{") && it.contains("\"w\":$w,") }
+            ?.let { l -> val j = org.json.JSONObject(l); val a = j.getJSONArray("wifi")
+                TravelGroup.Env((0 until a.length()).map { a.getString(it) }.toSet(), j.optInt("ble")) }
+    }.getOrNull()
 
     /** A bird detection that passed the human-speech gate. */
     fun onBird(latin: String, conf: Float, model: String, tMs: Long) = synchronized(lock) {
@@ -220,16 +269,28 @@ object RawRecorder {
             runCatching { deviceTemp(c) }
             flushSpeech()
             for ((k, v) in sensorsFound) if (v == "absent") enc.gap(w * 900_000, tEnd, k, "sensor_absent")
+            if (cellAbsent) enc.gap(w * 900_000, tEnd, "cell", "sensor_absent")
+            val group = travelGroup(c)
+            val foot = Capabilities.best("foot_traffic", group)
+            if (foot.cap == "ble") {                                  // no Wi-Fi board in the group: BLE-density estimate
+                enc.observe(tEnd, "crowd.ble_estimate", enc.reported.keys.count { it.startsWith("ble:") }.toDouble(),
+                    mapOf("precision" to "low", "basis" to "ble_density"))
+            }
+            saveEnv(c, w)
             for ((id, p) in near) enc.obs(tEnd, "flipper:$id", "pairing:flipper_near", mapOf("pair" to LinkedHashMap(p)))
             val paired = near.values.map { LinkedHashMap(it) }
             near.clear()
-            enc.endWindow(tEnd, listOf("wifi", "ble", "flipper", "bird"))
+            enc.endWindow(tEnd, listOf("wifi", "ble", "flipper", "bird", "cell"))
             val hdr = linkedMapOf<String, Any?>(
                 "s" to RawFmt.SCHEMA_HDR, "t" to RawFmt.rfc3339(w * 900_000), "win" to w,
                 "dev" to network.hone.app.telemetry.Telemetry.deviceId(c),
                 "owner" to (network.hone.app.telemetry.Telemetry.seatAccount(c) ?: ""),
                 "cls" to "phone", "fw" to network.hone.app.BuildConfig.VERSION_NAME, "model" to "${Build.MANUFACTURER} ${Build.MODEL}",
                 "sensors" to LinkedHashMap(sensorsFound), "sensor_ids" to LinkedHashMap(sensorIds), "paired" to paired.ifEmpty { null },
+                "caps" to phoneCaps.sorted(), "event_mode" to EventMode.active(c),
+                "group" to group.map { mapOf("dev" to it.id, "cls" to it.cls, "caps" to it.caps.sorted()) },
+                "sources" to listOf("wifi_env", "foot_traffic", "location", "subghz", "pressure", "cell_coverage", "ble_density")
+                    .associateWith { ot -> Capabilities.best(ot, group).let { mapOf("dev" to it.device, "cap" to it.cap, "precision" to it.precision) } },
                 "area" to area.toMap(), "deadbands" to RawFmt.DEADBANDS.mapValues {
                     if (it.value.rel > 0) mapOf("rel" to it.value.rel) else mapOf("abs" to it.value.abs) })
             recs = listOf(hdr) + enc.take()

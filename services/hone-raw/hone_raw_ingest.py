@@ -47,7 +47,7 @@ OWNER = re.compile(r"^([a-z0-9][a-z0-9._-]{0,63})@([0-9a-f]{64})$")
 CELL = re.compile(r"^8[0-9a-f]{14}$")
 SHA = re.compile(r"^[0-9a-f]{64}$")
 RAW_MAC = re.compile(rb"(?<![0-9a-fA-F:])[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}(?![0-9a-fA-F:])")
-SCHEMAS = (F.SCHEMA_HDR, F.SCHEMA_KF, F.SCHEMA_EV, F.SCHEMA_OBS)
+SCHEMAS = (F.SCHEMA_HDR,) + F.SCHEMAS_KF + F.SCHEMAS_EV + F.SCHEMAS_OBS
 
 REG_BYTES = open(REGISTRY, "rb").read()
 REG_SHA = hashlib.sha256(REG_BYTES).hexdigest()
@@ -115,7 +115,24 @@ def db():
     con.execute("CREATE INDEX IF NOT EXISTS raw_dev_win ON raw(device, win)")
     con.execute("CREATE INDEX IF NOT EXISTS raw_acct_day ON raw(account, day)")
     con.execute("CREATE INDEX IF NOT EXISTS raw_cell_win ON raw(cell, win)")
+    # Products: obs_type x cell x window, per device (numeric values only), for cross-device corroboration.
+    con.execute("""CREATE TABLE IF NOT EXISTS product(obs_type TEXT, cell TEXT, win INTEGER, device TEXT, account TEXT,
+        n INTEGER, vsum REAL, vmin REAL, vmax REAL, sha256 TEXT, PRIMARY KEY(obs_type, cell, win, device, sha256))""")
+    con.execute("CREATE INDEX IF NOT EXISTS product_q ON product(obs_type, cell, win)")
     return con
+
+
+def products_of(recs):
+    """(obs_type, n, sum, min, max) of numeric values in a blob's events (appeared, changed, forced samples)."""
+    agg = {}
+    for r in recs:
+        if r.get("s") not in F.SCHEMAS_EV or not isinstance(r.get("v"), (int, float)):
+            continue
+        ot = r.get("obs_type") or F.obs_type_of(str(r.get("k", "")))
+        a = agg.setdefault(ot, [0, 0.0, None, None])
+        v = float(r["v"]); a[0] += 1; a[1] += v
+        a[2] = v if a[2] is None else min(a[2], v); a[3] = v if a[3] is None else max(a[3], v)
+    return agg
 
 
 def verify_meta(meta_b, sig_hex):
@@ -158,7 +175,7 @@ def check_blob(body, m):
     for r in recs:
         if r.get("s") not in SCHEMAS or "t" not in r:
             raise ValueError("unknown schema in blob")
-        if r.get("s") == F.SCHEMA_EV and r.get("e") not in F.EVENTS:
+        if r.get("s") in F.SCHEMAS_EV and r.get("e") not in F.EVENTS:
             raise ValueError("unknown event")
     bad = F.check_prov(recs)
     if bad is not None:
@@ -269,6 +286,41 @@ class H(BaseHTTPRequestHandler):
             if p == "/api/raw/export":
                 return self.send(200, F.to_jsonl(recs), "application/x-ndjson")
             return self.send(200, {"device": q["device"][0], "at": F.rfc3339(at_t), "state": F.rebuild(recs, until=at_t)})
+        if p == "/api/raw/products":
+            # Never double-count: co-located devices of one owner in one window are ONE reading (their
+            # per-device means averaged) with corroboration; readings = owners, devices = corroborating devices.
+            sql, args = ("SELECT obs_type, cell, win, SUM(nd), COUNT(*), SUM(n), SUM(mean_o), MIN(vmin), MAX(vmax) FROM ("
+                         "SELECT obs_type, cell, win, account, COUNT(DISTINCT device) nd, SUM(n) n, AVG(vsum / n) mean_o, MIN(vmin) vmin, MAX(vmax) vmax "
+                         "FROM product WHERE n > 0"), []
+            for k in ("obs_type", "cell"):
+                if q.get(k): sql += f" AND {k}=?"; args.append(q[k][0])
+            f, t = win_arg(q.get("from", [None])[0]), win_arg(q.get("to", [None])[0])
+            if f is not None: sql += " AND win>=?"; args.append(f)
+            if t is not None: sql += " AND win<=?"; args.append(t)
+            sql += " GROUP BY obs_type, cell, win, account) GROUP BY obs_type, cell, win ORDER BY win LIMIT 5000"
+            with _lock:
+                rows = db().execute(sql, args).fetchall()
+            return self.send(200, [{"obs_type": a, "cell": c, "window": w, "readings": o, "devices": d, "owners": o, "n": n,
+                                    "mean": (ms / o) if o else None, "min": mn, "max": mx,
+                                    "corroborated": o >= 2 or d >= 2} for a, c, w, d, o, n, ms, mn, mx in rows])
+        if p == "/api/raw/colocate":
+            # Two devices' radio environments in one window (or a range), from the stored blobs.
+            da, dbv = q.get("dev_a", [""])[0], q.get("dev_b", [""])[0]
+            if not da or not dbv:
+                return self.send(400, {"error": "dev_a and dev_b required (plus win, or from/to)"})
+            envs = []
+            for d in (da, dbv):
+                qq = {"device": [d]}
+                if q.get("win"): qq["from"] = qq["to"] = q["win"]
+                else: qq["from"], qq["to"] = q.get("from", [""]), q.get("to", [""])
+                recs = []
+                for r in self.rows(qq, limit=500):
+                    try: recs += F.from_jsonl(gzip.decompress(open(r[10], "rb").read()))
+                    except OSError: pass
+                envs.append(F.radio_env(recs))
+            res = F.colocate(envs[0], envs[1], float(q.get("threshold", ["0.35"])[0]))
+            return self.send(200, {"dev_a": da, "dev_b": dbv, **res, "env_a": {"wifi": len(envs[0]["wifi"]), "ble": envs[0]["ble"]},
+                                   "env_b": {"wifi": len(envs[1]["wifi"]), "ble": envs[1]["ble"]}})
         m = re.fullmatch(r"/api/raw/stats/([a-z0-9][a-z0-9._-]{0,63})", p)
         if m:
             with _lock:
@@ -279,6 +331,16 @@ class H(BaseHTTPRequestHandler):
         self.send(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path == "/api/raw/colocate":
+            # Co-location matcher: {"a": {wifi: [tokens], ble: n, subghz: [t]}, "b": {...}, "threshold": 0.35}
+            n = int(self.headers.get("content-length", "0"))
+            if n <= 0 or n > 1 << 20:
+                return self.send(413, {"error": "body must be 1 B..1 MB of JSON"})
+            try:
+                j = json.loads(self.rfile.read(n))
+                return self.send(200, F.colocate(j.get("a") or {}, j.get("b") or {}, float(j.get("threshold", 0.35))))
+            except (ValueError, TypeError) as e:
+                return self.send(400, {"error": str(e)[:200]})
         if self.path != "/api/raw/upload":
             return self.send(404, {"error": "not found"})
         try:
@@ -315,6 +377,10 @@ class H(BaseHTTPRequestHandler):
                             (sha, m["owner"], account, str(m.get("device", ""))[:64], str(m.get("kind", ""))[:16], m["window"],
                              m.get("cell"), str(area.get("src", ""))[:16], len(body), len(recs), int(m.get("ts", 0)), day,
                              path, 0, int(time.time())))
+                for ot, (n, vs, vmin, vmax) in products_of(recs).items():
+                    con.execute("INSERT OR IGNORE INTO product VALUES(?,?,?,?,?,?,?,?,?,?)",
+                                (ot, m.get("cell") or (area.get("cell") or ""), m["window"], str(m.get("device", ""))[:64], account,
+                                 n, vs, vmin, vmax, sha))
                 con.commit()
             self.send(200, {"ok": True, "sha256": sha, "size": len(body), "records": len(recs), "stored": "local" + ("+s3" if S3 else "")})
         except PermissionError as e:
@@ -323,10 +389,33 @@ class H(BaseHTTPRequestHandler):
             self.send(400, {"error": str(e)[:200]})
 
 
+def backfill_products():
+    """Products for blobs stored before the product table existed (once, at start)."""
+    with _lock:
+        rows = db().execute("SELECT sha256, cell, win, device, account, path FROM raw WHERE sha256 NOT IN "
+                            "(SELECT DISTINCT sha256 FROM product)").fetchall()
+    n = 0
+    for sha, cell, win, dev, acct, path in rows:
+        try:
+            recs = F.from_jsonl(gzip.decompress(open(path, "rb").read()))
+        except (OSError, ValueError):
+            continue
+        area = (recs[0].get("area") or {}) if recs else {}
+        with _lock:
+            con = db()
+            for ot, (k, vs, vmin, vmax) in products_of(recs).items():
+                con.execute("INSERT OR IGNORE INTO product VALUES(?,?,?,?,?,?,?,?,?,?)",
+                            (ot, cell or (area.get("cell") or ""), win, dev, acct, k, vs, vmin, vmax, sha))
+            con.commit()
+        n += 1
+    sys.stderr.write(f"products backfilled for {n} blobs\n")
+
+
 def main():
     global S3
     S3 = load_s3()
     db().close()
+    threading.Thread(target=backfill_products, daemon=True).start()
     threading.Thread(target=s3_sync_loop, daemon=True).start()
     host, port = LISTEN.rsplit(":", 1)
     sys.stderr.write(f"hone-raw on {LISTEN}; data {DATA}; s3 {'on' if S3 else 'off'}; live window {LIVE_WINDOW_S}s; registry {REG_SHA[:12]}\n")

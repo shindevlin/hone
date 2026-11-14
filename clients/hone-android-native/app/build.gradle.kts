@@ -17,8 +17,8 @@ android {
         applicationId = "network.hone.app"   // HONE brand — matches the Rust JNI/uniffi package
         minSdk = 26                            // 8.0+ (foreground services, notification channels)
         targetSdk = 36
-        versionCode = 28
-        versionName = "1.16.0"
+        versionCode = 29
+        versionName = "1.17.0"
         // Commit shown in the signed device status.
         buildConfigField("String", "GIT_COMMIT", "\"" + (runCatching {
             ProcessBuilder("git", "rev-parse", "--short=8", "HEAD").directory(rootDir).start()
@@ -127,6 +127,7 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")   // real org.json for JVM unit tests (firmware manifest)
 }
 
 // h3-java ships its Android JNI builds as jar resources, which AGP does not package as

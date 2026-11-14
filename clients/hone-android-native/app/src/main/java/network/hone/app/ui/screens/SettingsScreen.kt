@@ -82,6 +82,23 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
             OutlinedButton({ onOpen("accountkeys") }, modifier = Modifier.fillMaxWidth()) { Text("Account keys") }
         }
 
+        Section("Event mode") {
+            var on by remember { mutableStateOf(network.hone.app.raw.EventMode.active(ctx)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Scan more often for 4 hours", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Switch(on, { v -> on = v; if (v) network.hone.app.raw.EventMode.start(ctx, 4) else network.hone.app.raw.EventMode.stop(ctx) })
+            }
+            Text("For a market, a game or a walk: Wi-Fi and Bluetooth are scanned as often as Android allows while the app is open. " +
+                "Attach the Wi-Fi board to your Flipper to add crowd counts.", style = MaterialTheme.typography.labelSmall, color = HoneTextDim)
+        }
+
+        Section(androidx.compose.ui.res.stringResource(network.hone.app.R.string.lang_title)) {
+            network.hone.app.ui.screens.LanguagePicker()
+            OutlinedButton({ onOpen("howto") }, modifier = Modifier.fillMaxWidth()) {
+                Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.howto_open))
+            }
+        }
+
         if (simple) TextButton({ advanced = !advanced }) {
             Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.set_advanced) + if (advanced) " ▾" else " ▸")
         }

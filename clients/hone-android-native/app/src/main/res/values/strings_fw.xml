@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Firmware install, How to, event mode and language (vc29). Spanish in values-es; other languages are machine-translated drafts. -->
+<resources>
+    <string name="fw_title">HONE firmware</string>
+    <string name="fw_open">Install / update HONE firmware</string>
+    <string name="fw_back">Back</string>
+    <string name="fw_intro">Your phone can put HONE firmware on your Flipper. Use a USB-C cable if you have one; otherwise Bluetooth works too. Your Flipper keeps working the whole time and nothing is lost.</string>
+    <string name="fw_link_usb">Flipper connected by USB cable</string>
+    <string name="fw_link_ble">Flipper paired over Bluetooth</string>
+    <string name="fw_link_none">No Flipper found. Plug in the USB cable, or pair it over Bluetooth.</string>
+    <string name="fw_latest">Latest HONE firmware: %1$s</string>
+    <string name="fw_checking">Checking for the latest firmware…</string>
+    <string name="fw_no_key">This app build has no firmware release key yet, so it will not install anything. Update the app first.</string>
+    <string name="fw_install">Install %1$s</string>
+    <string name="fw_retry">Try again (continues where it stopped)</string>
+    <string name="fw_done">Done. Your Flipper runs %1$s (via %2$s).</string>
+    <string name="fw_failed">Stopped at “%1$s”: %2$s</string>
+    <string name="fw_safe">Safe to stop: your Flipper only changes after every file has been checked.</string>
+    <string name="fw_pair_title">Pair over Bluetooth (one time)</string>
+    <string name="fw_pair_steps">1. On the Flipper: Settings → Bluetooth → On.\n2. On the phone, tap “Open Bluetooth settings” and pick your Flipper.\n3. The Flipper shows a 6-digit code. Check it matches the phone and tap Pair.</string>
+    <string name="fw_pair_open">Open Bluetooth settings</string>
+    <string name="fw_cable_title">Using a USB cable</string>
+    <string name="fw_cable_steps">Connect the phone and Flipper with a USB-C cable. Allow HONE to use the USB device when asked. No pairing needed.</string>
+    <string name="fw_stock_title">Your Flipper runs the official firmware</string>
+    <string name="fw_stock_body">HONE firmware is optional. It adds HONE sensing and keeps the usual Flipper apps. You can go back to the official firmware at any time.</string>
+    <string name="fw_stock_agree">I want to install HONE firmware</string>
+    <string name="fw_switch_back">Switch back to official firmware</string>
+    <string name="fw_switch_back_body">Installs the official Flipper firmware with the same checks. Your SD card files stay. You can also use qFlipper on a computer.</string>
+    <string name="fw_step_MANIFEST">checking the release</string>
+    <string name="fw_step_DOWNLOAD">downloading</string>
+    <string name="fw_step_CONNECT">connecting to the Flipper</string>
+    <string name="fw_step_CHECK">checking battery and space</string>
+    <string name="fw_step_UPLOAD">copying to the Flipper</string>
+    <string name="fw_step_VERIFY">checking the copy</string>
+    <string name="fw_step_START">starting the update</string>
+    <string name="fw_step_REBOOT">Flipper restarting</string>
+    <string name="fw_step_CONFIRM">confirming the new version</string>
+    <string name="fw_keep_close">Keep the phone and Flipper close until this finishes.</string>
+
+    <string name="howto_title">How to</string>
+    <string name="howto_open">How to (guides)</string>
+    <string name="howto_apk">Install the HONE app</string>
+    <string name="howto_usb">Firmware by USB cable</string>
+    <string name="howto_ble">Firmware over Bluetooth</string>
+    <string name="howto_stock">Back to official firmware</string>
+    <string-array name="howto_apk_steps">
+        <item>On your Android phone, open honemesh.net/app.</item>
+        <item>Tap “Download the app”.</item>
+        <item>When the phone asks, allow your browser to install apps.</item>
+        <item>Open the downloaded file and tap Install.</item>
+        <item>Open HONE and allow the permissions it explains.</item>
+    </string-array>
+    <string-array name="howto_usb_steps">
+        <item>Charge the Flipper to at least 30%, or keep it plugged in.</item>
+        <item>Connect the phone and the Flipper with a USB-C cable.</item>
+        <item>In HONE, open Devices → Flipper → Install / update HONE firmware.</item>
+        <item>Allow HONE to use the USB device.</item>
+        <item>Tap Install and keep the cable in until the Flipper restarts.</item>
+        <item>Done: HONE shows the new version.</item>
+    </string-array>
+    <string-array name="howto_ble_steps">
+        <item>On the Flipper: Settings → Bluetooth → On.</item>
+        <item>On the phone: Bluetooth settings → pick your Flipper → check the 6-digit code → Pair.</item>
+        <item>In HONE, open Devices → Flipper → Install / update HONE firmware.</item>
+        <item>Tap Install. Keep the phone next to the Flipper.</item>
+        <item>The Flipper restarts on its own and HONE confirms the version.</item>
+    </string-array>
+    <string-array name="howto_stock_steps">
+        <item>In HONE, open Devices → Flipper → Install / update HONE firmware.</item>
+        <item>Tap “Switch back to official firmware”.</item>
+        <item>Connect by USB cable or Bluetooth, as for installing.</item>
+        <item>Tap Install. Your SD card files stay.</item>
+        <item>Or use qFlipper on a computer: Install from file / Update.</item>
+    </string-array>
+
+    <string name="lang_title">Language</string>
+    <string name="lang_system">Phone language</string>
+    <string name="lang_mt_note">Machine-translated; corrections welcome.</string>
+</resources>

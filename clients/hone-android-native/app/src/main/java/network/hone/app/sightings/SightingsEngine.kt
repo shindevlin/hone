@@ -165,6 +165,7 @@ object SightingsEngine {
     private var gmsCallback: LocationCallback? = null
 
     private fun onLocation(l: Location, src: String) {
+        appCtx?.let { c -> runCatching { network.hone.app.raw.TravelGroup.onFix(c, l) } }   // light on-device track
         val cur = loc
         if (cur == null || l.time > cur.time + 30_000 || l.accuracy <= cur.accuracy) {
             loc = l; locSrc = src; stampCache = null
@@ -309,6 +310,7 @@ object SightingsEngine {
         rollWindow(c, System.currentTimeMillis())
         if (!homeWifiWindow && runCatching { network.hone.app.home.HomeState.onHomeWifi(c) }.getOrDefault(false)) homeWifiWindow = true
         wkey?.let { IdAdvertiser.ensure(c, it) }
+        runCatching { network.hone.app.raw.RawRecorder.pollCell() }                       // cell coverage, <= 1/min
         publishLive(c)
     }
 
@@ -326,6 +328,7 @@ object SightingsEngine {
         scheduleAlarm(c, IdKeys.windowStartMs(w + 1))
         store?.prune(w)
         runCatching { network.hone.app.raw.RawRecorder.pruneShas(c, w) }
+        runCatching { network.hone.app.raw.TravelGroup.prune(c) }
         Log.i(TAG, "window $w")
     }
 
@@ -631,6 +634,8 @@ object SightingsEngine {
             val period = when {
                 throttled(c) == false -> WIFI_UNTHROTTLED_MS
                 uiVisible -> WIFI_FOREGROUND_MS
+                // Event mode: ask as often as the foreground rate (Android may still refuse in the background).
+                network.hone.app.raw.EventMode.active(c) -> WIFI_FOREGROUND_MS
                 else -> WIFI_BACKGROUND_MS
             }
             val now = SystemClock.elapsedRealtime()

@@ -59,5 +59,29 @@ class T(unittest.TestCase):
         self.assertIs(F.check_prov([bad]), bad)
         with self.assertRaises(ValueError): F.ChangeEncoder(prov={"cls": "x"})
 
+    def test_obs_type_and_v3_provenance(self):
+        enc = F.ChangeEncoder(prov=P); enc.keyframe(0, "boot")
+        enc.observe(1, "env.pressure_pa", 101300.0); enc.observe_set(2, "cell", {"cell:ab": (-95, {"rat": "LTE"})})
+        enc.observe_set(3, "wifi", {"wifi:a": (-50, None)}); enc.end_window(900, ["wifi", "cell"])
+        recs = enc.take()
+        self.assertIsNone(F.check_prov(recs))
+        ot = {r["k"]: r["obs_type"] for r in recs if "k" in r}
+        self.assertEqual(ot["env.pressure_pa"], "pressure"); self.assertEqual(ot["cell:ab"], "cell_coverage"); self.assertEqual(ot["wifi:a"], "wifi_env")
+        self.assertTrue(any(r["k"] == "cell:ab" and r.get("forced") for r in recs if "k" in r))   # 15-min coverage sample
+        bad = dict(recs[1]); del bad["obs_type"]
+        self.assertIs(F.check_prov([bad]), bad)
+
+    def test_colocation(self):
+        a = {"wifi": [f"wifi:{i}" for i in range(20)], "ble": 30, "subghz": [100, 400, 900]}
+        b = {"wifi": [f"wifi:{i}" for i in range(5, 25)], "ble": 26, "subghz": [110, 905]}
+        far = {"wifi": [f"wifi:x{i}" for i in range(20)], "ble": 3, "subghz": [5000]}
+        r = F.colocate(a, b); self.assertTrue(r["match"]); self.assertEqual(len(r["proof"]), 64)
+        self.assertFalse(F.colocate(a, far)["match"])
+        self.assertFalse(F.colocate({}, {})["match"])
+        self.assertTrue(F.home_anchor(b, a)); self.assertFalse(F.home_anchor(far, a))
+        recs = [{"s": F.SCHEMA_KF, "t": F.rfc3339(0), "state": {"wifi:a": {"v": -50}, "ble:x": {"v": -70}}},
+                {"s": F.SCHEMA_EV, "t": F.rfc3339(10), "e": "appeared", "k": "wifi:b", "v": -60}]
+        self.assertEqual(F.radio_env(recs), {"wifi": ["wifi:a", "wifi:b"], "ble": 1, "subghz": []})
+
 if __name__ == "__main__":
     unittest.main()

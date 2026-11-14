@@ -102,6 +102,8 @@ fun FlipperDevicesCard(onOpen: () -> Unit, showEmpty: Boolean = true, title: Str
                     Icon(Icons.Filled.ChevronRight, contentDescription = "Open", tint = HoneTextDim)
                 }
                 Dim(f.statusLine())
+                Dim("Can sense: " + network.hone.app.raw.Capabilities.flipper(f.caps).sorted().joinToString(", ") +
+                    if ("wifi" !in f.caps) " · no Wi-Fi board (crowd counts come from Bluetooth, lower precision)" else "", color = HoneTextFaint)
                 Dim(if (f.connected) "This phone is relaying it" + (if (f.relayed > 0) " · ${f.relayed} batches sent" else "") + ". Tap to see what it sees."
                     else "Not heard by this phone lately. Another HONE phone may be carrying it.", color = HoneTextFaint)
             }
@@ -111,7 +113,7 @@ fun FlipperDevicesCard(onOpen: () -> Unit, showEmpty: Boolean = true, title: Str
 
 /** What the Flipper is seeing, in plain English. Counts and scrambled ids only. */
 @Composable
-fun FlipperScreen(onBack: () -> Unit) {
+fun FlipperScreen(onBack: () -> Unit, onFirmware: () -> Unit = {}) {
     val ctx = LocalContext.current
     val live by HoneAnnounceScanner.devices.collectAsStateWithLifecycle()
     val cov by SightingsEngine.live.collectAsStateWithLifecycle()
@@ -151,6 +153,9 @@ fun FlipperScreen(onBack: () -> Unit) {
         }
         Dim("Your Flipper is a pocket radio sensor. It notices Wi-Fi, radio, infrared and tags around it and sends HONE " +
             "counts through your phone, never what it heard. Here is what it noticed and why that helps.")
+        OutlinedButton(onFirmware, modifier = Modifier.fillMaxWidth()) {
+            Text(androidx.compose.ui.res.stringResource(network.hone.app.R.string.fw_open))
+        }
         if (f == null) {
             HoneBox { Dim("No Flipper heard yet. Turn on Bluetooth and bring a HONE Flipper close to this phone.") }
             return@Column

@@ -11,7 +11,7 @@ import java.time.temporal.ChronoUnit
  * services/hone-raw/hone-raw-registry.json (served at honemesh.net/api/raw/schema).
  *
  *  hone.raw.hdr@1  header (device, owner, class, firmware, model, sensors, window, area, registry)
- *  hone.raw.kf@2   keyframe: the full state, at boot, each UTC day and after a gap
+ *  hone.raw.kf@3   keyframe: the full state, at boot, each UTC day and after a gap
  *  hone.raw.ev@2   appeared | disappeared | changed | unchanged | gap
  *  hone.raw.obs@1  payload that is not state (a relayed signed Flipper frame, a pairing)
  * Every record carries provenance: dev, cls, sen, why, loc ([RawFmt.PROV]).
@@ -21,11 +21,29 @@ import java.time.temporal.ChronoUnit
  */
 object RawFmt {
     const val SCHEMA_HDR = "hone.raw.hdr@1"
-    const val SCHEMA_KF = "hone.raw.kf@2"
-    const val SCHEMA_EV = "hone.raw.ev@2"
-    const val SCHEMA_OBS = "hone.raw.obs@1"
-    /** Provenance every record carries (Josh 11:22): device, class, sensor, why, location source. */
-    val PROV = listOf("dev", "cls", "sen", "why", "loc")
+    const val SCHEMA_KF = "hone.raw.kf@3"
+    const val SCHEMA_EV = "hone.raw.ev@3"
+    const val SCHEMA_OBS = "hone.raw.obs@2"
+    val KF_ANY = setOf("hone.raw.kf@2", "hone.raw.kf@3")
+    val EV_ANY = setOf("hone.raw.ev@2", "hone.raw.ev@3")
+    /** Provenance every record carries (Josh 11-10 11:22; obs_type 11-14): device, class, sensor, why, location source, observation type. */
+    val PROV = listOf("dev", "cls", "sen", "why", "loc", "obs_type")
+
+    /** Observation types (Josh 2026-11-14); descriptions live in the schema registry. */
+    val OBS_TYPES = setOf("pressure", "temp_humidity", "light", "cell_coverage", "wifi_env", "ble_density", "subghz", "lora",
+        "aircraft", "birds_noise", "outage_signal", "foot_traffic", "device", "presence", "location")
+
+    fun obsTypeOf(k: String): String = when (k) {
+        "env.pressure_pa" -> "pressure"
+        "env.air_temp_c", "env.rh_pct" -> "temp_humidity"
+        "env.light_lux" -> "light"
+        else -> when (if (':' in k) k.substringBefore(':') else k.substringBefore('.')) {
+            "cell" -> "cell_coverage"; "wifi" -> "wifi_env"; "ble" -> "ble_density"; "subghz" -> "subghz"; "lora" -> "lora"
+            "adsb", "aircraft" -> "aircraft"; "bird", "audio", "noise" -> "birds_noise"; "outage" -> "outage_signal"
+            "crowd" -> "foot_traffic"; "dev" -> "device"; "flipper", "travel" -> "presence"; "track" -> "location"
+            "env" -> "temp_humidity"; else -> "device"
+        }
+    }
 
     /** Sensor id for a key: exact key, then its family ("wifi" for wifi:x, "env" for env.rh_pct). */
     fun sensorOf(k: String, sensors: Map<String, String>): String =
@@ -34,7 +52,8 @@ object RawFmt {
     /** The first record lacking provenance, or null. Nothing without it may be sent. */
     fun checkProv(records: List<Map<String, Any?>>): Map<String, Any?>? = records.firstOrNull { r ->
         if (r["s"] == SCHEMA_HDR) listOf("dev", "cls", "win").any { r[it] == null || r[it] == "" } || "area" !in r
-        else PROV.any { r[it] == null || r[it] == "" }
+        else (if ((r["s"] as? String)?.let { it.endsWith("@3") || it == SCHEMA_OBS } == true) PROV else PROV.take(5))
+            .any { r[it] == null || r[it] == "" }
     }
     val EVENTS = setOf("appeared", "disappeared", "changed", "unchanged", "gap")
     val GAP_REASONS = setOf("offline", "permission_denied", "speech_deleted", "no_signal", "sensor_absent", "app_stopped")
@@ -44,10 +63,10 @@ object RawFmt {
     val DEADBANDS: Map<String, Band> = linkedMapOf(
         "wifi:" to Band(abs = 6.0), "ble:" to Band(abs = 6.0), "lora:" to Band(abs = 6.0), "flipper:" to Band(abs = 6.0),
         "env.air_temp_c" to Band(abs = 0.15), "env.rh_pct" to Band(abs = 1.0), "env.pressure_pa" to Band(abs = 10.0),
-        "env.light_lux" to Band(rel = 0.10), "dev.temp_c" to Band(abs = 1.0),
+        "env.light_lux" to Band(rel = 0.10), "dev.temp_c" to Band(abs = 1.0), "cell:" to Band(abs = 6.0),
     )
     /** Sampled every window even when unchanged, so daily curves are complete. */
-    fun forced(k: String) = k.startsWith("env.") || k == "dev.temp_c"
+    fun forced(k: String) = k.startsWith("env.") || k == "dev.temp_c" || k.startsWith("cell:")
 
     fun band(k: String): Band = DEADBANDS[k] ?: DEADBANDS.entries.firstOrNull { it.key.endsWith(":") && k.startsWith(it.key) }?.value ?: Band()
 
@@ -117,12 +136,12 @@ object RawFmt {
         for (r in records) {
             if (untilMs != null && parse(r["t"] as String) > untilMs) break
             when (r["s"]) {
-                SCHEMA_KF -> state = LinkedHashMap<String, Entry>().apply {
+                in KF_ANY -> state = LinkedHashMap<String, Entry>().apply {
                     (r["state"] as Map<String, Map<String, Any?>>).forEach { (k, e) ->
                         put(k, Entry((e["v"] as Number).toDouble(), (e["a"] as? Map<String, Any?>) ?: emptyMap()))
                     }
                 }
-                SCHEMA_EV -> state?.let { st ->
+                in EV_ANY -> state?.let { st ->
                     val k = r["k"] as String
                     when (r["e"]) {
                         "appeared", "changed" -> st[k] = Entry((r["v"] as Number).toDouble(),
@@ -141,7 +160,7 @@ object RawFmt {
  * [dev], [cls] and the [sensors] table give every record its provenance; [loc] is the current area source.
  */
 class ChangeEncoder(private val dev: String, private val cls: String, private val sensors: Map<String, String> = emptyMap(),
-                    var loc: String = "none", private val miss: Int = 2) {
+                    var loc: String = "none", private val miss: Int = 2, var caps: Set<String> = emptySet()) {
     init { require(dev.isNotEmpty() && cls.isNotEmpty()) { "provenance: dev and cls are required" } }
     val reported = LinkedHashMap<String, RawFmt.Entry>()
     private val changedAt = HashMap<String, Long>()
@@ -150,6 +169,8 @@ class ChangeEncoder(private val dev: String, private val cls: String, private va
 
     private fun prov(r: MutableMap<String, Any?>, k: String, why: String) {
         r["dev"] = dev; r["cls"] = cls; r["sen"] = RawFmt.sensorOf(k, sensors); r["why"] = why; r["loc"] = loc.ifEmpty { "none" }
+        r["obs_type"] = RawFmt.obsTypeOf(k)
+        Capabilities.capOf(k, caps)?.let { r["cap"] = it }            // which capability produced it
     }
 
     private fun ev(tMs: Long, e: String, k: String, why: String, vararg kv: Pair<String, Any?>) {
@@ -171,7 +192,7 @@ class ChangeEncoder(private val dev: String, private val cls: String, private va
 
     fun keyframe(tMs: Long, why: String) {
         out.add(mapOf("s" to RawFmt.SCHEMA_KF, "t" to RawFmt.rfc3339(tMs), "dev" to dev, "cls" to cls, "sen" to "*",
-            "why" to "keyframe:$why", "loc" to loc.ifEmpty { "none" }, "state" to reported.toSortedMap().mapValues { (_, e) -> mapOf("v" to e.v, "a" to e.a) }))
+            "why" to "keyframe:$why", "loc" to loc.ifEmpty { "none" }, "obs_type" to "*", "state" to reported.toSortedMap().mapValues { (_, e) -> mapOf("v" to e.v, "a" to e.a) }))
         reported.keys.forEach { changedAt[it] = tMs }
     }
 

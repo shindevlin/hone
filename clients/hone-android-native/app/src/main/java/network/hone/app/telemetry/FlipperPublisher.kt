@@ -40,13 +40,8 @@ object FlipperPublisher {
             "t_min" to System.currentTimeMillis() / 60_000L, "cell" to cell, "rssi" to rssi,
         )
         val f = file(ctx).apply { parentFile?.mkdirs() }
-        runCatching {
-            if (f.exists() && f.length() > 0 && f.readLines().size >= MAX_QUEUE) {
-                val keep = f.readLines().takeLast(MAX_QUEUE - 1)   // oldest out first
-                f.writeText(keep.joinToString("\n", postfix = "\n"))
-            }
-            f.appendText(Canonical.encode(rec) + "\n")
-        }.onFailure { Telemetry.error(ctx, "flipper queue", it) }
+        // Store and forward (Josh 2026-11-14): nothing is dropped for age or count before delivery.
+        runCatching { f.appendText(Canonical.encode(rec) + "\n") }.onFailure { Telemetry.error(ctx, "flipper queue", it) }
     }
 
     fun pending(ctx: Context): Int = runCatching { file(ctx).takeIf { it.exists() }?.readLines()?.count { it.isNotBlank() } ?: 0 }.getOrDefault(0)
@@ -74,8 +69,9 @@ object FlipperPublisher {
         val r = Telemetry.post(URL, body)
         if (r == null) { Telemetry.upload(ctx, "flipper", false, "offline"); return false }
         if (r.code == 429 || r.code >= 500) { Telemetry.upload(ctx, "flipper", false, "HTTP ${r.code}"); return false }
-        // 2xx: stored. Other 4xx: this batch is malformed for good; drop it so the queue moves on.
+        // 2xx: stored. Other 4xx: refused for good; kept aside (never deleted) so the queue moves on.
         Telemetry.upload(ctx, "flipper", r.code in 200..299, if (r.code in 200..299) null else "HTTP ${r.code} ${r.body.take(120)}")
+        if (r.code !in 200..299) runCatching { File(ctx.filesDir, "hone-node/flipper_index_refused.jsonl").appendText(batch.joinToString("") { it + "\n" }) }
         runCatching { f.writeText(lines.drop(batch.size).joinToString("") { it + "\n" }) }
         Log.i(TAG, "flipper frames x${batch.size} -> ${r.code}")
         return lines.size > batch.size

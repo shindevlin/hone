@@ -153,7 +153,9 @@ private fun AppShell(honeMode: Boolean) {
             }
             composable(Dest.Today.route) { network.hone.app.ui.screens.TodayScreen(onSettings = { nav.navigate(Dest.Settings.route) }, onSave = { account = true }, onHone = { nav.navigate("handoff") },
                 onFlipper = { nav.navigate("flipper") }) }
-            composable("flipper") { network.hone.app.ui.screens.FlipperScreen(onBack = { nav.popBackStack() }) }
+            composable("flipper") { network.hone.app.ui.screens.FlipperScreen(onBack = { nav.popBackStack() }, onFirmware = { nav.navigate("firmware") }) }
+            composable("firmware") { network.hone.app.ui.screens.FirmwareScreen(onBack = { nav.popBackStack() }, onHowTo = { nav.navigate("howto") }) }
+            composable("howto") { network.hone.app.ui.screens.HowToScreen(onBack = { nav.popBackStack() }) }
             composable("handoff") { network.hone.app.ui.screens.HandoffScreen(onBack = { nav.popBackStack() }) }
             composable(Dest.Node.route) { NodeScreen() }
             composable(Dest.Wallet.route) { WalletScreen(onEarnings = { go(Dest.Earnings.route) }, onSponsor = { nav.navigate("sponsor") },
