@@ -70,7 +70,7 @@ fun FirmwareScreen(onBack: () -> Unit, onHowTo: () -> Unit = {}) {
         if (noKey) Dim(stringResource(R.string.fw_no_key))
         when {
             rel != null -> Text(stringResource(R.string.fw_latest, rel!!.version))
-            relErr != null -> Dim(relErr!!)
+            relErr != null -> Dim(if (relErr!!.contains("(404)")) stringResource(R.string.fw_none_yet) else relErr!!)
             else -> Dim(stringResource(R.string.fw_checking))
         }
 
