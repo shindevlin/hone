@@ -211,7 +211,8 @@ pub fn tick(chain: &Chain, me: &str, tip: u64) {
 }
 
 /// Per kind, the highest epoch the chain shows signed by `me` (within CHAIN_SCAN_EPOCHS):
-/// setcert votes and PROPs from the stored certificates, decide commits from state.
+/// setcert votes and PROPs from stored certificates (where kept) and the engine's final
+/// certs, decide commits from state.
 pub fn chain_floors(chain: &Chain, me: &str, tip: u64) -> BTreeMap<String, u64> {
     let mut out = BTreeMap::new();
     let from = tip.saturating_sub(CHAIN_SCAN_EPOCHS);
@@ -220,6 +221,19 @@ pub fn chain_floors(chain: &Chain, me: &str, tip: u64) -> BTreeMap<String, u64> 
         if c.epoch < from { continue; }
         if c.votes.contains_key(me) { let f = out.entry(SET_VOTE.to_owned()).or_insert(0); *f = (*f).max(c.epoch); }
         if c.content.reports.iter().any(|(v, _)| v == me) { let f = out.entry(SET_PROP.to_owned()).or_insert(0); *f = (*f).max(c.epoch); }
+    }
+    // Final certs the setcert engine holds (fetched from peers while catching up): a state
+    // swap from another node never carries this node's local vote record, but its votes and
+    // PROPs are in the certs it helped finalize.
+    {
+        let e = crate::setcert_node::engine(chain).lock();
+        if let Some(lf) = e.last_final() {
+            for t in lf.saturating_sub(CHAIN_SCAN_EPOCHS)..=lf {
+                let Some(c) = e.final_cert(t) else { continue };
+                if c.votes.contains_key(me) { let f = out.entry(SET_VOTE.to_owned()).or_insert(0); *f = (*f).max(c.epoch); }
+                if c.content.reports.iter().any(|(v, _)| v == me) { let f = out.entry(SET_PROP.to_owned()).or_insert(0); *f = (*f).max(c.epoch); }
+            }
+        }
     }
     let suffix = format!(":{me}");
     for (k, _) in chain.store.state_scan_prefix("decide_commit:") {
