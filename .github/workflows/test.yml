@@ -40,8 +40,10 @@ jobs:
 
       # Default features only (matrix off) — this is what nodes ship and what
       # builds on 1.90. A PR that doesn't compile fails here and cannot merge.
+      # grouchly also runs the live clock node: CI builds at nice 19 and at most 4 jobs
+      # so it can never starve it (Josh, 15 Nov 2026).
       - name: cargo check (workspace)
-        run: cd rust && cargo check --workspace --all-targets
+        run: cd rust && nice -n 19 cargo check -j 4 --workspace --all-targets
 
       - name: cargo test (hone-node)
-        run: cd rust && cargo test -p hone-node --bin hone-node -- --test-threads=2
+        run: cd rust && nice -n 19 cargo test -j 4 -p hone-node --bin hone-node -- --test-threads=2
