@@ -293,12 +293,15 @@ pub fn request(cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, node_id: 
 }
 
 /// Ask peers over gossip for entry bodies by hash (decide-by: a certified set names
-/// entries this node never received). At most 512 hashes per request.
-pub fn request_hashes(cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, node_id: &str, hashes: &[String]) -> bool {
+/// entries this node never received). At most 512 hashes per request. `epoch` is the
+/// first epoch waiting: responders rate-limit per (requester, kind, from), and a constant
+/// `from` used to allow one answer per 30 s in total (catch-up slower than the chain).
+pub fn request_hashes(cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, node_id: &str, epoch: u64, hashes: &[String]) -> bool {
     if hashes.is_empty() { return false; }
     let hs = &hashes[..hashes.len().min(512)];
+    let e = epoch.max(1);
     let Ok(data) = serde_json::to_vec(&serde_json::json!({
-        "type": "sync_req", "node_id": node_id, "kind": "ents", "from": 1, "to": 1, "hashes": hs, "nonce": now_ms(),
+        "type": "sync_req", "node_id": node_id, "kind": "ents", "from": e, "to": e, "hashes": hs, "nonce": now_ms(),
     })) else { return false };
     cmd_tx.try_send(crate::net::NetCmd::Broadcast { topic: "hone/consensus", data }).is_ok()
 }

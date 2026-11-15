@@ -17,6 +17,68 @@ static ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
 /// A final epoch whose bodies are still missing this many epochs later halts applying
 /// (it already waits; nothing after it applies) and raises a healer alert.
 pub const BODY_HALT_EPOCHS: u64 = 20;
+/// Certified epochs whose missing bodies one request asks for (look-ahead), and the wait
+/// after which bodies are also fetched over HTTP from sync peers and the public node.
+pub const BODY_LOOKAHEAD: u64 = 64;
+pub const BODY_HTTP_AFTER_EPOCHS: u64 = 4;
+
+/// Applying progress for the healer status and the guards: (applied_upto, tip, halted).
+static APPLY: Mutex<(u64, u64, bool)> = parking_lot::const_mutex((0, 0, false));
+pub fn apply_view() -> serde_json::Value {
+    let (a, t, h) = *APPLY.lock();
+    serde_json::json!({ "applied_upto": a, "tip": t, "lag": t.saturating_sub(a), "halted": h })
+}
+
+/// HTTP sources for missing bodies: the sync peers plus HONE_BODY_FALLBACK (comma list;
+/// default the public node, "off" to disable).
+pub fn body_http_sources(peers: &[String]) -> Vec<String> {
+    let mut v = peers.to_vec();
+    let fb = std::env::var("HONE_BODY_FALLBACK").unwrap_or_else(|_| "https://honemesh.net/chain".into());
+    if fb != "off" { v.extend(fb.split(',').map(|s| s.trim().trim_end_matches('/').to_owned()).filter(|s| !s.is_empty())); }
+    v.dedup(); v
+}
+
+static HTTP_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Fetch the kept certified sets from..=to over HTTP and offer their bodies (each is
+/// matched by hash on apply and signature-checked by the normal apply path).
+fn fetch_sets_http(sources: Vec<String>, from: u64, to: u64) {
+    use std::sync::atomic::Ordering::*;
+    if sources.is_empty() || HTTP_BUSY.swap(true, AcqRel) { return; }
+    tokio::spawn(async move {
+        if let Ok(http) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build() {
+            for p in &sources {
+                let url = format!("{p}/api/sync/epoch_entries?from={from}&to={to}&certified=1");
+                let Ok(r) = http.get(&url).send().await else { continue };
+                let Ok(v) = r.json::<serde_json::Value>().await else { continue };
+                let mut n = 0;
+                for set in v["certified"].as_array().into_iter().flatten() {
+                    for r in set["entries"].as_array().into_iter().flatten() {
+                        if let Ok(x) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
+                            sa::offer_body(x, r["sig"].as_str().map(str::to_owned)); n += 1;
+                        }
+                    }
+                }
+                info!("[setcert] http body fetch {from}..{to} from {p}: {n} bodies");
+                if n > 0 { break; }
+            }
+        }
+        HTTP_BUSY.store(false, Release);
+    });
+}
+
+/// Missing hashes of `next` plus those of the following final certs (up to 512).
+pub fn missing_ahead(chain: &Chain, e: &Engine, next: u64, missing: &[String]) -> Vec<String> {
+    let mut v = missing.to_vec();
+    for t in next + 1..=next + BODY_LOOKAHEAD {
+        let Some(c) = e.final_cert(t) else { break };
+        for h in &c.content.hashes {
+            if v.len() >= 512 { return v; }
+            if sa::body(chain, h).is_none() && !v.contains(h) { v.push(h.clone()); }
+        }
+    }
+    v
+}
+
 /// (epoch waiting for bodies, current epoch when that wait began).
 static STALL: Mutex<(u64, u64)> = parking_lot::const_mutex((0, 0));
 
@@ -202,7 +264,7 @@ pub fn answer(chain: &Chain, me: &str, kind: &str, from: u64, to: u64, hashes: &
 
 /// Once a second: vote, finalize, apply in order, fetch what is missing.
 pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>, me: String,
-    sk: Arc<Option<ed25519_dalek::SigningKey>>, is_clock: bool)
+    sk: Arc<Option<ed25519_dalek::SigningKey>>, is_clock: bool, http_sources: Vec<String>)
 {
     let mut last_fetch = 0u64;
     let mut last_rb = 0u64;
@@ -268,6 +330,7 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
                 if n > 0 { info!("[setcert] lagging apply: accepted {n} fetched final cert(s) from {}", up + 1); }
             }
         }
+        { let mut a = APPLY.lock(); a.0 = sa::applied_upto(&chain); a.1 = cur; }
         // Apply final certs strictly in order.
         loop {
             let next = sa::applied_upto(&chain) + 1;
@@ -284,6 +347,7 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
                 Ok(_) => {
                     let was = STALL.lock().0 == next;
                     if was { *STALL.lock() = (0, 0); crate::state_healer::clear_alerts("setcert:"); }
+                    APPLY.lock().2 = false;
                 }
                 Err(missing) => {
                     let waited = body_wait_alert(&mut STALL.lock(), next, cur);
@@ -292,11 +356,16 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
                             "setcert: epoch {next} certified but {} bodies still missing after {w} epochs; applying halted",
                             missing.len()));
                         tracing::error!("[setcert] HEALER ALERT: epoch {} missing {} bodies for {} epochs; applying halted", next, missing.len(), w);
+                        APPLY.lock().2 = true;
+                    }
+                    if cur.saturating_sub(STALL.lock().1) >= BODY_HTTP_AFTER_EPOCHS {
+                        fetch_sets_http(http_sources.clone(), next, next + BODY_LOOKAHEAD - 1);
                     }
                     if now_ms().saturating_sub(last_fetch) > 3_000 {
                         last_fetch = now_ms();
-                        warn!("[setcert] epoch {} waits for {} missing bodies; fetching by hash", next, missing.len());
-                        crate::epoch_sync::request_hashes(&cmd_tx, &me, &missing);
+                        let ahead = missing_ahead(&chain, &engine(&chain).lock(), next, &missing);
+                        warn!("[setcert] epoch {} waits for {} missing bodies; fetching {} by hash (look-ahead)", next, missing.len(), ahead.len());
+                        crate::epoch_sync::request_hashes(&cmd_tx, &me, next, &ahead);
                     }
                     break;
                 }
@@ -308,6 +377,16 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn body_sources_default_to_the_public_node_and_can_be_off() {
+        std::env::remove_var("HONE_BODY_FALLBACK");
+        let v = body_http_sources(&["http://192.168.68.75:4242".into()]);
+        assert_eq!(v, vec!["http://192.168.68.75:4242".to_string(), "https://honemesh.net/chain".to_string()]);
+        std::env::set_var("HONE_BODY_FALLBACK", "off");
+        assert_eq!(body_http_sources(&[]), Vec::<String>::new());
+        std::env::remove_var("HONE_BODY_FALLBACK");
+    }
+
     #[test]
     fn missing_body_alert_after_20_epochs_of_the_same_wait() {
         let mut st = (0, 0);

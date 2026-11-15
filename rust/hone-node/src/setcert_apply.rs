@@ -122,47 +122,57 @@ fn keep_decided(t: u64, set: &[(LedgerEntry, Option<String>)]) {
     d.retain(|e, _| *e >= floor);
 }
 
-/// Every certified set (applied AND rejected bodies) for epoch_sync::KEEP_EPOCHS, by epoch,
-/// plus a hash -> epoch index, so a node lagging far behind can fetch any body it is missing.
-/// The old look-back (pool, last 128 certified sets in memory, recorded sets within 64 epochs
-/// of the TIP) left grouchly halted at 373972 and nebra at 373304 on 2026-11-11: the bodies
-/// they needed were behind every peer's window. Local meta only (not in any consensus root).
-const BODIES_PREFIX: &str = "setcert_bodies:";
+/// Final certs this node applied, kept for epoch_sync::KEEP_EPOCHS (local meta, not consensus).
 const CERT_PREFIX: &str = "setcert_cert:";
 /// The final cert this node applied for `t` (kept for the keep window), for "certs" answers.
 pub fn applied_cert(chain: &Chain, t: u64) -> Option<Cert> {
     chain.store.state_get(&format!("{CERT_PREFIX}{t:016x}")).and_then(|b| serde_json::from_slice(&b).ok())
 }
-const BH_PREFIX: &str = "setcert_bh:";
+/// Every certified set's bodies, applied AND rejected, also go to local state for
+/// SET_KEEP_EPOCHS (24 h) with a hash index, so a node that fell more than DECIDED_KEEP
+/// epochs behind, or whose peers restarted, can still fetch them over gossip or HTTP
+/// (incident 2026-11-11..15: grouchly and nebra halted at 373,972 for 3.5 days because the
+/// one rejected body of that set lived only in memory). Local data, not consensus.
+pub const SET_KEEP_EPOCHS: u64 = 2_880;
+fn set_key(t: u64) -> String { format!("setcert_set:{t:012}") }
+fn idx_key(h: &str) -> String { format!("setcert_bidx:{h}") }
 
-fn persist_certified(chain: &Chain, t: u64, set: &[(LedgerEntry, Option<String>)]) {
+fn keep_set(chain: &Chain, t: u64, set: &[(LedgerEntry, Option<String>)]) {
     let rows: Vec<serde_json::Value> = set.iter().map(|(e, s)| serde_json::json!({ "entry": e, "sig": s })).collect();
-    let _ = chain.store.state_set(&format!("{BODIES_PREFIX}{t:016x}"), &serde_json::to_vec(&rows).unwrap_or_default());
-    for (e, _) in set { let _ = chain.store.state_set(&format!("{BH_PREFIX}{}", e.hash()), t.to_string().as_bytes()); }
-    if t > epoch_sync::KEEP_EPOCHS {
-        let k = format!("{BODIES_PREFIX}{:016x}", t - epoch_sync::KEEP_EPOCHS);
-        if let Some(b) = chain.store.state_get(&k) {
-            for r in serde_json::from_slice::<Vec<serde_json::Value>>(&b).unwrap_or_default() {
-                if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
-                    let _ = chain.store.state_delete(&format!("{BH_PREFIX}{}", e.hash()));
-                }
+    let _ = chain.store.state_set(&set_key(t), &serde_json::to_vec(&rows).unwrap_or_default());
+    for (e, _) in set { let _ = chain.store.state_set(&idx_key(&e.hash()), t.to_string().as_bytes()); }
+    if t > SET_KEEP_EPOCHS {
+        let old = t - SET_KEEP_EPOCHS;
+        for r in kept_set(chain, old).unwrap_or_default() {
+            if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
+                let k = idx_key(&e.hash());
+                if read_u64(chain, &k) == Some(old) { let _ = chain.store.state_delete(&k); }
             }
-            let _ = chain.store.state_delete(&k);
         }
+        let _ = chain.store.state_delete(&set_key(old));
     }
 }
 
-/// A certified body by hash from the persisted sets (applied or rejected).
+/// The kept certified set of epoch `t` (rows {entry, sig}), applied and rejected bodies.
+pub fn kept_set(chain: &Chain, t: u64) -> Option<Vec<serde_json::Value>> {
+    chain.store.state_get(&set_key(t)).and_then(|b| serde_json::from_slice(&b).ok())
+}
+
+fn kept_body(chain: &Chain, hash: &str) -> Option<(LedgerEntry, Option<String>)> {
+    let t = read_u64(chain, &idx_key(hash))?;
+    kept_set(chain, t)?.into_iter().find_map(|r| {
+        let e = serde_json::from_value::<LedgerEntry>(r["entry"].clone()).ok()?;
+        (e.hash() == hash).then(|| (e, r["sig"].as_str().map(str::to_owned)))
+    })
+}
+
+/// A certified body by hash from the kept certified sets (applied or rejected).
 pub fn certified_body(chain: &Chain, hash: &str) -> Option<serde_json::Value> {
-    let t: u64 = chain.store.state_get(&format!("{BH_PREFIX}{hash}"))
-        .and_then(|b| String::from_utf8(b).ok()).and_then(|s| s.parse().ok())?;
-    let b = chain.store.state_get(&format!("{BODIES_PREFIX}{t:016x}"))?;
-    serde_json::from_slice::<Vec<serde_json::Value>>(&b).ok()?.into_iter()
-        .find(|r| serde_json::from_value::<LedgerEntry>(r["entry"].clone()).map(|e| e.hash() == hash).unwrap_or(false))
+    kept_body(chain, hash).map(|(e, s)| serde_json::json!({ "entry": e, "sig": s }))
 }
 
 /// Bodies this node can serve for `hashes`: the pool, the last certified sets in memory, the
-/// persisted certified sets (whole keep window), then recorded sets back to the keep window.
+/// kept certified sets (keep window), then recorded sets back to the keep window.
 pub fn serve_bodies(chain: &Chain, hashes: &[String], tip: u64) -> Vec<serde_json::Value> {
     let want: std::collections::BTreeSet<&String> = hashes.iter().collect();
     let mut out = Vec::new();
@@ -196,6 +206,10 @@ pub fn serve_bodies(chain: &Chain, hashes: &[String], tip: u64) -> Vec<serde_jso
         if lo == floor { break; }
         hi = lo.saturating_sub(1);
     }
+    for h in hashes {
+        if seen.contains(h) { continue; }
+        if let Some((e, s)) = kept_body(chain, h) { seen.insert(h.clone()); out.push(serde_json::json!({ "entry": e, "sig": s })); }
+    }
     out.truncate(hashes.len());
     out
 }
@@ -223,7 +237,7 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
     let _ = crate::identity_nft::migrate_reserved(chain, t);
     set.sort_by_key(|(e, _)| e.hash());
     keep_decided(t, &set);
-    persist_certified(chain, t, &set);
+    keep_set(chain, t, &set);
     let _ = chain.store.state_set(&format!("{CERT_PREFIX}{t:016x}"), &serde_json::to_vec(cert).unwrap_or_default());
     if t > epoch_sync::KEEP_EPOCHS { let _ = chain.store.state_delete(&format!("{CERT_PREFIX}{:016x}", t - epoch_sync::KEEP_EPOCHS)); }
     let applied = epoch_sync::apply_set(chain, t, set, Some(t));
@@ -419,6 +433,35 @@ mod tests {
                 }
             }
         }
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// Incident 2026-11-11..15: a certified set whose only entry is rejected everywhere.
+    /// A node that applies it keeps the rejected body in state (not only in the 128-epoch
+    /// memory), serves it after its memory is gone, and prunes it after SET_KEEP_EPOCHS.
+    #[test]
+    fn rejected_certified_body_is_kept_and_served_after_memory_is_gone() {
+        let act = 500u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x71; 32]);
+        let (c, _d) = chain("keep");
+        setup(&c, &sk, "alice");
+        // More than alice holds: certified (voters only order hashes) but rejected on apply.
+        let (e, sig) = xfer(&sk, "alice", "bob", 1, act, u64::MAX);
+        let h = e.hash();
+        c.push_pending(e.clone(), sig);
+        let cert = Cert { epoch: act, round: 0, prev: String::new(),
+            content: crate::setcert::Content { hashes: vec![h.clone()], reports: vec![] }, votes: BTreeMap::new() };
+        assert_eq!(apply_final(&c, &cert), Ok(0), "rejected on apply");
+        DECIDED.lock().unwrap().clear();                      // memory gone (restart / >128 epochs)
+        let got = serve_bodies(&c, &[h.clone()], act + 5_000);
+        assert_eq!(got.len(), 1, "served from the kept set");
+        assert_eq!(serde_json::from_value::<LedgerEntry>(got[0]["entry"].clone()).unwrap().hash(), h);
+        assert!(kept_set(&c, act).is_some());
+        // pruned once SET_KEEP_EPOCHS later sets are kept
+        keep_set(&c, act + SET_KEEP_EPOCHS, &[]);
+        assert!(kept_set(&c, act).is_none());
+        assert!(serve_bodies(&c, &[h], act + 5_000).is_empty());
         TEST_EPOCH.with(|c| c.set(None));
     }
 

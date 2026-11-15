@@ -2326,7 +2326,15 @@ async fn get_sync_epoch_entries(
 ) -> Json<serde_json::Value> {
     let from = q.get("from").copied().unwrap_or(0);
     let to = q.get("to").copied().unwrap_or(from);
-    Json(crate::epoch_sync::serve(&s.chain, from, to))
+    let mut v = crate::epoch_sync::serve(&s.chain, from, to);
+    // certified=1: the kept certified sets incl. rejected bodies (setcert self-heal, 2026-11-15).
+    if q.get("certified").copied() == Some(1) {
+        let sets: Vec<serde_json::Value> = (from..=to.min(from.saturating_add(63)))
+            .filter_map(|t| crate::setcert_apply::kept_set(&s.chain, t).map(|r| serde_json::json!({ "epoch": t, "entries": r })))
+            .collect();
+        v["certified"] = serde_json::Value::Array(sets);
+    }
+    Json(v)
 }
 
 /// GET /api/sync/checkpoint/:epoch/:cursor — this node's balance snapshot for a checkpoint.
