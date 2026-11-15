@@ -121,6 +121,8 @@ pub struct Engine {
     /// restart, kept outside the engine), so a restart can never make it vote twice, unless
     /// its own vote state for that epoch was restored (then it continues that state).
     vote_floor: u64,
+    /// Never PROPose for an epoch at or below this (sync before submit, sign_guard.rs).
+    prop_floor: u64,
     /// This node's latest signed vote per epoch (re-broadcast and persisted).
     my_votes: BTreeMap<u64, Vote>,
     /// Current tip as the driver last saw it (only selects the PROP wait).
@@ -132,7 +134,7 @@ impl Engine {
         voters.sort(); voters.dedup();
         Engine { chain: chain.into(), activation, voters, props: Default::default(), prop_first_ms: Default::default(),
             tallies: Default::default(), certs: Default::default(), final_: Default::default(), mine: Default::default(),
-            anchor: None, vote_floor: 0, my_votes: Default::default(), tip: 0 }
+            anchor: None, vote_floor: 0, prop_floor: 0, my_votes: Default::default(), tip: 0 }
     }
     pub fn set_tip(&mut self, tip: u64) { self.tip = self.tip.max(tip); }
     /// This node's PROP for `epoch`, if it made one.
@@ -163,6 +165,7 @@ impl Engine {
     /// Highest epoch this engine has voted for.
     pub fn max_voted(&self) -> Option<u64> { self.mine.keys().next_back().copied() }
     pub fn set_vote_floor(&mut self, epoch: u64) { self.vote_floor = self.vote_floor.max(epoch); }
+    pub fn set_prop_floor(&mut self, epoch: u64) { self.prop_floor = self.prop_floor.max(epoch); }
     /// Resume after a restart from the last applied epoch and its final cert digest.
     pub fn resume(&mut self, epoch: u64, digest: String) {
         if epoch >= self.activation && self.last_final().map_or(true, |lf| lf < epoch) { self.anchor = Some((epoch, digest)); }
@@ -213,6 +216,7 @@ impl Engine {
         if !self.is_voter(me) || epoch < self.activation { return None; }
         // One PROP per voter and epoch: never replace one already sent (peers keep the first).
         if self.own_prop(me, epoch).is_some() { return None; }
+        if epoch <= self.prop_floor { return None; }
         let decided = self.decided(epoch);
         hashes.retain(|h| !decided.contains(h));
         hashes.sort(); hashes.dedup(); hashes.truncate(MAX_SET);

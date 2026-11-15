@@ -43,6 +43,7 @@ mod clock;
 mod config;
 mod mem_profile;
 mod usefulness;
+mod sign_guard;
 mod sensor_seat;
 mod bird_cards;
 mod peer_ident;
@@ -1073,7 +1074,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             && state_healer::checkpoint_due(sealed_epoch)
                             && state_healer::mode() != state_healer::Mode::Off
                         {
-                            if let Some(sk) = ckpt_sk.as_ref().as_ref() {
+                            if let (Some(sk), true) = (ckpt_sk.as_ref().as_ref(), crate::sign_guard::ready()) {
                                 match state_healer::take(&chain_ref, sealed_epoch) {
                                     Some(snap) => {
                                         if let Err(e) = state_healer::save(&ckpt_dir, &snap) {
@@ -1276,7 +1277,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                     }
                     e += 1;
                 }
-                if votes.is_empty() || state_healer::halted() { continue; }
+                if votes.is_empty() || state_healer::halted() || !crate::sign_guard::ready() { continue; }
                 // Only clocks that are reward voters for these epochs count; others'
                 // votes are ignored by every tally, so don't spam them.
                 let Some(sk) = sk_c.as_ref().as_ref() else { continue };
@@ -1407,6 +1408,10 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         let signing_key_c = Arc::clone(&signing_key);
         let signing_pubkey_c = Arc::clone(&signing_pubkey_hex);
         let self_reg_c = Arc::clone(&self_register_envelope);
+        // Sync before submit (spec 6b): the signing guard knows who we are and our key.
+        let chain_sg = chain.clone();
+        crate::sign_guard::set_me(&node_id_c);
+        if let Some(pk) = signing_pubkey_c.as_ref().as_ref() { crate::sign_guard::set_my_pubkey(pk); }
         // Epoch is relative to genesis, not Unix epoch.
         // genesis_ts is guaranteed set (init_genesis would have errored otherwise).
         let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
@@ -1451,11 +1456,16 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                     };
                     // node_id is the account name (for reward routing).
                     // pubkey is the ed25519 verifying key hex (for signature verification).
+                    // Sync before submit (spec 6b): observe-only until synced and past the
+                    // doppelganger wait; never a second seal for an epoch.
+                    crate::sign_guard::tick(&chain_sg, &node_id_c, epoch);
+                    if signing_key_c.as_ref().is_some() && !crate::sign_guard::may_sign(crate::sign_guard::SEAL, epoch) { continue; }
                     let sig_hex = signing_key_c.as_ref().as_ref().map(|sk| {
                         use ed25519_dalek::Signer;
                         let msg = format!("seal:{}:{}:{}:{}", epoch, seal_hash, node_id_c, now);
                         hex::encode(sk.sign(msg.as_bytes()).to_bytes())
                     });
+                    if let Some(s) = &sig_hex { crate::sign_guard::signed(crate::sign_guard::SEAL, epoch, s); }
                     let seal = serde_json::json!({
                         "epoch_number": epoch,
                         "node_id": node_id_c,
@@ -1875,6 +1885,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             let seal_epoch = seal.get("epoch_number").and_then(|v| v.as_u64()).unwrap_or(0);
                             tracing::debug!("dropping stale seal epoch {} (real epoch {})", seal_epoch, real_epoch);
                         } else {
+                            crate::sign_guard::observe_seal(&seal);
                             clock_ref.receive_seal(seal);
                         }
                     }
@@ -1993,7 +2004,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                                                 .filter(|m| m["finalized"].as_bool().unwrap_or(false))
                                                 .and_then(|m| m["rewards_hash"].as_str().map(|h| (*e, h.to_owned()))))
                                             .collect();
-                                        if !mine.is_empty() && node_id != echo_node_id {
+                                        if !mine.is_empty() && node_id != echo_node_id && crate::sign_guard::ready() {
                                             let m = catchup_message(&chain_ref.chain_id, &echo_node_id, &mine);
                                             let esig = {
                                                 use ed25519_dalek::Signer;
@@ -2022,7 +2033,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                                 if echo && node_id != echo_node_id {
                                     if let Some(sk) = echo_sk.as_ref().as_ref() {
                                         let adopt = adoptable_echoes(&chain_ref, &node_id, &votes);
-                                        if !adopt.is_empty() {
+                                        if !adopt.is_empty() && crate::sign_guard::ready() {
                                             let n = clock_ref.receive_catchup_votes(
                                                 &echo_node_id, &adopt,
                                                 |e| catchup_voters(&chain_ref, e),
@@ -2079,6 +2090,7 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                             continue;
                         }
                         let Some(sk) = echo_sk.as_ref().as_ref() else { continue };
+                        if !crate::sign_guard::ready() { continue; }
                         if !epoch_sync::should_answer(&node_id, &kind, from) { continue; }
                         let data = match kind.as_str() {
                             "fin" => {

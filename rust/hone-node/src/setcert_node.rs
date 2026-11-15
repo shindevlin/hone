@@ -114,6 +114,11 @@ pub fn engine(chain: &Chain) -> &'static Mutex<Engine> {
             if !props.is_empty() || !votes.is_empty() {
                 info!("[setcert] restored {} own prop(s) and {} vote(s) from before the restart", props.len(), votes.len());
             }
+            {
+                let mut g = crate::sign_guard::guard().lock();
+                for p in &props { g.signed(crate::sign_guard::SET_PROP, p.epoch, &p.sig); }
+                for v in &votes { g.signed(crate::sign_guard::SET_VOTE, v.epoch, &v.sig); }
+            }
             e.restore_own(props, votes);
         }
         Mutex::new(e)
@@ -181,15 +186,18 @@ pub async fn on_seal(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetC
 {
     if !sa::active(t) { return; }
     let Some(sk) = sk else { return };
+    if !crate::sign_guard::ready() { return; }
     let hashes = sa::due_hashes(chain, t);
     let p = {
         let mut e = engine(chain).lock();
         e.set_voters(voters_now(chain));
+        e.set_prop_floor(crate::sign_guard::floor(crate::sign_guard::SET_PROP));
         let p = e.propose(me, t, hashes, sa::d_report(), now_ms(), &sign_with(sk));
         if p.is_some() { persist_own(&e, me); }
         p
     };
     if let Some(p) = p {
+        crate::sign_guard::signed(crate::sign_guard::SET_PROP, p.epoch, &p.sig);
         send(cmd_tx, serde_json::json!({ "type": "set_prop", "prop": p, "nonce": now_ms() })).await;
     }
 }
@@ -198,6 +206,23 @@ pub async fn on_seal(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetC
 pub async fn on_msg(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>, msg: serde_json::Value) {
     let ty = msg["type"].as_str().unwrap_or("");
     let v = verifier(chain);
+    // Sync before submit (spec 6b): a verified PROP / vote by our own key that this process
+    // did not make raises the floor, or, after we came up, means a doppelganger.
+    if let Some(me) = crate::sign_guard::me() {
+        match ty {
+            "set_prop" => if let Ok(p) = serde_json::from_value::<Prop>(msg["prop"].clone()) {
+                if p.voter == me && v(&p.voter, &crate::setcert::prop_message(&chain.chain_id, &p), &p.sig) {
+                    crate::sign_guard::observe_own(crate::sign_guard::SET_PROP, p.epoch, &p.sig);
+                }
+            },
+            "set_vote" => if let Ok(x) = serde_json::from_value::<Vote>(msg["vote"].clone()) {
+                if x.voter == me && v(&x.voter, &x.digest(&chain.chain_id), &x.sig) {
+                    crate::sign_guard::observe_own(crate::sign_guard::SET_VOTE, x.epoch, &x.sig);
+                }
+            },
+            _ => {}
+        }
+    }
     let formed: Option<Cert> = {
         let mut e = engine(chain).lock();
         match ty {
@@ -249,17 +274,30 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
         if !sa::active(cur) { continue; }
         let rebroadcast = now_ms().saturating_sub(last_rb) >= sa::REBROADCAST_MS;
         if rebroadcast { last_rb = now_ms(); }
+        // Sync before submit (spec 6b): observe-only until synced and past the doppelganger
+        // wait; the engine never signs at or below the floors. (Outside the engine lock.)
+        crate::sign_guard::tick(&chain, &me, cur);
+        let guard_ready = crate::sign_guard::ready();
         let (new, rb, finals) = {
             let mut e = engine(&chain).lock();
             e.set_voters(voters_now(&chain));
             let (mut new, mut rb) = (Vec::new(), Vec::new());
-            if let (true, Some(k)) = (is_clock, sk.as_ref().as_ref()) {
+            if let (true, true, Some(k)) = (is_clock, guard_ready, sk.as_ref().as_ref()) {
+                e.set_vote_floor(crate::sign_guard::floor(crate::sign_guard::SET_VOTE));
+                e.set_prop_floor(crate::sign_guard::floor(crate::sign_guard::SET_PROP));
                 (new, rb) = sa::voter_step(&mut e, &chain, &me, cur, now_ms(), sa::d_report(), rebroadcast, &sign_with(k));
                 // Persist before sending: a restart re-sends these, never different ones.
                 if !new.is_empty() { persist_own(&e, &me); }
             }
             (new, rb, e.finalize())
         };
+        for o in &new {
+            match o {
+                sa::Out::P(p) => crate::sign_guard::signed(crate::sign_guard::SET_PROP, p.epoch, &p.sig),
+                sa::Out::V(v) => crate::sign_guard::signed(crate::sign_guard::SET_VOTE, v.epoch, &v.sig),
+                sa::Out::C(_) => {}
+            }
+        }
         if let Some(m) = new.iter().filter_map(|o| if let sa::Out::V(v) = o { Some(v.epoch) } else { None }).max() { record_voted(m); }
         let catchup_props = new.iter().filter(|o| matches!(o, sa::Out::P(p) if p.epoch + 2 <= cur)).count();
         if catchup_props > 0 { info!("[setcert] catch-up: proposed {} sealed epoch(s) without a prop", catchup_props); }
