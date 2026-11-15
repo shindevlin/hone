@@ -11,6 +11,10 @@
 //!     run did not make (another instance with the same key): if it sees one it refuses to
 //!     sign at all and logs loudly;
 //! and from then on it never signs a kind at or below that kind's floor.
+//! Clock seals are the exception to 1: they carry consensus liveness, so they wait only for
+//! the doppelganger window (and the seal floor), never for setcert apply or finalization
+//! (beastly 2026-11-15: a clock restarting 600 epochs behind on apply never sealed, and with
+//! its seal missing no epoch reached quorum).
 //! The floors are persisted in HONE_DATA_DIR/sign_floor.json, next to setcert_voted.
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -95,21 +99,32 @@ impl Guard {
     /// DOPPELGANGER_EPOCHS. `chain_floors`:
     /// per kind, the highest epoch the chain shows signed by this node's key (only read
     /// while not Ready, it may be empty otherwise).
-    pub fn tick(&mut self, tip: u64, head: u64, known_final: u64, chain_floors: &BTreeMap<String, u64>) {
-        if self.phase == Phase::Blocked { return; }
+    /// Advance this run's clock only (no sync check): what a clock seal needs. Never goes
+    /// backwards; a gap of more than GAP_EPOCHS restarts the observe phase and its window.
+    pub fn note_tip(&mut self, tip: u64) -> u64 {
         // Never goes backwards: a caller with a lagging epoch (the decide worker passes the
         // sealed epoch) must not make the next on-time tick look like a gap (nebra 2026-11-15:
         // 9-epoch "gaps" every 30 s kept it observe-only, so it never voted).
         let tip = tip.max(self.last_tick.unwrap_or(0));
         if let Some(l) = self.last_tick {
-            if tip > l + GAP_EPOCHS && self.phase != Phase::Observe {
-                warn!("[sign-guard] gap of {} epochs: observe-only until synced", tip - l);
+            if tip > l + GAP_EPOCHS && self.phase != Phase::Blocked {
+                if self.phase != Phase::Observe { warn!("[sign-guard] gap of {} epochs: observe-only until synced", tip - l); }
                 self.phase = Phase::Observe;
                 self.start = None;
             }
         }
         self.last_tick = Some(tip);
-        if self.start.is_none() { self.start = Some(tip); }
+        if self.start.is_none() {
+            self.start = Some(tip);
+            info!("[sign-guard] observing from epoch {tip}: clock seals from {}, other signatures once synced",
+                tip + DOPPELGANGER_EPOCHS);
+        }
+        tip
+    }
+
+    pub fn tick(&mut self, tip: u64, head: u64, known_final: u64, chain_floors: &BTreeMap<String, u64>) {
+        if self.phase == Phase::Blocked { return; }
+        let tip = self.note_tip(tip);
         let mut changed = false;
         for (k, e) in chain_floors { changed |= self.raise(k, *e); }
         if changed { self.persist(); }
@@ -132,7 +147,17 @@ impl Guard {
     /// May this node sign `kind` for `epoch` now?
     /// Ready, above the run's floor, and not already signed by this run (one per slot).
     pub fn may_sign(&self, kind: &str, epoch: u64) -> bool {
+        if kind == SEAL { return self.may_seal(epoch); }
         self.phase == Phase::Ready && epoch > self.floor(kind) && !self.mine.contains_key(&(kind.to_owned(), epoch))
+    }
+    /// A clock seal: after the doppelganger window of this run (no own seal seen from
+    /// another instance), above every seal this key is known to have made, once per epoch.
+    /// Independent of setcert apply, finalization and the setcert engine.
+    pub fn may_seal(&self, epoch: u64) -> bool {
+        self.phase != Phase::Blocked
+            && self.start.zip(self.last_tick).is_some_and(|(s, l)| l >= s + DOPPELGANGER_EPOCHS)
+            && epoch > self.persisted_floor(SEAL)
+            && !self.mine.contains_key(&(SEAL.to_owned(), epoch))
     }
     /// For signatures with no epoch slot (catch-up echoes, decide reveals): Ready only.
     pub fn ready(&self) -> bool { self.phase == Phase::Ready }
@@ -207,18 +232,27 @@ pub fn heads(chain: &Chain, tip: u64) -> (u64, u64) {
     }
 }
 
+/// The guard's tip from a caller's epoch and the chain's current epoch.
+pub fn tick_tip(caller_epoch: u64, chain_epoch: u64) -> u64 { caller_epoch.max(chain_epoch) }
+
 /// (head, known final) from the applied head and the last final cert held.
 pub fn heads_from(applied: u64, last_final: u64) -> (u64, u64) { let h = applied.max(last_final); (h, h) }
 
 /// The node tick (seal loop, setcert driver, decide worker): reads the chain only while
 /// not Ready. Never call it while holding the setcert engine lock.
-pub fn tick(chain: &Chain, me: &str, _caller_epoch: u64) {
+pub fn tick(chain: &Chain, me: &str, caller_epoch: u64) {
     set_me(me);
-    // One clock for every caller: the chain's current epoch.
-    let tip = chain.current_epoch();
-    // While the setcert engine is still being built (startup), stay observe-only: its final
-    // certs are part of the chain floors and the finalized head.
-    if crate::setcert_apply::active(tip) && crate::setcert_node::try_engine().is_none() { return; }
+    // The run's clock: the caller's epoch (the seal loop passes the wall-clock epoch) or the
+    // chain's, whichever is later. The chain's current epoch alone advances only when seals
+    // reach quorum, so a clock waiting on it to seal would wait forever (beastly 2026-11-15).
+    let tip = tick_tip(caller_epoch, chain.current_epoch());
+    // While the setcert engine is still being built (startup), advance the clock only: seals
+    // need nothing else; everything else stays observe-only until the engine's final certs
+    // can feed the chain floors and the finalized head.
+    if crate::setcert_apply::active(tip) && crate::setcert_node::try_engine().is_none() {
+        guard().lock().note_tip(tip);
+        return;
+    }
     let (head, known) = heads(chain, tip);
     let need = !guard().lock().ready();
     let floors = if need { chain_floors(chain, me, tip) } else { BTreeMap::new() };
@@ -368,6 +402,43 @@ mod tests {
         assert!(matches!(g.phase, Phase::Doppelganger { .. }));
         g.tick(385_504, h, k, &BTreeMap::new());
         assert!(g.ready());
+    }
+
+    /// beastly 2026-11-15 (48f08e71): restarted 600 epochs behind on setcert apply, with the
+    /// chain's epoch frozen because its own seal was missing from quorum. Clock seals must
+    /// start right after the 2-epoch doppelganger window, whatever apply and finality do.
+    #[test]
+    fn a_clock_restarting_600_epochs_behind_on_apply_seals_after_the_doppelganger_window() {
+        let mut g = Guard::new(None);
+        let (applied, start) = (385_571u64, 386_168u64);
+        // The chain's epoch is frozen at `start` (no quorum without this seal); the seal loop
+        // passes the wall-clock epoch.
+        for (k, wall) in (start..start + 6).enumerate() {
+            let tip = tick_tip(wall, start);
+            g.tick(tip, applied, applied + 600, &BTreeMap::new()); // far behind, finals unknown
+            let may = g.may_sign(SEAL, wall);
+            if (k as u64) < DOPPELGANGER_EPOCHS { assert!(!may, "epoch {wall}: still in the doppelganger window"); }
+            else { assert!(may, "epoch {wall}: seals after the window although apply lags 600"); g.signed(SEAL, wall, "s"); }
+            assert!(!g.ready(), "setcert/decide signatures still wait for sync");
+        }
+        assert!(!g.may_sign(SEAL, start + 5), "once per epoch");
+        // Same with the setcert engine not built yet (only the clock advances).
+        let mut g = Guard::new(None);
+        for wall in start..start + 3 { g.note_tip(wall); }
+        assert!(g.may_sign(SEAL, start + 2));
+        // A seal by this key from another instance inside the window blocks sealing.
+        let mut g = Guard::new(None);
+        g.note_tip(start);
+        g.observe_own(SEAL, start + 1, "theirs");
+        for wall in start + 1..start + 4 { g.note_tip(wall); }
+        assert!(!g.may_sign(SEAL, start + 3), "doppelganger: never seals");
+        // The persisted seal floor (seals this key made before the restart) is respected.
+        let mut g = Guard::new(None);
+        g.signed(SEAL, start + 10, "old");
+        let mut g2 = Guard { mine: HashMap::new(), ..g };
+        for wall in start..start + 3 { g2.note_tip(wall); }
+        assert!(!g2.may_sign(SEAL, start + 2), "at or below a seal already made");
+        assert!(g2.may_sign(SEAL, start + 11));
     }
 
     #[test]
