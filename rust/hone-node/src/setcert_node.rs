@@ -174,9 +174,8 @@ pub fn engine(chain: &Chain) -> &'static Mutex<Engine> {
                 for v in &votes { g.signed(crate::sign_guard::SET_VOTE, v.epoch, &v.sig); }
             }
             // Re-send only what this node can still back with bodies (state swap 2026-11-15).
-            let (props, votes, dropped) = sa::restorable(chain, props, votes);
-            if dropped > 0 { warn!("[setcert] dropped {dropped} own prop(s)/vote(s) from before the restart: bodies no longer held"); }
-            e.restore_own(props, votes);
+            let held_back = sa::restore_into(&mut e, chain, props, votes);
+            if held_back > 0 { warn!("[setcert] {held_back} own prop(s)/vote(s) from before the restart name bodies no longer held: kept as state, not re-sent"); }
         }
         Mutex::new(e)
     })

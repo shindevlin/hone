@@ -146,6 +146,11 @@ pub struct Engine {
     lag_pool: BTreeMap<u64, Vec<Cert>>,
     /// Final certs accepted from lag_pool as a chain from the applied anchor (see advance_lag).
     lag_final: BTreeMap<u64, Cert>,
+    /// Restored own PROPs / votes naming bodies no longer held here: kept as state (this
+    /// voter already signed them; peers keep them; its round state continues from them) but
+    /// never re-sent, so they cannot carry unheld bodies into a cert (2026-11-15).
+    hold_prop: BTreeSet<u64>,
+    hold_vote: BTreeSet<u64>,
 }
 
 impl Engine {
@@ -153,7 +158,7 @@ impl Engine {
         voters.sort(); voters.dedup();
         Engine { chain: chain.into(), activation, voters, props: Default::default(), prop_first_ms: Default::default(),
             tallies: Default::default(), certs: Default::default(), final_: Default::default(), mine: Default::default(),
-            anchor: None, vote_floor: 0, prop_floor: 0, my_votes: Default::default(), tip: 0, lag_pool: Default::default(), lag_final: Default::default() }
+            anchor: None, vote_floor: 0, prop_floor: 0, my_votes: Default::default(), tip: 0, lag_pool: Default::default(), hold_prop: BTreeSet::new(), hold_vote: BTreeSet::new(), lag_final: Default::default() }
     }
     pub fn set_tip(&mut self, tip: u64) { self.tip = self.tip.max(tip); }
     /// This node's PROP for `epoch`, if it made one.
@@ -181,6 +186,15 @@ impl Engine {
             let _ = self.on_vote(v, &accept_own);
         }
     }
+    /// Restored own PROP / vote of `epoch` that must not be re-sent (bodies not held).
+    pub fn hold_back(&mut self, prop_epochs: impl IntoIterator<Item = u64>, vote_epochs: impl IntoIterator<Item = u64>) {
+        self.hold_prop.extend(prop_epochs);
+        self.hold_vote.extend(vote_epochs);
+    }
+    pub fn resend_prop_ok(&self, epoch: u64) -> bool { !self.hold_prop.contains(&epoch) }
+    pub fn resend_vote_ok(&self, epoch: u64) -> bool { !self.hold_vote.contains(&epoch) }
+    /// A new vote of this run for `epoch` passed the data-availability check: send it.
+    pub fn release_vote(&mut self, epoch: u64) { self.hold_vote.remove(&epoch); }
     /// Highest epoch this engine has voted for.
     pub fn max_voted(&self) -> Option<u64> { self.mine.keys().next_back().copied() }
     pub fn set_vote_floor(&mut self, epoch: u64) { self.vote_floor = self.vote_floor.max(epoch); }

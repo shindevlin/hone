@@ -86,13 +86,16 @@ pub fn voter_step(e: &mut setcert::Engine, chain: &Chain, me: &str, cur: u64, no
     for t in first..=hi {
         // Data availability: never vote for a set naming a body this voter does not hold.
         if let Some(hs) = e.vote_hashes(t) {
-            let same = e.own_vote(t).is_some_and(|v| v.content.hashes == hs);
+            // Already voted this content in this run (it passed this check then). A restored
+            // vote held back for unheld bodies never counts as checked.
+            let same = e.resend_vote_ok(t) && e.own_vote(t).is_some_and(|v| v.content.hashes == hs);
             if !hs.is_empty() && !same {
                 let missing: Vec<String> = hs.iter().filter(|h| body(chain, h).is_none()).cloned().collect();
                 if !missing.is_empty() { da_missing().lock().unwrap().extend(missing); continue; }
             }
         }
         if let Some(v) = e.maybe_vote(me, t, now_ms, sign) {
+            e.release_vote(t);
             for h in &v.content.hashes { keep_voted_body(chain, h); }
             new.push(Out::V(v));
         }
@@ -100,8 +103,8 @@ pub fn voter_step(e: &mut setcert::Engine, chain: &Chain, me: &str, cur: u64, no
     if rebroadcast {
         for t in first..=hi {
             if t + 3 > cur { break; }
-            if let Some(p) = e.own_prop(me, t) { rb.push(Out::P(p.clone())); }
-            if let Some(v) = e.own_vote(t) { rb.push(Out::V(v.clone())); }
+            if e.resend_prop_ok(t) { if let Some(p) = e.own_prop(me, t) { rb.push(Out::P(p.clone())); } }
+            if e.resend_vote_ok(t) { if let Some(v) = e.own_vote(t) { rb.push(Out::V(v.clone())); } }
             if let Some(c) = e.chosen(t) { rb.push(Out::C(c.clone())); }
         }
     }
@@ -135,7 +138,10 @@ pub fn body(chain: &Chain, hash: &str) -> Option<(LedgerEntry, Option<String>)> 
     // every lookup hung a voter restoring 1,052 own PROPs at startup (beastly, 7d56432b).
     if let Some(x) = FETCHED.lock().unwrap().get(hash) { return Some(x.clone()); }
     if let Some(x) = chain.pool_body(hash) { return Some(x); }
-    voted_body(chain, hash)
+    if let Some(x) = voted_body(chain, hash) { return Some(x); }
+    // A body already certified (applied or rejected) and kept: a late set naming it again
+    // is held here (apply then rejects the duplicate by exactly-once), never a halt.
+    kept_body(chain, hash)
 }
 
 // ── Data availability (incident 2026-11-15, epoch 384535) ──────────────────────────
@@ -153,6 +159,22 @@ pub fn held(chain: &Chain, hash: &str) -> bool {
 /// body they name is still held here; a state swap or crash that lost them drops them (the
 /// floors still cover their epochs, so nothing different is signed there). Returns
 /// (kept props, kept votes, dropped count).
+/// Restore a voter's own PROPs and votes from before a restart. All of them become engine
+/// state again (they are signed and out there: peers keep the first PROP of each voter, and
+/// the round state lets this voter vote a later round of an epoch it already voted in;
+/// dropping them left beastly unable to PROPose or vote 385572.. ever again, 2026-11-15).
+/// Those naming a body no longer held here are never re-sent (rule 1). Returns how many.
+pub fn restore_into(e: &mut setcert::Engine, chain: &Chain, props: Vec<setcert::Prop>, votes: Vec<setcert::Vote>) -> usize {
+    let (kp, kv, held_back) = restorable(chain, props.clone(), votes.clone());
+    let pe: std::collections::BTreeSet<u64> = kp.iter().map(|p| p.epoch).collect();
+    let ve: std::collections::BTreeSet<(u64, u32)> = kv.iter().map(|v| (v.epoch, v.round)).collect();
+    let hold_p: Vec<u64> = props.iter().map(|p| p.epoch).filter(|t| !pe.contains(t)).collect();
+    let hold_v: Vec<u64> = votes.iter().filter(|v| !ve.contains(&(v.epoch, v.round))).map(|v| v.epoch).collect();
+    e.restore_own(props, votes);
+    e.hold_back(hold_p, hold_v);
+    held_back
+}
+
 pub fn restorable(chain: &Chain, props: Vec<setcert::Prop>, votes: Vec<setcert::Vote>)
     -> (Vec<setcert::Prop>, Vec<setcert::Vote>, usize) {
     let n = props.len() + votes.len();
@@ -895,7 +917,9 @@ mod tests {
             content: setcert::Content { hashes: vec![e.hash()], reports: vec![] }, votes: Default::default() };
         offer_body(e.clone(), s);
         assert_eq!(apply_final(&c, &cert), Ok(0), "rejected at apply");
-        assert!(body(&c, &e.hash()).is_none(), "gone from the pool and the fetch cache");
+        assert!(c.pool_body(&e.hash()).is_none(), "gone from the pool");
+        assert!(!FETCHED.lock().unwrap().contains_key(&e.hash()), "and from the fetch cache");
+        assert!(body(&c, &e.hash()).is_some(), "still held from the kept certified set");
         let served = serve_bodies(&c, &[e.hash()], act);
         assert_eq!(served.len(), 1, "a peer missing it can still fetch it");
         TEST_EPOCH.with(|c| c.set(None));
@@ -1307,6 +1331,59 @@ mod tests {
         assert!(!c.pending.lock().iter().any(|(e, _)| e.hash() == old.hash()), "and from memory");
         assert!(c.pool_body(&new.hash()).is_some(), "still applicable: kept");
         assert_eq!(c.pool_prune_stale(act), 0);
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+    /// beastly 2026-11-15 (6adcdea0): restored own PROPs/votes naming bodies no longer held
+    /// were dropped, so with its floors covering 385572.. it could never PROPose or vote
+    /// there again. They are now kept as state (not re-sent): the voter votes a later round
+    /// of the epoch once it holds the union's bodies, and the epoch certifies.
+    #[test]
+    fn a_restarted_voter_rejoins_epochs_it_voted_in_before_losing_their_bodies() {
+        let act = 700u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let voters: Vec<String> = vec!["v1".into(), "v2".into()];
+        let (c, _d) = chain("rejoin");
+        let sk = SigningKey::from_bytes(&[0x69; 32]);
+        let (le, ls) = xfer(&sk, "alice", "bob", 1, act, 5);
+        let lost = le.hash();
+        // Before the restart: v1 PROPosed and voted round 0 of `act` naming a body since lost.
+        let mut old = Engine::new("hone-test", act, voters.clone());
+        let s1 = signer("v1");
+        let p1 = old.propose("v1", act, vec![lost.clone()], 3, 0, &s1).unwrap();
+        let mut p2 = Prop { epoch: act, voter: "v2".into(), hashes: vec![], d_report: 3, sig: String::new() };
+        p2.sig = signer("v2")(&setcert::prop_message("hone-test", &p2));
+        assert!(old.on_prop(p2.clone(), 0, &verify));
+        let v1 = old.maybe_vote("v1", act, 0, &s1).expect("voted before the restart");
+        // Restart with floors covering `act` (as sign_guard sets them).
+        let mut e = Engine::new("hone-test", act, voters.clone());
+        e.set_prop_floor(act + 50);
+        e.set_vote_floor(act + 1);
+        assert_eq!(restore_into(&mut e, &c, vec![p1.clone()], vec![v1.clone()]), 2);
+        assert!(e.own_prop("v1", act).is_some(), "kept as state");
+        assert!(e.on_prop(p2, 1_000, &verify));
+        // Nothing naming the lost body is re-sent.
+        let (_, rb) = voter_step(&mut e, &c, "v1", act + 10, 100_000, 3, true, &s1);
+        assert!(!rb.iter().any(|o| matches!(o, Out::P(p) if p.epoch == act)));
+        assert!(!rb.iter().any(|o| matches!(o, Out::V(v) if v.epoch == act)));
+        // Not held: no vote (DA). Once the body is served by a peer, v1 votes a later round.
+        let mut v2 = setcert::Vote { epoch: act, round: 1, voter: "v2".into(), prev: setcert::genesis_prev(act),
+            content: setcert::Content { hashes: vec![lost.clone()], reports: vec![("v1".into(), 3), ("v2".into(), 3)] }, sig: String::new() };
+        v2.sig = signer("v2")(&v2.digest("hone-test"));
+        let _ = e.on_vote(v2, &verify);
+        let (new, _) = voter_step(&mut e, &c, "v1", act + 10, 200_000, 3, false, &s1);
+        assert!(!new.iter().any(|o| matches!(o, Out::V(_))), "no vote without the body");
+        offer_body(le, ls); // a peer serves it (DA fetch)
+        let (new, _) = voter_step(&mut e, &c, "v1", act + 10, 300_000, 3, false, &s1);
+        let v = new.iter().find_map(|o| if let Out::V(v) = o { Some(v.clone()) } else { None })
+            .expect("votes a later round of an epoch it voted in before the restart");
+        assert!(v.round >= 1 && v.content.hashes.contains(&lost));
+        // It joined the peer's round with the same content: with both votes the epoch certifies.
+        let mut w = setcert::Vote { voter: "v2".into(), sig: String::new(), ..v.clone() };
+        w.sig = signer("v2")(&w.digest("hone-test"));
+        let _ = e.on_vote(v, &verify);
+        let _ = e.on_vote(w, &verify);
+        let c = e.chosen(act).expect("the epoch certifies");
+        assert!(c.votes.contains_key("v1") && c.votes.contains_key("v2"));
         TEST_EPOCH.with(|c| c.set(None));
     }
 }
