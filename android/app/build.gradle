@@ -17,12 +17,17 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing comes only from the environment, never from this file:
+    //   HONE_KEYSTORE (path), HONE_KEYSTORE_PASSWORD, HONE_KEY_ALIAS (default hone), HONE_KEY_PASSWORD.
+    // Without HONE_KEYSTORE the release APK is built unsigned (what CI uploads).
     signingConfigs {
         release {
-            storeFile file('../hone-release.keystore')
-            storePassword 'hone_release_2026'
-            keyAlias 'hone'
-            keyPassword 'hone_release_2026'
+            if (System.getenv('HONE_KEYSTORE')) {
+                storeFile file(System.getenv('HONE_KEYSTORE'))
+                storePassword System.getenv('HONE_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('HONE_KEY_ALIAS') ?: 'hone'
+                keyPassword System.getenv('HONE_KEY_PASSWORD')
+            }
         }
     }
     buildFeatures {
@@ -32,7 +37,9 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            if (System.getenv('HONE_KEYSTORE')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

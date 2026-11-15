@@ -17,7 +17,9 @@ on:
 jobs:
   check-constants:
     name: Verify doc/code constant agreement
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hone]
+    # self-hosted runner on grouchly: never run code from a fork there
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
 

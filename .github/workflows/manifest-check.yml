@@ -29,9 +29,14 @@ on:
 jobs:
   manifest-check:
     name: Verify committed manifest matches source
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hone]
+    # self-hosted runner on grouchly: never run code from a fork there
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
+
+      - name: Build deps
+        run: sudo apt-get update -q && sudo apt-get install -y -q build-essential pkg-config libssl-dev clang libclang-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -54,5 +59,9 @@ jobs:
         run: cargo test --release manifest
 
       - name: Check committed manifest is current
+        # every hone binary has the UFL gate; setting this is the act of acceptance (docs/LICENSE_ACCEPTANCE.md)
+        env:
+          HONE_ACCEPT_LICENSE: UFL-3.8-D
+          HONE_DATA_DIR: ${{ runner.temp }}/hone-data
         run: |
           ./rust/hone-sdk/target/release/hone manifest check --repo .
