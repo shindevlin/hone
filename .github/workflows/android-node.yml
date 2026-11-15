@@ -97,7 +97,10 @@ jobs:
         working-directory: android
         run: ./gradlew assembleRelease
 
+      # artifact storage is blocked while the shindevlin billing hold stands; a failed
+      # upload must not hide a good build. Drop continue-on-error once the hold clears.
       - name: Upload APK artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: hone-android-${{ github.sha }}
