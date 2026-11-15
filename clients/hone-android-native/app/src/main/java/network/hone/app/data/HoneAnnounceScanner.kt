@@ -41,6 +41,8 @@ data class HoneDevice(
     val lastSeenMs: Long,
     val relayed: Int = 0,          // batch commits this phone submitted to the chain
     val queued: Int = 0,           // heard but not yet accepted (no node reachable, etc.)
+    val historyMismatch: Boolean = false, // fw >= 2.3.0: chain head not in its history, commits paused
+    val syncOn: Boolean = false,          // fw >= 2.3.0: signs seq'd 'HS' commits (sync before submit)
 )
 
 /**
@@ -86,7 +88,7 @@ object HoneAnnounceScanner {
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
             .build()
-        runCatching { scanner.startScan(listOf(f('A'), f('C')), settings, callback) }
+        runCatching { scanner.startScan(listOf(f('A'), f('C'), f('S')), settings, callback) }
             .onSuccess { running = true; Log.i(TAG, "scanning for HONE announces") }
             .onFailure { Log.e(TAG, "startScan failed", it) }
     }
@@ -95,7 +97,7 @@ object HoneAnnounceScanner {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val md = result.scanRecord?.getManufacturerSpecificData(COMPANY) ?: return
             if (md.size < 5 || md[0] != 'H'.code.toByte()) return
-            if (md[1] == 'C'.code.toByte()) { onCommitFragment(result, md); return }
+            if (md[1] == 'C'.code.toByte() || md[1] == 'S'.code.toByte()) { onCommitFragment(result, md); return }
             if (md[1] != 'A'.code.toByte()) return
             val seq = md[2].toInt() and 0xFF
             val idx = (md[3].toInt() and 0xFF) shr 4
@@ -113,7 +115,7 @@ object HoneAnnounceScanner {
                 val frame = (0 until total).fold(ByteArray(0)) { acc, i -> acc + m.getValue(i) }
                 parse(frame, result.rssi)?.let {
                     addrToId[result.device.address] = it.deviceId
-                    publish(it)
+                    publish(it, result.device.address)
                     network.hone.app.sightings.SightingsEngine.onFlipperFrame(it.deviceId, "announce", result.rssi)
                     runCatching { network.hone.app.raw.RawRecorder.onFlipperSigned(it.deviceId, "announce", frame, result.rssi, it.owner.ifEmpty { null }) }
                 }
@@ -144,7 +146,7 @@ object HoneAnnounceScanner {
         val idx = (md[3].toInt() and 0xFF) shr 4
         val total = md[3].toInt() and 0x0F
         if (total == 0 || idx >= total) return
-        val key = "${result.device.address}/$seq"
+        val key = "${md[1].toInt().toChar()}/${result.device.address}/$seq"
         val data: ByteArray
         synchronized(this) {
             if (key in commitDone) return
@@ -156,6 +158,7 @@ object HoneAnnounceScanner {
             if (commitFrags.size > 256) commitFrags.clear()
             data = (0 until total).fold(ByteArray(0)) { acc, i -> acc + m.getValue(i) }
         }
+        if (md[1] == 'S'.code.toByte()) { onSyncedCommit(result, data); return }
         if (data.size != 107) return
         val devId = data.copyOfRange(0, 8).hex()
         // Stamp the frame with this phone's location (private layer; relay unchanged).
@@ -179,6 +182,56 @@ object HoneAnnounceScanner {
         }
         verifyAndQueue(devId, group, count, hash, sig, heard.pubkey, heard.owner)
     }
+
+    // ── Seq'd commits ('HS', firmware >= 2.3.0, sync before submit): the Flipper signs the chain
+    // message with seq and prev_head (the chain head this phone's owner wrote to it); relayed as is.
+    private fun onSyncedCommit(result: ScanResult, data: ByteArray) {
+        val c = FlipperSync.parseS(data) ?: return
+        network.hone.app.sightings.SightingsEngine.onFlipperFrame(c.devId, "commit", result.rssi)
+        runCatching { network.hone.app.raw.RawRecorder.onFlipperSigned(c.devId, "commit", data, result.rssi, _devices.value[c.devId]?.owner?.ifEmpty { null }) }
+        synchronized(this) { if ("${c.hash}/${c.seq}" in seenBatches) return }
+        val heard = _devices.value[c.devId]?.takeIf { it.signatureOk && it.owner.isNotEmpty() }
+        if (heard == null) {
+            scope.launch {
+                val known = chainKey(c.devId) ?: return@launch
+                verifyAndQueueSynced(c, known.first, known.second)
+            }
+            return
+        }
+        verifyAndQueueSynced(c, heard.pubkey, heard.owner)
+    }
+
+    private fun verifyAndQueueSynced(c: FlipperSync.SCommit, pubkey: String, owner: String) {
+        val type = FlipperSync.TYPES[c.group]
+        val msg = FlipperSync.message(c.sensorId, owner, c.hash, c.count, type, c.seq, c.prevHead)
+        if (!verify(pubkey, msg, c.sig)) { Log.w(TAG, "seq'd commit from ${c.devId}: bad signature, dropped"); return }
+        val body = FlipperSync.body(c, owner, account)
+        synchronized(this) {
+            if (!seenBatches.add("${c.hash}/${c.seq}")) return
+            while (seenBatches.size > 4096) seenBatches.remove(seenBatches.first())
+            pending.add(body)
+            savePending()
+        }
+        val group = FlipperSync.GROUPS[c.group]
+        appCtx?.let { ctx ->
+            runCatching { FlipperLog.add(ctx, c.devId, group, c.count, c.hash) }
+            runCatching { network.hone.app.sightings.SightingsEngine.onFlipperCommit(group, c.count) }
+            network.hone.app.telemetry.FlipperPublisher.record(ctx, c.sensorId, owner, c.hash, c.count, type,
+                FlipperSync.hex(c.sig), pubkey, null)
+        }
+        Log.i(TAG, "commit ${c.sensorId} x${c.count} seq ${c.seq} heard, queued")
+        updateCounts(c.devId)
+        scope.launch { flush() }
+    }
+
+    private fun verify(pubkey: String, msg: String, sig: ByteArray): Boolean = runCatching {
+        Ed25519Signer().run {
+            init(false, Ed25519PublicKeyParameters(pubkey.unhex(), 0))
+            val b = msg.toByteArray()
+            update(b, 0, b.size)
+            verifySignature(sig)
+        }
+    }.getOrDefault(false)
 
     private val chainKeys = HashMap<String, Pair<String, String>>() // devId -> (pubkey, owner)
 
@@ -239,7 +292,15 @@ object HoneAnnounceScanner {
             val res = ChainHttp.postJson("/api/sensor/commit", b.toString()) ?: break // offline
             val devId = b.optString("sensor_id").split("-").getOrNull(1) ?: ""
             if (res.first in 200..299 || res.first in 400..499) {
-                synchronized(this) { pending.removeAll { it.optString("batch_hash") == b.optString("batch_hash") }; savePending() }
+                synchronized(this) {
+                    pending.removeAll { it.optString("batch_hash") == b.optString("batch_hash") && it.optLong("seq", -1) == b.optLong("seq", -1) }
+                    savePending()
+                }
+                // seq'd commit: tell the owner's Flipper the new head (or that it must resync)
+                if (b.has("seq")) appCtx?.let { c ->
+                    if (res.first in 200..299) FlipperSync.onRelayAccepted(c, devId, b.optString("owner"))
+                    else FlipperSync.onRelayRefused(c, devId, b.optString("owner"), res.second)
+                }
                 if (res.first in 200..299) relayedBy[devId] = (relayedBy[devId] ?: 0) + 1
                 else Log.w(TAG, "commit ${b.optString("sensor_id")} refused ${res.first}: ${res.second.take(160)}")
                 updateCounts(devId)
@@ -315,17 +376,20 @@ object HoneAnnounceScanner {
             chainOwnerOk = chainChecked[id]?.first,
             batteryPct = batt, caps = CAPS.filterIndexed { i, _ -> (caps shr i) and 1 == 1 },
             extPower = flags and 1 != 0, paused = flags and 2 != 0,
+            historyMismatch = flags and FlipperSync.ANN_MISMATCH != 0, syncOn = flags and FlipperSync.ANN_SYNC_ON != 0,
             counter = counter, newestReading = newest, rssi = rssi,
             lastSeenMs = System.currentTimeMillis(),
         )
     }
 
-    private fun publish(d0: HoneDevice) {
+    private fun publish(d0: HoneDevice, address: String) {
         val prev = _devices.value[d0.deviceId]
         val d = d0.copy(relayed = relayedBy[d0.deviceId] ?: 0, queued = prev?.queued ?: 0)
         _devices.value = _devices.value + (d.deviceId to d)
         appCtx?.let { c -> runCatching { FlipperLog.seen(c, d) } }
-        Log.i(TAG, "announce ${d.deviceId} owner=${d.owner} sig=${d.signatureOk} batt=${d.batteryPct}%")
+        Log.i(TAG, "announce ${d.deviceId} owner=${d.owner} sig=${d.signatureOk} batt=${d.batteryPct}%" +
+            (if (d.syncOn) " sync" else "") + (if (d.historyMismatch) " HISTORY-MISMATCH" else ""))
+        appCtx?.let { c -> runCatching { FlipperSync.onAnnounce(c, d, address) } }
         val last = chainChecked[d.deviceId]
         if (d.signatureOk && (last == null || System.currentTimeMillis() - last.second > 300_000)) {
             chainChecked[d.deviceId] = (last?.first) to System.currentTimeMillis()

@@ -27,8 +27,14 @@ object SensorSummaryWire {
         else -> minOf(rowRes, MAX_RES)
     }
 
+    /** [seq]/[prevHead]: sync before submit, appended last and only when present (hone-node with_device_log). */
     fun message(chainId: String, sensorId: String, owner: String, batchHash: String, cell: String,
-                window: Long, metrics: Map<String, Long>): String {
+                window: Long, metrics: Map<String, Long>, seq: Long? = null, prevHead: String? = null): String =
+        network.hone.app.data.DeviceSyncEngine.withDeviceLog(
+            messageBase(chainId, sensorId, owner, batchHash, cell, window, metrics), seq, prevHead)
+
+    private fun messageBase(chainId: String, sensorId: String, owner: String, batchHash: String, cell: String,
+                            window: Long, metrics: Map<String, Long>): String {
         require(cell.isEmpty() || res(cell) in MIN_RES..MAX_RES) { "cell must be an H3 res $MIN_RES-$MAX_RES id, or empty (NULL_CELL gate)" }
         require(metrics.size in 1..MAX_METRICS) { "1..$MAX_METRICS metrics" }
         require(metrics.keys.all { METRIC.matches(it) }) { "bad metric name" }
@@ -39,9 +45,11 @@ object SensorSummaryWire {
 
     /** POST body for /api/sensor/summary. */
     fun body(sensorId: String, owner: String, batchHash: String, cell: String, window: Long,
-             metrics: Map<String, Long>, signatureHex: String): String =
+             metrics: Map<String, Long>, signatureHex: String, seq: Long? = null, prevHead: String? = null): String =
         Canonical.encode(mapOf("sensor_id" to sensorId, "owner" to owner, "batch_hash" to batchHash, "cell" to cell,
-            "window" to window, "metrics" to metrics.toSortedMap(), "signature" to signatureHex))
+            "window" to window, "metrics" to metrics.toSortedMap(), "signature" to signatureHex) +
+            (if (seq != null) mapOf("seq" to seq) else emptyMap()) +
+            (if (seq != null && prevHead != null) mapOf("prev_head" to prevHead) else emptyMap()))
 
     private fun q(s: String) = Canonical.encode(s)
 }

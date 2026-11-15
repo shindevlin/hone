@@ -65,6 +65,13 @@ class SensorCommitClient(
     private val chainId: String,
     private val transport: SensorTransport,
 ) {
+    /** Sync before submit (DeviceSync.kt); null = commits without seq, as before. */
+    private var sync: DeviceSyncEngine? = null
+
+    constructor(chainId: String, transport: SensorTransport, sync: DeviceSyncEngine?) : this(chainId, transport) {
+        this.sync = sync
+    }
+
     fun enrollDevice(
         sensorId: String,
         owner: String,
@@ -85,14 +92,34 @@ class SensorCommitClient(
     ): SensorHttpResponse = enrollDevice(sensorId, owner, "", ownerPostingSigner)
 
     fun postReading(batch: SensorReadingBatch, signer: SensorSigner): SensorHttpResponse {
-        val canonical = SensorWire.sensorDataCommit(chainId, batch)
-        val signature = signer.sign(canonical.toByteArray()).toHex()
-        return transport.post("/api/sensor/commit", SensorWire.commitBody(batch, signature))
+        val sync = this.sync
+        if (sync == null) {
+            val canonical = SensorWire.sensorDataCommit(chainId, batch)
+            val signature = signer.sign(canonical.toByteArray()).toHex()
+            return transport.post("/api/sensor/commit", SensorWire.commitBody(batch, signature))
+        }
+        var last: SensorHttpResponse? = null
+        val out = sync.submit(batch.sensorId) { seq, prev ->
+            val canonical = SensorWire.sensorDataCommit(chainId, batch, seq, prev)
+            val signature = signer.sign(canonical.toByteArray()).toHex()
+            val r = runCatching { transport.post("/api/sensor/commit", SensorWire.commitBody(batch, signature, seq, prev)) }
+                .getOrElse { SensorHttpResponse(0, it.message ?: "error") }
+            last = r
+            DeviceSyncEngine.Post(r.status, r.body)
+        }
+        return when (out) {
+            DeviceSyncEngine.Outcome.Paused -> SensorHttpResponse(0, "paused: this device's history doesn't match the chain")
+            else -> last ?: SensorHttpResponse(0, "offline")
+        }
     }
 }
 
 object SensorWire {
-    fun sensorDataCommit(chainId: String, batch: SensorReadingBatch): String =
+    /** [seq]/[prevHead]: sync before submit, appended only when present (hone-node tx.rs with_device_log). */
+    fun sensorDataCommit(chainId: String, batch: SensorReadingBatch, seq: Long? = null, prevHead: String? = null): String =
+        DeviceSyncEngine.withDeviceLog(sensorDataCommitBase(chainId, batch), seq, prevHead)
+
+    private fun sensorDataCommitBase(chainId: String, batch: SensorReadingBatch): String =
         "{\"chain_id\":${q(chainId)},\"type\":\"SENSOR_DATA_COMMIT\",\"sensor_id\":${q(batch.sensorId)}," +
             "\"owner\":${q(batch.owner)},\"batch_hash\":${q(batch.batchHash)}," +
             "\"reading_count\":${batch.readingCount},\"sensor_type\":${q(batch.sensorType)}," +
@@ -102,11 +129,12 @@ object SensorWire {
         "{\"chain_id\":${q(chainId)},\"type\":\"SENSOR_KEY_REGISTER\",\"sensor_id\":${q(sensorId)}," +
             "\"owner\":${q(owner)},\"device_pubkey\":${q(pubkey)},\"signed_by\":${q(owner)}}"
 
-    fun commitBody(batch: SensorReadingBatch, signature: String): String {
+    fun commitBody(batch: SensorReadingBatch, signature: String, seq: Long? = null, prevHead: String? = null): String {
         val value = batch.value?.let { ",\"value\":$it" }.orEmpty()
+        val log = seq?.let { ",\"seq\":$it" + (prevHead?.let { p -> ",\"prev_head\":${q(p)}" } ?: "") }.orEmpty()
         return "{\"sensor_id\":${q(batch.sensorId)},\"owner\":${q(batch.owner)}," +
             "\"batch_hash\":${q(batch.batchHash)},\"reading_count\":${batch.readingCount}," +
-            "\"sensor_type\":${q(batch.sensorType)}$value,\"signature\":${q(signature)}}"
+            "\"sensor_type\":${q(batch.sensorType)}$value$log,\"signature\":${q(signature)}}"
     }
 
     fun enrollmentBody(sensorId: String, owner: String, pubkey: String, signature: String): String =

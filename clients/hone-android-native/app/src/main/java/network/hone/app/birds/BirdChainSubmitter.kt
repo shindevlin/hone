@@ -100,9 +100,19 @@ object BirdChainSubmitter {
         val seed = Telemetry.seatSeedForChain(ctx)
         val sensorId = "birds-${Telemetry.deviceId(ctx)}"
         for (e in ents) {
-            val msg = SensorSummaryWire.message("hone", sensorId, owner, "", e.cell, e.window, e.metrics)
-            val body = SensorSummaryWire.body(sensorId, owner, "", e.cell, e.window, e.metrics, Canonical.hex(Canonical.sign(seed, msg)))
-            val res = Telemetry.post(CHAIN_URL, body)
+            // Sync before submit: seq / prev_head on the chain's head once its gate is on (DeviceSync.kt).
+            var posted: Telemetry.HttpResult? = null
+            val out = network.hone.app.data.DeviceSync.engine(ctx).submit(sensorId) { seq, prev ->
+                val msg = SensorSummaryWire.message("hone", sensorId, owner, "", e.cell, e.window, e.metrics, seq, prev)
+                val body = SensorSummaryWire.body(sensorId, owner, "", e.cell, e.window, e.metrics, Canonical.hex(Canonical.sign(seed, msg)), seq, prev)
+                val r = Telemetry.post(CHAIN_URL, body)
+                posted = r
+                network.hone.app.data.DeviceSyncEngine.Post(r?.code ?: 0, r?.body ?: "")
+            }
+            if (out == network.hone.app.data.DeviceSyncEngine.Outcome.Paused) {
+                Telemetry.skipped(ctx, "bird_chain", "device history doesn't match the chain: paused"); return
+            }
+            val res = posted
             if (res == null || res.code == 429 || res.code >= 500) {         // retry this page next round
                 Telemetry.upload(ctx, "bird_chain", false, res?.let { "HTTP ${it.code}" } ?: "offline"); return
             }

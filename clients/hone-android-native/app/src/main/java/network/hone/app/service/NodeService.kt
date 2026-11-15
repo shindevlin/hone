@@ -137,7 +137,8 @@ class NodeService : Service() {
                 .getOrNull()
         } else null
         val coordinator = sub?.let {
-            SensorSubmissionCoordinator(SensorCommitClient(it.settings.chainId, NodeSensorTransport(it.settings.nodeUrl)))
+            SensorSubmissionCoordinator(SensorCommitClient(it.settings.chainId, NodeSensorTransport(it.settings.nodeUrl),
+                network.hone.app.data.DeviceSync.engine(this, it.settings.nodeUrl)))
         }
         val identities = HashMap<String, DeviceSensorIdentity>()
         var accepted = 0L

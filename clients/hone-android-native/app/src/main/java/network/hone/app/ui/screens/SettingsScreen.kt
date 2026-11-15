@@ -18,6 +18,7 @@ import network.hone.app.sightings.SightingsEngine
 import network.hone.app.sound.Perch
 import network.hone.app.sound.SoundSensing
 import network.hone.app.ui.theme.*
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -235,6 +236,8 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
             }
         }
 
+        DeviceHistorySection()
+
         Section("About") {
             val pi = remember { ctx.packageManager.getPackageInfo(ctx.packageName, 0) }
             Text("HONE ${pi.versionName} · ${ctx.packageName}", style = MaterialTheme.typography.bodySmall)
@@ -276,4 +279,48 @@ private fun VoiceprintExport() {
         Text("Voiceprint test export", style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
     }
     if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+}
+
+/**
+ * Sync before submit: device keys whose submissions are paused because the chain holds commits that
+ * are not in this device's history (a copied phone or Flipper, or one restored from an old backup).
+ */
+@Composable
+private fun DeviceHistorySection() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var tick by remember { mutableIntStateOf(0) }
+    val paused = remember(tick) { network.hone.app.data.DeviceSync.paused(ctx) }
+    val flippers = remember(tick) { network.hone.app.data.FlipperSync.mismatched(ctx) }
+    var msg by remember { mutableStateOf("") }
+    Section("Device history") {
+        if (paused.isEmpty() && flippers.isEmpty())
+            Text("Every device this phone signs for matches the chain.",
+                style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+        for ((key, reason) in paused) {
+            Text(key, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(network.hone.app.data.DeviceSync.MISMATCH_TEXT, style = MaterialTheme.typography.bodySmall)
+            if (reason.isNotEmpty()) Text(reason, style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+            OutlinedButton(onClick = {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    msg = if (network.hone.app.data.DeviceSync.reanchor(ctx, key)) "$key re-anchored on the chain's head."
+                          else "No node answered; try again when online."
+                    tick++
+                }
+            }) { Text("Re-anchor $key") }
+        }
+        for (dev in flippers) {
+            Text("Flipper $dev", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(network.hone.app.data.DeviceSync.MISMATCH_TEXT, style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = {
+                msg = "Connecting to the Flipper\u2026"
+                network.hone.app.data.FlipperSync.reanchor(ctx, dev) { r -> msg = r; tick++ }
+            }) { Text("Re-anchor Flipper") }
+        }
+        if (paused.isNotEmpty() || flippers.isNotEmpty())
+            Text("Re-anchor only if this is the only copy of the device. It continues after the chain's last commit " +
+                "with a new sequence number; nothing already signed is re-used.",
+                style = MaterialTheme.typography.labelSmall, color = HoneTextFaint)
+        if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.labelSmall)
+    }
 }

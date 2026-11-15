@@ -211,9 +211,19 @@ object CoverageSubmitter {
             }
             if (met.isEmpty()) met["obs.none"] = 1L                       // nothing observed is a reading too
             val bh = runCatching { network.hone.app.raw.RawRecorder.shaFor(ctx, w) }.getOrDefault("")
-            val msg = SensorSummaryWire.message("hone", sensorId, owner, bh, c9, w, met)
-            val body = SensorSummaryWire.body(sensorId, owner, bh, c9, w, met, Canonical.hex(Canonical.sign(seed, msg)))
-            val r = Telemetry.post(CHAIN_URL, body)
+            // Sync before submit: seq / prev_head on the chain's head once its gate is on (DeviceSync.kt).
+            var posted: Telemetry.HttpResult? = null
+            val out = network.hone.app.data.DeviceSync.engine(ctx).submit(sensorId) { seq, prev ->
+                val msg = SensorSummaryWire.message("hone", sensorId, owner, bh, c9, w, met, seq, prev)
+                val body = SensorSummaryWire.body(sensorId, owner, bh, c9, w, met, Canonical.hex(Canonical.sign(seed, msg)), seq, prev)
+                val res = Telemetry.post(CHAIN_URL, body)
+                posted = res
+                network.hone.app.data.DeviceSyncEngine.Post(res?.code ?: 0, res?.body ?: "")
+            }
+            if (out == network.hone.app.data.DeviceSyncEngine.Outcome.Paused) {
+                Telemetry.skipped(ctx, "summary", "device history doesn't match the chain: paused"); return
+            }
+            val r = posted
             when {
                 r == null -> { Telemetry.upload(ctx, "summary", false, "offline"); return }
                 r.code == 429 || r.code >= 500 -> { Telemetry.upload(ctx, "summary", false, "HTTP ${r.code}"); return }
