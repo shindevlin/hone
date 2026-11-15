@@ -29,7 +29,7 @@
   `score = 10000 * (good + P_g) / (good + bad + P_g + P_b) - uncertainty(good+bad)`
   so a new device with little evidence scores low-middle, and confidence grows with evidence. Integer math only; the exact formula is in the code and tests.
 - **Composite** = evidence-weighted average over the domains the subject actually works in. A domain with no evidence doesn't drag it down.
-- **Bad weighs more than good:** a contradiction costs about 3x a confirmation; a proven fraud resets the domain to zero evidence with a heavy bad count.
+- **Bad weighs more than good:** a contradiction costs about 3x a confirmation; a proven violation resets the domain to zero evidence with a heavy bad count.
 
 ## 3. Events (all from decided sets, applied at decide_by; never in API handlers)
 | Event | Domain | Effect |
@@ -49,7 +49,7 @@
 | Oracle report within band / outside | oracle | +/- |
 | Relayed entry that was certified | relay | +small |
 | Teleport (impossible travel) | data | -large, window voided |
-| Proven fraud | all of that device | reset + slash (existing rules) |
+| Proven violation | all of that device | reset + slash (existing rules) |
 
 ## 4. Time
 - **Decay:** every 2,880 epochs (1 day) both counters x 0.98 (half-life ~34 days). Old good behaviour fades; so does old bad behaviour.
@@ -64,16 +64,23 @@
 
 ## 6. Owner reputation
 - Evidence-weighted average of the owner's device composites, capped by the best device's confidence.
-- A proven fraud on any device hits the owner (shared -large) and the inheritance for future devices.
+- A proven violation on any device hits the owner (shared -large) and the inheritance for future devices.
 - Anti-sybil: many cheap devices don't raise the owner score faster than evidence accrues; confirmations only count from **other owners** with reputation >= threshold; one owner's devices never confirm each other.
 
-## 6a. Fraud and stake (Josh, 2026-11-14)
-- **Fraud also kills the stake.** A PROVEN fraud (today: clock double-sign evidence; later: fabrication/replay proven by audit hooks) slashes 100% of every `role_stake` backing that device, any role and any staker, to the recycle fund. This overrides the 10%-per-incident cap for proven fraud only; ordinary strikes keep the existing slash rules. Supply is conserved (recycle receives exactly what was removed). The owner's OTHER devices are not slashed; they take the reputation hit only.
-- **Fraud is per device unless proven account-wide.** Account-wide needs proof:
-  1. fraud evidence signed by the owner's account key itself (not just a device key): account-wide on its own (hook ready; no such evidence type yet), or
-  2. coordinated: proven frauds on at least `max(ACCOUNT_FRAUD_MIN_DEVICES = 2, ceil(ACCOUNT_FRAUD_SHARE = 10% of the owner's ACTIVE devices))` of its devices within `ACCOUNT_FRAUD_WINDOW = 20,160` epochs (7 days). An owner with thousands of devices needs proportionally more. Active device = registered and with at least one useful-work event within the last 20,160 epochs, so registering idle devices never raises the threshold.
-- **Account-wide fraud:** 100% of every stake the account placed (any device, any role) goes to recycle, and the owner's reputation is reset: an account penalty holds the owner score, and so every new device's inheritance, at the fraud floor (0) while the penalty is at least half its size (about 34 days of decay).
-- Below the threshold each fraud stays per device.
+## 6a. Violations and stake (Josh, 2026-11-14)
+- **Kinds of violation:** equivocation (two different signed statements for the same slot: a clock double-sign, or two different device commits at the same device seq), fabrication, replay. Only these are slashable; a rejected stale commit alone is not.
+- **Violation also kills the stake.** A PROVEN violation (today: clock double-sign evidence; later: fabrication/replay proven by audit hooks) slashes 100% of every `role_stake` backing that device, any role and any staker, to the recycle fund. This overrides the 10%-per-incident cap for proven violation only; ordinary strikes keep the existing slash rules. Supply is conserved (recycle receives exactly what was removed). The owner's OTHER devices are not slashed; they take the reputation hit only.
+- **Violation is per device unless proven account-wide.** Account-wide needs proof:
+  1. violation evidence signed by the owner's account key itself (not just a device key): account-wide on its own (hook ready; no such evidence type yet), or
+  2. coordinated: proven violations on at least `max(ACCOUNT_VIOLATION_MIN_DEVICES = 2, ceil(ACCOUNT_VIOLATION_SHARE = 10% of the owner's ACTIVE devices))` of its devices within `ACCOUNT_VIOLATION_WINDOW = 20,160` epochs (7 days). An owner with thousands of devices needs proportionally more. Active device = registered and with at least one useful-work event within the last 20,160 epochs, so registering idle devices never raises the threshold.
+- **Account-wide violation:** 100% of every stake the account placed (any device, any role) goes to recycle, and the owner's reputation is reset: an account penalty holds the owner score, and so every new device's inheritance, at the violation floor (0) while the penalty is at least half its size (about 34 days of decay).
+- Below the threshold each violation stays per device.
+
+## 6b. Sync before submit (all devices)
+Nothing signs before it has looked at the chain.
+- **Nodes** (local behaviour, not gated): on start, restart, or after a gap of more than a few epochs a node is observe-only: it signs nothing (seals, setcert proposals/votes, decide commits/reveals, clock claims) until it has synced to the finalized head. It then raises its local "highest signed" floor per signing type to the max of its local record and what the chain shows signed by its own key (covers lost or restored state, e.g. snapshot swaps). Doppelganger wait: it listens 2 epochs; any signature by its own key that it did not make this run means another instance runs with the same key, so it refuses to sign and logs loudly. Only then does it sign, never at or below the floor. The floor is persisted next to `setcert_voted`.
+- **Devices** (chain rule behind REPUTATION_EPOCH): every device that commits data (SensorDataCommit, SensorSummary: Flipper heads, phone seats, pucks) has a committed head in state, `{seq, head_hash, epoch}`, served at `GET /api/device/:key/head`. Before submitting, a device fetches its head and reconciles its local log: its next commit carries `seq > head.seq` and `prev_head == head.head_hash` (a skipped seq is a declared gap, still hash-linked; the first commit has no prev_head). A commit that does not extend the head is rejected (not slashed) with an error telling the device to resync. If the chain head is not in the device's local history, the device has been cloned or restored: it stops and alerts the owner.
+- **Equivocation for devices** is two different signed commits for the same device seq, both seen on chain or gossip: that is the provable violation. A rejected stale commit alone is not.
 
 ## 7. What reputation controls
 - **Reward weight:** reward x (0.25 ... 1.0) by domain score; unconfirmed single-device data/alerts paid by reputation, not withheld.
@@ -97,7 +104,7 @@
 ## 10. Tests
 - Deterministic across nodes (same decided sets -> same state), integer math only.
 - Gate off -> byte-identical state.
-- Decay, inheritance caps, owner cap, same-owner confirmations ignored, absent-witness = no penalty, fraud reset.
+- Decay, inheritance caps, owner cap, same-owner confirmations ignored, absent-witness = no penalty, violation reset.
 - Migration seeds match current inference/oracle/clock values.
 
 ## 11. Next: attack alerts on top

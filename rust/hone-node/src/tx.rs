@@ -3239,6 +3239,14 @@ fn check_sensor_signature(
 /// Clients sign this message, NOT the full entry JSON (which includes
 /// server-set fields like epoch).  Field order is fixed and must match
 /// the client SDK's signing implementation.
+/// Device-log fields are signed only when present, so every message without them is
+/// byte-for-byte what it was before (sync before submit, REPUTATION_EPOCH).
+fn with_device_log(mut m: serde_json::Value, seq: &Option<u64>, prev_head: &Option<String>) -> serde_json::Value {
+    if let Some(s) = seq { m["seq"] = serde_json::json!(s); }
+    if let Some(p) = prev_head { m["prev_head"] = serde_json::json!(p); }
+    m
+}
+
 pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<String> {
     let msg = match entry {
         LedgerEntry::AccountCreate { account, keys, chain_proofs, funded_by, .. } => {
@@ -3418,12 +3426,12 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "chain_id": chain_id, "type": "DEVICE_YIELD_UNSTAKE",
                 "device_serial": device_serial, "staker": staker, "amount": amount, "nonce": nonce,
             }),
-        LedgerEntry::SensorDataCommit { sensor_id, owner, batch_hash, reading_count, sensor_type, signed_by, .. } =>
-            serde_json::json!({
+        LedgerEntry::SensorDataCommit { sensor_id, owner, batch_hash, reading_count, sensor_type, signed_by, seq, prev_head, .. } =>
+            with_device_log(serde_json::json!({
                 "chain_id": chain_id, "type": "SENSOR_DATA_COMMIT",
                 "sensor_id": sensor_id, "owner": owner, "batch_hash": batch_hash,
                 "reading_count": reading_count, "sensor_type": sensor_type, "signed_by": signed_by,
-            }),
+            }), seq, prev_head),
         LedgerEntry::StorageHeartbeat { node_id, bytes_proven, query_count, signed_by, .. } =>
             serde_json::json!({
                 "chain_id": chain_id, "type": "STORAGE_HEARTBEAT",
@@ -3649,8 +3657,8 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
             serde_json::json!({ "chain_id": chain_id, "type": "BIRD_SPLIT", "seat": seat, "bird_id": bird_id, "stats": stats, "epoch": epoch }),
         LedgerEntry::BirdCardSend { card, to, nonce, .. } =>
             serde_json::json!({ "chain_id": chain_id, "type": "BIRD_CARD_SEND", "card": card, "to": to, "nonce": nonce }),
-        LedgerEntry::SensorSummary { sensor_id, owner, batch_hash, cell, window, metrics, .. } =>
-            serde_json::json!({
+        LedgerEntry::SensorSummary { sensor_id, owner, batch_hash, cell, window, metrics, seq, prev_head, .. } =>
+            with_device_log(serde_json::json!({
                 "chain_id": chain_id,
                 "type": "SENSOR_SUMMARY",
                 "sensor_id": sensor_id,
@@ -3659,7 +3667,7 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "cell": cell,
                 "window": window,
                 "metrics": metrics,
-            }),
+            }), seq, prev_head),
         LedgerEntry::CoverageReport { reporter, lat, lon, carrier_mcc_mnc, data_hash, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
@@ -3916,7 +3924,7 @@ mod tests {
         fund(&chain, "josh", 10_000_000_000_000);
         let seat_sk = SigningKey::from_bytes(&[0x5e; 32]);
         let seat = format!("josh@{}", hex::encode(seat_sk.verifying_key().to_bytes()));
-        let e = LedgerEntry::SensorSummary { sensor_id: "st".into(), owner: seat.clone(), batch_hash: String::new(),
+        let e = LedgerEntry::SensorSummary { seq: None, prev_head: None, sensor_id: "st".into(), owner: seat.clone(), batch_hash: String::new(),
             cell: "896d75d960bffff".into(), window: 1_993_148,
             metrics: [("wifi.ap_count".to_string(), 3i64)].into_iter().collect(), epoch: 352_700, signed_by: seat.clone() };
         assert!(precheck_submission(&chain, &e, Some(&sign(&seat_sk, &e))).is_err(), "unstaked seat refused at admission");
@@ -3936,7 +3944,7 @@ mod tests {
         fund(&chain, "josh", 10_000_000_000_000); // posting key seed b'j'
         let seat_sk = SigningKey::from_bytes(&[0x5e; 32]);
         let seat = format!("josh@{}", hex::encode(seat_sk.verifying_key().to_bytes()));
-        let mk = |owner: &str, w: u64| LedgerEntry::SensorSummary {
+        let mk = |owner: &str, w: u64| LedgerEntry::SensorSummary { seq: None, prev_head: None,
             sensor_id: "moto".into(), owner: owner.into(), batch_hash: String::new(),
             cell: "896d75d960bffff".into(), window: w,
             metrics: [("wifi.ap_count".to_string(), 12i64 + w as i64 * 10)].into_iter().collect(),
@@ -4828,7 +4836,7 @@ mod tests {
         // original PR #7 bug. A keyed owner's commit must be signed.
         let (chain, _dir) = make_chain();
         fund(&chain, "alice", 1_000_000_000_000);
-        let entry = LedgerEntry::SensorDataCommit {
+        let entry = LedgerEntry::SensorDataCommit { seq: None, prev_head: None,
             sensor_id: "s1".into(), owner: "alice".into(),
             batch_hash: "bh".into(), reading_count: 100,
             sensor_type: "gnss".into(), epoch: 0,
@@ -4907,7 +4915,7 @@ mod tests {
         // or, if owner==attacker but signed_by==victim, impersonation). Here:
         // attacker signs with their own key but names `victim` as owner to farm
         // reward attribution — must be rejected because signed_by != owner.
-        let entry = LedgerEntry::SensorDataCommit {
+        let entry = LedgerEntry::SensorDataCommit { seq: None, prev_head: None,
             sensor_id: "unregistered-sensor".into(),
             owner: "victim".into(),
             batch_hash: "bh".into(), reading_count: 9999,
@@ -4947,7 +4955,7 @@ mod tests {
     }
 
     fn sensor_commit(sensor_id: &str, owner: &str) -> LedgerEntry {
-        LedgerEntry::SensorDataCommit {
+        LedgerEntry::SensorDataCommit { seq: None, prev_head: None,
             sensor_id: sensor_id.into(), owner: owner.into(),
             batch_hash: "bh".into(), reading_count: 42, sensor_type: "gnss".into(),
             epoch: 0, signed_by: owner.into(), gateway_account: None,
@@ -4961,7 +4969,7 @@ mod tests {
     /// device signer breaks — treat a change here as a wire-format break, not a refactor.
     #[test]
     fn canonical_sensor_commit_format_is_locked() {
-        let entry = LedgerEntry::SensorDataCommit {
+        let entry = LedgerEntry::SensorDataCommit { seq: None, prev_head: None,
             sensor_id: "phone-gnss".into(), owner: "josh".into(),
             batch_hash: "abc123".into(), reading_count: 42, sensor_type: "continuous".into(),
             epoch: 0, signed_by: "josh".into(), gateway_account: None,

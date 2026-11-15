@@ -605,6 +605,12 @@ pub enum LedgerEntry {
         metrics: std::collections::BTreeMap<String, i64>,
         epoch: Epoch,
         signed_by: AccountId,
+        /// Sync before submit (REPUTATION_EPOCH): this commit's position in the device's
+        /// committed log and the hash of the device's previous committed entry.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seq: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prev_head: Option<String>,
     },
     /// Register a referral-backed sensor seat `owner@seat_pubkey` (owner active key).
     SensorSeatRegister {
@@ -1068,6 +1074,12 @@ pub enum LedgerEntry {
         /// Optional gateway that relayed this sensor's data (earns 40% of reward).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         gateway_account: Option<String>,
+        /// Sync before submit (REPUTATION_EPOCH): this commit's position in the device's
+        /// committed log and the hash of the device's previous committed entry.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seq: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prev_head: Option<String>,
     },
 
     /// System entry: split a sensor reward between the sensor node (60%) and

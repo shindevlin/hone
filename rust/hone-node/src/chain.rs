@@ -1672,7 +1672,9 @@ impl Chain {
             | LedgerEntry::BirdMerge { .. } | LedgerEntry::BirdMergeConsent { .. } | LedgerEntry::BirdSplit { .. } => {
                 crate::bird_cards::apply(self, entry)?;
             }
-            LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, .. } => {
+            LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, seq, prev_head, .. } => {
+                let dat = crate::rep::at(*epoch);
+                crate::rep::device_check(self, sensor_id, owner, *seq, prev_head.as_deref(), &entry.hash(), dat)?;
                 crate::sensor_seat::touch(self, owner, *epoch);
                 let (verdicts, pts) = crate::usefulness::score(self, sensor_id, owner, cell, *window, metrics, *epoch);
                 for (m, v) in &verdicts {
@@ -1680,6 +1682,7 @@ impl Chain {
                 }
                 info!("[usefulness] {} {} {} w{}: {:?} -> {} point(s)", owner, sensor_id, cell, window,
                     verdicts.iter().map(|(m, v)| format!("{m}:{v:?}")).collect::<Vec<_>>(), pts);
+                crate::rep::device_record(self, sensor_id, *seq, &entry.hash(), dat);
             }
 
             LedgerEntry::CoverageReport { reporter, lat, lon, signal_dbm, carrier_mcc_mnc, technology, data_hash, epoch, .. } => {
@@ -1787,6 +1790,11 @@ impl Chain {
             // Track sensor commits per sensor_id (not per owner) so reward scoring
             // can apply type-aware sensor_score() per individual sensor.
             LedgerEntry::SensorDataCommit { sensor_id, owner, epoch, reading_count, sensor_type, .. } => {
+                // Sync before submit (gate REPUTATION_EPOCH): the commit must extend the
+                // device's committed head; else it is rejected (not slashed) so the device resyncs.
+                let (dseq, dprev) = match entry { LedgerEntry::SensorDataCommit { seq, prev_head, .. } => (*seq, prev_head.clone()), _ => (None, None) };
+                let dat = crate::rep::at(*epoch);
+                crate::rep::device_check(self, sensor_id, owner, dseq, dprev.as_deref(), &entry.hash(), dat)?;
                 self.ensure_account(owner, *epoch)?;
                 // Cap: no sensor type scores meaningfully past 10_000 readings per epoch.
                 // Prevents unbounded state values from being stored.
@@ -1851,6 +1859,7 @@ impl Chain {
                         "batch_hash": bh, "reading_count": total, "decided": true,
                     })).unwrap_or_default());
                 }
+                crate::rep::device_record(self, sensor_id, dseq, &entry.hash(), dat);
             }
 
             // Decentralized runtime — state guards + full economics.
@@ -3535,8 +3544,8 @@ impl Chain {
                 }))?)?;
 
                 self.store.state_set(&slash_guard, b"1")?;
-                // Reputation (gate REPUTATION_EPOCH): proven fraud resets the offender.
-                crate::rep::on_fraud(self, offender, None, crate::rep::Domain::Consensus, crate::rep::at(*epoch));
+                // Reputation (gate REPUTATION_EPOCH): a proven violation (equivocation) resets the offender.
+                crate::rep::on_violation(self, offender, None, crate::rep::ViolationKind::Equivocation, crate::rep::Domain::Consensus, crate::rep::at(*epoch));
                 warn!(
                     "[clock] double-sign slash: '{}' slashed {} hunits at epoch {} (submitter='{}' hashes={}/{})",
                     offender, reg_stake, epoch, submitter,

@@ -3,7 +3,7 @@
 //! One record per subject per domain (`rep:{subject}:{domain}`): good and bad evidence in
 //! fixed point (x1000), a prior, and the last decay boundary. The composite is the
 //! evidence-weighted average of the domains the subject works in; the owner score
-//! (`rep_owner:{account}` holds only its shared fraud penalty) is derived from the owner's
+//! (`rep_owner:{account}` holds only its shared violation penalty) is derived from the owner's
 //! device composites. Integer math only.
 //!
 //! Every write happens in decided-set processing (entry apply, certified-set apply, the
@@ -40,31 +40,31 @@ pub const MEDIUM: u64 = 3 * UNIT;
 pub const LARGE: u64 = 9 * UNIT;
 /// "-very large": a failed random audit.
 pub const VERY_LARGE: u64 = 27 * UNIT;
-/// Proven fraud: the device's domains restart from zero good evidence with this much bad.
-pub const FRAUD_BAD: u64 = 100 * UNIT;
-/// Proven fraud on any device also hits its owner ("shared -large").
-pub const OWNER_FRAUD_BAD: u64 = LARGE;
-/// Proven fraud also kills the stake (Josh 2026-11-14): 100% of every role_stake backing the
+/// Proven violation: the device's domains restart from zero good evidence with this much bad.
+pub const VIOLATION_BAD: u64 = 100 * UNIT;
+/// Proven violation on any device also hits its owner ("shared -large").
+pub const OWNER_VIOLATION_BAD: u64 = LARGE;
+/// Proven violation also kills the stake (Josh 2026-11-14): 100% of every role_stake backing the
 /// device (any role, any staker) goes to the recycle fund. This overrides the 10% per-incident
-/// cap for proven fraud only. The owner's other devices are not slashed (reputation hit only).
+/// cap for proven violation only. The owner's other devices are not slashed (reputation hit only).
 ///
-/// Fraud is per device unless PROVEN account-wide, which takes either
-///  (1) fraud evidence signed by the owner's account key itself (`on_account_fraud`), or
-///  (2) proven frauds on at least max(ACCOUNT_FRAUD_MIN_DEVICES,
-///      ceil(ACCOUNT_FRAUD_SHARE_BPS x the owner's ACTIVE devices)) of its devices within
-///      ACCOUNT_FRAUD_WINDOW epochs (coordinated). An owner with thousands of devices needs
+/// Violation is per device unless PROVEN account-wide, which takes either
+///  (1) violation evidence signed by the owner's account key itself (`on_account_violation`), or
+///  (2) proven violations on at least max(ACCOUNT_VIOLATION_MIN_DEVICES,
+///      ceil(ACCOUNT_VIOLATION_SHARE_BPS x the owner's ACTIVE devices)) of its devices within
+///      ACCOUNT_VIOLATION_WINDOW epochs (coordinated). An owner with thousands of devices needs
 ///      proportionally more.
 /// Active device: registered and with at least one useful-work (good) event within
-/// ACCOUNT_FRAUD_WINDOW, so registering idle devices never raises the threshold.
-pub const ACCOUNT_FRAUD_WINDOW: u64 = 20_160;
-pub const ACCOUNT_FRAUD_MIN_DEVICES: u64 = 2;
-pub const ACCOUNT_FRAUD_SHARE_BPS: u64 = 1_000;
-/// Account-wide fraud slashes 100% of every stake the account placed (any device, any role)
-/// to recycle and resets the owner: an account penalty of ACCOUNT_FRAUD_BAD (decays x0.98 a
-/// day) holds the owner score, and so every new device's inheritance, at the fraud floor (0)
-/// while it is at least ACCOUNT_FRAUD_FLOOR_BPS of its full size (~34 days).
-pub const ACCOUNT_FRAUD_BAD: u64 = FRAUD_BAD;
-pub const ACCOUNT_FRAUD_FLOOR_BPS: u64 = 5_000;
+/// ACCOUNT_VIOLATION_WINDOW, so registering idle devices never raises the threshold.
+pub const ACCOUNT_VIOLATION_WINDOW: u64 = 20_160;
+pub const ACCOUNT_VIOLATION_MIN_DEVICES: u64 = 2;
+pub const ACCOUNT_VIOLATION_SHARE_BPS: u64 = 1_000;
+/// Account-wide violation slashes 100% of every stake the account placed (any device, any role)
+/// to recycle and resets the owner: an account penalty of ACCOUNT_VIOLATION_BAD (decays x0.98 a
+/// day) holds the owner score, and so every new device's inheritance, at the violation floor (0)
+/// while it is at least ACCOUNT_VIOLATION_FLOOR_BPS of its full size (~34 days).
+pub const ACCOUNT_VIOLATION_BAD: u64 = VIOLATION_BAD;
+pub const ACCOUNT_VIOLATION_FLOOR_BPS: u64 = 5_000;
 /// Slash log entries kept per subject / account.
 pub const SLASH_LOG: usize = 20;
 /// Decay period (1 day of 30 s epochs) and factor (x0.98, half-life ~34 days).
@@ -129,6 +129,23 @@ impl Domain {
             Domain::Compute => "compute", Domain::Consensus => "consensus",
             Domain::Oracle => "oracle", Domain::Relay => "relay",
         }
+    }
+}
+
+/// The provable violations (spec 6a). A rejected stale commit alone is none of these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ViolationKind {
+    /// Two different signed statements for the same slot: a clock double-sign, or two
+    /// different device commits at the same device seq.
+    Equivocation,
+    /// Data proven made up (audit / challenge).
+    Fabrication,
+    /// Old data re-submitted as new (audit).
+    Replay,
+}
+impl ViolationKind {
+    pub fn as_str(self) -> &'static str {
+        match self { ViolationKind::Equivocation => "equivocation", ViolationKind::Fabrication => "fabrication", ViolationKind::Replay => "replay" }
     }
 }
 
@@ -202,8 +219,8 @@ fn meta_key(subject: &str) -> String { format!("rep_meta:{subject}") }
 fn ev_key(subject: &str) -> String { format!("rep_ev:{subject}") }
 fn dev_key(owner: &str, subject: &str) -> String { format!("rep_dev:{owner}:{subject}") }
 fn owner_key(owner: &str) -> String { format!("rep_owner:{owner}") }
-fn fraud_key(owner: &str, subject: &str) -> String { format!("rep_fraud:{owner}:{subject}") }
-fn acct_key(owner: &str) -> String { format!("rep_account_fraud:{owner}") }
+fn violation_key(owner: &str, subject: &str) -> String { format!("rep_violation:{owner}:{subject}") }
+fn acct_key(owner: &str) -> String { format!("rep_account_violation:{owner}") }
 fn slash_key(subject: &str) -> String { format!("rep_slash:{subject}") }
 
 fn get<T: serde::de::DeserializeOwned>(chain: &Chain, k: &str) -> Option<T> {
@@ -237,9 +254,9 @@ fn new_prior(chain: &Chain, owner: &str, attested: bool, epoch: u64) -> (u64, u6
     let g = (n as u128 * target as u128).div_ceil(10_000) as u64;
     let inherited = (g, n - g);
     // An honest owner's device never starts below the open (or locked) prior: an owner still
-    // short of evidence has a low, confidence-capped score. A proven fraud on the owner does
-    // carry over (spec 6: fraud hits the inheritance for future devices).
-    if o.fraud_bad > 0 || score(0, 0, inherited.0, inherited.1) >= score(0, 0, base.0, base.1) { inherited } else { base }
+    // short of evidence has a low, confidence-capped score. A proven violation on the owner does
+    // carry over (spec 6: violation hits the inheritance for future devices).
+    if o.violation_bad > 0 || score(0, 0, inherited.0, inherited.1) >= score(0, 0, base.0, base.1) { inherited } else { base }
 }
 
 fn ensure_meta(chain: &Chain, subject: &str, owner: Option<&str>, epoch: u64) -> Meta {
@@ -337,13 +354,13 @@ pub struct OwnerView {
     pub score: u64,
     pub confidence: u64,
     pub evidence: u64,
-    pub fraud_bad: u64,
-    pub account_fraud_floor: bool,
+    pub violation_bad: u64,
+    pub account_violation_floor: bool,
     pub devices: Vec<serde_json::Value>,
 }
 
 /// Owner score: evidence-weighted average of the counted device composites (devices count
-/// after OWNER_COUNT_DELAY), with the shared fraud penalty as a zero-score member, capped
+/// after OWNER_COUNT_DELAY), with the shared violation penalty as a zero-score member, capped
 /// by the best device's confidence. No counted evidence: score 0.
 pub fn owner_view(chain: &Chain, owner: &str, epoch: u64) -> OwnerView { owner_view_x(chain, owner, epoch, true) }
 
@@ -368,14 +385,14 @@ fn owner_view_x(chain: &Chain, owner: &str, epoch: u64, detail: bool) -> OwnerVi
         devices.push(serde_json::json!({ "subject": subject, "composite": c, "evidence": n,
             "confidence": conf, "counted": counted, "created_epoch": created }));
     }
-    let fraud_bad = get::<DomainRec>(chain, &owner_key(owner)).map(|mut r| { r.decay_to(epoch); r.bad }).unwrap_or(0);
+    let violation_bad = get::<DomainRec>(chain, &owner_key(owner)).map(|mut r| { r.decay_to(epoch); r.bad }).unwrap_or(0);
     let acct = get::<DomainRec>(chain, &acct_key(owner)).map(|mut r| { r.decay_to(epoch); r.bad }).unwrap_or(0);
-    den += fraud_bad as u128 + acct as u128;
+    den += violation_bad as u128 + acct as u128;
     let avg = if den == 0 { 0 } else { (num / den) as u64 };
     let evidence = den.min(u64::MAX as u128) as u64;
-    let floor = acct > 0 && acct as u128 * 10_000 >= ACCOUNT_FRAUD_BAD as u128 * ACCOUNT_FRAUD_FLOOR_BPS as u128;
+    let floor = acct > 0 && acct as u128 * 10_000 >= ACCOUNT_VIOLATION_BAD as u128 * ACCOUNT_VIOLATION_FLOOR_BPS as u128;
     OwnerView { account: owner.to_owned(), score: if floor { 0 } else { avg.min(best_conf) },
-                confidence: confidence(evidence), evidence, fraud_bad: fraud_bad + acct, account_fraud_floor: floor, devices }
+                confidence: confidence(evidence), evidence, violation_bad: violation_bad + acct, account_violation_floor: floor, devices }
 }
 
 pub fn owner_score(chain: &Chain, owner: &str, epoch: u64) -> u64 { owner_view_x(chain, owner, epoch, false).score }
@@ -416,8 +433,8 @@ pub fn owner_json(chain: &Chain, account: &str, epoch: u64) -> serde_json::Value
     let o = owner_view(chain, account, epoch);
     serde_json::json!({ "account": o.account, "epoch": epoch, "active": active(epoch),
         "active_from_epoch": activation(), "score": o.score, "confidence": o.confidence,
-        "evidence": o.evidence, "fraud_bad": o.fraud_bad, "account_fraud_floor": o.account_fraud_floor,
-        "account_fraud": get::<serde_json::Value>(chain, &acct_key(account)).is_some(),
+        "evidence": o.evidence, "violation_bad": o.violation_bad, "account_violation_floor": o.account_violation_floor,
+        "account_violation": get::<serde_json::Value>(chain, &acct_key(account)).is_some(),
         "slashes": get::<serde_json::Value>(chain, &slash_key(account)),
         "unit": UNIT, "devices": o.devices })
 }
@@ -541,10 +558,10 @@ pub fn set_attested(chain: &Chain, subject: &str, owner: &str, epoch: u64) -> bo
     true
 }
 
-/// Proven fraud: every domain of the device restarts from zero good evidence with
-/// FRAUD_BAD and the open prior (no inheritance, no attestation); the owner takes
-/// OWNER_FRAUD_BAD as a shared penalty, which also lowers what future devices inherit.
-pub fn on_fraud(chain: &Chain, subject: &str, owner: Option<&str>, d: Domain, epoch: u64) -> bool {
+/// Proven violation: every domain of the device restarts from zero good evidence with
+/// VIOLATION_BAD and the open prior (no inheritance, no attestation); the owner takes
+/// OWNER_VIOLATION_BAD as a shared penalty, which also lowers what future devices inherit.
+pub fn on_violation(chain: &Chain, subject: &str, owner: Option<&str>, kind: ViolationKind, d: Domain, epoch: u64) -> bool {
     if !active(epoch) { return false; }
     ensure_migrated(chain, epoch);
     let mut m = ensure_meta(chain, subject, owner, epoch);
@@ -553,39 +570,39 @@ pub fn on_fraud(chain: &Chain, subject: &str, owner: Option<&str>, d: Domain, ep
     for x in Domain::ALL {
         let k = rec_key(subject, x);
         if x != d && chain.store.state_get(&k).is_none() { continue; }
-        let r = DomainRec { good: 0, bad: FRAUD_BAD, prior_g: PRIOR_OPEN_G, prior_b: PRIOR_OPEN_B,
+        let r = DomainRec { good: 0, bad: VIOLATION_BAD, prior_g: PRIOR_OPEN_G, prior_b: PRIOR_OPEN_B,
             last_decay_epoch: (epoch / DECAY_EPOCHS) * DECAY_EPOCHS, day: 0, day_counts: BTreeMap::new() };
         put(chain, &k, &r);
     }
     let ok = owner_key(&m.owner);
     let mut o: DomainRec = get(chain, &ok).unwrap_or_default();
     o.decay_to(epoch);
-    o.bad = o.bad.saturating_add(OWNER_FRAUD_BAD);
+    o.bad = o.bad.saturating_add(OWNER_VIOLATION_BAD);
     put(chain, &ok, &o);
-    push_event(chain, subject, Event { epoch, domain: d.as_str().into(), kind: "fraud".into(), good: 0, bad: FRAUD_BAD });
-    // Fraud also kills the stake backing this device (any role, any staker), to recycle.
+    push_event(chain, subject, Event { epoch, domain: d.as_str().into(), kind: format!("violation:{}", kind.as_str()), good: 0, bad: VIOLATION_BAD });
+    // Violation also kills the stake backing this device (any role, any staker), to recycle.
     let slashed = slash_stakes(chain, |j| j["node"].as_str() == Some(subject));
-    log_slash(chain, subject, "device", slashed, epoch);
-    // Coordinated: enough of this owner's devices proven fraudulent within the window.
-    let _ = chain.store.state_set(&fraud_key(&m.owner, subject), epoch.to_string().as_bytes());
-    let (frauds, threshold) = coordinated(chain, &m.owner, epoch);
-    if frauds >= threshold { account_fraud(chain, &m.owner, "coordinated", epoch); }
+    log_slash(chain, subject, &format!("device:{}", kind.as_str()), slashed, epoch);
+    // Coordinated: enough of this owner's devices with proven violations within the window.
+    let _ = chain.store.state_set(&violation_key(&m.owner, subject), epoch.to_string().as_bytes());
+    let (violations, threshold) = coordinated(chain, &m.owner, epoch);
+    if violations >= threshold { account_violation(chain, &m.owner, "coordinated", epoch); }
     true
 }
 
-/// Account-key-signed fraud evidence: account-wide on its own. Hook only (no such evidence
+/// Account-key-signed violation evidence: account-wide on its own. Hook only (no such evidence
 /// type on chain yet). Returns the hunits slashed.
-pub fn on_account_fraud(chain: &Chain, owner: &str, epoch: u64) -> u64 {
+pub fn on_account_violation(chain: &Chain, owner: &str, kind: ViolationKind, epoch: u64) -> u64 {
     if !active(epoch) { return 0; }
     ensure_migrated(chain, epoch);
-    account_fraud(chain, owner, "account_key", epoch)
+    account_violation(chain, owner, &format!("account_key:{}", kind.as_str()), epoch)
 }
 
-/// (proven frauds on the owner's devices within ACCOUNT_FRAUD_WINDOW, account-wide threshold).
+/// (proven violations on the owner's devices within ACCOUNT_VIOLATION_WINDOW, account-wide threshold).
 pub fn coordinated(chain: &Chain, owner: &str, epoch: u64) -> (u64, u64) {
-    let in_window = |e: u64| epoch.saturating_sub(e) < ACCOUNT_FRAUD_WINDOW;
-    let fpre = format!("rep_fraud:{owner}:");
-    let frauds = chain.store.state_scan_prefix(&fpre).into_iter()
+    let in_window = |e: u64| epoch.saturating_sub(e) < ACCOUNT_VIOLATION_WINDOW;
+    let fpre = format!("rep_violation:{owner}:");
+    let violations = chain.store.state_scan_prefix(&fpre).into_iter()
         .filter(|(_, v)| std::str::from_utf8(v).ok().and_then(|s| s.parse::<u64>().ok()).is_some_and(in_window))
         .count() as u64;
     let dpre = format!("rep_dev:{owner}:");
@@ -593,18 +610,18 @@ pub fn coordinated(chain: &Chain, owner: &str, epoch: u64) -> (u64, u64) {
         .filter(|(k, _)| get::<Meta>(chain, &meta_key(&k[dpre.len()..]))
             .and_then(|m| m.last_work_epoch).is_some_and(in_window))
         .count() as u64;
-    let share = (active_devices * ACCOUNT_FRAUD_SHARE_BPS).div_ceil(10_000);
-    (frauds, ACCOUNT_FRAUD_MIN_DEVICES.max(share))
+    let share = (active_devices * ACCOUNT_VIOLATION_SHARE_BPS).div_ceil(10_000);
+    (violations, ACCOUNT_VIOLATION_MIN_DEVICES.max(share))
 }
 
-/// Account-wide fraud: slash 100% of every stake the account placed (any device, any role)
-/// to recycle, and reset the owner to the fraud floor. Returns the hunits slashed.
-fn account_fraud(chain: &Chain, owner: &str, why: &str, epoch: u64) -> u64 {
+/// Account-wide violation: slash 100% of every stake the account placed (any device, any role)
+/// to recycle, and reset the owner to the violation floor. Returns the hunits slashed.
+fn account_violation(chain: &Chain, owner: &str, why: &str, epoch: u64) -> u64 {
     let slashed = slash_stakes(chain, |j| j["staker"].as_str() == Some(owner));
     let k = acct_key(owner);
     let mut r: DomainRec = get(chain, &k).unwrap_or_default();
     r.decay_to(epoch);
-    r.bad = r.bad.max(ACCOUNT_FRAUD_BAD);
+    r.bad = r.bad.max(ACCOUNT_VIOLATION_BAD);
     put(chain, &k, &r);
     log_slash(chain, owner, &format!("account:{why}"), slashed, epoch);
     slashed
@@ -635,6 +652,71 @@ fn log_slash(chain: &Chain, who: &str, scope: &str, amount: u64, epoch: u64) {
     v.push(serde_json::json!({ "epoch": epoch, "scope": scope, "amount": amount }));
     if v.len() > SLASH_LOG { let cut = v.len() - SLASH_LOG; v.drain(..cut); }
     put(chain, &k, &v);
+}
+
+// ── Sync before submit: per-device committed head (all devices) ────────────────
+/// The head of a device's committed log: every SensorDataCommit / SensorSummary of the
+/// device (keyed by its sensor id) is one link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceHead { pub seq: u64, pub head_hash: String, pub epoch: u64 }
+
+fn head_key(dev: &str) -> String { format!("dev_head:{dev}") }
+fn seq_key(dev: &str, seq: u64) -> String { format!("dev_seq:{dev}:{seq:016x}") }
+fn equiv_key(dev: &str, seq: u64) -> String { format!("dev_equiv:{dev}:{seq:016x}") }
+
+pub fn device_head(chain: &Chain, dev: &str) -> Option<DeviceHead> { get(chain, &head_key(dev)) }
+
+/// GET /api/device/:key/head
+pub fn device_head_json(chain: &Chain, dev: &str, epoch: u64) -> serde_json::Value {
+    serde_json::json!({ "key": dev, "head": device_head(chain, dev), "active": active(epoch),
+        "active_from_epoch": activation(),
+        "rule": "next commit: seq > head.seq and prev_head == head.head_hash (first commit: no prev_head)" })
+}
+
+/// Before a device commit's effects: it must extend the committed head (prev_head ==
+/// head_hash and seq > head.seq; a skipped seq is a declared gap, still hash-linked). A
+/// non-extending commit is rejected, never slashed. A second, different signed commit at a
+/// seq the chain already holds is equivocation: recorded once as a violation, and rejected.
+#[allow(clippy::too_many_arguments)]
+pub fn device_check(chain: &Chain, dev: &str, owner: &str, seq: Option<u64>, prev: Option<&str>,
+                    hash: &str, epoch: u64) -> anyhow::Result<()> {
+    if !active(epoch) { return Ok(()); }
+    let Some(seq) = seq else {
+        anyhow::bail!("device '{dev}': commit has no seq/prev_head; fetch GET /api/device/{dev}/head and resync");
+    };
+    if let Some(prev_hash) = chain.store.state_get(&seq_key(dev, seq)).and_then(|b| String::from_utf8(b).ok()) {
+        if prev_hash != hash {
+            on_device_equivocation(chain, dev, owner, seq, epoch);
+            anyhow::bail!("device '{dev}': equivocation, a different commit is already on chain at seq {seq}");
+        }
+        anyhow::bail!("device '{dev}': seq {seq} is already committed");
+    }
+    match device_head(chain, dev) {
+        None => anyhow::ensure!(prev.is_none_or(str::is_empty),
+            "device '{dev}': no committed head yet, prev_head must be empty; resync"),
+        Some(h) => {
+            anyhow::ensure!(seq > h.seq, "device '{dev}': stale commit seq {seq}, head is seq {}; resync", h.seq);
+            anyhow::ensure!(prev == Some(h.head_hash.as_str()),
+                "device '{dev}': commit does not extend the committed head (seq {}, {}); resync", h.seq, h.head_hash);
+        }
+    }
+    Ok(())
+}
+
+/// After a device commit applied: it is the new head.
+pub fn device_record(chain: &Chain, dev: &str, seq: Option<u64>, hash: &str, epoch: u64) {
+    if !active(epoch) { return; }
+    let Some(seq) = seq else { return };
+    let _ = chain.store.state_set(&seq_key(dev, seq), hash.as_bytes());
+    put(chain, &head_key(dev), &DeviceHead { seq, head_hash: hash.to_owned(), epoch });
+}
+
+/// Two different signed commits for the same device seq: equivocation, once per (dev, seq).
+/// Also the hook for the same proof seen in gossip.
+pub fn on_device_equivocation(chain: &Chain, dev: &str, owner: &str, seq: u64, epoch: u64) -> bool {
+    if !active(epoch) || chain.store.state_get(&equiv_key(dev, seq)).is_some() { return false; }
+    let _ = chain.store.state_set(&equiv_key(dev, seq), epoch.to_string().as_bytes());
+    on_violation(chain, dev, Some(owner), ViolationKind::Equivocation, Domain::Data, epoch)
 }
 
 // ── Migration (spec §8) and the seal tick ───────────────────────────────────────
@@ -733,7 +815,7 @@ mod tests {
         let before = dump(&c);
         let s = dev("josh", 1);
         let e = 500_000; // any epoch: REPUTATION_EPOCH is u64::MAX
-        assert_eq!(on_account_fraud(&c, "josh", e), 0);
+        assert_eq!(on_account_violation(&c, "josh", ViolationKind::Fabrication, e), 0);
         assert!(!on_useful(&c, &s, "josh", e));
         assert!(!on_confirmed(&c, &s, "josh", "bob", e));
         assert!(!on_contradicted(&c, &s, "josh", &["bob".into()], e));
@@ -750,7 +832,7 @@ mod tests {
         assert!(!on_relay(&c, "gw", e));
         assert!(!on_teleport(&c, &s, "josh", e));
         assert!(!set_attested(&c, &s, "josh", e));
-        assert!(!on_fraud(&c, &s, None, Domain::Data, e));
+        assert!(!on_violation(&c, &s, None, ViolationKind::Equivocation, Domain::Data, e));
         tick(&c, e);
         assert_eq!(reward_weight_bps(&c, &s, Domain::Data, e), MAX_REWARD_BPS);
         assert_eq!(dump(&c), before, "gate off: no key written or changed");
@@ -953,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn fraud_resets_the_device_hits_the_owner_and_future_inheritance() {
+    fn violation_resets_the_device_hits_the_owner_and_future_inheritance() {
         let _g = Gate::on(A);
         let (c, _d) = chain();
         let e = A + 30 * DAY;
@@ -963,14 +1045,14 @@ mod tests {
         apply(&c, &bad_dev, Some("josh"), Domain::Compute, "t", 50 * UNIT, 0, false, e - 7 * DAY);
         let before = owner_view(&c, "josh", e);
         let inherit_before = new_prior(&c, "josh", false, e);
-        assert!(on_fraud(&c, &bad_dev, None, Domain::Data, e));
+        assert!(on_violation(&c, &bad_dev, None, ViolationKind::Equivocation, Domain::Data, e));
         for d in [Domain::Data, Domain::Compute] {
             let r = domain_view(&c, &bad_dev, d, e).unwrap();
-            assert_eq!((r.good, r.bad, r.prior_g, r.prior_b), (0, FRAUD_BAD, PRIOR_OPEN_G, PRIOR_OPEN_B));
+            assert_eq!((r.good, r.bad, r.prior_g, r.prior_b), (0, VIOLATION_BAD, PRIOR_OPEN_G, PRIOR_OPEN_B));
         }
         assert!(domain_view(&c, &bad_dev, Domain::Storage, e).is_none());
         let after = owner_view(&c, "josh", e);
-        assert_eq!(after.fraud_bad, OWNER_FRAUD_BAD);
+        assert_eq!(after.violation_bad, OWNER_VIOLATION_BAD);
         assert!(after.score < before.score);
         let inherit_after = new_prior(&c, "josh", false, e);
         assert!(inherit_after.0 * 10_000 / (inherit_after.0 + inherit_after.1)
@@ -1038,7 +1120,7 @@ mod tests {
                     2 => { on_contradicted(c, &s, &o, &["amy".into()], *e); }
                     3 => { on_storage_proof(c, &s, &o, *flag, *e); }
                     4 => { on_seal(c, &s, *e); }
-                    _ => { if *flag { on_fraud(c, &s, None, Domain::Consensus, *e); } else { on_oracle(c, &s, true, *e); } }
+                    _ => { if *flag { on_violation(c, &s, None, ViolationKind::Equivocation, Domain::Consensus, *e); } else { on_oracle(c, &s, true, *e); } }
                 }
             }
         }
@@ -1062,7 +1144,7 @@ mod tests {
         c.store.state_get(&format!("role_stake:{role}:{node}:{staker}")).is_some()
     }
     /// josh: two active devices with stakes, plus a stake on someone else's node.
-    fn fraud_setup(c: &Chain, e: u64) -> (String, String) {
+    fn violation_setup(c: &Chain, e: u64) -> (String, String) {
         let (d1, d2) = (dev("josh", 1), dev("josh", 2));
         on_useful(c, &d1, "josh", e - 10);
         on_useful(c, &d2, "josh", e - 10);
@@ -1075,54 +1157,54 @@ mod tests {
     }
 
     #[test]
-    fn device_fraud_slashes_all_stake_on_that_device_only() {
+    fn device_violation_slashes_all_stake_on_that_device_only() {
         let _g = Gate::on(A);
         let (c, _d) = chain();
         let e = A + 30 * DAY;
-        let (d1, _) = fraud_setup(&c, e);
+        let (d1, _) = violation_setup(&c, e);
         let total = staked(&c) + recycle(&c);
         let r0 = recycle(&c);
-        assert!(on_fraud(&c, &d1, None, Domain::Data, e));
+        assert!(on_violation(&c, &d1, None, ViolationKind::Equivocation, Domain::Data, e));
         assert_eq!(recycle(&c) - r0, 150, "recycle receives exactly the device's stake");
         assert!(!has_stake(&c, "clock", &d1, "josh") && !has_stake(&c, "decide", &d1, "bob"));
         assert!(has_stake(&c, "clock", &dev("josh", 2), "josh"), "owner's other device untouched");
         assert!(has_stake(&c, "decide", "nodex", "josh") && has_stake(&c, "decide", "nodey", "bob"));
         assert_eq!(staked(&c) + recycle(&c), total, "supply conserved");
-        assert!(c.store.state_get(&acct_key("josh")).is_none(), "one fraud of two devices stays per device");
+        assert!(c.store.state_get(&acct_key("josh")).is_none(), "one violation of two devices stays per device");
     }
 
     #[test]
-    fn two_device_owner_with_two_frauds_in_window_goes_account_wide() {
+    fn two_device_owner_with_two_violations_in_window_goes_account_wide() {
         let _g = Gate::on(A);
         let (c, _d) = chain();
         let e = A + 30 * DAY;
-        let (d1, d2) = fraud_setup(&c, e);
+        let (d1, d2) = violation_setup(&c, e);
         let total = staked(&c) + recycle(&c);
         let r0 = recycle(&c);
-        on_fraud(&c, &d1, None, Domain::Data, e);
-        on_fraud(&c, &d2, None, Domain::Data, e + 100);
+        on_violation(&c, &d1, None, ViolationKind::Equivocation, Domain::Data, e);
+        on_violation(&c, &d2, None, ViolationKind::Equivocation, Domain::Data, e + 100);
         assert_eq!(coordinated(&c, "josh", e + 100), (2, 2));
         assert_eq!(recycle(&c) - r0, 150 + 70 + 30, "both devices + every stake josh placed");
         assert!(!has_stake(&c, "decide", "nodex", "josh"));
         assert!(has_stake(&c, "decide", "nodey", "bob"), "other accounts' stakes elsewhere untouched");
         assert_eq!(staked(&c) + recycle(&c), total);
-        // Owner reset: score 0, and a new device inherits the fraud floor.
+        // Owner reset: score 0, and a new device inherits the violation floor.
         let o = owner_view(&c, "josh", e + 100);
-        assert!(o.account_fraud_floor);
+        assert!(o.account_violation_floor);
         assert_eq!(o.score, 0);
         assert_eq!(score_in(&c, &dev("josh", 3), Domain::Data, e + 100), 0);
         assert!(score_in(&c, &dev("stranger", 3), Domain::Data, e + 100) > 0);
     }
 
     #[test]
-    fn two_frauds_outside_the_window_stay_per_device() {
+    fn two_violations_outside_the_window_stay_per_device() {
         let _g = Gate::on(A);
         let (c, _d) = chain();
         let e = A + 30 * DAY;
-        let (d1, d2) = fraud_setup(&c, e);
+        let (d1, d2) = violation_setup(&c, e);
         let r0 = recycle(&c);
-        on_fraud(&c, &d1, None, Domain::Data, e);
-        on_fraud(&c, &d2, None, Domain::Data, e + ACCOUNT_FRAUD_WINDOW);
+        on_violation(&c, &d1, None, ViolationKind::Equivocation, Domain::Data, e);
+        on_violation(&c, &d2, None, ViolationKind::Equivocation, Domain::Data, e + ACCOUNT_VIOLATION_WINDOW);
         assert_eq!(recycle(&c) - r0, 150 + 70);
         assert!(has_stake(&c, "decide", "nodex", "josh"));
         assert!(c.store.state_get(&acct_key("josh")).is_none());
@@ -1133,9 +1215,9 @@ mod tests {
         let _g = Gate::on(A);
         let (c, _d) = chain();
         let e = A + 30 * DAY;
-        fraud_setup(&c, e);
+        violation_setup(&c, e);
         let total = staked(&c) + recycle(&c);
-        assert_eq!(on_account_fraud(&c, "josh", e), 100 + 70 + 30, "every stake josh placed");
+        assert_eq!(on_account_violation(&c, "josh", ViolationKind::Fabrication, e), 100 + 70 + 30, "every stake josh placed");
         assert!(has_stake(&c, "decide", &dev("josh", 1), "bob"), "others' stake on josh's devices is not josh's");
         assert_eq!(staked(&c) + recycle(&c), total);
         assert_eq!(owner_score(&c, "josh", e), 0);
@@ -1150,11 +1232,11 @@ mod tests {
         for d in &devs { on_useful(&c, d, "big", e - 10); }
         stake(&c, "decide", "elsewhere", "big", 500);
         let r0 = recycle(&c);
-        for d in &devs[..99] { on_fraud(&c, d, None, Domain::Data, e); }
+        for d in &devs[..99] { on_violation(&c, d, None, ViolationKind::Equivocation, Domain::Data, e); }
         assert_eq!(coordinated(&c, "big", e), (99, 100));
         assert!(has_stake(&c, "decide", "elsewhere", "big"), "99 of 1,000: per device only");
         assert!(c.store.state_get(&acct_key("big")).is_none());
-        on_fraud(&c, &devs[99], None, Domain::Data, e);
+        on_violation(&c, &devs[99], None, ViolationKind::Equivocation, Domain::Data, e);
         assert!(!has_stake(&c, "decide", "elsewhere", "big"), "100 of 1,000: account-wide");
         assert_eq!(recycle(&c) - r0, 500);
     }
@@ -1164,22 +1246,91 @@ mod tests {
         let _g = Gate::on(A);
         let (c, _d) = chain();
         let e = A + 30 * DAY;
-        let (d1, d2) = fraud_setup(&c, e);
+        let (d1, d2) = violation_setup(&c, e);
         // 300 registered devices with no useful work: not active, not in the denominator.
         for i in 0..300u32 { apply(&c, &format!("josh@{:064x}", 1_000 + i), Some("josh"), Domain::Data, "registered", 0, 0, false, e - 5); }
         // Devices whose last work is older than the window do not count either.
-        apply(&c, &dev("josh", 7), Some("josh"), Domain::Data, "t", UNIT, 0, false, e - ACCOUNT_FRAUD_WINDOW - 1);
+        apply(&c, &dev("josh", 7), Some("josh"), Domain::Data, "t", UNIT, 0, false, e - ACCOUNT_VIOLATION_WINDOW - 1);
         assert_eq!(coordinated(&c, "josh", e).1, 2);
-        on_fraud(&c, &d1, None, Domain::Data, e);
-        on_fraud(&c, &d2, None, Domain::Data, e + 1);
+        on_violation(&c, &d1, None, ViolationKind::Equivocation, Domain::Data, e);
+        on_violation(&c, &d2, None, ViolationKind::Equivocation, Domain::Data, e + 1);
         assert!(!has_stake(&c, "decide", "nodex", "josh"), "account-wide despite 300 idle devices");
     }
 
-    fn commit(c: &Chain, sensor: &str, owner: &str, batch: &str, epoch: u64) {
-        c.apply_entry(&hone_types::LedgerEntry::SensorDataCommit {
+    fn dcommit(c: &Chain, sensor: &str, owner: &str, batch: &str, epoch: u64, seq: Option<u64>, prev: Option<String>)
+        -> (anyhow::Result<()>, String) {
+        let e = hone_types::LedgerEntry::SensorDataCommit { seq, prev_head: prev,
             sensor_id: sensor.into(), owner: owner.into(), batch_hash: batch.into(), reading_count: 3,
             sensor_type: "continuous".into(), epoch, signed_by: owner.into(), gateway_account: None,
-        }).unwrap();
+        };
+        (c.apply_entry(&e), e.hash())
+    }
+    /// A well-behaved device: builds on its committed head.
+    fn commit(c: &Chain, sensor: &str, owner: &str, batch: &str, epoch: u64) {
+        let h = device_head(c, sensor);
+        let (r, _) = dcommit(c, sensor, owner, batch, epoch, Some(h.as_ref().map_or(1, |h| h.seq + 1)), h.map(|h| h.head_hash));
+        r.unwrap();
+    }
+    fn dev_state(c: &Chain) -> Vec<(String, Vec<u8>)> { c.store.state_scan_prefix("dev_") }
+
+    #[test]
+    fn device_commits_must_extend_the_committed_head() {
+        let (off, _d0) = chain();
+        // Gate off: commits without seq apply as before and no head is kept.
+        assert!(dcommit(&off, "flip-a", "josh", "b0", A + 1, None, None).0.is_ok());
+        assert!(dev_state(&off).is_empty());
+        let _g = Gate::on(A);
+        let (c, _d) = chain();
+        let e = A + 1;
+        let err = |r: anyhow::Result<()>| r.unwrap_err().to_string();
+        assert!(err(dcommit(&c, "flip-a", "josh", "x", e, None, None).0).contains("resync"), "no seq: rejected");
+        assert!(dcommit(&c, "flip-a", "josh", "x0", e, Some(1), Some("junk".into())).0.is_err(), "first commit has no prev");
+        let (r1, h1) = dcommit(&c, "flip-a", "josh", "b1", e, Some(1), None);
+        r1.unwrap();
+        assert_eq!(device_head(&c, "flip-a"), Some(DeviceHead { seq: 1, head_hash: h1.clone(), epoch: e }));
+        let (r2, h2) = dcommit(&c, "flip-a", "josh", "b2", e, Some(2), Some(h1.clone()));
+        r2.unwrap();
+        // Declared gap (seq 3 lost), still hash-linked: accepted.
+        let (r4, h4) = dcommit(&c, "flip-a", "josh", "b4", e + 1, Some(4), Some(h2.clone()));
+        r4.unwrap();
+        // Not extending: wrong prev, or stale seq. Rejected, never a violation.
+        assert!(err(dcommit(&c, "flip-a", "josh", "b5", e + 1, Some(5), Some(h2.clone())).0).contains("does not extend"));
+        assert!(err(dcommit(&c, "flip-a", "josh", "b3", e + 1, Some(3), Some(h2)).0).contains("stale"));
+        assert!(domain_view(&c, "flip-a", Domain::Data, e + 1).is_none(), "a stale commit is not a violation");
+        assert_eq!(device_head(&c, "flip-a").unwrap().head_hash, h4);
+    }
+
+    #[test]
+    fn two_different_commits_at_one_seq_are_equivocation_once() {
+        let _g = Gate::on(A);
+        let (c, _d) = chain();
+        let e = A + 1;
+        stake(&c, "sensor", "flip-a", "josh", 40);
+        let (r1, h1) = dcommit(&c, "flip-a", "josh", "b1", e, Some(1), None);
+        r1.unwrap();
+        // The identical commit again: rejected, not a violation.
+        assert!(dcommit(&c, "flip-a", "josh", "b1", e, Some(1), None).0.is_err());
+        assert!(domain_view(&c, "flip-a", Domain::Data, e).is_none());
+        // A different signed commit at seq 1: equivocation, recorded once, stake slashed.
+        let r0 = recycle(&c);
+        assert!(dcommit(&c, "flip-a", "josh", "b1-other", e, Some(1), None).0.unwrap_err().to_string().contains("equivocation"));
+        assert!(dcommit(&c, "flip-a", "josh", "b1-other", e, Some(1), None).0.is_err());
+        assert_eq!(domain_view(&c, "flip-a", Domain::Data, e).unwrap().bad, VIOLATION_BAD);
+        assert_eq!(recycle(&c) - r0, 40);
+        assert_eq!(device_head(&c, "flip-a").unwrap().head_hash, h1, "the head is unchanged");
+    }
+
+    #[test]
+    fn device_heads_are_identical_on_every_node() {
+        let _g = Gate::on(A);
+        let (c1, _d1) = chain();
+        let (c2, _d2) = chain();
+        for c in [&c1, &c2] {
+            for i in 0..20u64 { commit(c, ["flip-a", "phone-b"][(i % 2) as usize], "josh", &format!("b{i}"), A + i); }
+            let _ = dcommit(c, "flip-a", "josh", "evil", A + 30, Some(3), None);
+        }
+        assert_eq!(dev_state(&c1), dev_state(&c2));
+        assert_eq!(device_head(&c1, "flip-a").unwrap().seq, 10);
     }
     fn readings(c: &Chain) -> Vec<(String, Vec<u8>)> { c.store.state_scan_prefix("sensor_readings:") }
 
@@ -1193,7 +1344,7 @@ mod tests {
         let (c2, _d2) = chain();
         for c in [&c1, &c2] {
             commit(c, "phone-gnss", "josh", "b1", A + 1);
-            commit(c, "phone-gnss", "bob", "b2", A + 1);
+            commit(c, "phone-b", "bob", "b2", A + 1);
             commit(c, "flip-a", "josh", "b3", A + 2);
         }
         assert_eq!(readings(&c1).len(), 3);
@@ -1206,9 +1357,9 @@ mod tests {
         let (c, _d) = chain();
         assert!(on_missed_check(&c, "nebra", "juror did not reveal", A + 3));
         assert_eq!(domain_view(&c, "nebra", Domain::Consensus, A + 3).unwrap().bad, MEDIUM);
-        assert!(on_fraud(&c, "nebra", None, Domain::Consensus, A + 4));
-        assert_eq!(domain_view(&c, "nebra", Domain::Consensus, A + 4).unwrap().bad, FRAUD_BAD);
+        assert!(on_violation(&c, "nebra", None, ViolationKind::Equivocation, Domain::Consensus, A + 4));
+        assert_eq!(domain_view(&c, "nebra", Domain::Consensus, A + 4).unwrap().bad, VIOLATION_BAD);
         let j = subject_json(&c, "nebra", A + 4);
-        assert_eq!(j["recent"].as_array().unwrap().last().unwrap()["kind"], "fraud");
+        assert_eq!(j["recent"].as_array().unwrap().last().unwrap()["kind"], "violation:equivocation");
     }
 }

@@ -284,6 +284,7 @@ pub fn router(state: AppState) -> Router {
         // ── Universal reputation (rep.rs, gate REPUTATION_EPOCH) ───────────
         .route("/api/reputation/owner/:account", get(get_rep_owner))
         .route("/api/reputation/:subject", get(get_rep_subject))
+        .route("/api/device/:key/head", get(get_device_head))
         .route("/api/gateway/heartbeat", post(post_gateway_heartbeat))
         .route("/api/gateway/:id", get(get_gateway))
         // ── BLE Tracker Claims ────────────────────────────────────────────
@@ -4416,6 +4417,12 @@ struct SensorCommitBody {
     /// Stored in CF_META only; not part of the ledger entry.
     #[serde(default)]
     value: Option<f64>,
+    /// Sync before submit: position in the device log and the previous committed head
+    /// (GET /api/device/:key/head). Required from REPUTATION_EPOCH.
+    #[serde(default)]
+    seq: Option<u64>,
+    #[serde(default)]
+    prev_head: Option<String>,
     #[serde(default)]
     signature: String,
     /// Account that relayed this commit (e.g. the phone that heard a Flipper over BLE).
@@ -4538,7 +4545,7 @@ async fn post_sensor_commit(
     }
 
     // ── Apply ledger entry first ──────────────────────────────────────────────
-    let entry = LedgerEntry::SensorDataCommit {
+    let entry = LedgerEntry::SensorDataCommit { seq: body.seq, prev_head: body.prev_head.clone(),
         sensor_id: body.sensor_id.clone(),
         owner: body.owner.clone(),
         batch_hash: body.batch_hash.clone(),
@@ -4797,6 +4804,10 @@ struct SensorSummaryBody {
     metrics: std::collections::BTreeMap<String, i64>,
     #[serde(default)]
     signature: String,
+    #[serde(default)]
+    seq: Option<u64>,
+    #[serde(default)]
+    prev_head: Option<String>,
 }
 
 /// POST /api/sensor/summary — one public (cell, window) summary, scored for usefulness.
@@ -4805,7 +4816,7 @@ async fn post_sensor_summary(
     State(s): State<AppState>,
     Json(b): Json<SensorSummaryBody>,
 ) -> Json<serde_json::Value> {
-    let entry = LedgerEntry::SensorSummary {
+    let entry = LedgerEntry::SensorSummary { seq: b.seq, prev_head: b.prev_head,
         sensor_id: b.sensor_id, owner: b.owner.clone(), batch_hash: b.batch_hash,
         cell: b.cell, window: b.window, metrics: b.metrics,
         epoch: s.chain.current_epoch(), signed_by: b.owner,
@@ -4944,6 +4955,12 @@ async fn get_sensor_consensus(
 /// one device / node (rep.rs). Read-only; empty until REPUTATION_EPOCH.
 async fn get_rep_subject(State(s): State<AppState>, Path(subject): Path<String>) -> Json<serde_json::Value> {
     Json(crate::rep::subject_json(&s.chain, &subject, s.chain.current_epoch()))
+}
+
+/// GET /api/device/:key/head — the device's committed head {seq, head_hash, epoch}. A device
+/// fetches it before submitting and builds its next commit on it (sync before submit).
+async fn get_device_head(State(s): State<AppState>, Path(key): Path<String>) -> Json<serde_json::Value> {
+    Json(crate::rep::device_head_json(&s.chain, &key, s.chain.current_epoch()))
 }
 
 /// GET /api/reputation/owner/:account — derived owner reputation and its devices.
@@ -11466,7 +11483,7 @@ mod partition_tests {
         h.set_peers(3);
 
         let wrong = SigningKey::from_bytes(&[b'X'; 32]);
-        let entry = LedgerEntry::SensorDataCommit {
+        let entry = LedgerEntry::SensorDataCommit { seq: None, prev_head: None,
             sensor_id: "phone-gnss".into(), owner: "josh".into(),
             batch_hash: "abc123".into(), reading_count: 1,
             sensor_type: "continuous".into(), epoch: 0,
@@ -11479,7 +11496,7 @@ mod partition_tests {
             State(h.state.clone()),
             HeaderMap::new(),
             ConnectInfo("127.0.0.1:4040".parse().unwrap()),
-            Json(SensorCommitBody {
+            Json(SensorCommitBody { seq: None, prev_head: None,
                 sensor_id: "phone-gnss".into(), owner: "josh".into(),
                 batch_hash: "abc123".into(), reading_count: 1,
                 sensor_type: "continuous".into(), value: Some(42.0),
@@ -11496,7 +11513,7 @@ mod partition_tests {
     }
 
     async fn signed_sensor_commit(h: &Harness, sk: &SigningKey, batch: &str, value: f64) -> (StatusCode, Json<serde_json::Value>) {
-        let entry = LedgerEntry::SensorDataCommit {
+        let entry = LedgerEntry::SensorDataCommit { seq: Some(1), prev_head: None,
             sensor_id: "phone-gnss".into(), owner: "josh".into(),
             batch_hash: batch.into(), reading_count: 1,
             sensor_type: "continuous".into(), epoch: h.state.chain.current_epoch(),
@@ -11505,7 +11522,7 @@ mod partition_tests {
         let msg = crate::tx::canonical_signing_message(&entry, "hone-testnet").unwrap();
         post_sensor_commit(
             State(h.state.clone()), HeaderMap::new(), ConnectInfo("127.0.0.1:4040".parse().unwrap()),
-            Json(SensorCommitBody {
+            Json(SensorCommitBody { seq: Some(1), prev_head: None,
                 sensor_id: "phone-gnss".into(), owner: "josh".into(),
                 batch_hash: batch.into(), reading_count: 1,
                 sensor_type: "continuous".into(), value: Some(value),
