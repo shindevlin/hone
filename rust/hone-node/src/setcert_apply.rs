@@ -124,7 +124,12 @@ pub fn voter_step(e: &mut setcert::Engine, chain: &Chain, me: &str, cur: u64, no
             // entries; and if every voter is behind, empty sets still finalize, so the chain
             // never waits on a PROP nobody would make).
             let hashes = if past && (behind || t + crate::tx::STALE_WINDOW < cur) { Vec::new() } else { due_hashes(chain, t) };
-            if let Some(p) = e.propose(me, t, hashes, d_report, now_ms, sign) {
+            // A past epoch at or below this voter's PROP floor with no PROP of its own on record
+            // (lost in a restart or state swap; 385633, 2026-11-15): the canonical empty PROP, so
+            // the epoch still gets the PROPs it needs to certify.
+            let made = e.propose(me, t, hashes, d_report, now_ms, sign)
+                .or_else(|| if past { e.propose_canonical_empty(me, t, sign) } else { None });
+            if let Some(p) = made {
                 for h in &p.hashes { keep_voted_body(chain, h); }
                 new.push(Out::P(p));
             }
@@ -1514,6 +1519,58 @@ mod tests {
             }
         }
         assert_eq!(REWARD_SETTLE_EPOCH, u64::MAX, "the gate ships off");
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+    /// 385633, 2026-11-15, all voters on 57b4dfa0: two voters had lost their own PROPs for the
+    /// open epochs and their PROP floors sat near the tip; the third held only an old PROP
+    /// naming bodies it no longer held (held back). Nobody could vote (a vote needs PROPs from
+    /// all voters or a quorum of them), so nothing certified. The canonical empty PROP lets the
+    /// epoch certify, and making it again is byte-identical.
+    #[test]
+    fn voters_that_lost_their_props_below_the_floor_still_certify_with_canonical_empty_props() {
+        let act = 160u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let voters: Vec<String> = vec!["v1".into(), "v2".into(), "v3".into()];
+        let chains: Vec<(Chain, tempfile::TempDir)> = (0..3).map(|i| chain(&format!("canon{i}"))).collect();
+        let cur = act + 40;
+        let mut eng: Vec<Engine> = (0..3).map(|_| Engine::new("hone-test", act, voters.clone())).collect();
+        // v1, v2: floors near the tip, no PROP on record. v3: an old PROP naming a lost body.
+        eng[0].set_prop_floor(cur - 2);
+        eng[1].set_prop_floor(cur - 2);
+        let lost = format!("{:064x}", 9);
+        let s3 = signer("v3");
+        let old = eng[2].propose("v3", act, vec![lost.clone()], 10, 0, &s3).unwrap();
+        let held = restore_into(&mut eng[2], &chains[2].0, vec![old], vec![]);
+        assert_eq!(held, 1, "held back, never re-sent");
+        let mut msgs: Vec<Out> = Vec::new();
+        let mut first: Option<Prop> = None;
+        for now in [100_000u64, 200_000, 300_000, 400_000, 500_000, 600_000] {
+            for i in 0..3 {
+                let s = signer(&voters[i]);
+                let (new, rb) = voter_step(&mut eng[i], &chains[i].0, &voters[i], cur, now, 3, true, &s);
+                for o in &new { if let (0, Out::P(p)) = (i, o) { if p.epoch == act && first.is_none() { first = Some(p.clone()); } } }
+                msgs.extend(new.into_iter().chain(rb));
+            }
+            while let Some(m) = msgs.pop() {
+                for e in eng.iter_mut() {
+                    match &m {
+                        Out::P(p) => { e.on_prop(p.clone(), now, &verify); }
+                        Out::V(v) => { if let Some(c) = e.on_vote(v.clone(), &verify) { msgs.insert(0, Out::C(c)); } }
+                        Out::C(c) => { e.on_cert(c.clone(), &verify); }
+                    }
+                }
+            }
+            for e in eng.iter_mut() { e.finalize(); }
+        }
+        let p = first.expect("v1 PROPosed `act` below its floor");
+        assert!(p.hashes.is_empty() && p.d_report == setcert::D_MIN, "the canonical empty PROP");
+        // Made again after another loss: byte-identical (not a second, different PROP).
+        let mut again = Engine::new("hone-test", act, voters.clone());
+        let q = again.propose_canonical_empty("v1", act, &signer("v1")).unwrap();
+        assert_eq!(serde_json::to_string(&p).unwrap(), serde_json::to_string(&q).unwrap());
+        // The epoch certifies (empty: the held-back PROP's lost body is never in it).
+        let c = eng[0].chosen(act).expect("`act` certifies");
+        assert!(!c.content.hashes.contains(&lost));
         TEST_EPOCH.with(|c| c.set(None));
     }
 }

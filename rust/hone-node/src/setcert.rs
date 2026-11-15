@@ -298,6 +298,20 @@ impl Engine {
         Some(p)
     }
 
+    /// The canonical empty PROP of a voter for a past `epoch` it holds no PROP for, even at or
+    /// below its PROP floor (its own record was lost: restart, state swap). Byte-identical
+    /// every time (no hashes, d_report = D_MIN; ed25519 signatures are deterministic), so
+    /// making it again is never a second, different PROP. It names nothing, so it cannot carry
+    /// a body anywhere; peers that still hold an earlier PROP of this voter keep that one.
+    pub fn propose_canonical_empty(&mut self, me: &str, epoch: u64, sign: Sign) -> Option<Prop> {
+        if !self.is_voter(me) || epoch < self.activation || self.final_.contains_key(&epoch) { return None; }
+        if self.own_prop(me, epoch).is_some() { return None; }
+        let mut p = Prop { epoch, voter: me.into(), hashes: Vec::new(), d_report: D_MIN, sig: String::new() };
+        p.sig = sign(&prop_message(&self.chain, &p));
+        self.props.entry(epoch).or_default().insert(me.into(), p.clone());
+        Some(p)
+    }
+
     pub fn on_prop(&mut self, p: Prop, now_ms: u64, verify: Verify) -> bool {
         if p.epoch < self.activation || !self.is_voter(&p.voter) || p.hashes.len() > MAX_SET { return false; }
         if !verify(&p.voter, &prop_message(&self.chain, &p), &p.sig) { return false; }
