@@ -81,11 +81,20 @@ pub fn voter_step(e: &mut setcert::Engine, chain: &Chain, me: &str, cur: u64, no
             }
         }
     }
+    // Pool hashes, built at most once per tick and only when a set must be checked (body()
+    // hashes the pool entry by entry; a 100k-entry pool per epoch per tick is too slow).
+    let mut pool_hs: Option<std::collections::HashSet<String>> = None;
     for t in first..=hi {
         // Data availability: never vote for a set naming a body this voter does not hold.
         if let Some(hs) = e.vote_hashes(t) {
-            let missing: Vec<String> = hs.iter().filter(|h| body(chain, h).is_none()).cloned().collect();
-            if !missing.is_empty() { DA_MISSING.lock().unwrap().extend(missing); continue; }
+            let same = e.own_vote(t).is_some_and(|v| v.content.hashes == hs);
+            if !hs.is_empty() && !same {
+                let ps = pool_hs.get_or_insert_with(|| chain.pending.lock().iter().map(|(x, _)| x.hash()).collect());
+                let missing: Vec<String> = hs.iter()
+                    .filter(|h| !ps.contains(*h) && !FETCHED.lock().unwrap().contains_key(*h) && voted_body(chain, h).is_none())
+                    .cloned().collect();
+                if !missing.is_empty() { da_missing().lock().unwrap().extend(missing); continue; }
+            }
         }
         if let Some(v) = e.maybe_vote(me, t, now_ms, sign) {
             for h in &v.content.hashes { keep_voted_body(chain, h); }
@@ -156,7 +165,45 @@ pub fn restorable(chain: &Chain, props: Vec<setcert::Prop>, votes: Vec<setcert::
     (props, votes, dropped)
 }
 /// Bodies this voter lacks to vote; the driver fetches them like missing bodies.
-pub static DA_MISSING: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+/// Process-wide in the node; per test thread under test (tests run in parallel).
+pub fn da_missing() -> &'static Mutex<std::collections::BTreeSet<String>> {
+    #[cfg(test)]
+    {
+        thread_local!(static M: &'static Mutex<std::collections::BTreeSet<String>> =
+            Box::leak(Box::new(Mutex::new(std::collections::BTreeSet::new()))));
+        M.with(|m| *m)
+    }
+    #[cfg(not(test))]
+    {
+        static M: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+        &M
+    }
+}
+/// When each body was last asked for (a peer that lacks one scans its whole keep window).
+fn da_asked() -> &'static Mutex<BTreeMap<String, u64>> {
+    #[cfg(test)]
+    {
+        thread_local!(static M: &'static Mutex<BTreeMap<String, u64>> = Box::leak(Box::new(Mutex::new(BTreeMap::new()))));
+        M.with(|m| *m)
+    }
+    #[cfg(not(test))]
+    {
+        static M: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+        &M
+    }
+}
+/// Ask again for the same body at most this often.
+pub const DA_REASK_MS: u64 = 30_000;
+/// Bodies to fetch now for the DA rule: what voter_step found missing, minus those already
+/// asked for within DA_REASK_MS (at most 512).
+pub fn da_due(now_ms: u64) -> Vec<String> {
+    let want = std::mem::take(&mut *da_missing().lock().unwrap());
+    let mut asked = da_asked().lock().unwrap();
+    asked.retain(|_, at| now_ms.saturating_sub(*at) < DA_REASK_MS);
+    let out: Vec<String> = want.into_iter().filter(|h| !asked.contains_key(h)).take(512).collect();
+    for h in &out { asked.insert(h.clone(), now_ms); }
+    out
+}
 fn voted_body(chain: &Chain, hash: &str) -> Option<(LedgerEntry, Option<String>)> {
     let v: serde_json::Value = chain.store.state_get(&format!("{VB_PREFIX}{hash}")).and_then(|b| serde_json::from_slice(&b).ok())?;
     Some((serde_json::from_value(v["entry"].clone()).ok()?, v["sig"].as_str().map(str::to_owned)))
@@ -571,8 +618,7 @@ mod tests {
     /// the voters catch up with voter_step (re-proposals, no look-back limit, re-broadcast).
     /// Mid catch-up one voter restarts: a fresh engine resumed from chain state, its persisted
     /// own PROPs/votes restored, its pool reloaded from disk. Required: every node applies every
-    /// epoch with identical balance roots per epoch. Since 2026-11-15 epochs left open longer
-    /// than the stale window close empty (catch-up rule 4), so partition-time transfers drop.
+    /// epoch with identical balance roots per epoch, and every transfer exactly once.
     #[test]
     fn total_partition_730_epoch_backlog_catch_up_and_restart() {
         let act = 500u64;
@@ -628,13 +674,12 @@ mod tests {
             }
             // Data availability: bodies a voter lacks to vote are fetched from the peers, as the
             // driver does (request_hashes). Only the ones served here are taken off the list.
-            if !cut {
-                let want: Vec<String> = DA_MISSING.lock().unwrap().iter().cloned().collect();
+            if !cut && sec % 3 == 0 {
+                let want = da_due(t);
                 if !want.is_empty() {
                     for j in 0..3 {
                         for r in serve_bodies(&nodes[j], &want, epoch) {
                             if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
-                                DA_MISSING.lock().unwrap().remove(&e.hash());
                                 offer_body(e, r["sig"].as_str().map(str::to_owned));
                             }
                         }
@@ -734,20 +779,21 @@ mod tests {
         for i in 1..3 {
             for (e, r) in roots[0].range(..=last) { if let Some(x) = roots[i].get(e) { assert_eq!(x, r, "node {i} epoch {e}"); } }
         }
-        // Catch-up rules (2026-11-15): epochs left open longer than the stale window close
-        // empty, so transfers submitted during the partition are not applied (their senders
-        // resubmit; later nonces wait for them). Every node still applies every epoch, with
-        // identical results.
-        let bal0 = nodes[0].store.get_balance("carol", hone_types::NATIVE_TOKEN);
-        assert!(bal0 > 0, "pre-partition transfers applied");
+        // Every voter PROPosed in time during the partition (each naming what reached it); those
+        // own PROPs are re-sent after the heal and the others' bodies are fetched for the DA
+        // rule, so every transfer is still applied exactly once, at its own epoch + d. (Catch-up
+        // rule 4 closes empty only epochs a voter never PROPosed for in time.)
+        let want: u64 = (0..n_ep).map(|i| 10_000 + i + 20_000 + i).sum();
         for (i, c) in nodes.iter().enumerate() {
-            assert_eq!(c.store.get_balance("carol", hone_types::NATIVE_TOKEN), bal0, "node {i}");
-            assert_eq!(epoch_sync::last_committed(c), applied_upto(c), "records follow in order");
-        }
-        for (ep, h) in &txs {
-            if *ep >= part_from && *ep + crate::tx::STALE_WINDOW < part_to {
-                assert_ne!(nodes[0].entry_status(h)["status"], "committed", "{h} ({ep}) dated in the partition must not apply");
+            assert_eq!(c.store.get_balance("carol", hone_types::NATIVE_TOKEN), want, "node {i}: every transfer applied once");
+            for (ep, h) in &txs {
+                let st = c.entry_status(h);
+                assert_eq!(st["status"], "committed", "node {i}: {h} ({ep}) {st}");
+                // The in-memory result map does not survive the restart (node 1): there the
+                // per-epoch record check above (every applied entry dated next - d) covers it.
+                if let Some(at) = st["epoch"].as_u64() { assert_eq!(at, ep + d, "node {i}: applied at its own epoch"); }
             }
+            assert_eq!(epoch_sync::last_committed(c), applied_upto(c), "records follow in order");
         }
         TEST_EPOCH.with(|c| c.set(None));
     }
@@ -860,7 +906,7 @@ mod tests {
         let sign = signer("v1");
         let (new, _) = voter_step(&mut eng, &c, "v1", act + 2, 100_000, 2, false, &sign);
         assert!(!new.iter().any(|o| matches!(o, Out::V(_))), "no vote without the body");
-        assert!(DA_MISSING.lock().unwrap().contains(&e.hash()));
+        assert!(da_missing().lock().unwrap().contains(&e.hash()));
         offer_body(e.clone(), s);
         let (new, _) = voter_step(&mut eng, &c, "v1", act + 2, 200_000, 2, false, &sign);
         let v = new.iter().find_map(|o| if let Out::V(v) = o { Some(v.clone()) } else { None }).expect("votes once it holds it");
@@ -996,7 +1042,7 @@ mod tests {
             let (new, _) = voter_step(&mut eng, &c, "v1", act + 2, now, 3, false, &sign);
             assert!(!new.iter().any(|o| matches!(o, Out::V(_))), "data availability: no vote without the body");
         }
-        assert!(DA_MISSING.lock().unwrap().contains(&ancient.hash()));
+        assert!(da_missing().lock().unwrap().contains(&ancient.hash()));
         // 4) So no certificate exists for T, and nothing can halt on that body.
         assert!(eng.final_cert(act).is_none());
         assert!(eng.chosen(act).is_none());

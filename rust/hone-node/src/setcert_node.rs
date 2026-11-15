@@ -394,7 +394,7 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
         { let mut a = APPLY.lock(); a.0 = sa::applied_upto(&chain); a.1 = cur; }
         // Data availability: bodies this voter lacks to vote are fetched like missing ones.
         if now_ms().saturating_sub(last_da) > 3_000 {
-            let want: Vec<String> = std::mem::take(&mut *sa::DA_MISSING.lock().unwrap()).into_iter().take(512).collect();
+            let want = sa::da_due(now_ms());
             if !want.is_empty() {
                 last_da = now_ms();
                 crate::epoch_sync::request_hashes(&cmd_tx, &me, cur, &want);
