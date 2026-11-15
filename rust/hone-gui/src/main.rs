@@ -10,10 +10,9 @@ fn main() {
             .with_inner_size([1200.0, 800.0]),
         ..Default::default()
     };
-    eframe::run_native(
-        "HONE",
-        options,
-        Box::new(|cc| Ok(Box::new(app::HoneApp::new(cc)))),
-    )
-    .expect("failed to run app");
+    // UFL 3.8 Decentralized acceptance gate (UFL Section 9): a first-run
+    // license screen; HoneApp is not built until the license is accepted.
+    // See docs/LICENSE_ACCEPTANCE.md.
+    hone_license_egui::run_native("HONE", options, |ctx| Box::new(app::HoneApp::from_ctx(ctx)))
+        .expect("failed to run app");
 }

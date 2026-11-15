@@ -2375,6 +2375,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hex",
+ "hone-license",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -2642,6 +2643,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "hex",
+ "hone-license",
  "serde",
  "serde_json",
  "sha2",
@@ -2650,6 +2652,10 @@ dependencies = [
  "tracing-subscriber",
  "wasmtime",
 ]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "hone-market"
@@ -2661,6 +2667,7 @@ dependencies = [
  "dirs-next",
  "hex",
  "hmac",
+ "hone-license",
  "hone-types",
  "jsonwebtoken",
  "once_cell",
@@ -2702,6 +2709,7 @@ dependencies = [
  "hex",
  "hmac",
  "hone-contract-runtime",
+ "hone-license",
  "hone-types",
  "libc",
  "libp2p",
@@ -2742,6 +2750,7 @@ dependencies = [
  "dirs-next",
  "futures",
  "hex",
+ "hone-license",
  "hone-types",
  "libp2p",
  "rand 0.8.6",

@@ -612,6 +612,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hone-license"
+version = "0.1.0"
+
+[[package]]
 name = "hone-sdk"
 version = "1.0.0"
 dependencies = [
@@ -624,6 +628,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hmac",
+ "hone-license",
  "k256",
  "rand 0.8.8",
  "reqwest",

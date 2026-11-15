@@ -10,6 +10,9 @@ RUN mkdir -p rust/hone-node/src && echo "fn main(){}" > rust/hone-node/src/main.
     cd rust/hone-node && cargo build --release 2>/dev/null; true
 
 COPY rust/hone-node/src ./rust/hone-node/src
+# License gate crate (embeds ../../LICENSE)
+COPY LICENSE NOTICE ./
+COPY rust/hone-license ./rust/hone-license
 RUN cd rust/hone-node && cargo build --release
 
 FROM debian:bookworm-slim
@@ -22,6 +25,7 @@ WORKDIR /app
 COPY --from=builder /build/rust/hone-node/target/release/hone-node /usr/local/bin/hone-node
 COPY rust/hone-node/genesis.json         /app/genesis.json
 COPY rust/hone-node/testnet-genesis.json /app/testnet-genesis.json
+COPY LICENSE NOTICE /app/
 
 RUN mkdir -p /app/data
 

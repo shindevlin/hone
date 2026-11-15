@@ -8,10 +8,11 @@ fn main() {
         ..Default::default()
     };
 
-    eframe::run_native(
-        "HONE Wallet Create",
-        options,
-        Box::new(|cc| Ok(Box::new(wallet_create::WalletCreateApp::new(cc)))),
-    )
+    // UFL 3.8 Decentralized acceptance gate (UFL Section 9): a first-run
+    // license screen; the app is not built until the license is accepted.
+    // See docs/LICENSE_ACCEPTANCE.md.
+    hone_license_egui::run_native("HONE Wallet Create", options, |ctx| {
+        Box::new(wallet_create::WalletCreateApp::from_ctx(ctx))
+    })
     .expect("failed to run HONE wallet creation app");
 }

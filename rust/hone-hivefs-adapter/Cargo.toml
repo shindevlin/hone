@@ -13,6 +13,7 @@ name = "hone-hivefs-adapter"
 path = "src/main.rs"
 
 [dependencies]
+hone-license = { path = "../hone-license" }
 clap = { version = "4", features = ["derive", "env"] }
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }

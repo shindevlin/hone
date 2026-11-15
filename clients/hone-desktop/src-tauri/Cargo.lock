@@ -1475,6 +1475,7 @@ name = "hone-desktop"
 version = "0.1.0"
 dependencies = [
  "dirs 5.0.1",
+ "hone-license",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -1488,6 +1489,10 @@ dependencies = [
  "tokio",
  "which",
 ]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "html5ever"

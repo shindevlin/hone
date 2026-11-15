@@ -22,6 +22,7 @@ verify = ["dep:reqwest"]
 # Standalone crate — not a member of rust/Cargo.toml workspace.
 [workspace]
 [dependencies]
+hone-license = { path = "../hone-license" }
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -760,6 +760,7 @@ dependencies = [
  "colored",
  "dirs-next",
  "hex",
+ "hone-license",
  "hone-provision",
  "hone-sdk",
  "rand 0.8.8",
@@ -771,6 +772,10 @@ dependencies = [
  "tabled",
  "tokio",
 ]
+
+[[package]]
+name = "hone-license"
+version = "0.1.0"
 
 [[package]]
 name = "hone-provision"
@@ -793,6 +798,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hmac",
+ "hone-license",
  "k256",
  "rand 0.8.8",
  "reqwest",

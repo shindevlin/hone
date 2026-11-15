@@ -10,6 +10,7 @@ name = "hone-market"
 path = "src/main.rs"
 
 [dependencies]
+hone-license = { path = "../hone-license" }
 hone-types = { path = "../hone-node/crates/hone-types" }
 axum = { version = "0.7", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }

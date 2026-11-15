@@ -27,8 +27,8 @@ struct WalletSummary {
 }
 
 impl WalletCreateApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        setup_theme(&cc.egui_ctx);
+    pub fn from_ctx(ctx: &egui::Context) -> Self {
+        setup_theme(ctx);
         Self {
             node_url: DEFAULT_NODE_URL.to_string(),
             export_signer: false,

@@ -1382,6 +1382,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hone-license"
+version = "0.1.0"
+
+[[package]]
+name = "hone-license-egui"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "hone-license",
+]
+
+[[package]]
 name = "hone-sdk"
 version = "1.0.0"
 dependencies = [
@@ -1394,6 +1407,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hmac",
+ "hone-license",
  "k256",
  "rand",
  "reqwest",
@@ -1411,6 +1425,7 @@ dependencies = [
  "anyhow",
  "eframe",
  "egui",
+ "hone-license-egui",
  "hone-sdk",
  "reqwest",
  "serde_json",

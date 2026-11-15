@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join Ornigo</title>
+<meta name="description" content="Hear the birds you've been missing. Ornigo listens through your computer, your phone and the cameras you already have.">
+<meta property="og:title" content="Hear the birds you've been missing.">
+<meta property="og:description" content="Ornigo names every bird it hears and tells you which ones live with you. Free, no ads.">
+<meta property="og:image" content="https://honemesh.net/assets/join-kiskadee.jpg">
+<meta name="theme-color" content="#0B1310">
+<link rel="icon" href="/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/ornigo.css">
+<!--
+  Device switch: Windows, Mac, Linux / Pi, Android, iPhone. Preselected from the browser; ?device=win|mac|pi|and|ios forces one.
+  ?ref= (invite) and ?v= (sponsor voucher) are carried to every next step. Copy lives in the C table in the script.
+-->
+<style>
+.hero{display:flex;flex-wrap:wrap;gap:40px;align-items:center}
+.hero .t{flex:999 1 440px;min-width:0;display:flex;flex-direction:column;gap:18px}
+.hero h1{font-size:clamp(2.6rem,6vw,4.6rem);line-height:1.02;letter-spacing:-2px}
+.lead{margin:0;font-size:1.15rem;line-height:1.6;color:var(--ink2);max-width:560px}
+.devs{display:flex;flex-wrap:wrap;gap:6px}
+.devs button{min-height:44px;padding:0 16px;border-radius:22px;cursor:pointer;font-weight:700;font-size:14px;background:transparent;color:var(--ink2);border:1px solid var(--twig)}
+.devs button[aria-checked="true"]{background:var(--ink);color:var(--night);border-color:var(--ink)}
+.ctarow{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.ctarow span{font-size:14px;color:var(--dim);max-width:320px}
+.side{flex:1 1 300px;min-width:0;border-radius:30px;background:var(--canopy);border:1px solid var(--twig);padding:18px;display:flex;flex-direction:column;gap:10px}
+.spec{height:150px;border-radius:20px;background:var(--deep);overflow:hidden}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.steps b{font-size:18px}
+.steps span:last-child{color:var(--ink2)}
+.andx{display:flex;flex-direction:column;gap:8px}
+.andx .code{color:var(--dim);font-size:14px;margin:0}
+.andx .code b{font-family:var(--mono);color:var(--ink);background:var(--bough);border-radius:8px;padding:2px 8px}
+.andx ol{margin:10px 0 0;padding-left:20px;color:var(--ink2)}
+.andx li{margin:0 0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="nav">
+    <a class="wm" href="/ornigo/" id="home" aria-label="ornigo"><svg viewBox="0 0 104 104" aria-hidden="true"><circle cx="52" cy="58" r="34" fill="none" stroke="#B8F06A" stroke-width="16"/><path d="M84 50 l16 6 -16 6z" fill="#B8F06A"/></svg><b>rnigo</b></a>
+    <nav aria-label="Site"><a href="/me" id="nav-me">My birds</a></nav>
+  </header>
+
+  <section class="hero">
+    <div class="t">
+      <span class="chip hidden" id="ref"></span>
+      <h1>Hear the birds you've been missing.</h1>
+      <p class="lead">Ornigo listens through your computer, your phone and the cameras you already have. It names every bird, tells you which ones live with you, and lets you name the one that comes back each night.</p>
+      <div class="devs" role="radiogroup" aria-label="Your device" id="devs"></div>
+      <div class="ctarow"><a class="go" id="cta" href="/ornigo/"></a><span id="cta-note"></span></div>
+      <div class="andx hidden" id="andx">
+        <a id="open_app" href="#">Already installed? Open Ornigo</a>
+        <p class="code hidden" id="codewrap">Or type this invite code in the app: <b id="refcode"></b></p>
+        <details class="card"><summary>How to allow the install</summary><ol>
+          <li>Tap Get the Android app. If Chrome asks, tap Download anyway, then Open.</li>
+          <li>If Android says it can't install apps from this source: tap Settings, turn on Allow from this source, then go back.</li>
+          <li>Tap Install, then Open. That's it.</li>
+        </ol></details>
+      </div>
+    </div>
+    <div class="side">
+      <div class="spec" aria-hidden="true"><svg width="100%" height="150" viewBox="0 0 340 150" preserveAspectRatio="none"><g fill="none" stroke-linecap="round"><path d="M20 120 q10 -40 22 -8" stroke="#4F6F86" stroke-width="6" opacity=".7"/><path d="M150 80 q12 -44 24 -6" stroke="#FF9A4D" stroke-width="6" opacity=".8"/><path d="M220 90 q12 -60 26 -24" stroke="#B8F06A" stroke-width="9"/><path d="M252 80 q10 -44 22 -10" stroke="#B8F06A" stroke-width="9"/><path d="M282 76 q14 -52 36 -8" stroke="#B8F06A" stroke-width="10"/></g></svg></div>
+      <span class="k">Example</span>
+      <div class="heard"><b>Great Kiskadee</b><small>Heard by the garden camera, 6:12 this morning</small></div>
+      <div class="back"><b>Lumen is back</b><small>Little Owl · night 14</small></div>
+      <button class="ghost" type="button" id="sample">Hear a sample dawn</button>
+      <p class="credit hidden" id="sample-credit" style="font-size:12px;color:var(--dim)">Recording: <a href="https://xeno-canto.org/719823" rel="noopener">Hugo Oliveros-Salas, XC719823</a>, <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noopener">CC0 1.0</a> via <a href="https://xeno-canto.org/" rel="noopener">xeno-canto</a></p>
+    </div>
+  </section>
+
+  <section class="steps" aria-label="How it works">
+    <div class="card"><span class="k" style="color:var(--chorus)">1 · Install</span><b id="s1"></b><span>Free. No ads. No subscription.</span></div>
+    <div class="card"><span class="k" style="color:var(--sky)">2 · Pick what listens</span><b>All your mics and cameras, or just some</b><span>Ornigo finds them on your Wi-Fi.</span></div>
+    <div class="card"><span class="k" style="color:var(--gold)">3 · Meet your birds</span><b>You get a note when the first one sings</b><span>See them on any phone at honemesh.net/me.</span></div>
+  </section>
+
+  <section class="card priv" aria-label="Privacy">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#B8F06A" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+    <p>Human conversation is automatically deleted. The listener only keeps a count of voices it removed. No audio is ever saved or sent; only a short bird report every 15 minutes. <a href="/ornigo/privacy">Privacy policy</a></p>
+  </section>
+
+  <section aria-label="Questions" style="display:flex;flex-direction:column;gap:10px">
+    <h2 style="font-size:30px">Questions</h2>
+    <details class="card"><summary>Which cameras work?</summary><p>Most Wi-Fi security cameras with a microphone. Ornigo tells you in plain words how well each one hears birds.</p></details>
+    <details class="card"><summary>I only have an iPhone.</summary><p>Install Ornigo on a computer that stays on, then add honemesh.net/me to your Home Screen.</p></details>
+    <details class="card"><summary>Will it slow my computer down?</summary><p>It runs quietly in the background on a small slice of the processor. You can pause or uninstall it at any time.</p></details>
+  </section>
+
+  <footer class="foot">
+    <span>Ornigo is made by Honemesh. <a href="/ornigo/privacy">Privacy</a> · Help: <a href="mailto:ornigo@honemesh.net">ornigo@honemesh.net</a></span>
+    <a class="hone" href="/">Get paid for your birds → HONE</a>
+  </footer>
+</div>
+<script src="/assets/listener-install.js"></script>
+<script>
+(function () {
+  var O = OrnigoInstall, q = new URLSearchParams(location.search);
+  var ref = O.cleanRef(q.get("ref")), v = O.cleanVoucher(q.get("v")), c = O.carry(ref, v);
+  var dl = "/ornigo/" + c;
+  var C = {
+    win: { tab: "Windows", label: "Get Ornigo for Windows", note: "Windows 10 or 11. Your invite comes along.", href: dl + "#install-windows", s1: "Ornigo for Windows" },
+    mac: { tab: "Mac", label: "Get Ornigo for Mac", note: "macOS 12 or newer, signed by Honemesh.", href: dl + "#install-mac", s1: "Ornigo for Mac" },
+    pi: { tab: "Linux / Pi", label: "Install on Linux or Pi", note: "One line in a terminal. Shown on the next page.", href: dl + "#install-linux", s1: "Ornigo for Linux and Raspberry Pi" },
+    and: { tab: "Android", label: "Get the Android app", note: "Your phone listens too, and finds cameras on your Wi-Fi.", href: "/app/hone-latest.apk", s1: "Ornigo for Android" },
+    ios: { tab: "iPhone", label: "Open my birds on iPhone", note: "A computer at home listens; your birds arrive here.", href: "/me/" + c, s1: "Ornigo on a computer, birds on your iPhone" }
+  };
+  var map = { windows: "win", mac: "mac", linux: "pi", android: "and", ios: "ios" };
+  var cur = C[q.get("device")] ? q.get("device") : (map[O.detect()] || "win");
+  if (q.get("device") === "android") cur = "and"; else if (q.get("device") === "desktop") cur = map[O.detect()] && map[O.detect()] !== "and" && map[O.detect()] !== "ios" ? map[O.detect()] : "win";
+  var devs = document.getElementById("devs");
+  function paint() {
+    var d = C[cur];
+    Array.prototype.forEach.call(devs.children, function (b) { b.setAttribute("aria-checked", b.dataset.id === cur ? "true" : "false"); b.tabIndex = b.dataset.id === cur ? 0 : -1; });
+    var a = document.getElementById("cta"); a.textContent = d.label; a.href = d.href;
+    document.getElementById("cta-note").textContent = d.note;
+    document.getElementById("s1").textContent = d.s1;
+    document.getElementById("andx").classList.toggle("hidden", cur !== "and");
+  }
+  Object.keys(C).forEach(function (id) {
+    var b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "radio"); b.dataset.id = id; b.textContent = C[id].tab;
+    b.addEventListener("click", function () { cur = id; paint(); });
+    b.addEventListener("keydown", function (e) {
+      var ids = Object.keys(C), i = ids.indexOf(cur);
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") i = (i + 1) % ids.length; else if (e.key === "ArrowLeft" || e.key === "ArrowUp") i = (i + ids.length - 1) % ids.length; else return;
+      e.preventDefault(); cur = ids[i]; paint(); devs.children[i].focus();
+    });
+    devs.appendChild(b);
+  });
+  paint();
+  if (ref) { var r = document.getElementById("ref"); r.textContent = ref + " invited you"; r.classList.remove("hidden");
+    document.getElementById("refcode").textContent = ref; document.getElementById("codewrap").classList.remove("hidden"); }
+  document.getElementById("nav-me").href = "/me/" + c;
+  document.getElementById("home").href = dl;
+  // Hands the invite (and voucher) to the Android app: hone://join?ref=...&v=...
+  var back = location.origin + location.pathname + location.search;
+  document.getElementById("open_app").href = "intent://join?ref=" + encodeURIComponent(ref || "none") + (v ? "&v=" + encodeURIComponent(v) : "") +
+    "#Intent;scheme=hone;package=network.hone.app.debug;S.browser_fallback_url=" + encodeURIComponent(back) + ";end";
+  // Pinned sample: Great Kiskadee dawn song, XC719823 by Hugo Oliveros-Salas (Colombia), CC0 1.0, via xeno-canto.
+  // Played unmodified from xeno-canto's own file URL; the credit shows while it plays.
+  var SAMPLE = "https://xeno-canto.org/sounds/uploaded/NNHAEBGRDL/XC719823-Pitangus-sulphuratus.mp3";
+  var au = null, sb = document.getElementById("sample"), cr = document.getElementById("sample-credit");
+  function unavailable() { if (au) au.pause(); sb.textContent = "Sample unavailable right now"; sb.disabled = true; sb.style.opacity = ".55"; sb.style.cursor = "default"; cr.classList.add("hidden"); }
+  sb.addEventListener("click", function () {
+    if (sb.disabled) return;
+    if (au && !au.paused) { au.pause(); sb.textContent = "Hear a sample dawn"; return; }
+    if (!au) {
+      au = new Audio(SAMPLE); au.preload = "auto";
+      au.addEventListener("ended", function () { sb.textContent = "Hear a sample dawn"; });
+      au.addEventListener("error", unavailable);
+    }
+    sb.textContent = "Loading…";
+    au.play().then(function () { sb.textContent = "Pause the sample"; cr.classList.remove("hidden"); }, unavailable);
+  });
+})();
+</script>
+</body>
+</html>
