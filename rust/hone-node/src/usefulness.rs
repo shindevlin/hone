@@ -217,6 +217,9 @@ pub const ALLOWED_METRICS: &[&str] = &[
     "ir.count", "nfc.count", "rfid.count", "ibutton.count",
     "lora.packets", "lora.snr_p50", "lora.rssi_p50", "lora.rssi_max", "lora.devaddr_unique",
     "noise.db_p50", "noise.db_max", "noise.events",
+    // Phone barometer, window median in Pa (weather fronts and altitude; natural verifier C1). Light, humidity,
+    // magnetometer and motion stay map context (not listed) until a verifier makes them worth paying.
+    "env.pressure_pa",
 ];
 /// Sub-GHz bands (integer MHz) the Flipper rotates through.
 pub const SUBGHZ_MHZ: &[u32] = &[300, 303, 304, 310, 315, 318, 390, 418, 433, 434, 438, 868, 915, 925];
@@ -324,6 +327,9 @@ pub fn band_at(metric: &str, est: i64, epoch: u64) -> i64 {
     // Heard (1) and heard-but-rare-here (2) are the same presence: a range prior differs by
     // phone, so it never contradicts.
     if epoch >= bird_epoch() && metric.starts_with("bird.") { return 1; }
+    // Barometers differ by device (offsets of 1-2 hPa) and by floor and slope inside a res-9 cell: within 3 hPa
+    // is the same reading; a front moves it more than that.
+    if epoch >= allowlist_epoch() && metric == "env.pressure_pa" { return 300; }
     band(metric, est)
 }
 
@@ -1329,7 +1335,9 @@ mod tests {
 
     #[test]
     fn allow_list_stops_invented_metric_names() {
-        for ok in ["wifi.ap_count", "ble.crowd", "mobile_ap", "lora.packets", "lora.ch0", "lora.ch63", "subghz.433",
+        assert_eq!(band_at("env.pressure_pa", 101_300, 365_000), 300);
+        assert!(!allowed_metric("env.light_lux") && !allowed_metric("motion.shake_events"));
+        for ok in ["env.pressure_pa", "wifi.ap_count", "ble.crowd", "mobile_ap", "lora.packets", "lora.ch0", "lora.ch63", "subghz.433",
                    "subghz.868", "bird.sp:anas_acuta", "noise.db_p50", "obs.none"] {
             assert!(allowed_metric(ok), "{ok}");
         }
