@@ -137,6 +137,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sync/snapshot", get(get_sync_snapshot))
         .route("/api/sync/blocks", get(get_sync_blocks))
         .route("/api/chain/healer", get(get_healer_status))
+        .route("/api/setcert/halt", get(get_setcert_halt))
+        .route("/api/setcert/unavailable", post(post_setcert_unavailable))
         .route("/api/sync/checkpoint/:epoch/:cursor", get(get_sync_checkpoint))
         .route("/api/sync/epoch_entries", get(get_sync_epoch_entries))
         .route("/api/entry/:hash/status", get(get_entry_status))
@@ -2277,6 +2279,31 @@ async fn get_sync_snapshot(State(s): State<AppState>) -> Json<serde_json::Value>
 }
 
 /// GET /api/chain/healer — state checkpoints, attestations and the healer's verdict.
+/// GET /api/setcert/halt — the next certified epoch to apply, its hashes, which are missing.
+async fn get_setcert_halt(State(s): State<AppState>) -> Json<serde_json::Value> {
+    Json(crate::setcert_node::halt_view(&s.chain))
+}
+
+/// POST /api/setcert/unavailable {epoch} — localhost only: ask this voter to sign the
+/// bodies-unavailable statement for the halted epoch (it signs only after
+/// UNAVAIL_MIN_HALT_EPOCHS, only for bodies it does not hold).
+async fn post_setcert_unavailable(
+    State(s): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(b): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if !addr.ip().is_loopback() {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "localhost only" })));
+    }
+    let Some(epoch) = b["epoch"].as_u64() else {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "epoch required" })));
+    };
+    match crate::setcert_node::request_unavail(&s.chain, epoch) {
+        Ok(v) => (StatusCode::OK, Json(v)),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))),
+    }
+}
+
 async fn get_healer_status() -> Json<serde_json::Value> {
     match crate::state_healer::GLOBAL.get() {
         Some(h) => Json(h.status()),

@@ -91,6 +91,15 @@ impl Cert { pub fn digest(&self, chain: &str) -> String { digest(chain, self.epo
 /// The prev of the first certified epoch.
 pub fn genesis_prev(activation: u64) -> String { format!("genesis:{activation}") }
 
+/// A quorum's signed statement that the listed bodies of the final cert of `epoch` (bound by
+/// its content hash) are unavailable: nodes holding it apply that set without them, the same
+/// everywhere (incident 2026-11-15: epoch 384535 certified 6 bodies no node held).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Unavail { pub epoch: u64, pub content_hash: String, pub hashes: Vec<String>, pub sigs: BTreeMap<String, String> }
+pub fn unavail_message(chain: &str, epoch: u64, content_hash: &str, hashes: &[String]) -> String {
+    format!("hone-setcert-unavail:{chain}:{epoch}:{content_hash}:{}", sha(hashes.join(",").as_bytes()))
+}
+
 /// Deterministic d schedule: median of the reports in the period, clamped, at most ±1 step.
 pub fn next_d(cur: u64, reports: &[u64]) -> u64 {
     if reports.is_empty() { return cur; }
@@ -189,6 +198,17 @@ impl Engine {
     pub fn set_voters(&mut self, mut v: Vec<String>) { v.sort(); v.dedup(); self.voters = v; }
     pub fn quorum(&self) -> usize { ((self.voters.len() * 51 + 99) / 100).max(2).min(self.voters.len().max(1)) }
     fn is_voter(&self, v: &str) -> bool { self.voters.iter().any(|x| x == v) }
+    /// A voter quorum (with the operator spread) among these signers.
+    pub fn quorum_signers(&self, signers: &BTreeMap<String, String>) -> bool { self.quorum_ok(signers) }
+    /// The hashes this voter's vote for `epoch` would carry now (PROP union plus other votes,
+    /// minus decided): checked for data availability before it votes.
+    pub fn vote_hashes(&self, epoch: u64) -> Option<Vec<String>> {
+        let props = self.props.get(&epoch)?;
+        let decided = self.decided(epoch);
+        let mut hs: BTreeSet<String> = props.values().flat_map(|p| p.hashes.iter().cloned()).collect();
+        for (v, _) in self.tallies.values().filter(|(v, _)| v.epoch == epoch) { hs.extend(v.content.hashes.iter().cloned()); }
+        Some(hs.into_iter().filter(|h| !decided.contains(h)).take(MAX_SET).collect())
+    }
     fn quorum_ok(&self, signers: &BTreeMap<String, String>) -> bool {
         let n = signers.keys().filter(|v| self.is_voter(v)).count();
         let ops: BTreeSet<&str> = signers.keys().filter(|v| self.is_voter(v)).map(|v| operator(v)).collect();

@@ -24,6 +24,56 @@ pub const BODY_HTTP_AFTER_EPOCHS: u64 = 4;
 
 /// Applying progress for the healer status and the guards: (applied_upto, tip, halted).
 static APPLY: Mutex<(u64, u64, bool)> = parking_lot::const_mutex((0, 0, false));
+
+/// Operator request (POST /api/setcert/unavailable, localhost only): sign the bodies-unavailable
+/// statement for the halted epoch. A voter signs only after the halt lasted this long, for the
+/// bodies it does not hold itself.
+static UNAVAIL_REQ: Mutex<Option<u64>> = parking_lot::const_mutex(None);
+pub const UNAVAIL_MIN_HALT_EPOCHS: u64 = 60;
+
+/// GET /api/setcert/halt: the next epoch to apply, its certified hashes, the missing ones.
+pub fn halt_view(chain: &Chain) -> serde_json::Value {
+    let next = sa::applied_upto(chain) + 1;
+    let cert = engine(chain).lock().final_cert(next).cloned();
+    let (se, since) = *STALL.lock();
+    let missing: Vec<String> = cert.as_ref().map(|c| c.content.hashes.iter()
+        .filter(|h| sa::body(chain, h).is_none()).cloned().collect()).unwrap_or_default();
+    serde_json::json!({ "next": next, "cert_content_hash": cert.as_ref().map(|c| c.content.hash()),
+        "cert_hashes": cert.as_ref().map(|c| c.content.hashes.clone()), "missing": missing,
+        "waiting_since_epoch": (se == next).then_some(since), "unavail_min_halt_epochs": UNAVAIL_MIN_HALT_EPOCHS,
+        "unavailable_statement": sa::unavail_pending(next), "unavailable_certificate": sa::unavail_for(chain, next) })
+}
+pub fn request_unavail(chain: &Chain, epoch: u64) -> Result<serde_json::Value, String> {
+    let next = sa::applied_upto(chain) + 1;
+    if epoch != next { return Err(format!("epoch {epoch} is not the halted epoch {next}")); }
+    *UNAVAIL_REQ.lock() = Some(epoch);
+    Ok(halt_view(chain))
+}
+/// Driver step: sign a requested statement (voter, Ready, halted long enough, bodies really
+/// missing here), and re-send the pending one so all voters converge on one statement.
+fn unavail_step(chain: &Chain, me: &str, sk: Option<&ed25519_dalek::SigningKey>, is_clock: bool, cur: u64,
+                rebroadcast: bool) -> Option<crate::setcert::Unavail> {
+    let next = sa::applied_upto(chain) + 1;
+    if *UNAVAIL_REQ.lock() == Some(next) && is_clock && crate::sign_guard::ready() {
+        if let Some(sk) = sk {
+            let cert = engine(chain).lock().final_cert(next).cloned()?;
+            let (se, since) = *STALL.lock();
+            if se != next || cur.saturating_sub(since) < UNAVAIL_MIN_HALT_EPOCHS { return None; }
+            let missing: Vec<String> = cert.content.hashes.iter().filter(|h| sa::body(chain, h).is_none()).cloned().collect();
+            *UNAVAIL_REQ.lock() = None;
+            if missing.is_empty() { return None; }
+            let ch = cert.content.hash();
+            let sig = sign_with(sk)(&crate::setcert::unavail_message(&chain.chain_id, next, &ch, &missing));
+            let u = crate::setcert::Unavail { epoch: next, content_hash: ch, hashes: missing, sigs: [(me.to_owned(), sig)].into() };
+            let v = verifier(chain);
+            let merged = { let e = engine(chain).lock(); sa::on_unavail(chain, &e, u, &v) };
+            warn!("[setcert] signed bodies-unavailable for epoch {next}");
+            return merged;
+        }
+    }
+    if rebroadcast { return sa::unavail_pending(next); }
+    None
+}
 pub fn apply_view() -> serde_json::Value {
     let (a, t, h) = *APPLY.lock();
     serde_json::json!({ "applied_upto": a, "tip": t, "lag": t.saturating_sub(a), "halted": h })
@@ -119,6 +169,9 @@ pub fn engine(chain: &Chain) -> &'static Mutex<Engine> {
                 for p in &props { g.signed(crate::sign_guard::SET_PROP, p.epoch, &p.sig); }
                 for v in &votes { g.signed(crate::sign_guard::SET_VOTE, v.epoch, &v.sig); }
             }
+            // Re-send only what this node can still back with bodies (state swap 2026-11-15).
+            let (props, votes, dropped) = sa::restorable(chain, props, votes);
+            if dropped > 0 { warn!("[setcert] dropped {dropped} own prop(s)/vote(s) from before the restart: bodies no longer held"); }
             e.restore_own(props, votes);
         }
         Mutex::new(e)
@@ -206,6 +259,13 @@ pub async fn on_seal(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetC
 pub async fn on_msg(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>, msg: serde_json::Value) {
     let ty = msg["type"].as_str().unwrap_or("");
     let v = verifier(chain);
+    if ty == "set_unavail" {
+        if let Ok(u) = serde_json::from_value::<crate::setcert::Unavail>(msg["unavail"].clone()) {
+            let e = engine(chain).lock();
+            let _ = sa::on_unavail(chain, &e, u, &v);
+        }
+        return;
+    }
     // Sync before submit (spec 6b): a verified PROP / vote by our own key that this process
     // did not make raises the floor, or, after we came up, means a doppelganger.
     if let Some(me) = crate::sign_guard::me() {
@@ -268,6 +328,7 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
 {
     let mut last_fetch = 0u64;
     let mut last_rb = 0u64;
+    let mut last_da = 0u64;
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let cur = chain.current_epoch();
@@ -331,6 +392,17 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
             }
         }
         { let mut a = APPLY.lock(); a.0 = sa::applied_upto(&chain); a.1 = cur; }
+        // Data availability: bodies this voter lacks to vote are fetched like missing ones.
+        if now_ms().saturating_sub(last_da) > 3_000 {
+            let want: Vec<String> = std::mem::take(&mut *sa::DA_MISSING.lock().unwrap()).into_iter().take(512).collect();
+            if !want.is_empty() {
+                last_da = now_ms();
+                crate::epoch_sync::request_hashes(&cmd_tx, &me, cur, &want);
+            }
+        }
+        if let Some(u) = unavail_step(&chain, &me, sk.as_ref().as_ref(), is_clock, cur, rebroadcast) {
+            send(&cmd_tx, serde_json::json!({ "type": "set_unavail", "unavail": u, "nonce": now_ms() })).await;
+        }
         // Apply final certs strictly in order.
         loop {
             let next = sa::applied_upto(&chain) + 1;

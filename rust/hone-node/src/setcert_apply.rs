@@ -65,13 +65,32 @@ pub fn voter_step(e: &mut setcert::Engine, chain: &Chain, me: &str, cur: u64, no
     let first = e.last_final().map(|x| x + 1).unwrap_or(e.activation);
     let hi = cur.min(first + CATCHUP_BATCH);
     let (mut new, mut rb) = (Vec::new(), Vec::new());
+    // Catch-up rules (2026-11-15). A node that has not applied what is already certified
+    // (behind) makes no new PROPs for past epochs: it only votes on others' (DA rule). A
+    // synced node's PROP for an open past epoch older than the stale window is empty (the
+    // epoch closes as empty); otherwise it names only entries still valid at T, held and kept.
+    let behind = applied_upto(chain).saturating_add(BEHIND_SLACK) < e.last_final().unwrap_or(0);
     for t in first..=hi {
         if t + 2 <= cur && e.own_prop(me, t).is_none() {
-            if let Some(p) = e.propose(me, t, due_hashes(chain, t), d_report, now_ms, sign) { new.push(Out::P(p)); }
+            let past = t + 3 <= cur;
+            if past && behind { continue; }
+            let hashes = if past && t + crate::tx::STALE_WINDOW < cur { Vec::new() } else { due_hashes(chain, t) };
+            if let Some(p) = e.propose(me, t, hashes, d_report, now_ms, sign) {
+                for h in &p.hashes { keep_voted_body(chain, h); }
+                new.push(Out::P(p));
+            }
         }
     }
     for t in first..=hi {
-        if let Some(v) = e.maybe_vote(me, t, now_ms, sign) { new.push(Out::V(v)); }
+        // Data availability: never vote for a set naming a body this voter does not hold.
+        if let Some(hs) = e.vote_hashes(t) {
+            let missing: Vec<String> = hs.iter().filter(|h| body(chain, h).is_none()).cloned().collect();
+            if !missing.is_empty() { DA_MISSING.lock().unwrap().extend(missing); continue; }
+        }
+        if let Some(v) = e.maybe_vote(me, t, now_ms, sign) {
+            for h in &v.content.hashes { keep_voted_body(chain, h); }
+            new.push(Out::V(v));
+        }
     }
     if rebroadcast {
         for t in first..=hi {
@@ -88,7 +107,11 @@ pub fn voter_step(e: &mut setcert::Engine, chain: &Chain, me: &str, cur: u64, no
 pub fn due_hashes(chain: &Chain, t: u64) -> Vec<String> {
     let d = d(chain);
     let pool = chain.pending.lock();
-    let mut v: Vec<String> = pool.iter().filter(|(e, _)| e.epoch().saturating_add(d) <= t).map(|(e, _)| e.hash()).collect();
+    // Never an entry too old to apply at T (it would be certified and then rejected; a stuck
+    // node's ancient pool re-proposed such entries on 2026-11-15).
+    let mut v: Vec<String> = pool.iter()
+        .filter(|(e, _)| e.epoch().saturating_add(d) <= t && e.epoch().saturating_add(crate::tx::STALE_WINDOW) >= t)
+        .map(|(e, _)| e.hash()).collect();
     v.sort(); v.dedup(); v
 }
 
@@ -101,11 +124,84 @@ pub fn offer_body(entry: LedgerEntry, sig: Option<String>) {
     if m.len() < 20_000 { m.insert(h, (entry, sig)); }
 }
 
-/// A body by hash: the pending pool, fetched bodies, or recent committed sets.
+/// A body by hash: the pending pool, fetched bodies, or a body this voter voted for.
 pub fn body(chain: &Chain, hash: &str) -> Option<(LedgerEntry, Option<String>)> {
     if let Some(x) = chain.pending.lock().iter().find(|(e, _)| e.hash() == hash) { return Some(x.clone()); }
     if let Some(x) = FETCHED.lock().unwrap().get(hash) { return Some(x.clone()); }
-    None
+    voted_body(chain, hash)
+}
+
+// ── Data availability (incident 2026-11-15, epoch 384535) ──────────────────────────
+// A voter votes for a set only when it holds every body in it, and keeps each such body in
+// local state until the set is applied. So a certified set can never name a body that no
+// quorum voter holds, and a restart, crash or state swap of a voter's memory cannot lose it.
+const VB_PREFIX: &str = "setcert_vb:";
+/// A node more than this many epochs behind the last final cert it holds is "behind".
+pub const BEHIND_SLACK: u64 = 2;
+/// Held in persisted local state (persisted pool, kept voted body, kept certified set) or memory.
+pub fn held(chain: &Chain, hash: &str) -> bool {
+    body(chain, hash).is_some() || chain.store.state_get(&format!("pending_pool:e:{hash}")).is_some()
+        || kept_body(chain, hash).is_some()
+}
+/// Own PROPs and votes saved before a restart (setcert_own.json) are re-sent only if every
+/// body they name is still held here; a state swap or crash that lost them drops them (the
+/// floors still cover their epochs, so nothing different is signed there). Returns
+/// (kept props, kept votes, dropped count).
+pub fn restorable(chain: &Chain, props: Vec<setcert::Prop>, votes: Vec<setcert::Vote>)
+    -> (Vec<setcert::Prop>, Vec<setcert::Vote>, usize) {
+    let n = props.len() + votes.len();
+    let props: Vec<_> = props.into_iter().filter(|p| p.hashes.iter().all(|h| held(chain, h))).collect();
+    let votes: Vec<_> = votes.into_iter().filter(|v| v.content.hashes.iter().all(|h| held(chain, h))).collect();
+    let dropped = n - props.len() - votes.len();
+    (props, votes, dropped)
+}
+/// Bodies this voter lacks to vote; the driver fetches them like missing bodies.
+pub static DA_MISSING: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+fn voted_body(chain: &Chain, hash: &str) -> Option<(LedgerEntry, Option<String>)> {
+    let v: serde_json::Value = chain.store.state_get(&format!("{VB_PREFIX}{hash}")).and_then(|b| serde_json::from_slice(&b).ok())?;
+    Some((serde_json::from_value(v["entry"].clone()).ok()?, v["sig"].as_str().map(str::to_owned)))
+}
+fn keep_voted_body(chain: &Chain, hash: &str) {
+    let k = format!("{VB_PREFIX}{hash}");
+    if chain.store.state_get(&k).is_some() { return; }
+    if let Some((e, s)) = body(chain, hash) {
+        let _ = chain.store.state_set(&k, &serde_json::to_vec(&serde_json::json!({ "entry": e, "sig": s })).unwrap_or_default());
+    }
+}
+
+// ── Unavailability certificate ─────────────────────────────────────────────────────
+/// Statements being signed, by epoch (memory); a quorum one is persisted (local meta).
+static UNAVAIL: Mutex<BTreeMap<u64, setcert::Unavail>> = Mutex::new(BTreeMap::new());
+const UNAVAIL_PREFIX: &str = "setcert_unavail:";
+/// The quorum unavailability certificate this node holds for `t`.
+pub fn unavail_for(chain: &Chain, t: u64) -> Option<setcert::Unavail> {
+    chain.store.state_get(&format!("{UNAVAIL_PREFIX}{t:016x}")).and_then(|b| serde_json::from_slice(&b).ok())
+}
+/// The statement for `t` still collecting signatures (or complete), to re-broadcast.
+pub fn unavail_pending(t: u64) -> Option<setcert::Unavail> { UNAVAIL.lock().unwrap().get(&t).cloned() }
+/// Merge a statement's verified signatures; persist once a voter quorum signed the same
+/// (epoch, content hash, sorted hashes). Returns the merged statement.
+pub fn on_unavail(chain: &Chain, e: &setcert::Engine, mut u: setcert::Unavail, verify: setcert::Verify) -> Option<setcert::Unavail> {
+    u.hashes.sort(); u.hashes.dedup();
+    if u.hashes.is_empty() || unavail_for(chain, u.epoch).is_some() { return None; }
+    let msg = setcert::unavail_message(&chain.chain_id, u.epoch, &u.content_hash, &u.hashes);
+    let good: BTreeMap<String, String> = u.sigs.into_iter().filter(|(v, s)| verify(v, &msg, s)).collect();
+    if good.is_empty() { return None; }
+    let mut m = UNAVAIL.lock().unwrap();
+    let cur = m.entry(u.epoch).or_insert_with(|| setcert::Unavail { epoch: u.epoch, content_hash: u.content_hash.clone(),
+        hashes: u.hashes.clone(), sigs: BTreeMap::new() });
+    if cur.content_hash != u.content_hash || cur.hashes != u.hashes {
+        if good.len() <= cur.sigs.len() { return None; }
+        *cur = setcert::Unavail { epoch: u.epoch, content_hash: u.content_hash.clone(), hashes: u.hashes.clone(), sigs: BTreeMap::new() };
+    }
+    cur.sigs.extend(good);
+    let out = cur.clone();
+    drop(m);
+    if e.quorum_signers(&out.sigs) {
+        let _ = chain.store.state_set(&format!("{UNAVAIL_PREFIX}{:016x}", out.epoch), &serde_json::to_vec(&out).unwrap_or_default());
+        tracing::warn!("[setcert] epoch {}: quorum unavailability certificate for {} bodies ({} signers)", out.epoch, out.hashes.len(), out.sigs.len());
+    }
+    Some(out)
 }
 
 /// Every body of the last DECIDED_KEEP certified sets, applied or rejected (local memory, not
@@ -220,7 +316,13 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
     assert_eq!(t, applied_upto(chain) + 1, "certified sets apply strictly in order");
     let mut set = Vec::with_capacity(cert.content.hashes.len());
     let mut missing = Vec::new();
+    // A quorum unavailability certificate for exactly this set: those bodies are left out
+    // everywhere (even where present), recorded as rejected, so every node applies the same.
+    let un: std::collections::BTreeSet<String> = unavail_for(chain, t)
+        .filter(|u| u.content_hash == cert.content.hash())
+        .map(|u| u.hashes.into_iter().collect()).unwrap_or_default();
     for h in &cert.content.hashes {
+        if un.contains(h) { continue; }
         match body(chain, h) { Some(x) => set.push(x), None => missing.push(h.clone()) }
     }
     if !missing.is_empty() { return Err(missing); }
@@ -241,6 +343,9 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
     let _ = chain.store.state_set(&format!("{CERT_PREFIX}{t:016x}"), &serde_json::to_vec(cert).unwrap_or_default());
     if t > epoch_sync::KEEP_EPOCHS { let _ = chain.store.state_delete(&format!("{CERT_PREFIX}{:016x}", t - epoch_sync::KEEP_EPOCHS)); }
     let applied = epoch_sync::apply_set(chain, t, set, Some(t));
+    for h in &un { chain.record_entry_result(h, t, Some("unavailable: no node held this certified body (quorum unavailability certificate)".into())); }
+    UNAVAIL.lock().unwrap().remove(&t);
+    for h in &cert.content.hashes { let _ = chain.store.state_delete(&format!("{VB_PREFIX}{h}")); }
     epoch_sync::record(chain, t, &applied);
     epoch_sync::epoch_tick(chain, t, applied.iter().map(|(x, _)| hone_types::entry_weight(x)).sum());
     // d schedule: collect reports; step at period boundaries, effective D_DELAY later.
@@ -466,8 +571,8 @@ mod tests {
     /// the voters catch up with voter_step (re-proposals, no look-back limit, re-broadcast).
     /// Mid catch-up one voter restarts: a fresh engine resumed from chain state, its persisted
     /// own PROPs/votes restored, its pool reloaded from disk. Required: every node applies every
-    /// epoch, each transfer exactly at its own epoch (t = epoch + d, none stale or rejected),
-    /// and identical balance roots per epoch on every node.
+    /// epoch with identical balance roots per epoch. Since 2026-11-15 epochs left open longer
+    /// than the stale window close empty (catch-up rule 4), so partition-time transfers drop.
     #[test]
     fn total_partition_730_epoch_backlog_catch_up_and_restart() {
         let act = 500u64;
@@ -521,6 +626,21 @@ mod tests {
                     Msg::C(cert) => { eng[to].on_cert(cert, &verify); }
                 }
             }
+            // Data availability: bodies a voter lacks to vote are fetched from the peers, as the
+            // driver does (request_hashes). Only the ones served here are taken off the list.
+            if !cut {
+                let want: Vec<String> = DA_MISSING.lock().unwrap().iter().cloned().collect();
+                if !want.is_empty() {
+                    for j in 0..3 {
+                        for r in serve_bodies(&nodes[j], &want, epoch) {
+                            if let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) {
+                                DA_MISSING.lock().unwrap().remove(&e.hash());
+                                offer_body(e, r["sig"].as_str().map(str::to_owned));
+                            }
+                        }
+                    }
+                }
+            }
             // Gossip helper: everything between nodes is lost while partitioned.
             let mut send = |q: &mut Vec<(u64, usize, Msg)>, from: usize, m: Msg, rng: &mut Rng| {
                 if cut { return; }
@@ -562,7 +682,8 @@ mod tests {
                             let rec = epoch_sync::serve(&nodes[i], next, next);
                             for r in rec["epochs"][0]["entries"].as_array().into_iter().flatten() {
                                 let e: LedgerEntry = serde_json::from_value(r["entry"].clone()).unwrap();
-                                assert_eq!(e.epoch() + d, next, "node {i}: entry dated {} applied at {next}", e.epoch());
+                                assert!(e.epoch() + d <= next && next <= e.epoch() + crate::tx::STALE_WINDOW,
+                                    "node {i}: entry dated {} applied at {next}", e.epoch());
                             }
                         }
                         Err(missing) => {
@@ -613,17 +734,20 @@ mod tests {
         for i in 1..3 {
             for (e, r) in roots[0].range(..=last) { if let Some(x) = roots[i].get(e) { assert_eq!(x, r, "node {i} epoch {e}"); } }
         }
-        let want: u64 = (0..n_ep).map(|i| 10_000 + i + 20_000 + i).sum();
+        // Catch-up rules (2026-11-15): epochs left open longer than the stale window close
+        // empty, so transfers submitted during the partition are not applied (their senders
+        // resubmit; later nonces wait for them). Every node still applies every epoch, with
+        // identical results.
+        let bal0 = nodes[0].store.get_balance("carol", hone_types::NATIVE_TOKEN);
+        assert!(bal0 > 0, "pre-partition transfers applied");
         for (i, c) in nodes.iter().enumerate() {
-            assert_eq!(c.store.get_balance("carol", hone_types::NATIVE_TOKEN), want, "node {i}: every transfer applied once");
-            for (ep, h) in &txs {
-                let st = c.entry_status(h);
-                assert_eq!(st["status"], "committed", "node {i}: {h} ({ep}) {st}");
-                // The in-memory result map does not survive the restart (node 1): there the
-                // per-epoch record check above (every applied entry dated next - d) covers it.
-                if let Some(at) = st["epoch"].as_u64() { assert_eq!(at, ep + d, "node {i}: applied at its own epoch"); }
-            }
+            assert_eq!(c.store.get_balance("carol", hone_types::NATIVE_TOKEN), bal0, "node {i}");
             assert_eq!(epoch_sync::last_committed(c), applied_upto(c), "records follow in order");
+        }
+        for (ep, h) in &txs {
+            if *ep >= part_from && *ep + crate::tx::STALE_WINDOW < part_to {
+                assert_ne!(nodes[0].entry_status(h)["status"], "committed", "{h} ({ep}) dated in the partition must not apply");
+            }
         }
         TEST_EPOCH.with(|c| c.set(None));
     }
@@ -718,6 +842,212 @@ mod tests {
         assert!(body(&c, &e.hash()).is_none(), "gone from the pool and the fetch cache");
         let served = serve_bodies(&c, &[e.hash()], act);
         assert_eq!(served.len(), 1, "a peer missing it can still fetch it");
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    #[test]
+    fn a_voter_never_votes_for_a_body_it_does_not_hold() {
+        let act = 70u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x61; 32]);
+        let (c, _d) = chain("da");
+        setup(&c, &sk, "alice");
+        let (e, s) = xfer(&sk, "alice", "bob", 1, act, 5);
+        let mut eng = Engine::new("hone-test", act, vec!["v1".into(), "v2".into()]);
+        let mut p = Prop { epoch: act, voter: "v2".into(), hashes: vec![e.hash()], d_report: 2, sig: String::new() };
+        p.sig = signer("v2")(&setcert::prop_message("hone-test", &p));
+        assert!(eng.on_prop(p, 0, &verify));
+        let sign = signer("v1");
+        let (new, _) = voter_step(&mut eng, &c, "v1", act + 2, 100_000, 2, false, &sign);
+        assert!(!new.iter().any(|o| matches!(o, Out::V(_))), "no vote without the body");
+        assert!(DA_MISSING.lock().unwrap().contains(&e.hash()));
+        offer_body(e.clone(), s);
+        let (new, _) = voter_step(&mut eng, &c, "v1", act + 2, 200_000, 2, false, &sign);
+        let v = new.iter().find_map(|o| if let Out::V(v) = o { Some(v.clone()) } else { None }).expect("votes once it holds it");
+        assert!(v.content.hashes.contains(&e.hash()));
+        // The voted body is kept in state: gone from memory, still there.
+        FETCHED.lock().unwrap().remove(&e.hash());
+        assert!(body(&c, &e.hash()).is_some());
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    #[test]
+    fn entries_too_old_to_apply_are_never_proposed() {
+        let act = 80u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x63; 32]);
+        let (c, _d) = chain("stale");
+        setup(&c, &sk, "alice");
+        let (old, so) = xfer(&sk, "alice", "bob", 1, act - 10, 5);
+        let (ok, sok) = xfer(&sk, "alice", "bob", 2, act - 3, 5);
+        c.push_pending(old.clone(), so);
+        c.push_pending(ok.clone(), sok);
+        let due = due_hashes(&c, act);
+        assert!(!due.contains(&old.hash()), "a stuck node's ancient pool is never re-proposed");
+        assert!(due.contains(&ok.hash()));
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    fn prop(v: &str, t: u64, hashes: Vec<String>) -> Prop {
+        let mut p = Prop { epoch: t, voter: v.into(), hashes, d_report: 3, sig: String::new() };
+        p.sig = signer(v)(&setcert::prop_message("hone-test", &p));
+        p
+    }
+
+    /// Rule 1 + the swap scenario: own PROPs restored after a state swap that name bodies the
+    /// node no longer holds are dropped, and the floor keeps the node from proposing anew there.
+    #[test]
+    fn restored_props_naming_swapped_out_bodies_are_dropped_and_nothing_halts() {
+        let act = 110u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x65; 32]);
+        let (c, _d) = chain("swap");
+        setup(&c, &sk, "alice");
+        let (kept, sk_) = xfer(&sk, "alice", "bob", 1, act, 5);
+        let (lost, _sl) = xfer(&sk, "alice", "bob", 2, act, 5);
+        c.push_pending(kept.clone(), sk_);   // persisted pool: still held after the swap
+        let p_ok = prop("v1", act, vec![kept.hash()]);
+        let p_bad = prop("v1", act + 1, vec![lost.hash()]); // its body was in the swapped-out state
+        let (ps, vs, dropped) = restorable(&c, vec![p_ok.clone(), p_bad.clone()], vec![]);
+        assert_eq!((ps.len(), vs.len(), dropped), (1, 0, 1));
+        let mut eng = Engine::new("hone-test", act, vec!["v1".into(), "v2".into()]);
+        eng.restore_own(ps, vs);
+        eng.set_prop_floor(act + 1); // sign_guard's floor covers every restored epoch
+        let sign = signer("v1");
+        let (new, _) = voter_step(&mut eng, &c, "v1", act + 3, 100_000, 3, false, &sign);
+        assert!(!new.iter().any(|o| matches!(o, Out::P(p) if p.epoch == act + 1)), "no new, different PROP at a restored epoch");
+        assert!(eng.own_prop("v1", act + 1).is_none(), "the PROP naming a lost body is never re-sent");
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// Rule 2: a node behind what is already certified makes no PROPs for past epochs.
+    #[test]
+    fn a_node_behind_makes_no_proposals_for_past_epochs() {
+        let act = 120u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x66; 32]);
+        let (c, _d) = chain("behind");
+        setup(&c, &sk, "alice");
+        let (e1, s1) = xfer(&sk, "alice", "bob", 1, act, 5);
+        c.push_pending(e1, s1);
+        let mut eng = Engine::new("hone-test", act, vec!["v1".into(), "v2".into()]);
+        eng.resume(act + 10, "d".into()); // certified up to act+10, applied only act-1
+        let sign = signer("v1");
+        let (new, _) = voter_step(&mut eng, &c, "v1", act + 20, 100_000, 3, false, &sign);
+        assert!(!new.iter().any(|o| matches!(o, Out::P(p) if p.epoch + 3 <= act + 20)), "behind: no catch-up PROPs");
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// Rules 3 + 4: a synced node's PROP for an open past epoch older than the stale window is
+    /// empty; for a recent one it names only entries still valid at T, and keeps their bodies.
+    #[test]
+    fn old_open_epochs_close_empty_and_catch_up_props_name_only_valid_held_entries() {
+        let act = 130u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x67; 32]);
+        let (c, _d) = chain("horizon");
+        setup(&c, &sk, "alice");
+        let (e1, s1) = xfer(&sk, "alice", "bob", 1, act, 5);
+        c.push_pending(e1.clone(), s1);
+        let mut eng = Engine::new("hone-test", act, vec!["v1".into(), "v2".into()]);
+        let sign = signer("v1");
+        let cur = act + 20; // synced (nothing certified yet), epochs act..act+18 open
+        let (new, _) = voter_step(&mut eng, &c, "v1", cur, 100_000, 3, false, &sign);
+        let props: Vec<Prop> = new.iter().filter_map(|o| if let Out::P(p) = o { Some(p.clone()) } else { None }).collect();
+        assert!(!props.is_empty());
+        for p in &props {
+            if p.epoch + crate::tx::STALE_WINDOW < cur { assert!(p.hashes.is_empty(), "epoch {} closes empty", p.epoch); }
+            for h in &p.hashes { assert!(held(&c, h)); }
+        }
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// Today's halt end to end (2026-11-15, epoch 384535). A stuck voter on the old rule
+    /// re-proposes an ancient entry from its own pool, then loses that pool in a state swap.
+    /// Old rule: the other voter votes the union anyway, a cert forms, and every node halts on
+    /// a body nobody holds. New rule: the other voter refuses to vote without the body, so no
+    /// cert can form on it; and a voter on the new rule never proposes the ancient entry.
+    #[test]
+    fn todays_halt_end_to_end_stale_reproposal_is_refused() {
+        let act = 1_000u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x64; 32]);
+        let (c, _d) = chain("e2e");
+        setup(&c, &sk, "alice");
+        // The ancient entry, dated far before T: only in the stuck voter's pool.
+        let (ancient, sa_) = xfer(&sk, "alice", "bob", 1, act - 900, 5);
+        // 1) The new rule never proposes it, even when it sits in a pool.
+        c.push_pending(ancient.clone(), sa_.clone());
+        assert!(!due_hashes(&c, act + 2).contains(&ancient.hash()));
+        c.pending.lock().clear();
+        // 2) The stuck voter (old rule) proposes it anyway; its body is gone (state swap).
+        let mut eng = Engine::new("hone-test", act, vec!["v1".into(), "v2".into()]);
+        let mut p = Prop { epoch: act, voter: "v2".into(), hashes: vec![ancient.hash()], d_report: 10, sig: String::new() };
+        p.sig = signer("v2")(&setcert::prop_message("hone-test", &p));
+        assert!(eng.on_prop(p, 0, &verify));
+        // v2 votes the union (old rule); its vote alone is not a quorum.
+        let mut v2 = setcert::Vote { epoch: act, round: 0, voter: "v2".into(), prev: setcert::genesis_prev(act),
+            content: setcert::Content { hashes: vec![ancient.hash()], reports: vec![("v2".into(), 10)] }, sig: String::new() };
+        v2.sig = signer("v2")(&v2.digest("hone-test"));
+        assert!(eng.on_vote(v2, &verify).is_none());
+        // 3) v1 (new rule) does not hold the body: it refuses to vote and asks for it.
+        let sign = signer("v1");
+        for now in [100_000u64, 200_000, 300_000] {
+            let (new, _) = voter_step(&mut eng, &c, "v1", act + 2, now, 3, false, &sign);
+            assert!(!new.iter().any(|o| matches!(o, Out::V(_))), "data availability: no vote without the body");
+        }
+        assert!(DA_MISSING.lock().unwrap().contains(&ancient.hash()));
+        // 4) So no certificate exists for T, and nothing can halt on that body.
+        assert!(eng.final_cert(act).is_none());
+        assert!(eng.chosen(act).is_none());
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// The 384535 halt: a final cert names a body no node holds. A voter quorum signs the
+    /// unavailability certificate; every node then applies the set without it, identically.
+    #[test]
+    fn a_quorum_unavailability_certificate_unhalts_every_node_identically() {
+        let act = 90u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x62; 32]);
+        let (c1, _d1) = chain("ua1");
+        let (c2, _d2) = chain("ua2");
+        for c in [&c1, &c2] { setup(c, &sk, "alice"); }
+        let (a, sa_) = xfer(&sk, "alice", "bob", 1, act, 5);
+        let (b, _sb) = xfer(&sk, "alice", "carol", 2, act, 7); // its body is lost everywhere
+        let mut hs = vec![a.hash(), b.hash()]; hs.sort();
+        let cert = Cert { epoch: act, round: 0, prev: setcert::genesis_prev(act),
+            content: setcert::Content { hashes: hs, reports: vec![] }, votes: Default::default() };
+        offer_body(a.clone(), sa_.clone());
+        assert_eq!(apply_final(&c1, &cert), Err(vec![b.hash()]), "halted: a body nobody holds");
+        let eng = Engine::new("hone-test", act, vec!["v1".into(), "v2".into(), "v3".into()]);
+        let ch = cert.content.hash();
+        let mk = |v: &str| {
+            let m = setcert::unavail_message("hone-test", act, &ch, &[b.hash()]);
+            setcert::Unavail { epoch: act, content_hash: ch.clone(), hashes: vec![b.hash()], sigs: [(v.to_string(), signer(v)(&m))].into() }
+        };
+        on_unavail(&c1, &eng, mk("v1"), &verify);
+        assert!(unavail_for(&c1, act).is_none(), "one signer is not a quorum");
+        let mut forged = mk("v2"); forged.sigs.insert("v2".into(), "forged".into());
+        on_unavail(&c1, &eng, forged, &verify);
+        assert!(unavail_for(&c1, act).is_none(), "a forged signature does not count");
+        let mut other = mk("v2"); other.content_hash = "another-set".into();
+        on_unavail(&c1, &eng, other, &verify);
+        assert!(unavail_for(&c1, act).is_none(), "a statement about another set does not count");
+        on_unavail(&c1, &eng, mk("v2"), &verify);
+        let u = unavail_for(&c1, act).expect("quorum of 3 voters: 2");
+        // The certificate reaches the other node over gossip.
+        on_unavail(&c2, &eng, u, &verify);
+        assert!(unavail_for(&c2, act).is_some());
+        assert_eq!(apply_final(&c1, &cert), Ok(1));
+        offer_body(a.clone(), sa_.clone());
+        assert_eq!(apply_final(&c2, &cert), Ok(1));
+        for c in [&c1, &c2] {
+            assert_eq!(applied_upto(c), act);
+            assert_eq!(c.store.get_balance("bob", hone_types::NATIVE_TOKEN), 5);
+            assert_eq!(c.store.get_balance("carol", hone_types::NATIVE_TOKEN), 0, "left out, its submitter can resubmit");
+        }
+        assert_eq!(c1.store.balance_merkle_root(), c2.store.balance_merkle_root());
         TEST_EPOCH.with(|c| c.set(None));
     }
 

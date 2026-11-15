@@ -918,7 +918,7 @@ impl Network {
             }
 
             TOPIC_CONSENSUS if matches!(json.get("type").and_then(|v| v.as_str()),
-                Some("set_prop") | Some("set_vote") | Some("set_cert") | Some("sync_ents")) => {
+                Some("set_prop") | Some("set_vote") | Some("set_cert") | Some("sync_ents") | Some("set_unavail")) => {
                 self.emit(NetworkEvent::SetCert { msg: json });
             }
 

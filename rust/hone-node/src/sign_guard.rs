@@ -200,12 +200,15 @@ pub fn heads(chain: &Chain, tip: u64) -> (u64, u64) {
         // apply halt becomes a finalization halt.
         let h = crate::setcert_apply::applied_upto(chain);
         let f = crate::setcert_node::engine(chain).lock().last_final().unwrap_or(0);
-        (h.max(f), h.max(f))
+        heads_from(h, f)
     } else {
         let h = crate::epoch_sync::last_committed(chain);
         (h, h)
     }
 }
+
+/// (head, known final) from the applied head and the last final cert held.
+pub fn heads_from(applied: u64, last_final: u64) -> (u64, u64) { let h = applied.max(last_final); (h, h) }
 
 /// The node tick (seal loop, setcert driver, decide worker): reads the chain only while
 /// not Ready. Never call it while holding the setcert engine lock.
@@ -348,6 +351,20 @@ mod tests {
         // A real pause still sends it back to observe-only.
         g.tick(1_040, 1_030, 1_030, &BTreeMap::new());
         assert_eq!(g.phase, Phase::Observe);
+    }
+
+    /// 2026-11-15: applying halted at 384534 for hours while finality reached 384565; a synced
+    /// voter must still vote, or the apply halt becomes a finalization halt.
+    #[test]
+    fn an_apply_halt_does_not_stop_a_synced_voter() {
+        let (h, k) = heads_from(384_534, 384_565);
+        let mut g = Guard::new(None);
+        g.tick(385_500, h, k, &BTreeMap::new());
+        assert_eq!(g.phase, Phase::Observe);
+        g.tick(385_502, h, k, &BTreeMap::new());
+        assert!(matches!(g.phase, Phase::Doppelganger { .. }));
+        g.tick(385_504, h, k, &BTreeMap::new());
+        assert!(g.ready());
     }
 
     #[test]
