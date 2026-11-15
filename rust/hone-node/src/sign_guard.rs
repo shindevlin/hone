@@ -97,6 +97,10 @@ impl Guard {
     /// while not Ready, it may be empty otherwise).
     pub fn tick(&mut self, tip: u64, head: u64, known_final: u64, chain_floors: &BTreeMap<String, u64>) {
         if self.phase == Phase::Blocked { return; }
+        // Never goes backwards: a caller with a lagging epoch (the decide worker passes the
+        // sealed epoch) must not make the next on-time tick look like a gap (nebra 2026-11-15:
+        // 9-epoch "gaps" every 30 s kept it observe-only, so it never voted).
+        let tip = tip.max(self.last_tick.unwrap_or(0));
         if let Some(l) = self.last_tick {
             if tip > l + GAP_EPOCHS && self.phase != Phase::Observe {
                 warn!("[sign-guard] gap of {} epochs: observe-only until synced", tip - l);
@@ -191,9 +195,12 @@ pub fn observe_seal(seal: &serde_json::Value) {
 /// last committed epoch.
 pub fn heads(chain: &Chain, tip: u64) -> (u64, u64) {
     if crate::setcert_apply::active(tip) {
+        // The finalized head is the last final cert this node holds, applied or not: an apply
+        // halt (missing bodies, 2026-11-15) must not stop a synced voter from voting, or the
+        // apply halt becomes a finalization halt.
         let h = crate::setcert_apply::applied_upto(chain);
         let f = crate::setcert_node::engine(chain).lock().last_final().unwrap_or(0);
-        (h, h.max(f))
+        (h.max(f), h.max(f))
     } else {
         let h = crate::epoch_sync::last_committed(chain);
         (h, h)
@@ -202,8 +209,10 @@ pub fn heads(chain: &Chain, tip: u64) -> (u64, u64) {
 
 /// The node tick (seal loop, setcert driver, decide worker): reads the chain only while
 /// not Ready. Never call it while holding the setcert engine lock.
-pub fn tick(chain: &Chain, me: &str, tip: u64) {
+pub fn tick(chain: &Chain, me: &str, _caller_epoch: u64) {
     set_me(me);
+    // One clock for every caller: the chain's current epoch.
+    let tip = chain.current_epoch();
     let (head, known) = heads(chain, tip);
     let need = !guard().lock().ready();
     let floors = if need { chain_floors(chain, me, tip) } else { BTreeMap::new() };
@@ -323,6 +332,22 @@ mod tests {
         g.tick(2_030, 2_013, 2_020, &BTreeMap::new());
         assert_eq!(g.phase, Phase::Observe);
         assert!(!g.may_sign(SET_PROP, 2_031));
+    }
+
+    #[test]
+    fn a_lagging_caller_never_trips_the_gap_rule() {
+        let mut g = Guard::new(None);
+        up(&mut g, 1_000, &BTreeMap::new());
+        assert!(g.ready());
+        // The decide worker ticks with the sealed epoch (9 behind), the driver with the tip.
+        for i in 0..20 {
+            g.tick(1_003 + i - 9, 1_003 + i, 1_003 + i, &BTreeMap::new());
+            g.tick(1_003 + i, 1_003 + i, 1_003 + i, &BTreeMap::new());
+            assert!(g.ready(), "tick {i}");
+        }
+        // A real pause still sends it back to observe-only.
+        g.tick(1_040, 1_030, 1_030, &BTreeMap::new());
+        assert_eq!(g.phase, Phase::Observe);
     }
 
     #[test]
