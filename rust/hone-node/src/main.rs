@@ -673,9 +673,9 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // proposal p1a4f0c7. Until that lands, blocking is correct — a stalled
                         // driver is visible and recoverable, silently recycling someone else's
                         // rewards is neither.
-                        if setcert_apply::active(e) && !setcert_apply::applied(&chain_ref, e) {
-                            break; // its certified entry set is not applied yet
-                        }
+                        // Its certified entry set is applied (and, from REWARD_SETTLE_EPOCH, every
+                        // entry dated e is decided, so its reward inputs are final everywhere).
+                        if !setcert_apply::rewards_ready(&chain_ref, e) { break; }
                         let meta = match chain_ref.store.get_epoch_meta(e) {
                             Ok(Some(m)) if m["finalized"].as_bool().unwrap_or(false) => m,
                             _ => break, // not finalized yet — leave last_rewarded before e

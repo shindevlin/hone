@@ -28,6 +28,53 @@ thread_local! { pub static TEST_EPOCH: std::cell::Cell<Option<u64>> = const { st
 
 pub fn active(epoch: u64) -> bool { epoch >= activation() }
 
+/// Reward race (2026-11-15). Rewards and applied sets mutate the same balances from two loops,
+/// in whatever interleaving each node happens to run:
+///  - the reward driver paid epoch E from the inputs present when it reached E
+///    (storage_beat:E:*, ...), but entries dated E are applied only at E+d..E+STALE_WINDOW;
+///  - applying a set reads balances the reward driver writes (e.g. the inference benchmark
+///    daemon spends from __testnet_fund__, which rewards fill; any transfer from an account
+///    that earns).
+/// Nodes that caught up at different speeds, replayed after a transplant or restarted ended
+/// with different balances (grouchly, nebra, beastly at 386280/385600).
+/// From REWARD_SETTLE_EPOCH on the two run in LOCKSTEP: E is paid exactly between applying
+/// E + STALE_WINDOW (every entry dated E is decided) and applying E + STALE_WINDOW + 1, which
+/// waits for it. Every node then runs the same sequence. Consensus change: Josh picks the
+/// epoch; every clock must run this code before it.
+pub const REWARD_SETTLE_EPOCH: u64 = u64::MAX;
+pub fn reward_settle_epoch() -> u64 {
+    #[cfg(test)]
+    if let Some(v) = TEST_SETTLE.with(|c| c.get()) { return v; }
+    REWARD_SETTLE_EPOCH
+}
+#[cfg(test)]
+thread_local! { pub static TEST_SETTLE: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) }; }
+
+/// May the reward driver pay epoch `e` now? Before the gate: exactly the old rule (its
+/// certified set is applied). From the gate on: every entry dated `e` is decided.
+pub fn rewards_ready(chain: &Chain, e: u64) -> bool {
+    if !active(e) { return true; }
+    let need = if e >= reward_settle_epoch() { e.saturating_add(crate::tx::STALE_WINDOW) } else { e };
+    applied(chain, need)
+}
+
+/// May the certified set of `t` be applied now? From the gate: only once the rewards of
+/// E = t - STALE_WINDOW - 1 are paid (lockstep, see REWARD_SETTLE_EPOCH). Before: always.
+pub fn apply_allowed(chain: &Chain, t: u64) -> bool {
+    let lag = crate::tx::STALE_WINDOW + 1;
+    if t < reward_settle_epoch().saturating_add(lag) || t < lag { return true; }
+    let e = t - lag;
+    if !active(e) { return true; }
+    chain.store.state_get(&format!("epoch_finalized_done:{e}")).is_some()
+}
+
+/// A healer checkpoint at reward cursor `r` is comparable across nodes only at one lockstep
+/// point. A node rests at applied = r + STALE_WINDOW + 1 (the set after reward r is applied
+/// at once; the next reward waits for the reward depth), so that is the point compared.
+pub fn checkpoint_comparable(chain: &Chain, r: u64) -> bool {
+    !(active(r) && r >= reward_settle_epoch()) || applied_upto(chain) == r + crate::tx::STALE_WINDOW + 1
+}
+
 fn read_u64(chain: &Chain, k: &str) -> Option<u64> {
     chain.store.state_get(k).and_then(|b| String::from_utf8(b).ok()).and_then(|s| s.trim().parse().ok())
 }
@@ -1384,6 +1431,89 @@ mod tests {
         let _ = e.on_vote(w, &verify);
         let c = e.chosen(act).expect("the epoch certifies");
         assert!(c.votes.contains_key("v1") && c.votes.contains_key("v2"));
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+    /// Reward race, 2026-11-15. One certified history (a storage heartbeat dated E applied at
+    /// E+3; the benchmark daemon spends from the testnet fund at every apply), three schedules:
+    /// A applies one set and pays every tick, B pays only every 20 ticks, C applies in bursts as
+    /// far as allowed and pays in batches (a replay after a state transplant). Gate off: A and
+    /// B end with different balances (today's fork). Gate on: identical at equal (applied, R).
+    fn reward_race(gate: Option<u64>) -> Vec<String> {
+        let act = 1_000u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        TEST_SETTLE.with(|c| c.set(gate));
+        let cursor_r = act + 50;
+        let last = cursor_r + crate::tx::STALE_WINDOW + 1;
+        let g = if gate.is_some() { "on" } else { "off" };
+        let run = |label: &str, every: u64, burst: bool| -> String {
+            let (c, _d) = chain(&format!("{label}-{g}"));
+            let c = std::sync::Arc::new(c);
+            let mut cursor = act - 1;
+            let mut next = act;
+            let mut tick = 0u64;
+            while next <= last || cursor < cursor_r {
+                tick += 1;
+                assert!(tick < 100_000, "{label}: no progress (next {next}, cursor {cursor})");
+                for _ in 0..(if burst { 1_000 } else { 1 }) {
+                    if next > last || !apply_allowed(&c, next) { break; }
+                    if next >= act + 3 {
+                        let e = next - 3;
+                        let _ = c.store.state_set(&format!("storage_beat:{e}:storer"), &serde_json::to_vec(&serde_json::json!({
+                            "node_id": "storer", "epoch": e, "bytes_proven": 1u64 << 30, "query_count": 3,
+                            "proof_valid": true, "tier": 1 })).unwrap());
+                    }
+                    let cert = Cert { epoch: next, round: 0, prev: setcert::genesis_prev(next),
+                        content: setcert::Content { hashes: vec![], reports: vec![] }, votes: Default::default() };
+                    assert!(apply_final(&c, &cert).is_ok());
+                    next += 1;
+                }
+                if tick % every == 0 {
+                    // The reward driver: contiguous, as far as ready, at most to R.
+                    while cursor < cursor_r {
+                        let e = cursor + 1;
+                        if !rewards_ready(&c, e) { break; }
+                        crate::emit_epoch_rewards(e, &["natoshisakamoto".to_string()], &c);
+                        let _ = c.store.state_set(&format!("epoch_finalized_done:{e}"), b"1");
+                        cursor = e;
+                    }
+                }
+            }
+            assert_eq!(applied_upto(&c), last);
+            assert_eq!(checkpoint_comparable(&c, cursor), gate.is_none() || last == cursor + crate::tx::STALE_WINDOW + 1);
+            c.store.balance_merkle_root()
+        };
+        let roots = vec![run("race-a", 1, false), run("race-b", 20, false), run("race-c", 15, true)];
+        TEST_SETTLE.with(|c| c.set(None));
+        TEST_EPOCH.with(|c| c.set(None));
+        roots
+    }
+
+    #[test]
+    fn reward_race_nodes_at_different_speeds_and_after_a_transplant_agree_with_the_gate_on() {
+        let off = reward_race(None);
+        assert_ne!(off[0], off[1], "gate off reproduces the fork: the payout depends on apply speed");
+        let on = reward_race(Some(0));
+        assert_eq!(on[0], on[1], "gate on: fast and slow catch-up agree");
+        assert_eq!(on[0], on[2], "gate on: a replay after a transplant agrees");
+    }
+
+    #[test]
+    fn reward_gate_off_is_exactly_the_old_rule() {
+        let act = 1_000u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let (c, _d) = chain("gate-off");
+        for t in act..act + 10 {
+            let cert = Cert { epoch: t, round: 0, prev: setcert::genesis_prev(t),
+                content: setcert::Content { hashes: vec![], reports: vec![] }, votes: Default::default() };
+            assert!(apply_final(&c, &cert).is_ok());
+            for e in act - 5..act + 20 {
+                let old = !(active(e) && !applied(&c, e));
+                assert_eq!(rewards_ready(&c, e), old, "e={e} applied={t}");
+                assert!(apply_allowed(&c, e), "gate off: apply never waits");
+                assert!(checkpoint_comparable(&c, e), "gate off: checkpoints as today");
+            }
+        }
+        assert_eq!(REWARD_SETTLE_EPOCH, u64::MAX, "the gate ships off");
         TEST_EPOCH.with(|c| c.set(None));
     }
 }

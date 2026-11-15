@@ -269,6 +269,7 @@ pub fn take(chain: &Chain, epoch: u64) -> Option<Snapshot> {
     let seq = DRIVER_SEQ.load(Ordering::SeqCst);
     let cursor = REWARD_CURSOR.load(Ordering::SeqCst);
     if seq % 2 == 1 || cursor == 0 { return None; }
+    if !crate::setcert_apply::checkpoint_comparable(chain, cursor) { return None; }
     let rows = chain.store.sorted_balance_entries();
     if DRIVER_SEQ.load(Ordering::SeqCst) != seq { return None; }
     Some(Snapshot::from_rows(epoch, cursor, &rows))

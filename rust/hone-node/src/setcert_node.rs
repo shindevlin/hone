@@ -427,6 +427,8 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
         loop {
             let next = sa::applied_upto(&chain) + 1;
             let cert = engine(&chain).lock().final_cert(next).cloned();
+            // Lockstep with the reward driver from REWARD_SETTLE_EPOCH (reward race fix).
+            if !sa::apply_allowed(&chain, next) { break; }
             let Some(cert) = cert else {
                 // Behind with no cert for `next` (restart, missed gossip): ask the voters.
                 if next + 3 < cur && now_ms().saturating_sub(last_fetch) > 10_000 {
