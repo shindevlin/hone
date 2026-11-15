@@ -486,7 +486,6 @@ pub fn apply_complete(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     rep.total_latency_ms = rep.total_latency_ms.saturating_add(*latency_ms);
     rep.recompute_score();
     set_reputation(chain, &rep)?;
-    crate::rep::on_inference(chain, worker, true, crate::rep::at(*epoch));
     set_job(chain, &job)?;
     // Mark queue entry so miner knows the job is ready for Mine submission.
     let _ = chain.store.state_set(
@@ -838,9 +837,15 @@ pub fn apply_pay(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
         }
     }
 
+    // Compute reputation (Josh 2026-11-15): earned only by a job delivered AND settled on a
+    // non-rejected result. Bidding or being awarded earns nothing; a rejected result, or an
+    // awarded job that times out or is cancelled, is a -medium event (apply_verify/apply_cancel).
+    let completed = job.status != JobStatus::Rejected && job.result_hash.is_some()
+        && job.winner.as_deref() == Some(worker.as_str());
     job.settled_epoch = Some(*epoch);
     job.status = JobStatus::Paid;
     set_job(chain, &job)?;
+    if completed { crate::rep::on_inference(chain, worker, true, crate::rep::at(*epoch)); }
 
     // Schedule proof payload pruning (D1): mark for clearing after prune window.
     // Verdict and reward records stay forever; only raw proof data is cleared.
@@ -1424,6 +1429,37 @@ mod tests {
         apply_post(&chain, &post_entry("j-on", "alice", 1_000, 0)).unwrap();
         apply_bid(&chain, &bid_entry("j-on", "bob", 800, "worker", 0)).expect("new node at 3,500");
         assert!(apply_bid(&chain, &bid_entry("j-on", "carl", 800, "worker", 0)).is_err());
+        crate::rep::TEST_EPOCH.with(|t| t.set(None));
+    }
+
+    /// Compute reputation from COMPLETED jobs only (Josh 2026-11-15): award alone = 0,
+    /// delivered and settled = +small, awarded then timed out = -medium.
+    #[test]
+    fn compute_reputation_comes_only_from_completed_jobs() {
+        let (chain, _dir) = make_chain("rep_completed");
+        seal(&chain, 0);
+        fund(&chain, "alice", 100_000);
+        crate::rep::TEST_EPOCH.with(|t| t.set(Some(0)));
+        let rec = |a: &str| crate::rep::domain_view(&chain, a, crate::rep::Domain::Compute, 0);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 1_000, "worker")).unwrap();
+        assert!(rec("bob").is_none(), "being awarded earns nothing");
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+        assert!(rec("bob").is_none(), "delivered but not settled: nothing yet");
+        apply_verify(&chain, &verify_entry("j1", "v1", "approved", 0)).unwrap();
+        let job = get_job(&chain, "j1").unwrap();
+        let pay = build_pay_entry_happy(&chain, &job, 1).expect("build pay");
+        apply_pay(&chain, &pay).expect("pay");
+        let r = rec("bob").unwrap();
+        assert_eq!((r.good, r.bad), (crate::rep::SMALL, 0), "completed: +small");
+        apply_post(&chain, &post_entry("j2", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j2", "carl", 800, "worker")).unwrap();
+        assert!(rec("carl").is_none());
+        let cancel = LedgerEntry::InferenceJobCancel { job_id: "j2".into(), cancelled_by: "system".into(),
+            reason: "deadline".into(), epoch: 0, nonce: 0, signed_by: "system".into() };
+        apply_cancel(&chain, &cancel).expect("system cancel");
+        let r = rec("carl").unwrap();
+        assert_eq!((r.good, r.bad), (0, crate::rep::MEDIUM), "awarded then timed out: -medium");
         crate::rep::TEST_EPOCH.with(|t| t.set(None));
     }
 

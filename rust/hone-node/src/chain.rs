@@ -1674,7 +1674,8 @@ impl Chain {
             }
             LedgerEntry::SensorSummary { sensor_id, owner, cell, window, metrics, epoch, seq, prev_head, .. } => {
                 let dat = crate::rep::at(*epoch);
-                crate::rep::device_check(self, sensor_id, owner, *seq, prev_head.as_deref(), &entry.hash(), dat)?;
+                let dhash = crate::rep::device_msg_hash(entry, &self.chain_id);
+                crate::rep::device_check(self, sensor_id, owner, *seq, prev_head.as_deref(), &dhash, dat)?;
                 crate::sensor_seat::touch(self, owner, *epoch);
                 let (verdicts, pts) = crate::usefulness::score(self, sensor_id, owner, cell, *window, metrics, *epoch);
                 for (m, v) in &verdicts {
@@ -1682,7 +1683,7 @@ impl Chain {
                 }
                 info!("[usefulness] {} {} {} w{}: {:?} -> {} point(s)", owner, sensor_id, cell, window,
                     verdicts.iter().map(|(m, v)| format!("{m}:{v:?}")).collect::<Vec<_>>(), pts);
-                crate::rep::device_record(self, sensor_id, *seq, &entry.hash(), dat);
+                crate::rep::device_record(self, sensor_id, *seq, &dhash, dat);
             }
 
             LedgerEntry::CoverageReport { reporter, lat, lon, signal_dbm, carrier_mcc_mnc, technology, data_hash, epoch, .. } => {
@@ -1794,7 +1795,8 @@ impl Chain {
                 // device's committed head; else it is rejected (not slashed) so the device resyncs.
                 let (dseq, dprev) = match entry { LedgerEntry::SensorDataCommit { seq, prev_head, .. } => (*seq, prev_head.clone()), _ => (None, None) };
                 let dat = crate::rep::at(*epoch);
-                crate::rep::device_check(self, sensor_id, owner, dseq, dprev.as_deref(), &entry.hash(), dat)?;
+                let dhash = crate::rep::device_msg_hash(entry, &self.chain_id);
+                crate::rep::device_check(self, sensor_id, owner, dseq, dprev.as_deref(), &dhash, dat)?;
                 self.ensure_account(owner, *epoch)?;
                 // Cap: no sensor type scores meaningfully past 10_000 readings per epoch.
                 // Prevents unbounded state values from being stored.
@@ -1859,7 +1861,7 @@ impl Chain {
                         "batch_hash": bh, "reading_count": total, "decided": true,
                     })).unwrap_or_default());
                 }
-                crate::rep::device_record(self, sensor_id, dseq, &entry.hash(), dat);
+                crate::rep::device_record(self, sensor_id, dseq, &dhash, dat);
             }
 
             // Decentralized runtime — state guards + full economics.

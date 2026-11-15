@@ -44,7 +44,7 @@
 | Physical challenge passed / failed | data | +medium / -large |
 | Random audit passed / failed | any | +medium / -very large |
 | Storage proof passed / strike | storage | +small / -medium |
-| Inference job completed+accepted / failed | compute | +/- (migrates current logic) |
+| Inference job completed (result delivered and settled) / awarded but not completed (timeout, cancel, failed delivery) or result rejected | compute | +small / -medium; bidding or being awarded earns nothing |
 | Seal in quorum, certificate signed on time / missed spot check | consensus | +small / -medium |
 | Oracle report within band / outside | oracle | +/- |
 | Relayed entry that was certified | relay | +small |
@@ -56,7 +56,7 @@
 - **Quiet devices** keep their score but lose confidence as evidence decays.
 
 ## 5. Starting reputation (Josh's clarification, 2026-11-14: overrides the first draft)
-- **Reputation is a network of useful work.** It is earned ONLY from proven useful work: accepted useful data, independent confirmations, passed challenges/audits, certified seals and relays, proven storage, accepted jobs. Nothing is earned for existing, registration, uptime or stake alone.
+- **Reputation is a network of useful work.** It is earned ONLY from proven useful work: accepted useful data, independent confirmations, passed challenges/audits, certified seals and relays, proven storage, completed jobs (delivered and settled). Nothing is earned for existing, registration, uptime or stake alone.
 - **Owner trust is the main source of a new device's trust.** A new device of an established owner (e.g. josh, shindevlin) starts at about the owner's score: its prior is the owner's score carried as at most 20 evidence units (`INHERIT_CAP`; fewer if the owner has less evidence). That is low confidence, so bad events pull it down fast. Josh's second Flipper does not start from zero.
 - **New / unknown owner, open firmware:** neutral-low prior (score 3,500); the device has to earn it (replaces the 30-day parity rule with evidence).
 - **Locked/attested hardware:** higher prior (score 6,500), never below it (hook ready; attestation not on chain yet).
@@ -79,17 +79,17 @@
 ## 6b. Sync before submit (all devices)
 Nothing signs before it has looked at the chain.
 - **Nodes** (local behaviour, not gated): on start, restart, or after a gap of more than a few epochs a node is observe-only: it signs nothing (seals, setcert proposals/votes, decide commits/reveals, clock claims) until it has synced to the finalized head. It then raises its local "highest signed" floor per signing type to the max of its local record and what the chain shows signed by its own key (covers lost or restored state, e.g. snapshot swaps). Doppelganger wait: it listens 2 epochs; any signature by its own key that it did not make this run means another instance runs with the same key, so it refuses to sign and logs loudly. Only then does it sign, never at or below the floor. The floor is persisted next to `setcert_voted`.
-- **Devices** (chain rule behind REPUTATION_EPOCH): every device that commits data (SensorDataCommit, SensorSummary: Flipper heads, phone seats, pucks) has a committed head in state, `{seq, head_hash, epoch}`, served at `GET /api/device/:key/head`. Before submitting, a device fetches its head and reconciles its local log: its next commit carries `seq > head.seq` and `prev_head == head.head_hash` (a skipped seq is a declared gap, still hash-linked; the first commit has no prev_head). A commit that does not extend the head is rejected (not slashed) with an error telling the device to resync. If the chain head is not in the device's local history, the device has been cloned or restored: it stops and alerts the owner.
-- **Equivocation for devices** is two different signed commits for the same device seq, both seen on chain or gossip: that is the provable violation. A rejected stale commit alone is not.
+- **Devices** (chain rule behind REPUTATION_EPOCH): every device that commits data (SensorDataCommit, SensorSummary: Flipper heads, phone seats, pucks) has a committed head in state, `{seq, head_hash, epoch}`, served at `GET /api/device/:key/head`. `head_hash` is the sha256 (hex) of the commit's exact signed message bytes (the canonical signing message, which includes `seq` and `prev_head` but not the epoch the node stamps), so an offline device (e.g. a Flipper) computes its own next `prev_head` and can chain commits ahead of time for trusted late submission. Field order is the node's canonical order (not sorted), compact JSON, `prev_head` last when present. Test vector (chain `hone`): message `{"chain_id":"hone","type":"SENSOR_DATA_COMMIT","sensor_id":"flip-a","owner":"josh","batch_hash":"b1","reading_count":3,"sensor_type":"continuous","signed_by":"josh","seq":1}` gives head `7d187df16a73a8f2e0bf0c05f912db4cbd076103a995fb45a851e9c6d89bf080`; the next commit (batch `b2`, seq 2, that prev_head) gives `274eaf8560684cdbaf23121ea0235ecbb8a351172eaf3eebf207f222e491a96c`. Before submitting, a device fetches its head and reconciles its local log: its next commit carries `seq > head.seq` and `prev_head == head.head_hash` (a skipped seq is a declared gap, still hash-linked; the first commit has no prev_head). A commit that does not extend the head is rejected (not slashed) with an error telling the device to resync. If the chain head is not in the device's local history, the device has been cloned or restored: it stops and alerts the owner.
+- **Equivocation for devices** is two different signed messages for the same device seq (the same signed message relayed again, at any epoch, is a duplicate), both seen on chain or gossip: that is the provable violation. A rejected stale commit alone is not.
 
 ## 7. What reputation controls
 - **Reward weight:** reward x (0.25 ... 1.0) by domain score; unconfirmed single-device data/alerts paid by reputation, not withheld.
 - **Late window and weighting:** tier (A/B/C) x reputation.
 - **Audit rate:** inversely proportional to score (low rep audited often).
-- **Gates:** inference bid `min_reputation` uses compute score; committee lottery eligibility can use consensus score (later, separate gate).
+- **Gates:** inference bid `min_reputation` uses the compute score (earned from completed jobs only); committee lottery eligibility can use consensus score (later, separate gate).
 
 ## 8. Migration
-- Inference and oracle reputation become the compute and oracle domains: current values seed the counters at activation, but never with more good evidence than the old record proved (completed jobs, in-band reports).
+- Inference and oracle reputation become the compute and oracle domains: current values seed the counters at activation, but counting only completed jobs (good = completed, bad = failed) and in-band reports.
 - Clock uptime (Phase 8) is NOT seeded: it measures registration/uptime, not proven work. The consensus domain starts from certified seals after activation.
 - `sensor_strikes` moves out of the API handler into decided-set processing (fixes the divergence) and becomes data-domain bad events.
 - From the gate the sensor commit handler writes no chain state at all: `sensor_net` (the /24 diversity guard) and the informational 2-of-N status move to a node-local admission cache, and the decided `SensorDataCommit` records `sensor_readings` (submitter, batch, count; the signed entry carries no value, so value-based checks are the decided usefulness rules).

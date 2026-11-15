@@ -507,7 +507,8 @@ pub fn on_storage_proof(chain: &Chain, subject: &str, owner: &str, passed: bool,
     else { apply(chain, subject, Some(owner), Domain::Storage, "storage_strike", 0, MEDIUM, false, epoch) }
 }
 
-/// Inference job completed (+small) / failed or rejected (-medium).
+/// Inference job completed: delivered and settled (+small) / rejected result, or awarded but
+/// not completed: timeout, cancel, failed delivery (-medium). Award alone earns nothing.
 pub fn on_inference(chain: &Chain, subject: &str, ok: bool, epoch: u64) -> bool {
     if ok { apply(chain, subject, None, Domain::Compute, "job_ok", SMALL, 0, false, epoch) }
     else { apply(chain, subject, None, Domain::Compute, "job_failed", 0, MEDIUM, false, epoch) }
@@ -666,17 +667,29 @@ fn equiv_key(dev: &str, seq: u64) -> String { format!("dev_equiv:{dev}:{seq:016x
 
 pub fn device_head(chain: &Chain, dev: &str) -> Option<DeviceHead> { get(chain, &head_key(dev)) }
 
+/// The device-log link of a commit: sha256 (hex) of the exact signed message bytes
+/// (`tx::canonical_signing_message`, which carries seq and prev_head but no node-stamped
+/// epoch), so an offline device can compute its next prev_head itself and chain commits
+/// ahead of time (trusted late submission). Identical on device and node.
+pub fn device_msg_hash(entry: &hone_types::LedgerEntry, chain_id: &str) -> String {
+    use sha2::Digest;
+    let m = crate::tx::canonical_signing_message(entry, chain_id).unwrap_or_default();
+    hex::encode(sha2::Sha256::digest(m.as_bytes()))
+}
+
 /// GET /api/device/:key/head
 pub fn device_head_json(chain: &Chain, dev: &str, epoch: u64) -> serde_json::Value {
     serde_json::json!({ "key": dev, "head": device_head(chain, dev), "active": active(epoch),
         "active_from_epoch": activation(),
+        "head_hash_is": "sha256 hex of the commit's exact signed message (canonical signing message, incl. seq and prev_head)",
         "rule": "next commit: seq > head.seq and prev_head == head.head_hash (first commit: no prev_head)" })
 }
 
 /// Before a device commit's effects: it must extend the committed head (prev_head ==
 /// head_hash and seq > head.seq; a skipped seq is a declared gap, still hash-linked). A
-/// non-extending commit is rejected, never slashed. A second, different signed commit at a
+/// non-extending commit is rejected, never slashed. A second, different signed message at a
 /// seq the chain already holds is equivocation: recorded once as a violation, and rejected.
+/// `hash` is `device_msg_hash` of the commit.
 #[allow(clippy::too_many_arguments)]
 pub fn device_check(chain: &Chain, dev: &str, owner: &str, seq: Option<u64>, prev: Option<&str>,
                     hash: &str, epoch: u64) -> anyhow::Result<()> {
@@ -755,7 +768,10 @@ pub fn ensure_migrated(chain: &Chain, epoch: u64) {
     let _ = chain.store.state_set(MIGRATED_KEY, epoch.to_string().as_bytes());
     for (k, v) in chain.store.state_scan_prefix("node_rep:") {
         let Ok(r) = serde_json::from_slice::<crate::inference::NodeReputation>(&v) else { continue };
-        seed(chain, &k["node_rep:".len()..], Domain::Compute, r.jobs_accepted, r.score.min(10_000), 10_000, r.jobs_completed, epoch);
+        // Only completed jobs count (Josh 2026-11-15): good = completed, bad = failed
+        // (rejected, timed out, cancelled); jobs merely accepted/awarded count for nothing.
+        let n = r.jobs_completed + r.jobs_failed;
+        seed(chain, &k["node_rep:".len()..], Domain::Compute, n, r.jobs_completed, n, r.jobs_completed, epoch);
     }
     for (k, v) in chain.store.state_scan_prefix("oracle_rep:") {
         let Ok(r) = serde_json::from_slice::<crate::oracle::ReporterReputation>(&v) else { continue };
@@ -971,7 +987,7 @@ mod tests {
         let _ = c2.store.state_set("node_rep:eve", &serde_json::to_vec(&nr).unwrap());
         tick(&c2, A);
         let r = domain_view(&c2, "eve", Domain::Compute, A).unwrap();
-        assert_eq!((r.good, r.bad), (2 * UNIT, 8 * UNIT));
+        assert_eq!((r.good, r.bad), (2 * UNIT, 0), "only completed jobs seed; 8 accepted-but-open jobs count for nothing");
     }
 
     #[test]
@@ -1263,7 +1279,7 @@ mod tests {
             sensor_id: sensor.into(), owner: owner.into(), batch_hash: batch.into(), reading_count: 3,
             sensor_type: "continuous".into(), epoch, signed_by: owner.into(), gateway_account: None,
         };
-        (c.apply_entry(&e), e.hash())
+        (c.apply_entry(&e), device_msg_hash(&e, &c.chain_id))
     }
     /// A well-behaved device: builds on its committed head.
     fn commit(c: &Chain, sensor: &str, owner: &str, batch: &str, epoch: u64) {
@@ -1298,6 +1314,54 @@ mod tests {
         assert!(err(dcommit(&c, "flip-a", "josh", "b3", e + 1, Some(3), Some(h2)).0).contains("stale"));
         assert!(domain_view(&c, "flip-a", Domain::Data, e + 1).is_none(), "a stale commit is not a violation");
         assert_eq!(device_head(&c, "flip-a").unwrap().head_hash, h4);
+    }
+
+    /// Test vector for app and firmware: chain "hone", flip-a's first two commits.
+    #[test]
+    fn device_head_hash_test_vector() {
+        let mk = |seq: u64, prev: Option<&str>, batch: &str| hone_types::LedgerEntry::SensorDataCommit {
+            seq: Some(seq), prev_head: prev.map(str::to_owned), sensor_id: "flip-a".into(), owner: "josh".into(),
+            batch_hash: batch.into(), reading_count: 3, sensor_type: "continuous".into(),
+            epoch: 123_456, signed_by: "josh".into(), gateway_account: None };
+        let e1 = mk(1, None, "b1");
+        assert_eq!(crate::tx::canonical_signing_message(&e1, "hone").unwrap(),
+            r#"{"chain_id":"hone","type":"SENSOR_DATA_COMMIT","sensor_id":"flip-a","owner":"josh","batch_hash":"b1","reading_count":3,"sensor_type":"continuous","signed_by":"josh","seq":1}"#);
+        let h1 = device_msg_hash(&e1, "hone");
+        assert_eq!(h1, "7d187df16a73a8f2e0bf0c05f912db4cbd076103a995fb45a851e9c6d89bf080");
+        let e2 = mk(2, Some(&h1), "b2");
+        assert_eq!(crate::tx::canonical_signing_message(&e2, "hone").unwrap(),
+            r#"{"chain_id":"hone","type":"SENSOR_DATA_COMMIT","sensor_id":"flip-a","owner":"josh","batch_hash":"b2","reading_count":3,"sensor_type":"continuous","signed_by":"josh","seq":2,"prev_head":"7d187df16a73a8f2e0bf0c05f912db4cbd076103a995fb45a851e9c6d89bf080"}"#);
+        assert_eq!(device_msg_hash(&e2, "hone"), "274eaf8560684cdbaf23121ea0235ecbb8a351172eaf3eebf207f222e491a96c");
+        // The node-stamped epoch is not part of the link.
+        let mut e1b = e1.clone();
+        if let hone_types::LedgerEntry::SensorDataCommit { epoch, .. } = &mut e1b { *epoch = 999_999; }
+        assert_eq!(device_msg_hash(&e1b, "hone"), h1);
+        assert_ne!(e1b.hash(), e1.hash());
+    }
+
+    /// Trusted late submission: an offline device chains commits ahead of time; they are
+    /// accepted whatever epoch the node stamps, and the same signed message again (any epoch)
+    /// is a duplicate, not equivocation.
+    #[test]
+    fn an_offline_device_chains_commits_ahead_of_time() {
+        let _g = Gate::on(A);
+        let (c, _d) = chain();
+        let mk = |seq: u64, prev: Option<String>, batch: &str, epoch: u64| hone_types::LedgerEntry::SensorDataCommit {
+            seq: Some(seq), prev_head: prev, sensor_id: "flip-a".into(), owner: "josh".into(),
+            batch_hash: batch.into(), reading_count: 3, sensor_type: "continuous".into(),
+            epoch, signed_by: "josh".into(), gateway_account: None };
+        // On the device, offline: three linked commits; it never knows the epochs.
+        let h1 = device_msg_hash(&mk(1, None, "b1", 0), &c.chain_id);
+        let h2 = device_msg_hash(&mk(2, Some(h1.clone()), "b2", 0), &c.chain_id);
+        // Later, submitted through a phone: the node stamps whatever epoch it is.
+        c.apply_entry(&mk(1, None, "b1", A + 500)).unwrap();
+        c.apply_entry(&mk(2, Some(h1.clone()), "b2", A + 501)).unwrap();
+        c.apply_entry(&mk(3, Some(h2.clone()), "b3", A + 502)).unwrap();
+        assert_eq!(device_head(&c, "flip-a").unwrap().seq, 3);
+        // The same signed message relayed again by another phone (new epoch): a duplicate.
+        let err = c.apply_entry(&mk(2, Some(h1), "b2", A + 600)).unwrap_err().to_string();
+        assert!(err.contains("already committed"), "{err}");
+        assert!(domain_view(&c, "flip-a", Domain::Data, A + 600).is_none(), "not a violation");
     }
 
     #[test]
