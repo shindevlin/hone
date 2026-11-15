@@ -1841,6 +1841,16 @@ impl Chain {
                 }
                 if let Some(gw) = gateway { rec["gateway_account"] = serde_json::json!(gw); }
                 let _ = self.store.state_set(&key, &serde_json::to_vec(&rec).unwrap_or_default());
+                // From REPUTATION_EPOCH the decided commit, not the API handler, records who
+                // submitted for this sensor and epoch (the signed entry carries no value).
+                if crate::rep::active(crate::rep::at(*epoch)) {
+                    let bh = match entry { LedgerEntry::SensorDataCommit { batch_hash, .. } => batch_hash.clone(), _ => String::new() };
+                    let rk = format!("sensor_readings:{}:{}:{}", epoch, sensor_id, owner);
+                    let _ = self.store.state_set(&rk, &serde_json::to_vec(&serde_json::json!({
+                        "sensor_id": sensor_id, "owner": owner, "epoch": epoch,
+                        "batch_hash": bh, "reading_count": total, "decided": true,
+                    })).unwrap_or_default());
+                }
             }
 
             // Decentralized runtime — state guards + full economics.

@@ -4506,18 +4506,24 @@ async fn post_sensor_commit(
     let submitter_net = ip_to_net_prefix(&raw_ip);
     let net_key = format!("sensor_net:{}:{}", body.sensor_id, epoch);
 
+    // From REPUTATION_EPOCH this handler writes no chain state: the /24 diversity guard and
+    // the 2-of-N status use a node-local cache (admission policy, not consensus), and the
+    // decided SensorDataCommit records the reading (chain.rs).
+    let gated = crate::rep::active(epoch);
+
     // Load existing net entries for this sensor+epoch.
-    let mut nets: Vec<String> = s.chain.store
+    let mut nets: Vec<String> = if gated { local_sensor::nets(&body.sensor_id, epoch) } else { s.chain.store
         .state_get(&net_key)
         .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
-        .unwrap_or_default();
+        .unwrap_or_default() };
 
     // ── Store per-submitter reading record ────────────────────────────────────
     let reading_key = format!("sensor_readings:{}:{}:{}", epoch, body.sensor_id, body.owner);
 
     // Cross-net Sybil guard: only applies to NEW owners this epoch.
     // Re-submissions from the same owner update their reading without re-checking.
-    let already_submitted = s.chain.store.state_get(&reading_key).is_some();
+    let already_submitted = if gated { local_sensor::has(&body.sensor_id, epoch, &body.owner) }
+        else { s.chain.store.state_get(&reading_key).is_some() };
     if !already_submitted {
         if !nets.is_empty() && nets[0] == submitter_net {
             return (StatusCode::CONFLICT, Json(serde_json::json!({
@@ -4551,7 +4557,7 @@ async fn post_sensor_commit(
     }
 
     // Only authenticated, accepted commits may affect sensor consensus state.
-    if !already_submitted {
+    if !already_submitted && !gated {
         let _ = s.chain.store.state_set(
             &net_key,
             &serde_json::to_vec(&nets).unwrap_or_default(),
@@ -4565,13 +4571,21 @@ async fn post_sensor_commit(
         "batch_hash": body.batch_hash,
         "submitter_net": submitter_net,
     });
+    if gated {
+        local_sensor::put(&body.sensor_id, epoch, &body.owner, reading_rec, nets);
+    } else {
     let _ = s.chain.store.state_set(
         &reading_key,
         &serde_json::to_vec(&reading_rec).unwrap_or_default(),
     );
+    }
 
     // ── Phase 2: 2-of-N consensus ─────────────────────────────────────────────
-    let status = sensor_cross_validate(&s, &body.sensor_id, epoch, &body.owner);
+    let status = if gated {
+        cross_validate_readings(&local_sensor::readings(&body.sensor_id, epoch), &body.owner).0
+    } else {
+        sensor_cross_validate(&s, &body.sensor_id, epoch, &body.owner)
+    };
 
     // ── Phase 3: strike tracking ──────────────────────────────────────────────
     // Written by whichever node received the reading, so not consensus. From
@@ -4658,15 +4672,20 @@ fn sensor_cross_validate(
         .into_iter()
         .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
         .collect();
+    let (status, writes) = cross_validate_readings(&readings, this_submitter);
+    for (owner, st) in writes {
+        let sk = format!("sensor_reading_status:{}:{}:{}", epoch, sensor_id, owner);
+        let _ = s.chain.store.state_set(&sk, st.as_bytes());
+    }
+    status
+}
 
+/// 2-of-N status of `this_submitter` among `readings`, and the (owner, status) records the
+/// pre-REPUTATION_EPOCH handler writes. Pure.
+fn cross_validate_readings(readings: &[serde_json::Value], this_submitter: &str) -> (String, Vec<(String, String)>) {
     if readings.len() < 2 {
-        // Solo reading — store status and return early.
-        let status_key = format!("sensor_reading_status:{}:{}:{}", epoch, sensor_id, this_submitter);
-        let _ = s.chain.store.state_set(
-            &status_key,
-            b"unverified",
-        );
-        return "unverified".to_owned();
+        // Solo reading.
+        return ("unverified".to_owned(), vec![(this_submitter.to_owned(), "unverified".to_owned())]);
     }
 
     // Collect numeric values where present.
@@ -4676,13 +4695,9 @@ fn sensor_cross_validate(
 
     if values.is_empty() {
         // No values to compare — accept all as unverified.
-        for r in &readings {
-            if let Some(owner) = r["owner"].as_str() {
-                let sk = format!("sensor_reading_status:{}:{}:{}", epoch, sensor_id, owner);
-                let _ = s.chain.store.state_set(&sk, b"unverified");
-            }
-        }
-        return "unverified".to_owned();
+        let w = readings.iter().filter_map(|r| r["owner"].as_str())
+            .map(|o| (o.to_owned(), "unverified".to_owned())).collect();
+        return ("unverified".to_owned(), w);
     }
 
     values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -4696,7 +4711,7 @@ fn sensor_cross_validate(
     let threshold = 0.15_f64;
     let mut confirmed_count = 0usize;
     let mut statuses: Vec<(&str, &str)> = Vec::new(); // (owner, status)
-    for r in &readings {
+    for r in readings {
         let owner = r["owner"].as_str().unwrap_or("");
         let status = match r["value"].as_f64() {
             Some(v) if median == 0.0 || ((v - median).abs() / median.abs()) <= threshold => {
@@ -4710,19 +4725,50 @@ fn sensor_cross_validate(
     }
 
     // If 2+ agree: mark them confirmed; otherwise mark the diverging ones unconfirmed.
-    for (owner, status) in &statuses {
-        let final_status = if confirmed_count >= 2 { status } else { "unconfirmed" };
-        let sk = format!("sensor_reading_status:{}:{}:{}", epoch, sensor_id, owner);
-        let _ = s.chain.store.state_set(&sk, final_status.as_bytes());
-    }
+    let writes = statuses.iter().map(|(owner, status)| {
+        let final_status = if confirmed_count >= 2 { *status } else { "unconfirmed" };
+        (owner.to_string(), final_status.to_owned())
+    }).collect();
 
     // Return status for this_submitter.
-    statuses.iter()
+    let st = statuses.iter()
         .find(|(o, _)| *o == this_submitter)
         .map(|(_, st)| {
             if confirmed_count >= 2 { st.to_string() } else { "unconfirmed".to_owned() }
         })
-        .unwrap_or_else(|| "unverified".to_owned())
+        .unwrap_or_else(|| "unverified".to_owned());
+    (st, writes)
+}
+
+/// Node-local sensor admission cache (REPUTATION_EPOCH on): the /24 diversity guard and the
+/// informational 2-of-N status. Never chain state; recent epochs only.
+mod local_sensor {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+    type Slot = (Vec<String>, BTreeMap<String, serde_json::Value>);
+    static CACHE: Mutex<BTreeMap<(u64, String), Slot>> = Mutex::new(BTreeMap::new());
+    const KEEP_EPOCHS: u64 = 10;
+    fn with<R>(f: impl FnOnce(&mut BTreeMap<(u64, String), Slot>) -> R) -> R {
+        let mut g = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        f(&mut g)
+    }
+    pub fn nets(id: &str, epoch: u64) -> Vec<String> {
+        with(|m| m.get(&(epoch, id.to_owned())).map(|s| s.0.clone()).unwrap_or_default())
+    }
+    pub fn has(id: &str, epoch: u64, owner: &str) -> bool {
+        with(|m| m.get(&(epoch, id.to_owned())).is_some_and(|s| s.1.contains_key(owner)))
+    }
+    pub fn readings(id: &str, epoch: u64) -> Vec<serde_json::Value> {
+        with(|m| m.get(&(epoch, id.to_owned())).map(|s| s.1.values().cloned().collect()).unwrap_or_default())
+    }
+    pub fn put(id: &str, epoch: u64, owner: &str, rec: serde_json::Value, nets: Vec<String>) {
+        with(|m| {
+            m.retain(|(e, _), _| e.saturating_add(KEEP_EPOCHS) >= epoch);
+            let slot = m.entry((epoch, id.to_owned())).or_default();
+            slot.0 = nets;
+            slot.1.insert(owner.to_owned(), rec);
+        })
+    }
 }
 
 /// POST /api/coverage/report
@@ -11447,6 +11493,70 @@ mod partition_tests {
         assert!(h.state.chain.store.state_get("sensor_net:phone-gnss:0").is_none());
         assert!(h.state.chain.store.state_get("sensor_readings:0:phone-gnss:josh").is_none());
         assert!(h.state.chain.store.state_get("sensor_strikes:phone-gnss").is_none());
+    }
+
+    async fn signed_sensor_commit(h: &Harness, sk: &SigningKey, batch: &str, value: f64) -> (StatusCode, Json<serde_json::Value>) {
+        let entry = LedgerEntry::SensorDataCommit {
+            sensor_id: "phone-gnss".into(), owner: "josh".into(),
+            batch_hash: batch.into(), reading_count: 1,
+            sensor_type: "continuous".into(), epoch: h.state.chain.current_epoch(),
+            signed_by: "josh".into(), gateway_account: None,
+        };
+        let msg = crate::tx::canonical_signing_message(&entry, "hone-testnet").unwrap();
+        post_sensor_commit(
+            State(h.state.clone()), HeaderMap::new(), ConnectInfo("127.0.0.1:4040".parse().unwrap()),
+            Json(SensorCommitBody {
+                sensor_id: "phone-gnss".into(), owner: "josh".into(),
+                batch_hash: batch.into(), reading_count: 1,
+                sensor_type: "continuous".into(), value: Some(value),
+                signature: hex::encode(sk.sign(msg.as_bytes()).to_bytes()),
+                gateway_account: None,
+            }),
+        ).await
+    }
+    fn sensor_state(h: &Harness) -> Vec<(String, Vec<u8>)> {
+        // Handler-written keys only (a decided commit applied in the harness may add
+        // sensor_commit / sensor_batch and, after the gate, decided readings).
+        h.state.chain.store.state_scan_prefix("sensor_").into_iter()
+            .filter(|(k, v)| ["sensor_net:", "sensor_readings:", "sensor_reading_status:", "sensor_strikes:",
+                              "sensor_offence:", "sensor_slash_pending:"].iter().any(|p| k.starts_with(p))
+                && !String::from_utf8_lossy(v).contains("\"decided\":true")).collect()
+    }
+
+    /// From REPUTATION_EPOCH the sensor commit handler writes no chain state (sensor_net,
+    /// sensor_readings, sensor_reading_status, strikes); before it, exactly as before.
+    #[tokio::test]
+    async fn sensor_commit_handler_writes_no_chain_state_after_the_gate() {
+        // Gate off: the old writes happen.
+        let h = build_harness("sensor-gate-off");
+        let sk = fund(&h.state.chain, "josh", 1_000 * 10_000_000_000, b'j');
+        h.set_peers(3);
+        let (st, r) = signed_sensor_commit(&h, &sk, "b-off", 42.0).await;
+        assert_eq!(st, StatusCode::OK, "{r:?}");
+        let off = sensor_state(&h);
+        assert!(off.iter().any(|(k, _)| k.starts_with("sensor_readings:")), "{off:?}");
+        assert!(off.iter().any(|(k, _)| k.starts_with("sensor_net:")));
+        // Gate on: nothing written by the handler, status still answered.
+        crate::rep::TEST_EPOCH.with(|c| c.set(Some(0)));
+        let h2 = build_harness("sensor-gate-on");
+        let sk2 = fund(&h2.state.chain, "josh", 1_000 * 10_000_000_000, b'j');
+        h2.set_peers(3);
+        let before = sensor_state(&h2);
+        let (st2, r2) = signed_sensor_commit(&h2, &sk2, "b-on", 42.0).await;
+        crate::rep::TEST_EPOCH.with(|c| c.set(None));
+        assert_eq!(st2, StatusCode::OK, "{r2:?}");
+        assert_eq!(r2.0["consensus_status"], serde_json::json!("unverified"));
+        assert_eq!(sensor_state(&h2), before, "handler wrote chain state after the gate");
+    }
+
+    #[test]
+    fn cross_validate_pure_matches_two_of_n() {
+        let r = |o: &str, v: f64| serde_json::json!({ "owner": o, "value": v });
+        let (st, w) = cross_validate_readings(&[r("a", 10.0)], "a");
+        assert_eq!((st.as_str(), w.len()), ("unverified", 1));
+        let (st, w) = cross_validate_readings(&[r("a", 10.0), r("b", 10.5), r("c", 30.0)], "c");
+        assert_eq!(st, "unconfirmed");
+        assert_eq!(w, vec![("a".into(), "confirmed".into()), ("b".into(), "confirmed".into()), ("c".into(), "unconfirmed".into())]);
     }
 
     /// GET /api/reputation/:subject and /owner/:account answer read-only and write nothing

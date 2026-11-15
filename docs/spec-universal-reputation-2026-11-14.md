@@ -67,6 +67,14 @@
 - A proven fraud on any device hits the owner (shared -large) and the inheritance for future devices.
 - Anti-sybil: many cheap devices don't raise the owner score faster than evidence accrues; confirmations only count from **other owners** with reputation >= threshold; one owner's devices never confirm each other.
 
+## 6a. Fraud and stake (Josh, 2026-11-14)
+- **Fraud also kills the stake.** A PROVEN fraud (today: clock double-sign evidence; later: fabrication/replay proven by audit hooks) slashes 100% of every `role_stake` backing that device, any role and any staker, to the recycle fund. This overrides the 10%-per-incident cap for proven fraud only; ordinary strikes keep the existing slash rules. Supply is conserved (recycle receives exactly what was removed). The owner's OTHER devices are not slashed; they take the reputation hit only.
+- **Fraud is per device unless proven account-wide.** Account-wide needs proof:
+  1. fraud evidence signed by the owner's account key itself (not just a device key): account-wide on its own (hook ready; no such evidence type yet), or
+  2. coordinated: proven frauds on at least `max(ACCOUNT_FRAUD_MIN_DEVICES = 2, ceil(ACCOUNT_FRAUD_SHARE = 10% of the owner's ACTIVE devices))` of its devices within `ACCOUNT_FRAUD_WINDOW = 20,160` epochs (7 days). An owner with thousands of devices needs proportionally more. Active device = registered and with at least one useful-work event within the last 20,160 epochs, so registering idle devices never raises the threshold.
+- **Account-wide fraud:** 100% of every stake the account placed (any device, any role) goes to recycle, and the owner's reputation is reset: an account penalty holds the owner score, and so every new device's inheritance, at the fraud floor (0) while the penalty is at least half its size (about 34 days of decay).
+- Below the threshold each fraud stays per device.
+
 ## 7. What reputation controls
 - **Reward weight:** reward x (0.25 ... 1.0) by domain score; unconfirmed single-device data/alerts paid by reputation, not withheld.
 - **Late window and weighting:** tier (A/B/C) x reputation.
@@ -77,6 +85,7 @@
 - Inference and oracle reputation become the compute and oracle domains: current values seed the counters at activation, but never with more good evidence than the old record proved (completed jobs, in-band reports).
 - Clock uptime (Phase 8) is NOT seeded: it measures registration/uptime, not proven work. The consensus domain starts from certified seals after activation.
 - `sensor_strikes` moves out of the API handler into decided-set processing (fixes the divergence) and becomes data-domain bad events.
+- From the gate the sensor commit handler writes no chain state at all: `sensor_net` (the /24 diversity guard) and the informational 2-of-N status move to a node-local admission cache, and the decided `SensorDataCommit` records `sensor_readings` (submitter, batch, count; the signed entry carries no value, so value-based checks are the decided usefulness rules).
 - `decide_strikes` become consensus-domain bad events.
 
 ## 9. Chain
