@@ -664,16 +664,46 @@ impl Chain {
         h.update(&bytes);
         let fingerprint: [u8; 32] = h.finalize().into();
 
+        let cap = crate::mem_profile::get().pool_mem_max;
         let mut seen = self.seen_entries.lock();
+        // Bounded: a replay after a clear is only re-proposed, then rejected (exactly-once).
+        if seen.len() >= 4 * cap { seen.clear(); }
         if !seen.insert(fingerprint) {
             return false;
         }
         drop(seen);
         crate::setcert_apply::note_seen(entry.epoch(), self.current_epoch());
         self.pool_save(&entry, &sig);
+        self.pool_push_mem(entry, sig, cap);
+        true
+    }
+
+    /// Into the in-memory pool, evicting the oldest tenth (by epoch) when over `cap`. Evicted
+    /// entries keep their persisted pool key: still fetchable by hash, just not proposed here.
+    fn pool_push_mem(&self, entry: LedgerEntry, sig: Option<String>, cap: usize) {
         let mut pool = self.pending.lock();
         pool.push((entry, sig));
-        true
+        if pool.len() > cap {
+            pool.sort_by_key(|(e, _)| e.epoch());
+            let n = pool.len() - cap * 9 / 10;
+            pool.drain(..n);
+        }
+    }
+
+    /// Drop pool entries that can never be applied any more: dated more than the stale window
+    /// before an epoch that is already applied (so every set that could name them is final
+    /// and applied). Memory and persisted keys; returns how many keys were deleted.
+    pub fn pool_prune_stale(&self, applied: u64) -> usize {
+        let w = crate::tx::STALE_WINDOW;
+        self.pending.lock().retain(|(e, _)| e.epoch().saturating_add(w) >= applied);
+        let mut dead = Vec::new();
+        self.store.for_each_meta_prefix(Self::POOL_PREFIX, |k, v| {
+            let ep = serde_json::from_slice::<serde_json::Value>(v).ok()
+                .and_then(|r| serde_json::from_value::<LedgerEntry>(r["entry"].clone()).ok()).map(|e| e.epoch());
+            if ep.map_or(true, |ep| ep.saturating_add(w) < applied) { dead.push(k.to_owned()); }
+        });
+        for k in &dead { let _ = self.store.state_delete(k); }
+        dead.len()
     }
 
     /// Pending pool persistence, one meta key per entry (append on push, delete on decide).
@@ -748,11 +778,29 @@ impl Chain {
         // Legacy whole-pool blob (before per-entry keys): migrate once, then drop it.
         let legacy = self.load_pool("pending_pool");
         let _ = self.store.state_delete("pending_pool");
-        let mut p: Vec<(LedgerEntry, Option<String>)> = legacy.into_iter().map(|(e, s, _)| (e, s)).collect();
-        p.extend(self.pool_load());
+        let legacy_n = legacy.len();
+        for (e, s, _) in legacy { self.push_pending(e, s); }
+        // Stream the per-entry keys into the bounded in-memory pool (no Vec of the whole
+        // backlog: 121k entries on 2026-11-15); entries that can never apply are deleted.
+        let cap = crate::mem_profile::get().pool_mem_max;
+        let applied = crate::setcert_apply::active(self.current_epoch()).then(|| crate::setcert_apply::applied_upto(self));
+        let w = crate::tx::STALE_WINDOW;
+        let mut np = legacy_n;
+        let mut dead = Vec::new();
+        self.store.for_each_meta_prefix(Self::POOL_PREFIX, |k, v| {
+            let Ok(r) = serde_json::from_slice::<serde_json::Value>(v) else { return };
+            let Ok(e) = serde_json::from_value::<LedgerEntry>(r["entry"].clone()) else { return };
+            if applied.is_some_and(|a| e.epoch().saturating_add(w) < a) { dead.push(k.to_owned()); return; }
+            let bytes = serde_json::to_vec(&e).unwrap_or_default();
+            let fp: [u8; 32] = Sha256::digest(&bytes).into();
+            if !self.seen_entries.lock().insert(fp) { return; }
+            np += 1;
+            self.pool_push_mem(e, r["sig"].as_str().map(str::to_owned), cap);
+        });
+        for k in &dead { let _ = self.store.state_delete(k); }
+        if !dead.is_empty() { tracing::info!("pending pool: dropped {} entries too old to apply", dead.len()); }
         let o = self.load_pool("outbox_pool");
-        let (np, no) = (p.len(), o.len());
-        for (e, s) in p { self.push_pending(e, s); }
+        let no = o.len();
         *self.outbox.lock() = o;
         (np, no)
     }

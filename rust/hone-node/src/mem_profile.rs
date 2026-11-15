@@ -19,7 +19,9 @@
 //!
 //! Env overrides (all optional): HONE_PROFILE=light|full, HONE_ROCKS_CACHE_MB,
 //! HONE_ROCKS_WRITE_BUFFER_MB, HONE_CATCHUP_BATCH, HONE_CATCHUP_INTERVAL_SECS,
-//! HONE_CATCHUP_VOTES_MAX, HONE_MALLOC_TRIM_SECS. MALLOC_ARENA_MAX in the environment
+//! HONE_CATCHUP_VOTES_MAX, HONE_MALLOC_TRIM_SECS, HONE_POOL_MEM_MAX, HONE_WORKER_THREADS.
+//! LIGHT also caps the in-memory pending pool, fetched bodies and kept certified sets, and
+//! runs tokio on min(cores, 2) workers. MALLOC_ARENA_MAX in the environment
 //! is respected (glibc reads it itself; we do not override it).
 
 use std::sync::OnceLock;
@@ -44,6 +46,16 @@ pub struct MemProfile {
     pub catchup_votes_max: usize,
     /// Seconds between malloc_trim(0) calls (0 = off).
     pub malloc_trim_secs: u64,
+    /// Pending entries held in memory (oldest evicted first; their bodies stay on disk under
+    /// the pool key, fetchable by hash). Proposals draw only from memory.
+    pub pool_mem_max: usize,
+    /// Bodies fetched from peers held in memory.
+    pub fetched_max: usize,
+    /// Certified sets whose bodies stay in memory (all of them stay on disk for 24 h).
+    pub decided_keep: u64,
+    /// Tokio worker threads (None = one per core) and the blocking-pool cap.
+    pub worker_threads: Option<usize>,
+    pub max_blocking_threads: usize,
 }
 
 const MB: usize = 1024 * 1024;
@@ -60,6 +72,11 @@ impl MemProfile {
             catchup_interval_secs: 3,
             catchup_votes_max: 100_000,
             malloc_trim_secs: 30,
+            pool_mem_max: 100_000,
+            fetched_max: 20_000,
+            decided_keep: 128,
+            worker_threads: None,
+            max_blocking_threads: 512,
         }
     }
 
@@ -74,6 +91,11 @@ impl MemProfile {
             catchup_interval_secs: 6,
             catchup_votes_max: 20_000,
             malloc_trim_secs: 15,
+            pool_mem_max: 10_000,
+            fetched_max: 2_000,
+            decided_keep: 32,
+            worker_threads: Some(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).min(2)),
+            max_blocking_threads: 32,
         }
     }
 
@@ -95,6 +117,8 @@ impl MemProfile {
         if let Some(v) = num("HONE_CATCHUP_INTERVAL_SECS") { p.catchup_interval_secs = v.clamp(1, 600); }
         if let Some(v) = num("HONE_CATCHUP_VOTES_MAX") { p.catchup_votes_max = (v as usize).max(1_000); }
         if let Some(v) = num("HONE_MALLOC_TRIM_SECS") { p.malloc_trim_secs = v; }
+        if let Some(v) = num("HONE_POOL_MEM_MAX") { p.pool_mem_max = (v as usize).max(1_000); }
+        if let Some(v) = num("HONE_WORKER_THREADS") { p.worker_threads = Some((v as usize).clamp(1, 256)); }
         p
     }
 

@@ -186,9 +186,10 @@ fn main() -> Result<()> {
     }
     let prof = mem_profile::get();
     mem_profile::spawn_trimmer();
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
+    let mut rt = tokio::runtime::Builder::new_multi_thread();
+    rt.enable_all().max_blocking_threads(prof.max_blocking_threads);
+    if let Some(n) = prof.worker_threads { rt.worker_threads(n); }
+    rt.build()?
         .block_on(async_main(prof))
 }
 

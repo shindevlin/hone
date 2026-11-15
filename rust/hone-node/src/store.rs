@@ -96,6 +96,9 @@ impl Store {
         if p.light {
             opts.increase_parallelism(1);
             opts.set_max_background_jobs(1);
+            opts.set_max_total_wal_size(32 * 1024 * 1024);
+            opts.set_keep_log_file_num(2);
+            opts.set_table_cache_num_shard_bits(2);
         }
         opts
     }

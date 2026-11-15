@@ -335,6 +335,7 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
     let mut last_fetch = 0u64;
     let mut last_rb = 0u64;
     let mut last_da = 0u64;
+    let mut last_prune = 0u64;
     // Build the engine (resume, restore own PROPs/votes, check their bodies) on a blocking
     // thread: on beastly 2026-11-15 this held a tokio worker for minutes and the API died.
     { let c = chain.clone(); let t0 = now_ms();
@@ -403,6 +404,15 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
             }
         }
         { let mut a = APPLY.lock(); a.0 = sa::applied_upto(&chain); a.1 = cur; }
+        // Pool keys of entries evicted from memory that can never apply: prune every 10 min.
+        if now_ms().saturating_sub(last_prune) > 600_000 {
+            last_prune = now_ms();
+            let c = chain.clone();
+            tokio::task::spawn_blocking(move || {
+                let n = c.pool_prune_stale(sa::applied_upto(&c));
+                if n > 0 { info!("[setcert] pending pool: pruned {n} entries too old to apply"); }
+            });
+        }
         // Data availability: bodies this voter lacks to vote are fetched like missing ones.
         if now_ms().saturating_sub(last_da) > 3_000 {
             let want = sa::da_due(now_ms());

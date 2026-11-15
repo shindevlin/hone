@@ -126,7 +126,7 @@ static FETCHED: Mutex<BTreeMap<String, (LedgerEntry, Option<String>)>> = Mutex::
 pub fn offer_body(entry: LedgerEntry, sig: Option<String>) {
     let h = entry.hash();
     let mut m = FETCHED.lock().unwrap();
-    if m.len() < 20_000 { m.insert(h, (entry, sig)); }
+    if m.len() < crate::mem_profile::get().fetched_max { m.insert(h, (entry, sig)); }
 }
 
 /// A body by hash: the pending pool, fetched bodies, or a body this voter voted for.
@@ -262,7 +262,7 @@ static DECIDED: Mutex<BTreeMap<u64, Vec<(LedgerEntry, Option<String>)>>> = Mutex
 fn keep_decided(t: u64, set: &[(LedgerEntry, Option<String>)]) {
     let mut d = DECIDED.lock().unwrap();
     d.insert(t, set.to_vec());
-    let floor = t.saturating_sub(DECIDED_KEEP);
+    let floor = t.saturating_sub(DECIDED_KEEP.min(crate::mem_profile::get().decided_keep));
     d.retain(|e, _| *e >= floor);
 }
 
@@ -376,8 +376,17 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
     if !missing.is_empty() { return Err(missing); }
     // Out of the pool: they are decided now (applied or recorded as failed below).
     {
+        // Also drop what can never be applied after t (dated more than the stale window
+        // before it): the pool stays bounded by the window, not by the backlog.
+        let w = crate::tx::STALE_WINDOW;
+        let mut stale = Vec::new();
         let mut pool = chain.pending.lock();
-        pool.retain(|(e, _)| cert.content.hashes.binary_search(&e.hash()).is_err());
+        pool.retain(|(e, _)| {
+            if e.epoch().saturating_add(w) < t { stale.push(e.hash()); return false; }
+            cert.content.hashes.binary_search(&e.hash()).is_err()
+        });
+        drop(pool);
+        chain.pool_forget(&stale);
     }
     chain.pool_forget(&cert.content.hashes);
     {
@@ -1209,6 +1218,95 @@ mod tests {
             let f = e.final_cert(act + 11).expect("the next epoch certifies with every voter behind");
             assert!(f.content.hashes.is_empty());
         }
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+    /// nebra profile (Pi, 905 MB): steady state with a 120,000-entry pool on disk and 1,000
+    /// restored own PROPs stays under 300 MB RSS, and the API answers throughout.
+    /// Run: HONE_PROFILE=light cargo test lean_steady_state -- --ignored --test-threads 1
+    #[test]
+    #[ignore]
+    fn lean_steady_state_rss_under_300mb_with_big_pool_and_restored_props() {
+        let prof = crate::mem_profile::get();
+        assert!(prof.light, "run with HONE_PROFILE=light");
+        let act = 500u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let d = tempfile::tempdir().unwrap();
+        let st = crate::store::Store::open(d.path()).unwrap();
+        let mut hashes = Vec::new();
+        {
+            let c = Chain::new(st.clone(), "lean".into(), "hone-test".into());
+            for i in 0..120_000u64 {
+                let from = format!("u{}", i % 997);
+                let e = LedgerEntry::Transfer { from: from.clone(), to: "bob".into(), amount: 1 + i,
+                    token: hone_types::NATIVE_TOKEN.into(), memo: Some(format!("m{i:032}")), nonce: i,
+                    epoch: act + 900 + (i % 40), signed_by: from, twofactor: None };
+                hashes.push(e.hash());
+                c.push_pending(e, Some(format!("{:0128x}", i)));
+            }
+            assert!(c.pending_count() <= prof.pool_mem_max, "in-memory pool bounded");
+        }
+        crate::mem_profile::trim_now();
+        // Restart: stream the pool back, restore 1,000 own PROPs, run voter ticks.
+        let c = std::sync::Arc::new(Chain::new(st.clone(), "lean".into(), "hone-test".into()));
+        let (np, _) = c.restore_pools();
+        assert_eq!(np, 120_000);
+        assert!(c.pending_count() <= prof.pool_mem_max);
+        let props: Vec<Prop> = (0..1_000u64).map(|k| Prop { epoch: act + 10 + k, voter: "v1".into(),
+            hashes: { let mut h: Vec<String> = (0..20u64).map(|j| hashes[((k * 20 + j) * 13 % 120_000) as usize].clone()).collect(); h.sort(); h.dedup(); h },
+            d_report: 3, sig: String::new() }).collect();
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let probe = hashes[77].clone();
+        let (api_max, peak) = rt.block_on(async move {
+            let c2 = c.clone();
+            let job = tokio::task::spawn_blocking(move || {
+                let (ps, vs, _) = restorable(&c2, props, Vec::new());
+                let mut eng = Engine::new("hone-test", act, vec!["v1".into(), "v2".into()]);
+                eng.restore_own(ps, vs);
+                let s = signer("v1");
+                for k in 0..30u64 { let _ = voter_step(&mut eng, &c2, "v1", act + 1_020, 1_000_000 + k * 1_000, 3, k % 10 == 0, &s); }
+                eng
+            });
+            let mut api_max = std::time::Duration::ZERO;
+            let mut peak = 0u64;
+            while !job.is_finished() {
+                let q = std::time::Instant::now();
+                let st = c.entry_status(&probe);
+                assert_eq!(st["status"], "pending");
+                api_max = api_max.max(q.elapsed());
+                peak = peak.max(crate::mem_profile::rss_kb().unwrap_or(0));
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let _eng = job.await.unwrap();
+            crate::mem_profile::trim_now();
+            peak = peak.max(crate::mem_profile::rss_kb().unwrap_or(0));
+            (api_max, peak)
+        });
+        eprintln!("lean steady state: peak RSS {} MB, slowest API answer {:?}", peak / 1024, api_max);
+        assert!(peak < 300 * 1024, "peak RSS {} MB", peak / 1024);
+        assert!(api_max < std::time::Duration::from_millis(500), "API answered in {api_max:?}");
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// The pool stays bounded by the stale window, not by the backlog: applying T drops what
+    /// can never be applied after it, from memory and from disk.
+    #[test]
+    fn applying_drops_pool_entries_too_old_to_ever_apply() {
+        let act = 600u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let sk = SigningKey::from_bytes(&[0x68; 32]);
+        let (c, _d) = chain("stale-prune");
+        setup(&c, &sk, "alice");
+        let (old, so) = xfer(&sk, "alice", "bob", 1, act - 50, 5);
+        let (new, sn) = xfer(&sk, "alice", "bob", 2, act + 1, 5);
+        c.push_pending(old.clone(), so);
+        c.push_pending(new.clone(), sn);
+        let cert = Cert { epoch: act, round: 0, prev: setcert::genesis_prev(act),
+            content: setcert::Content { hashes: vec![], reports: vec![] }, votes: Default::default() };
+        assert_eq!(apply_final(&c, &cert), Ok(0));
+        assert!(c.pool_body(&old.hash()).is_none(), "too old to apply: gone from disk");
+        assert!(!c.pending.lock().iter().any(|(e, _)| e.hash() == old.hash()), "and from memory");
+        assert!(c.pool_body(&new.hash()).is_some(), "still applicable: kept");
+        assert_eq!(c.pool_prune_stale(act), 0);
         TEST_EPOCH.with(|c| c.set(None));
     }
 }
