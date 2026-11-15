@@ -227,6 +227,14 @@ fn resolve_quorum_verdict(verdicts: &[(String, String)], min_verifiers: u64) -> 
 fn job_key(id: &str) -> String { format!("infer_job:{}", id) }
 fn bid_key(job_id: &str, bidder: &str) -> String { format!("infer_bid:{}:{}", job_id, bidder) }
 fn rep_key(node_id: &str) -> String { format!("node_rep:{}", node_id) }
+
+/// From REPUTATION_EPOCH (Josh 2026-11-15): a job that sets no minimum (0) requires this
+/// compute score, low enough for a new node's starting score (3,500). Explicit minimums
+/// are kept. Before the gate a job's minimum is used as is.
+pub const DEFAULT_MIN_REPUTATION: u64 = 3_000;
+pub fn required_reputation(job_min: u64, at: u64) -> u64 {
+    if crate::rep::active(at) && job_min == 0 { DEFAULT_MIN_REPUTATION } else { job_min }
+}
 fn votes_key(job_id: &str) -> String { format!("infer_votes:{}", job_id) }
 
 pub fn get_job(chain: &Chain, job_id: &str) -> Option<JobState> {
@@ -386,8 +394,9 @@ pub fn apply_bid(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     // From REPUTATION_EPOCH the gate reads the universal compute-domain score.
     let at = crate::rep::at(entry.epoch());
     let score = if crate::rep::active(at) { crate::rep::score_in(chain, bidder, crate::rep::Domain::Compute, at) } else { rep.score };
-    if score < job.min_reputation {
-        bail!("node '{}' reputation {} below required {}", bidder, score, job.min_reputation);
+    let need = required_reputation(job.min_reputation, at);
+    if score < need {
+        bail!("node '{}' reputation {} below required {}", bidder, score, need);
     }
     if chain.store.state_get(&bid_key(job_id, bidder)).is_some() {
         bail!("node '{}' already bid on job '{}'", bidder, job_id);
@@ -1394,6 +1403,28 @@ mod tests {
 
         // Bob starts with 5000 reputation (default) — below 7000 → bid rejected.
         assert!(apply_bid(&chain, &bid_entry("j-rep", "bob", 800, "worker", 0)).is_err());
+    }
+
+    #[test]
+    fn default_min_reputation_is_3000_only_from_the_gate() {
+        let (chain, _dir) = make_chain("bid_default");
+        seal(&chain, 0);
+        fund(&chain, "alice", 100_000);
+        // Gate off: no minimum, anyone bids (carl's bad compute record is not even read).
+        crate::rep::TEST_EPOCH.with(|t| t.set(Some(1_000)));
+        apply_post(&chain, &post_entry("j-off", "alice", 1_000, 0)).unwrap();
+        crate::rep::TEST_EPOCH.with(|t| t.set(Some(0)));
+        crate::rep::apply(&chain, "carl", None, crate::rep::Domain::Compute, "job_failed", 0, 20 * crate::rep::UNIT, false, 0);
+        crate::rep::TEST_EPOCH.with(|t| t.set(Some(1_000)));
+        apply_bid(&chain, &bid_entry("j-off", "carl", 800, "worker", 0)).expect("gate off: min 0");
+        // Gate on: an unset minimum means 3,000. A new node (3,500) bids; carl cannot.
+        crate::rep::TEST_EPOCH.with(|t| t.set(Some(0)));
+        assert_eq!(required_reputation(0, 0), DEFAULT_MIN_REPUTATION);
+        assert_eq!(required_reputation(7_000, 0), 7_000);
+        apply_post(&chain, &post_entry("j-on", "alice", 1_000, 0)).unwrap();
+        apply_bid(&chain, &bid_entry("j-on", "bob", 800, "worker", 0)).expect("new node at 3,500");
+        assert!(apply_bid(&chain, &bid_entry("j-on", "carl", 800, "worker", 0)).is_err());
+        crate::rep::TEST_EPOCH.with(|t| t.set(None));
     }
 
     // ── apply_award ───────────────────────────────────────────────────────────

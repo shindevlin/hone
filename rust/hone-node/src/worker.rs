@@ -79,7 +79,11 @@ async fn bid_on_posted_jobs(
 
         // Check reputation gating.
         let rep = inference::get_reputation(chain, account);
-        if rep.score < job.min_reputation {
+        let at = chain.current_epoch();
+        let score = if crate::rep::active(at) {
+            crate::rep::score_in(chain, account, crate::rep::Domain::Compute, at)
+        } else { rep.score };
+        if score < inference::required_reputation(job.min_reputation, at) {
             continue;
         }
 

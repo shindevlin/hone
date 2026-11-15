@@ -2097,6 +2097,23 @@ fn non_empty(s: &str) -> Option<&str> {
 /// the balance falls; reading lifetime recycling off the balance would show it
 /// going backwards. Both figures are returned so the difference is visible
 /// rather than hidden.
+/// Hunits debited from balances and kept only in state records: bonded, and issued.
+/// (`clock_reg:*` stake is not added: the reward top-up mirrors it into CF_STAKES.)
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct LockedInState { role_stake: u128, unbonding: u128, device_claim: u128, mempool_op: u128 }
+impl LockedInState {
+    fn of(chain: &crate::chain::Chain) -> Self {
+        let sum = |pre: &str, field: &str| -> u128 {
+            chain.store.state_scan_prefix(pre).into_iter()
+                .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok()?[field].as_u64())
+                .map(u128::from).sum()
+        };
+        LockedInState { role_stake: sum("role_stake:", "amount"), unbonding: sum("unbonding:", "amount"),
+            device_claim: sum("device_claim:", "stake"), mempool_op: sum("mempool_op:", "stake") }
+    }
+    fn total(&self) -> u128 { self.role_stake + self.unbonding + self.device_claim + self.mempool_op }
+}
+
 async fn get_supply(State(s): State<AppState>) -> Json<serde_json::Value> {
     // ISSUED, measured from the ledger: balances plus stakes. Stakes are NOT in
     // CF_BALANCES — `set_stake` writes straight to CF_STAKES with nothing credited to
@@ -2104,7 +2121,12 @@ async fn get_supply(State(s): State<AppState>) -> Json<serde_json::Value> {
     // staked from its earnings. That is not hypothetical: the earnings->stake top-up
     // routes a clock's whole reward there until it reaches the minimum.
     let balances = s.chain.store.total_supply(hone_types::NATIVE_TOKEN);
-    let staked   = s.chain.store.total_staked();
+    // Bonded = CF_STAKES plus stake debited from balances but held only in state records
+    // (role stakes, unbonding, device-claim and mempool-operator stakes). Before this those
+    // were invisible here, so slashing such stake to the recycle fund looked like issuance.
+    let cf_staked = s.chain.store.total_staked();
+    let locked   = LockedInState::of(&s.chain);
+    let staked   = cf_staked.saturating_add(locked.total());
     let issued   = balances.saturating_add(staked);
 
     let recycle = s.chain.store.get_balance(
@@ -2213,6 +2235,13 @@ async fn get_supply(State(s): State<AppState>) -> Json<serde_json::Value> {
         "circulating_hone": hone(circulating),
         "staked_hunits": staked,
         "staked_hone": hone(staked),
+        "staked_breakdown": {
+            "cf_stakes_hunits": cf_staked,
+            "role_stake_hunits": locked.role_stake,
+            "unbonding_hunits": locked.unbonding,
+            "device_claim_hunits": locked.device_claim,
+            "mempool_operator_hunits": locked.mempool_op,
+        },
         "reserves": {
             "recycle_fund_hunits": recycle,
             "treasury_hunits": treasury,
@@ -11574,6 +11603,36 @@ mod partition_tests {
         let (st, w) = cross_validate_readings(&[r("a", 10.0), r("b", 10.5), r("c", 30.0)], "c");
         assert_eq!(st, "unconfirmed");
         assert_eq!(w, vec![("a".into(), "confirmed".into()), ("b".into(), "confirmed".into()), ("c".into(), "unconfirmed".into())]);
+    }
+
+    /// Role stakes are bonded supply: staking, and slashing that stake to the recycle fund,
+    /// leave issued supply unchanged.
+    #[tokio::test]
+    async fn supply_counts_role_stake_and_a_slash_to_recycle_is_not_issuance() {
+        let h = build_harness("supply-locked");
+        let c = &h.state.chain;
+        let _ = fund(c, "josh", 1_000 * 10_000_000_000, b'j');
+        async fn issued(h: &Harness) -> u64 {
+            get_supply(State(h.state.clone())).await.0["issued_hunits"].as_u64().unwrap()
+        }
+        let i0 = issued(&h).await;
+        // What NodeRoleStake does: debit the staker, record the stake in state.
+        let amount = 300 * 10_000_000_000u64;
+        let dev = format!("josh@{}", "cd".repeat(32));
+        c.store.debit("josh", NATIVE_TOKEN, amount).unwrap();
+        c.store.state_set(&format!("role_stake:clock:{dev}:josh"), &serde_json::to_vec(&serde_json::json!({
+            "node": dev, "role": "clock", "staker": "josh", "amount": amount })).unwrap()).unwrap();
+        assert_eq!(issued(&h).await, i0, "staking is not burning");
+        let j = get_supply(State(h.state.clone())).await.0;
+        assert_eq!(j["staked_breakdown"]["role_stake_hunits"].as_u64(), Some(amount));
+        // A proven violation slashes it to the recycle fund: still the same issued supply.
+        crate::rep::TEST_EPOCH.with(|t| t.set(Some(0)));
+        let slashed = crate::rep::on_violation(c, &dev, Some("josh"), crate::rep::ViolationKind::Equivocation,
+            crate::rep::Domain::Consensus, c.current_epoch());
+        crate::rep::TEST_EPOCH.with(|t| t.set(None));
+        assert!(slashed);
+        assert!(c.store.state_scan_prefix("role_stake:").is_empty());
+        assert_eq!(issued(&h).await, i0, "a slash to recycle is not issuance");
     }
 
     /// GET /api/reputation/:subject and /owner/:account answer read-only and write nothing
