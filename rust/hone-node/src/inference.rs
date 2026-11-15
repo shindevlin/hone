@@ -1441,6 +1441,7 @@ mod tests {
         fund(&chain, "alice", 100_000);
         crate::rep::TEST_EPOCH.with(|t| t.set(Some(0)));
         let rec = |a: &str| crate::rep::domain_view(&chain, a, crate::rep::Domain::Compute, 0);
+        crate::rep::ensure_migrated(&chain, 0);  // activation migration ran before these jobs
         apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
         apply_award(&chain, &award_entry("j1", "bob", 1_000, "worker")).unwrap();
         assert!(rec("bob").is_none(), "being awarded earns nothing");
