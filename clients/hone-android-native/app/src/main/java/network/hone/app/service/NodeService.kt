@@ -187,6 +187,7 @@ class NodeService : Service() {
             SensorSubmissionCoordinator(SensorCommitClient(it.settings.chainId, NodeSensorTransport(it.settings.nodeUrl)))
         }
         val identities = HashMap<String, DeviceSensorIdentity>()
+        val lastSent = HashMap<String, Pair<Double, Long>>()   // channel -> (value, ms): commit on change
         var accepted = 0L
         var rejected = 0L
         var lastError = ""
@@ -203,6 +204,10 @@ class NodeService : Service() {
                 if (!ch.available || ch.id !in sub.channels) continue
                 val n = capture.drainSampleCount(ch.id)
                 if (n == 0L) continue
+                val prev = lastSent[ch.id]
+                val nowMs = System.currentTimeMillis()
+                if (prev != null && nowMs - prev.second < 15 * 60_000L && !changed(ch.id, prev.first, ch.value)) continue
+                lastSent[ch.id] = ch.value to nowMs
                 val sensorId = sub.settings.sensorId(ch.id)
                 val identity = identities[sensorId]
                     ?: runCatching { keystore.getOrCreate(sensorId) }
@@ -249,6 +254,17 @@ class NodeService : Service() {
             network.hone.app.telemetry.Telemetry.sensorRejected.set(rejected)
             network.hone.app.telemetry.Telemetry.sensorLastError = lastError
             updateNotification("$avail sensors · $accepted accepted · $rejected rejected")
+        }
+    }
+
+    /** Did a channel's value move beyond its noise band since the last commit? */
+    private fun changed(id: String, a: Double, b: Double): Boolean {
+        if (a.isNaN() || b.isNaN()) return a.isNaN() != b.isNaN()
+        val d = kotlin.math.abs(a - b)
+        return when (id) {
+            "accel" -> d > 0.5; "gyro" -> d > 0.2; "mag" -> d > 5.0; "baro" -> d > 0.5
+            "light" -> d > maxOf(20.0, 0.5 * kotlin.math.abs(a)); "proximity" -> d > 0.0
+            else -> d > 0.1 * maxOf(1.0, kotlin.math.abs(a))
         }
     }
 

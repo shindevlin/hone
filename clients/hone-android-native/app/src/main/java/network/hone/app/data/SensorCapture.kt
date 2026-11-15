@@ -95,7 +95,7 @@ class SensorCapture(private val ctx: Context) : SensorEventListener, LocationLis
     fun startBackground(channels: Set<String>) {
         for ((id, type, _) in onboard) {
             if (id !in channels) continue
-            sm.getDefaultSensor(type)?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL, BATCH_US) }
+            sm.getDefaultSensor(type)?.let { sm.registerListener(this, it, 1_000_000, BATCH_US) }
         }
         if ("gnss" in channels && hasLocationPermission()) {
             try {
@@ -165,8 +165,8 @@ class SensorCapture(private val ctx: Context) : SensorEventListener, LocationLis
     }
 
     private companion object {
-        /** Let the sensor hub hold events up to 20 s, so the CPU can sleep between commits. */
-        const val BATCH_US = 20_000_000
+        /** 1 Hz, held up to 5 min in the sensor hub, so the CPU sleeps; commits go out only on change. */
+        const val BATCH_US = 300_000_000
     }
 
     private fun magnitude(v: FloatArray) =

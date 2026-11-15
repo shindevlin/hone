@@ -136,8 +136,14 @@ object CoverageSubmitter {
         put("mobile_ap", j.opt("mobile_ap"))
         j.optJSONObject("flipper")?.let { f -> listOf("subghz", "wifi", "tags", "ir").forEach { put("flipper.$it", f.opt(it)) } }
         j.optJSONObject("loc")?.let { l -> put("loc.samples", l.opt("samples")); put("loc.acc_m_p50", l.opt("acc_m_p50")) }
+        j.optJSONObject("env")?.let { e -> listOf("pressure_pa", "light_lux", "rh_pct", "air_temp_c", "mag_ut").forEach { put("env.$it", e.opt(it)) } }
+        j.optJSONObject("motion")?.let { m -> listOf("still_s", "shake_events", "shake_peak_mg").forEach { put("motion.$it", m.opt(it)) } }
         return m.entries.take(SensorSummaryWire.MAX_METRICS).associate { it.key to it.value }
     }
+
+    /** Sensor context for the map only: not on chain until a verifier makes it worth paying (14 Nov). */
+    val MAP_ONLY_METRICS = setOf("env.light_lux", "env.rh_pct", "env.air_temp_c", "env.mag_ut",
+        "motion.still_s", "motion.shake_events", "motion.shake_peak_mg")
 
     private fun seatId(ctx: Context): String? = Telemetry.seatAccount(ctx)?.let { "$it@${Telemetry.seatPub(ctx)}" }
 
@@ -202,7 +208,7 @@ object CoverageSubmitter {
         for ((k, row) in eligible) {
             if (sent >= PER_ROUND) break
             val (c9, w) = k
-            val met = LinkedHashMap(metrics(row.third).filterKeys { SensorSummaryWire.METRIC.matches(it) }.entries.take(SensorSummaryWire.MAX_METRICS - 4)
+            val met = LinkedHashMap(metrics(row.third).filterKeys { SensorSummaryWire.METRIC.matches(it) && it !in MAP_ONLY_METRICS }.entries.take(SensorSummaryWire.MAX_METRICS - 4)
                 .associate { it.key to it.value })
             if (row.third.optBoolean("loc_inferred") && c9.isNotEmpty()) {     // an empty cell is never also inferred
                 met["loc.inferred"] = 1L

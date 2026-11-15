@@ -226,11 +226,13 @@ object RawRecorder {
     private val listener = object : SensorEventListener {
         override fun onSensorChanged(e: SensorEvent) {
             val k = climate[e.sensor.type] ?: return
-            val now = System.currentTimeMillis()
+            // Event time, not delivery time: the sensor hub delivers a batch at once.
+            val now = System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtimeNanos() - e.timestamp) / 1_000_000
             if (now - (lastSampleMs[k] ?: 0) < 10_000) return
             lastSampleMs[k] = now
             val v = e.values[0].toDouble().let { if (k == "env.pressure_pa") it * 100.0 else it }   // hPa -> Pa (SI)
             synchronized(lock) { if (started) enc.observe(now, k, Math.round(v * 100) / 100.0) }
+            network.hone.app.data.SmartSensors.onEnv(k, v)
         }
         override fun onAccuracyChanged(s: Sensor, a: Int) {}
     }
@@ -243,7 +245,8 @@ object RawRecorder {
             val id = "android:" + (s.vendor + " " + s.name).lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(48)
             sensorIds[k] = id
             sensorsFound[k] = "$id = ${s.vendor} ${s.name} (resolution ${s.resolution})"
-            runCatching { sm.registerListener(listener, s, SensorManager.SENSOR_DELAY_NORMAL, 10_000_000) }
+            // 1 Hz, batched 60 s in the sensor hub: one sample per 10 s is all that is kept (battery, 14 Nov).
+            runCatching { sm.registerListener(listener, s, 1_000_000, 60_000_000) }
         }
         sensorsFound["dev.temp_c"] = "battery thermistor (device temperature, not air)"
     }

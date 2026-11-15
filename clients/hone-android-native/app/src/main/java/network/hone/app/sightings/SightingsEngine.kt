@@ -279,6 +279,7 @@ object SightingsEngine {
         appCtx = c
         store = SightingStore(c)
         runCatching { network.hone.app.raw.RawRecorder.start(c) }
+        runCatching { network.hone.app.data.SmartSensors.start(c) }
 
         rollWindow(c, System.currentTimeMillis())
         startLocation(c)
@@ -298,6 +299,7 @@ object SightingsEngine {
     fun stop() {
         val c = appCtx ?: return
         jobs.forEach { it.cancel() }; jobs = emptyList()
+        runCatching { network.hone.app.data.SmartSensors.stop() }
         finalizeWindow()
         IdAdvertiser.stop(c)
         runCatching { c.getSystemService(LocationManager::class.java)?.removeUpdates(locListener) }
@@ -319,6 +321,7 @@ object SightingsEngine {
         if (!homeWifiWindow && runCatching { network.hone.app.home.HomeState.onHomeWifi(c) }.getOrDefault(false)) homeWifiWindow = true
         wkey?.let { IdAdvertiser.ensure(c, it) }
         runCatching { network.hone.app.raw.RawRecorder.pollCell() }                       // cell coverage, <= 1/min
+        runCatching { network.hone.app.data.SmartSensors.tick(stamp().cell) }              // sensors on when worth it
         publishLive(c)
     }
 
@@ -345,6 +348,10 @@ object SightingsEngine {
         val st = store ?: return
         if (window == Long.MIN_VALUE) return
         val area = appCtx?.let { runCatching { network.hone.app.raw.AreaLocator.current(it, bestFix()) }.getOrNull() }
+        // Phone sensor readings of the window (barometer, light, motion...) go with the row where the phone
+        // spent the window (most location samples).
+        val (envJ, motionJ) = runCatching { network.hone.app.data.SmartSensors.windowSummary() }.getOrDefault(null to null)
+        val sensorCell = accs.maxByOrNull { it.value.accs.size }?.key
         for ((cell, a) in accs) {
             if (a.aps.isEmpty() && a.ble.isEmpty() && a.hone.isEmpty() && a.flipper.isEmpty()) continue
             val located = cell.isNotEmpty()
@@ -354,6 +361,7 @@ object SightingsEngine {
             val c = if (located) cell else home?.let { Cells.cell(it.first, it.second, 7) } ?: ""
             val js = summaryJson(c, a).apply {
                 if (homeWifiWindow) put("at_home", true)
+                if (cell == sensorCell) { envJ?.let { put("env", it) }; motionJ?.let { put("motion", it) } }
                 if (!located) {
                     // Send everything (Josh 2026-11-10): the reading still goes on chain, at the device's
                     // own coarse area (network, Wi-Fi fingerprint or last verified cell), flagged inferred.
