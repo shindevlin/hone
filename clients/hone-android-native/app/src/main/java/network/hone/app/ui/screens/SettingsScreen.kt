@@ -37,7 +37,8 @@ fun SettingsScreen(simple: Boolean = false, onOpen: (String) -> Unit = {}, onSig
     val cur = remember { runCatching { JSONObject(file.readText()) }.getOrDefault(JSONObject()) }
     var nodeUrl by remember { mutableStateOf(cur.optString("node_url", "").ifBlank { network.hone.app.data.ChainHttp.PUBLIC_BASE }) }
     var owner by remember { mutableStateOf(cur.optString("owner", "")) }
-    var prefix by remember { mutableStateOf(cur.optString("sensor_id_prefix", android.os.Build.MODEL.lowercase().replace(' ', '-'))) }
+    // Saved prefix kept as is (enrolled sensor ids); new installs: model + this phone's key hash (PhoneSensorId).
+    var prefix by remember { mutableStateOf(network.hone.app.data.PhoneSensorId.forThisPhone(ctx, cur.optString("sensor_id_prefix", ""))) }
     val chans = remember {
         val a = cur.optJSONArray("channels"); mutableStateListOf<String>().apply {
             if (a != null) for (i in 0 until a.length()) add(a.getString(i))

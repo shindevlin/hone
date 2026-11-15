@@ -46,7 +46,7 @@ import java.security.MessageDigest
  *
  * Settings example (written by the operator, e.g. via adb run-as):
  *   {"chain_id":"hone","owner":"josh","node_url":"https://honemesh.net/chain",
- *    "sensor_id_prefix":"moto-gpower","sensor_type":"continuous",
+ *    "sensor_id_prefix":"moto-gpower","sensor_type":"continuous",   (new installs: model + phone key hash)
  *    "channels":["accel","gyro","mag","baro","light","proximity"]}
  * GNSS is never submitted by default: its value would publish the phone's location.
  *
@@ -102,7 +102,13 @@ class NodeService : Service() {
             chainId = j.getString("chain_id"),
             owner = j.getString("owner"),
             nodeUrl = publicNodeUrl(j.getString("node_url")),
-            sensorIdPrefix = j.getString("sensor_id_prefix"),
+            // A saved prefix is kept (enrolled ids); a settings file without one gets this phone's own
+            // per-key prefix (PhoneSensorId), written back so it never changes afterwards.
+            sensorIdPrefix = j.optString("sensor_id_prefix").trim().ifEmpty {
+                network.hone.app.data.PhoneSensorId.forThisPhone(this, null).also {
+                    runCatching { f.writeText(j.put("sensor_id_prefix", it).toString(2)) }
+                }
+            },
         )
         val chans = j.optJSONArray("channels")
         val set = buildSet { if (chans != null) for (i in 0 until chans.length()) add(chans.getString(i)) }
