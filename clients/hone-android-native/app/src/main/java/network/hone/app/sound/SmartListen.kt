@@ -52,6 +52,13 @@ object SmartListen {
     /** A probe that heard nothing bird-like counts as a quiet round. */
     fun afterQuietProbe(quiet: Int) = quiet + 1
 
+    /** Probe false alarms (bird-like, but Perch heard nothing) in a row before the probe is ignored: a fan or a
+     *  hum keeps firing it. Then only the 30-min safety net listens, until Perch hears a bird or 2 h pass. */
+    const val PROBE_MISSES_MAX = 2
+    const val PROBE_DISTRUST_MS = 2 * 3600_000L
+
+    fun probeTrusted(misses: Int, sinceLastMissMs: Long): Boolean = misses < PROBE_MISSES_MAX || sinceLastMissMs > PROBE_DISTRUST_MS
+
     /** Full burst (Perch) now, or only a 3 s probe? */
     fun fullNeeded(quiet: Int, sinceFullMs: Long): Boolean = quiet <= 0 || sinceFullMs >= SAFETY_FULL_MS
 

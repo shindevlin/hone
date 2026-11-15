@@ -199,6 +199,9 @@ object SoundSensing {
         val probe = FloatArray(SmartListen.PROBE_S * Perch.SAMPLE_RATE)
         var quiet = 0                 // rounds since a new species (SmartListen back-off)
         var lastFullMs = 0L
+        var probeMisses = 0           // probe said bird-like, Perch heard nothing (in a row)
+        var lastMissMs = 0L
+        var fromProbe = false
         network.hone.app.birds.Energy.restore(ctx)
         while (currentCoroutineContext().isActive) {
             val plugged = onPower(ctx)
@@ -218,13 +221,16 @@ object SoundSensing {
                 delay(60_000); continue
             }
             // On battery while backed off: a 3 s probe decides whether a full burst is worth it.
+            fromProbe = false
             if (!plugged && !focused() && !SmartListen.fullNeeded(quiet, started - lastFullMs) && !playbackHold() &&
                 !otherAppRecording(ctx)) {
                 val nowP = System.currentTimeMillis()
                 if (nowP / WINDOW_MS != win.index) { closeWindow(ctx, win); win = Window(nowP / WINDOW_MS) }
                 _live.value = _live.value.copy(listening = true, status = "checking for birds", batteryPct = pct)
                 val got = record(probe)
-                val birdy = got == REC_OK && !isSilent(probe) && BirdBand.active(probe)
+                val birdy = got == REC_OK && !isSilent(probe) && BirdBand.active(probe) &&
+                    SmartListen.probeTrusted(probeMisses, started - lastMissMs)
+                if (probeMisses >= SmartListen.PROBE_MISSES_MAX && started - lastMissMs > SmartListen.PROBE_DISTRUST_MS) probeMisses = 0
                 probe.fill(0f)
                 win.probes++
                 if (!birdy) {
@@ -234,6 +240,7 @@ object SoundSensing {
                     while (!focused() && System.currentTimeMillis() - started < wait) delay(1000)
                     continue
                 }
+                fromProbe = true
             }
             val before = win.species.keys.toSet()
             val burstWin = win.index
@@ -279,6 +286,7 @@ object SoundSensing {
             lastFullMs = started
             val heardNew = win.species.keys.any { it !in before } || (heardAny && win.index != burstWin)
             quiet = SmartListen.afterFull(quiet, heardNew, heardAny)
+            if (heardAny) probeMisses = 0 else if (fromProbe) { probeMisses++; lastMissMs = started }
             if (pauseMs > 0) { delay(pauseMs); continue }
             // Between bursts on battery, by the back-off; an encounter opening ends the wait within a second.
             val wait = if (focused()) 0L else SmartListen.intervalMs(quiet)

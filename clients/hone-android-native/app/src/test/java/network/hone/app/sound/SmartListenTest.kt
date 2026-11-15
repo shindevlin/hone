@@ -47,6 +47,12 @@ class SmartListenTest {
         assertFalse(SmartListen.vehicle(drive, t0 + 30 * 60_000L))
     }
 
+    @Test fun aProbeThatKeepsFiringOnNonBirdsIsIgnoredForAWhile() {
+        assertTrue(SmartListen.probeTrusted(1, 0))
+        assertFalse(SmartListen.probeTrusted(2, 60_000L))
+        assertTrue(SmartListen.probeTrusted(2, 3 * 3600_000L))
+    }
+
     private fun t(i: Int) = i.toDouble() / sr
 
     private fun chirps(amp: Double, noise: Double, r: Random): FloatArray {
