@@ -483,6 +483,7 @@ pub fn due_items(chain: &Chain, node: &str, epoch: u64) -> Vec<(u64, String)> {
 
 pub async fn vote_epoch(chain: &std::sync::Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>, me: &str, epoch: u64) {
     if !shadow_enabled() || epoch < hone_types::DECIDE_ENTRIES_EPOCH { return; }
+    crate::sign_guard::tick(chain, me, epoch);
     let Ok(base) = std::env::var("DECIDE_URL") else { return };
     if !decide_nodes(chain).iter().any(|n| n == me) { return; }
     let base = base.trim_end_matches('/').to_owned();
@@ -518,7 +519,12 @@ pub async fn vote_epoch(chain: &std::sync::Arc<Chain>, cmd_tx: &tokio::sync::mps
         model_hash: commit["model_hash"].as_str().unwrap_or_default().to_owned(),
         capacity_per_100: cap, signed_by: me.to_owned(), signature: None,
     };
-    if let Err(e) = crate::local_submit::submit_own(chain, cmd_tx, &entry).await { warn!("[decide] commit {epoch} not submitted: {e}"); }
+    // Sync before submit (spec 6b): one commit per epoch, never at or below the floor.
+    if !crate::sign_guard::may_sign(crate::sign_guard::DECIDE_COMMIT, epoch) { warn!("[decide] commit {epoch}: not signing (sync before submit)"); return; }
+    match crate::local_submit::submit_own(chain, cmd_tx, &entry).await {
+        Ok(_) => crate::sign_guard::signed(crate::sign_guard::DECIDE_COMMIT, epoch, ""),
+        Err(e) => warn!("[decide] commit {epoch} not submitted: {e}"),
+    }
     // Reveals due: spot checks drawn by this seal (on vote epoch epoch-2) and open juries.
     let mut due: Vec<(u64, String)> = Vec::new();
     if let Some(sd) = seed(chain, epoch) {
@@ -535,6 +541,7 @@ pub async fn vote_epoch(chain: &std::sync::Arc<Chain>, cmd_tx: &tokio::sync::mps
         let (j, b) = jury(&sd, &eh, &cands);
         if j.iter().chain(b.iter()).any(|n| n == me) { due.push((ve, eh)); }
     }
+    if !crate::sign_guard::ready() { return; }
     for (ve, eh) in due {
         let Ok(r) = http.get(format!("{base}/reveal/{ve}/{eh}")).timeout(std::time::Duration::from_secs(10)).send().await else { continue };
         let Ok(j) = r.json::<serde_json::Value>().await else { continue };
