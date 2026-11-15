@@ -60,6 +60,8 @@ data class SoundLive(
  *
  * Privacy rules this file enforces:
  *  - Audio lives only in RAM, one 5 s frame at a time, and is zeroed after use. Never written.
+ *  - Smart listening (SmartListen.kt) may record a 3 s probe first; it is checked for bird-band sounds
+ *    in RAM, zeroed at once, and only a yes/no comes out (no levels, no species).
  *  - Perch classifies the frame first. If any human class (speech, singing, crowd…) is present,
  *    the whole frame is dropped: no levels, no species, only a counter goes up.
  *  - What leaves this object is a per-window report: species names with confidence, noise
@@ -179,6 +181,7 @@ object SoundSensing {
         val events = HashMap<String, Int>()
         val lastSeq = HashMap<String, Long>()
         var silenced = 0
+        var probes = 0
     }
 
     /** Frame sequence: +1 per analysed frame, +2 across any gap (burst end, pause), so a call
@@ -193,6 +196,9 @@ object SoundSensing {
 
         var win = Window(System.currentTimeMillis() / WINDOW_MS)
         val frame = FloatArray(Perch.FRAME)
+        val probe = FloatArray(SmartListen.PROBE_S * Perch.SAMPLE_RATE)
+        var quiet = 0                 // rounds since a new species (SmartListen back-off)
+        var lastFullMs = 0L
         network.hone.app.birds.Energy.restore(ctx)
         while (currentCoroutineContext().isActive) {
             val plugged = onPower(ctx)
@@ -206,6 +212,32 @@ object SoundSensing {
                     status = "paused: battery low ($pct%)")
                 delay(60_000); continue
             }
+            // Smart listening: in a vehicle nothing is worth hearing (on battery or on power).
+            if (!focused() && SmartListen.inVehicle(System.currentTimeMillis())) {
+                _live.value = _live.value.copy(listening = false, status = "paused: moving fast (vehicle)")
+                delay(60_000); continue
+            }
+            // On battery while backed off: a 3 s probe decides whether a full burst is worth it.
+            if (!plugged && !focused() && !SmartListen.fullNeeded(quiet, started - lastFullMs) && !playbackHold() &&
+                !otherAppRecording(ctx)) {
+                val nowP = System.currentTimeMillis()
+                if (nowP / WINDOW_MS != win.index) { closeWindow(ctx, win); win = Window(nowP / WINDOW_MS) }
+                _live.value = _live.value.copy(listening = true, status = "checking for birds", batteryPct = pct)
+                val got = record(probe)
+                val birdy = got == REC_OK && !isSilent(probe) && BirdBand.active(probe)
+                probe.fill(0f)
+                win.probes++
+                if (!birdy) {
+                    quiet = SmartListen.afterQuietProbe(quiet)
+                    val wait = SmartListen.intervalMs(quiet)
+                    _live.value = _live.value.copy(listening = false, status = "quiet: next check in ${wait / 60_000} min")
+                    while (!focused() && System.currentTimeMillis() - started < wait) delay(1000)
+                    continue
+                }
+            }
+            val before = win.species.keys.toSet()
+            val burstWin = win.index
+            var heardAny = false
             for (i in 0 until burst) {
                 val now = System.currentTimeMillis()
                 if (now / WINDOW_MS != win.index) { closeWindow(ctx, win); win = Window(now / WINDOW_MS) }
@@ -240,18 +272,23 @@ object SoundSensing {
                     frame.fill(0f); pauseMs = if (noMicType) 20_000 else 30_000; break
                 }
                 if (_live.value.mic != "ok") { _live.value = _live.value.copy(mic = "ok"); MicAlerts.clearSilenced(ctx) }
-                processFrame(p, frame, win)
+                if (processFrame(p, frame, win).isNotEmpty()) heardAny = true
                 frame.fill(0f)
             }
             frameSeq += 2
+            lastFullMs = started
+            val heardNew = win.species.keys.any { it !in before } || (heardAny && win.index != burstWin)
+            quiet = SmartListen.afterFull(quiet, heardNew, heardAny)
             if (pauseMs > 0) { delay(pauseMs); continue }
-            _live.value = _live.value.copy(listening = false, status = "waiting")
-            // Between bursts on battery; an encounter opening ends the wait within a second.
-            if (!plugged) while (!focused() && System.currentTimeMillis() - started < BURST_EVERY_MS) delay(1000)
+            // Between bursts on battery, by the back-off; an encounter opening ends the wait within a second.
+            val wait = if (focused()) 0L else SmartListen.intervalMs(quiet)
+            _live.value = _live.value.copy(listening = false,
+                status = if (wait > BURST_EVERY_MS) "quiet: next check in ${wait / 60_000} min" else "waiting")
+            if (!plugged) while (!focused() && System.currentTimeMillis() - started < wait) delay(1000)
         }
     }
 
-    private fun processFrame(p: Perch, frame: FloatArray, win: Window) {
+    private fun processFrame(p: Perch, frame: FloatArray, win: Window): List<Detection> {
         val probs = p.classify(frame)
         win.frames++
         val seq = ++frameSeq
@@ -263,7 +300,7 @@ object SoundSensing {
                 framesHeard = _live.value.framesHeard + 1,
                 framesHuman = _live.value.framesHuman + 1,
             )
-            return
+            return emptyList()
         }
         // Noise levels, 100 ms blocks, dBFS (uncalibrated; per-device offset comes later).
         val block = Perch.SAMPLE_RATE / 10
@@ -310,6 +347,7 @@ object SoundSensing {
                 .sortedByDescending { probs[it] }.take(3)
                 .map { Detection(p.names[it], probs[it], now, p.lastEmbedding.copyOf()) } + s.focus).take(60),
         )
+        return top
     }
 
     private fun closeWindow(ctx: Context, w: Window) {
@@ -330,6 +368,7 @@ object SoundSensing {
             put("frames", w.frames)
             put("frames_discarded_human", w.framesHuman)
             put("silenced_frames", w.silenced)
+            put("probes", w.probes)
             put("tz_min", java.util.TimeZone.getDefault().getOffset(w.index * WINDOW_MS) / 60_000)
             put("species", JSONArray().apply {
                 w.species.entries.sortedByDescending { it.value.first }.forEach { (k, v) ->

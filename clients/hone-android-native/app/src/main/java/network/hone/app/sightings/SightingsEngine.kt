@@ -167,6 +167,10 @@ object SightingsEngine {
     private var gmsCallback: LocationCallback? = null
 
     private fun onLocation(l: Location, src: String) {
+        // Smart listening: moving fast (a car) pauses the microphone.
+        runCatching { network.hone.app.sound.SmartListen.onFix(network.hone.app.sound.SmartListen.Fix(
+            System.currentTimeMillis(), l.latitude, l.longitude, if (l.hasAccuracy()) l.accuracy else 999f,
+            if (l.hasSpeed()) l.speed else null)) }
         appCtx?.let { c -> runCatching { network.hone.app.raw.TravelGroup.onFix(c, l) } }   // light on-device track
         val cur = loc
         if (cur == null || l.time > cur.time + 30_000 || l.accuracy <= cur.accuracy) {
