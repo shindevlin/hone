@@ -34,6 +34,7 @@ pub const UNAVAIL_MIN_HALT_EPOCHS: u64 = 60;
 /// GET /api/setcert/halt: the next epoch to apply, its certified hashes, the missing ones.
 pub fn halt_view(chain: &Chain) -> serde_json::Value {
     let next = sa::applied_upto(chain) + 1;
+    if ENGINE.get().is_none() { return serde_json::json!({ "next": next, "starting": true }); }
     let cert = engine(chain).lock().final_cert(next).cloned();
     let (se, since) = *STALL.lock();
     let missing: Vec<String> = cert.as_ref().map(|c| c.content.hashes.iter()
@@ -143,6 +144,9 @@ fn voters_now(chain: &Chain) -> Vec<String> {
     crate::clock::reward_voters(&crate::clock::registered_clock_nodes(&chain.store, chain.current_epoch()))
 }
 
+/// The engine once the driver has built it; None while it is starting.
+pub fn try_engine() -> Option<&'static Mutex<Engine>> { ENGINE.get() }
+
 pub fn engine(chain: &Chain) -> &'static Mutex<Engine> {
     ENGINE.get_or_init(|| {
         let mut e = Engine::new(&chain.chain_id, sa::activation(), voters_now(chain));
@@ -237,7 +241,7 @@ async fn send(cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>, v: serde_json::Value) 
 pub async fn on_seal(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>, me: &str,
     sk: Option<&ed25519_dalek::SigningKey>, t: u64)
 {
-    if !sa::active(t) { return; }
+    if !sa::active(t) || ENGINE.get().is_none() { return; }
     let Some(sk) = sk else { return };
     if !crate::sign_guard::ready() { return; }
     let hashes = sa::due_hashes(chain, t);
@@ -257,6 +261,8 @@ pub async fn on_seal(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetC
 
 /// A set_* message from gossip.
 pub async fn on_msg(chain: &Arc<Chain>, cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>, msg: serde_json::Value) {
+    // Until the driver has built the engine (off the runtime), drop: everything is re-sent.
+    if ENGINE.get().is_none() { return; }
     let ty = msg["type"].as_str().unwrap_or("");
     let v = verifier(chain);
     if ty == "set_unavail" {
@@ -329,6 +335,11 @@ pub async fn driver(chain: Arc<Chain>, cmd_tx: tokio::sync::mpsc::Sender<NetCmd>
     let mut last_fetch = 0u64;
     let mut last_rb = 0u64;
     let mut last_da = 0u64;
+    // Build the engine (resume, restore own PROPs/votes, check their bodies) on a blocking
+    // thread: on beastly 2026-11-15 this held a tokio worker for minutes and the API died.
+    { let c = chain.clone(); let t0 = now_ms();
+      let _ = tokio::task::spawn_blocking(move || { let _ = engine(&c); }).await;
+      info!("[setcert] engine ready in {} ms", now_ms().saturating_sub(t0)); }
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let cur = chain.current_epoch();

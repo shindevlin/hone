@@ -647,7 +647,8 @@ impl Chain {
         if self.store.state_get(&format!("entry_applied:{}", hash)).is_some() {
             return serde_json::json!({ "hash": hash, "status": "committed" });
         }
-        let pending = self.pending.lock().iter().any(|(e, _)| e.hash() == hash);
+        // Persisted pool key (one per pending entry): no hashing of the whole pool per call.
+        let pending = self.store.state_get(&format!("{}{}", Self::POOL_PREFIX, hash)).is_some();
         serde_json::json!({
             "hash": hash,
             "status": if pending { "pending" } else { "unknown" },
@@ -684,6 +685,14 @@ impl Chain {
             &serde_json::to_vec(&serde_json::json!({ "entry": e, "sig": sig })).unwrap_or_default());
     }
     /// Forget persisted pool entries (decided by a certified set).
+    /// A pending entry by hash from its persisted pool key (every push_pending writes one;
+    /// deciding or draining deletes it). One store read instead of hashing the whole pool.
+    pub fn pool_body(&self, hash: &str) -> Option<(LedgerEntry, Option<String>)> {
+        let r: serde_json::Value = serde_json::from_slice(&self.store.state_get(&format!("{}{}", Self::POOL_PREFIX, hash))?).ok()?;
+        let e: LedgerEntry = serde_json::from_value(r["entry"].clone()).ok()?;
+        (e.hash() == hash).then(|| (e, r["sig"].as_str().map(str::to_owned)))
+    }
+
     pub fn pool_forget(&self, hashes: &[String]) {
         for h in hashes { let _ = self.store.state_delete(&format!("{}{}", Self::POOL_PREFIX, h)); }
     }

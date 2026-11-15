@@ -73,26 +73,22 @@ pub fn voter_step(e: &mut setcert::Engine, chain: &Chain, me: &str, cur: u64, no
     for t in first..=hi {
         if t + 2 <= cur && e.own_prop(me, t).is_none() {
             let past = t + 3 <= cur;
-            if past && behind { continue; }
-            let hashes = if past && t + crate::tx::STALE_WINDOW < cur { Vec::new() } else { due_hashes(chain, t) };
+            // Behind, or older than the stale window: an empty PROP (never stale or unheld
+            // entries; and if every voter is behind, empty sets still finalize, so the chain
+            // never waits on a PROP nobody would make).
+            let hashes = if past && (behind || t + crate::tx::STALE_WINDOW < cur) { Vec::new() } else { due_hashes(chain, t) };
             if let Some(p) = e.propose(me, t, hashes, d_report, now_ms, sign) {
                 for h in &p.hashes { keep_voted_body(chain, h); }
                 new.push(Out::P(p));
             }
         }
     }
-    // Pool hashes, built at most once per tick and only when a set must be checked (body()
-    // hashes the pool entry by entry; a 100k-entry pool per epoch per tick is too slow).
-    let mut pool_hs: Option<std::collections::HashSet<String>> = None;
     for t in first..=hi {
         // Data availability: never vote for a set naming a body this voter does not hold.
         if let Some(hs) = e.vote_hashes(t) {
             let same = e.own_vote(t).is_some_and(|v| v.content.hashes == hs);
             if !hs.is_empty() && !same {
-                let ps = pool_hs.get_or_insert_with(|| chain.pending.lock().iter().map(|(x, _)| x.hash()).collect());
-                let missing: Vec<String> = hs.iter()
-                    .filter(|h| !ps.contains(*h) && !FETCHED.lock().unwrap().contains_key(*h) && voted_body(chain, h).is_none())
-                    .cloned().collect();
+                let missing: Vec<String> = hs.iter().filter(|h| body(chain, h).is_none()).cloned().collect();
                 if !missing.is_empty() { da_missing().lock().unwrap().extend(missing); continue; }
             }
         }
@@ -135,8 +131,10 @@ pub fn offer_body(entry: LedgerEntry, sig: Option<String>) {
 
 /// A body by hash: the pending pool, fetched bodies, or a body this voter voted for.
 pub fn body(chain: &Chain, hash: &str) -> Option<(LedgerEntry, Option<String>)> {
-    if let Some(x) = chain.pending.lock().iter().find(|(e, _)| e.hash() == hash) { return Some(x.clone()); }
+    // Keyed lookups only: hashing the pool entry by entry (100k+ entries on 2026-11-15) for
+    // every lookup hung a voter restoring 1,052 own PROPs at startup (beastly, 7d56432b).
     if let Some(x) = FETCHED.lock().unwrap().get(hash) { return Some(x.clone()); }
+    if let Some(x) = chain.pool_body(hash) { return Some(x); }
     voted_body(chain, hash)
 }
 
@@ -149,8 +147,7 @@ const VB_PREFIX: &str = "setcert_vb:";
 pub const BEHIND_SLACK: u64 = 2;
 /// Held in persisted local state (persisted pool, kept voted body, kept certified set) or memory.
 pub fn held(chain: &Chain, hash: &str) -> bool {
-    body(chain, hash).is_some() || chain.store.state_get(&format!("pending_pool:e:{hash}")).is_some()
-        || kept_body(chain, hash).is_some()
+    body(chain, hash).is_some() || kept_body(chain, hash).is_some()
 }
 /// Own PROPs and votes saved before a restart (setcert_own.json) are re-sent only if every
 /// body they name is still held here; a state swap or crash that lost them drops them (the
@@ -159,8 +156,12 @@ pub fn held(chain: &Chain, hash: &str) -> bool {
 pub fn restorable(chain: &Chain, props: Vec<setcert::Prop>, votes: Vec<setcert::Vote>)
     -> (Vec<setcert::Prop>, Vec<setcert::Vote>, usize) {
     let n = props.len() + votes.len();
-    let props: Vec<_> = props.into_iter().filter(|p| p.hashes.iter().all(|h| held(chain, h))).collect();
-    let votes: Vec<_> = votes.into_iter().filter(|v| v.content.hashes.iter().all(|h| held(chain, h))).collect();
+    // Each distinct hash is checked once (keyed lookups), however many PROPs/votes name it.
+    let all: std::collections::BTreeSet<&String> = props.iter().flat_map(|p| p.hashes.iter())
+        .chain(votes.iter().flat_map(|v| v.content.hashes.iter())).collect();
+    let lost: std::collections::HashSet<String> = all.into_iter().filter(|h| !held(chain, h)).cloned().collect();
+    let props: Vec<_> = props.into_iter().filter(|p| !p.hashes.iter().any(|h| lost.contains(h))).collect();
+    let votes: Vec<_> = votes.into_iter().filter(|v| !v.content.hashes.iter().any(|h| lost.contains(h))).collect();
     let dropped = n - props.len() - votes.len();
     (props, votes, dropped)
 }
@@ -320,8 +321,8 @@ pub fn serve_bodies(chain: &Chain, hashes: &[String], tip: u64) -> Vec<serde_jso
     let want: std::collections::BTreeSet<&String> = hashes.iter().collect();
     let mut out = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
-    for (e, s) in chain.pending.lock().iter() {
-        if want.contains(&e.hash()) && seen.insert(e.hash()) { out.push(serde_json::json!({ "entry": e, "sig": s })); }
+    for h in &want {
+        if let Some((e, s)) = chain.pool_body(h) { seen.insert((*h).clone()); out.push(serde_json::json!({ "entry": e, "sig": s })); }
     }
     for set in DECIDED.lock().unwrap().values() {
         for (e, s) in set {
@@ -966,7 +967,9 @@ mod tests {
         TEST_EPOCH.with(|c| c.set(None));
     }
 
-    /// Rule 2: a node behind what is already certified makes no PROPs for past epochs.
+    /// Rule 2: a node behind what is already certified PROPoses only empty sets for past
+    /// epochs (no stale or unheld entries), so even with every voter behind the chain keeps
+    /// finalizing (no voter waits on a PROP nobody would make).
     #[test]
     fn a_node_behind_makes_no_proposals_for_past_epochs() {
         let act = 120u64;
@@ -980,7 +983,10 @@ mod tests {
         eng.resume(act + 10, "d".into()); // certified up to act+10, applied only act-1
         let sign = signer("v1");
         let (new, _) = voter_step(&mut eng, &c, "v1", act + 20, 100_000, 3, false, &sign);
-        assert!(!new.iter().any(|o| matches!(o, Out::P(p) if p.epoch + 3 <= act + 20)), "behind: no catch-up PROPs");
+        let past: Vec<&Prop> = new.iter().filter_map(|o| if let Out::P(p) = o { Some(p) } else { None })
+            .filter(|p| p.epoch + 3 <= act + 20).collect();
+        assert!(!past.is_empty(), "behind: still PROPoses past epochs (no deadlock)");
+        assert!(past.iter().all(|p| p.hashes.is_empty()), "behind: only empty PROPs for past epochs");
         TEST_EPOCH.with(|c| c.set(None));
     }
 
@@ -1026,6 +1032,7 @@ mod tests {
         c.push_pending(ancient.clone(), sa_.clone());
         assert!(!due_hashes(&c, act + 2).contains(&ancient.hash()));
         c.pending.lock().clear();
+        c.pool_forget(&[ancient.hash()]);
         // 2) The stuck voter (old rule) proposes it anyway; its body is gone (state swap).
         let mut eng = Engine::new("hone-test", act, vec!["v1".into(), "v2".into()]);
         let mut p = Prop { epoch: act, voter: "v2".into(), hashes: vec![ancient.hash()], d_report: 10, sig: String::new() };
@@ -1114,6 +1121,94 @@ mod tests {
         offer_body(e, s);
         assert_eq!(apply_final(&c, &cert), Ok(1));
         assert_eq!(applied_upto(&c), act);
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+    /// beastly 2026-11-15 (7d56432b): restoring 1,052 own PROPs against a 100k+ pool hashed the
+    /// whole pool per body lookup and held a tokio worker at 100% for minutes (API dead). With
+    /// keyed lookups, 1,100 PROPs x 20 hashes against a 30,000-entry pool restore in seconds,
+    /// on a blocking thread, while the API (entry status) keeps answering.
+    #[test]
+    fn restoring_many_own_props_against_a_large_pool_is_fast_and_never_blocks_the_api() {
+        let act = 400u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let (c, _d) = chain("restore-big");
+        let c = std::sync::Arc::new(c);
+        let mut pool_hashes = Vec::new();
+        for i in 0..30_000u64 {
+            let from = format!("u{}", i % 97);
+            let e = LedgerEntry::Transfer { from: from.clone(), to: "bob".into(), amount: 1 + i,
+                token: hone_types::NATIVE_TOKEN.into(), memo: None, nonce: i, epoch: act, signed_by: from, twofactor: None };
+            pool_hashes.push(e.hash());
+            c.push_pending(e, None);
+        }
+        let mut props = Vec::new();
+        for k in 0..1_100u64 {
+            let mut hashes: Vec<String> = (0..20u64).map(|j| pool_hashes[((k * 20 + j) * 7 % 30_000) as usize].clone()).collect();
+            if k % 10 == 0 { hashes.push(format!("{:064x}", k + 1)); } // a body lost in a swap
+            hashes.sort(); hashes.dedup();
+            props.push(Prop { epoch: act + k, voter: "v1".into(), hashes, d_report: 3, sig: String::new() });
+        }
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let ph = pool_hashes.clone();
+        let (kept, dropped, api_max, took) = rt.block_on(async move {
+            let t0 = std::time::Instant::now();
+            let c2 = c.clone();
+            let job = tokio::task::spawn_blocking(move || restorable(&c2, props, Vec::new()));
+            // The API keeps answering while the restore runs.
+            let mut api_max = std::time::Duration::ZERO;
+            while !job.is_finished() && t0.elapsed() < std::time::Duration::from_secs(30) {
+                let q = std::time::Instant::now();
+                let st = tokio::time::timeout(std::time::Duration::from_secs(2),
+                    async { c.entry_status(&ph[123]) }).await.expect("API answers");
+                assert_eq!(st["status"], "pending");
+                api_max = api_max.max(q.elapsed());
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let (p, _v, dropped) = job.await.unwrap();
+            let took = t0.elapsed();
+            // A voter's body lookups over a large pool stay cheap as well.
+            for h in ph.iter().take(2_000) { assert!(body(&c, h).is_some()); }
+            (p.len(), dropped, api_max, took)
+        });
+        assert!(took < std::time::Duration::from_secs(5), "restore took {took:?}");
+        assert_eq!(dropped, 110, "PROPs naming a lost body are dropped");
+        assert_eq!(kept, 990);
+        assert!(api_max < std::time::Duration::from_millis(500), "API answered in {api_max:?}");
+        TEST_EPOCH.with(|c| c.set(None));
+    }
+
+    /// Rule 2 with every voter behind: all hold final certs they cannot apply yet. Each still
+    /// PROPoses (empty) for the open past epochs, so the next epoch certifies (no deadlock).
+    #[test]
+    fn every_voter_behind_still_finalizes_the_next_epoch() {
+        let act = 140u64;
+        TEST_EPOCH.with(|c| c.set(Some(act)));
+        let voters: Vec<String> = vec!["v1".into(), "v2".into(), "v3".into()];
+        let chains: Vec<(Chain, tempfile::TempDir)> = (0..3).map(|i| chain(&format!("allbehind{i}"))).collect();
+        let mut eng: Vec<Engine> = (0..3).map(|_| { let mut e = Engine::new("hone-test", act, voters.clone()); e.resume(act + 10, "d".into()); e }).collect();
+        let cur = act + 20; // certified to act+10, applied to act-1 everywhere: all behind
+        let mut msgs: Vec<Out> = Vec::new();
+        for now in [100_000u64, 200_000, 300_000, 400_000, 500_000, 600_000] {
+            for i in 0..3 {
+                let s = signer(&voters[i]);
+                let (new, rb) = voter_step(&mut eng[i], &chains[i].0, &voters[i], cur, now, 3, true, &s);
+                msgs.extend(new.into_iter().chain(rb));
+            }
+            while let Some(m) = msgs.pop() {
+                for e in eng.iter_mut() {
+                    match &m {
+                        Out::P(p) => { e.on_prop(p.clone(), now, &verify); }
+                        Out::V(v) => { if let Some(c) = e.on_vote(v.clone(), &verify) { msgs.insert(0, Out::C(c)); } }
+                        Out::C(c) => { e.on_cert(c.clone(), &verify); }
+                    }
+                }
+            }
+            for e in eng.iter_mut() { e.finalize(); }
+        }
+        for e in &eng {
+            let f = e.final_cert(act + 11).expect("the next epoch certifies with every voter behind");
+            assert!(f.content.hashes.is_empty());
+        }
         TEST_EPOCH.with(|c| c.set(None));
     }
 }

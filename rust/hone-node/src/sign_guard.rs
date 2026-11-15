@@ -199,7 +199,7 @@ pub fn heads(chain: &Chain, tip: u64) -> (u64, u64) {
         // halt (missing bodies, 2026-11-15) must not stop a synced voter from voting, or the
         // apply halt becomes a finalization halt.
         let h = crate::setcert_apply::applied_upto(chain);
-        let f = crate::setcert_node::engine(chain).lock().last_final().unwrap_or(0);
+        let f = crate::setcert_node::try_engine().and_then(|e| e.lock().last_final()).unwrap_or(0);
         heads_from(h, f)
     } else {
         let h = crate::epoch_sync::last_committed(chain);
@@ -216,6 +216,9 @@ pub fn tick(chain: &Chain, me: &str, _caller_epoch: u64) {
     set_me(me);
     // One clock for every caller: the chain's current epoch.
     let tip = chain.current_epoch();
+    // While the setcert engine is still being built (startup), stay observe-only: its final
+    // certs are part of the chain floors and the finalized head.
+    if crate::setcert_apply::active(tip) && crate::setcert_node::try_engine().is_none() { return; }
     let (head, known) = heads(chain, tip);
     let need = !guard().lock().ready();
     let floors = if need { chain_floors(chain, me, tip) } else { BTreeMap::new() };
@@ -238,8 +241,8 @@ pub fn chain_floors(chain: &Chain, me: &str, tip: u64) -> BTreeMap<String, u64> 
     // swap from another node never carries this node's local vote record, but its votes and
     // PROPs are in the certs it helped finalize.
     {
-        let e = crate::setcert_node::engine(chain).lock();
-        if let Some(lf) = e.last_final() {
+        let eg = crate::setcert_node::try_engine().map(|m| m.lock());
+        if let Some((e, lf)) = eg.as_ref().and_then(|e| e.last_final().map(|lf| (e, lf))) {
             for t in lf.saturating_sub(CHAIN_SCAN_EPOCHS)..=lf {
                 let Some(c) = e.final_cert(t) else { continue };
                 if c.votes.contains_key(me) { let f = out.entry(SET_VOTE.to_owned()).or_insert(0); *f = (*f).max(c.epoch); }
