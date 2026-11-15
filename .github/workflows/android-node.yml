@@ -97,12 +97,15 @@ jobs:
         working-directory: android
         run: ./gradlew assembleRelease
 
-      # artifact storage is blocked while the shindevlin billing hold stands; a failed
-      # upload must not hide a good build. Drop continue-on-error once the hold clears.
-      - name: Upload APK artifact
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: hone-android-${{ github.sha }}
-          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
-          retention-days: 30
+      # APKs go to Forgejo on grouchly (generic package estejosh/hone-android), not GitHub
+      # artifact storage. The token is a podman secret mounted into the grouchly runner.
+      - name: Send APK to Forgejo
+        env:
+          APK: android/app/build/outputs/apk/release/app-release-unsigned.apk
+        run: |
+          tok=/run/secrets/forgejo-apk-token
+          if [ ! -s "$tok" ]; then echo "::warning::no Forgejo token on this runner, APK not sent"; exit 0; fi
+          v="$(date -u +%Y%m%d)-${GITHUB_SHA::12}"
+          curl -fsS -X PUT -H "Authorization: token $(cat "$tok")" --upload-file "$APK" \
+            "http://host.containers.internal:3000/api/packages/estejosh/generic/hone-android/$v/hone-android-$v-unsigned.apk"
+          echo "APK: forgejo estejosh/hone-android $v" >> "$GITHUB_STEP_SUMMARY"
