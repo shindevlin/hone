@@ -154,6 +154,7 @@ pub fn apply_set(chain: &Chain, epoch: u64, mut remaining: Vec<(LedgerEntry, Opt
 /// daemon and expiry sweepers, unbonding / timelocked params / governance, then the base
 /// fee step from the committed weight.
 pub fn epoch_tick(chain: &Chain, epoch: u64, committed_weight: u64) {
+    crate::rep::tick(chain, epoch);
     crate::usefulness::release_due(chain, epoch);
     crate::sensor_seat::tick(chain, epoch);
     crate::bird_cards::tick(chain, epoch);

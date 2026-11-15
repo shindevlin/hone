@@ -244,11 +244,13 @@ fn rec_get(chain: &Chain, k: &str) -> Option<serde_json::Value> {
 fn rec_put(chain: &Chain, k: &str, v: &serde_json::Value) -> Result<()> {
     chain.store.state_set(k, &serde_json::to_vec(v)?)
 }
-fn strike(chain: &Chain, node: &str, why: &str) {
+fn strike(chain: &Chain, node: &str, why: &str, epoch: u64) {
     let k = format!("decide_strikes:{}", node);
     let n = chain.store.state_get(&k).and_then(|b| String::from_utf8(b).ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
     let _ = chain.store.state_set(&k, (n + 1).to_string().as_bytes());
     warn!("[decide-shadow] strike {} for '{}': {}", n + 1, node, why);
+    // Reputation (gate REPUTATION_EPOCH): a consensus-domain bad event.
+    crate::rep::on_missed_check(chain, node, why, crate::rep::at(epoch));
 }
 
 pub fn check(chain: &Chain, e: &LedgerEntry) -> Result<()> {
@@ -286,7 +288,7 @@ pub fn apply(chain: &Chain, e: &LedgerEntry) -> Result<()> {
             let ck = format!("decide_capacity:{}", node);
             let prev = rec_get(chain, &ck).map(|j| j["cap"].clone()).unwrap_or(serde_json::json!(100));
             rec_put(chain, &ck, &serde_json::json!({ "cap": capacity_per_100, "prev": prev, "from_epoch": epoch + 10 }))?;
-            if model_hash != hone_types::DECIDE_MODEL_HASH { strike(chain, node, "model_hash mismatch"); }
+            if model_hash != hone_types::DECIDE_MODEL_HASH { strike(chain, node, "model_hash mismatch", *epoch); }
         }
         LedgerEntry::DecideChallenge { entry_hash, vote_epoch, task, challenger, bond, epoch, .. } => {
             // SHADOW: the bond is recorded, not escrowed.
@@ -301,7 +303,7 @@ pub fn apply(chain: &Chain, e: &LedgerEntry) -> Result<()> {
                 (Some(eh), Some(s), Some(r)) => verify_proof(leaf(&eh, *vote_epoch, task, option, *conf_q8, &s), proof, &r),
                 _ => false,
             };
-            if !valid { strike(chain, juror, "reveal failed its Merkle proof"); }
+            if !valid { strike(chain, juror, "reveal failed its Merkle proof", e.epoch()); }
             rec_put(chain, &format!("decide_reveal:{}:{}", entry_hash, juror), &serde_json::json!({
                 "option": option, "conf_q8": conf_q8, "t95_q8": t95_q8, "valid": valid, "vote_epoch": vote_epoch }))?;
         }
@@ -330,7 +332,7 @@ pub fn shadow_tick(chain: &Chain, epoch: u64) {
                 Some(r) if r["valid"] == true && reveals.len() < hone_types::DECIDE_JURY =>
                     reveals.push((r["option"].as_str().unwrap_or("abstain").to_owned(), r["conf_q8"].as_u64().unwrap_or(0) as u8, r["t95_q8"].as_u64().unwrap_or(255) as u8)),
                 Some(_) => {}
-                None if jurors.contains(j) => { missed.push(j.clone()); strike(chain, j, "juror did not reveal"); }
+                None if jurors.contains(j) => { missed.push(j.clone()); strike(chain, j, "juror did not reveal", epoch); }
                 None => {}
             }
         }
@@ -355,10 +357,10 @@ pub fn shadow_tick(chain: &Chain, epoch: u64) {
                 SpotOutcome::Ok => {}
                 SpotOutcome::NoCommit => {
                     let _ = rec_put(chain, &nk, &serde_json::json!({ "epoch": epoch }));
-                    strike(chain, &n, "no commit for a spot-checked vote epoch");
+                    strike(chain, &n, "no commit for a spot-checked vote epoch", epoch);
                 }
                 SpotOutcome::NotRevealed => {
-                strike(chain, &n, "spot check not revealed");
+                strike(chain, &n, "spot check not revealed", epoch);
                 }
             }
         }

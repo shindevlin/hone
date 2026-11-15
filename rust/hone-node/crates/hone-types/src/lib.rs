@@ -185,6 +185,10 @@ pub const SENSOR_SEATS_EPOCH: u64 = 355_140; // Josh 2026-11-04 18:44 "turn on s
 pub const BIRD_CARDS_EPOCH: u64 = u64::MAX;
 /// Decide-by certified entry sets (setcert.rs). Off until rollout + Josh OK.
 pub const SET_CERT_EPOCH: u64 = 373_000; // Josh 2026-11-10 10:08 local "ok, build it and turn it on"
+/// Universal reputation (rep.rs, spec docs/spec-universal-reputation-2026-11-14.md): rep:*
+/// state from decided sets, reward weight 0.25..1.0, compute score for inference bids, and
+/// sensor strikes out of the API handler. Off until Josh signs off an epoch.
+pub const REPUTATION_EPOCH: u64 = u64::MAX;
 /// Scoped "agent" key role (Josh 2026-11-10 08:25): SET_AGENT_KEY / REVOKE_AGENT_KEY, and
 /// agent-signed SENSOR_SEAT_REGISTER / NODE_ROLE_STAKE / NODE_ROLE_UNSTAKE on the account's
 /// own seats and nodes, with total agent-placed stake capped. Off until Josh signs off an epoch.

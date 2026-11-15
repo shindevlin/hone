@@ -281,6 +281,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sensor/:id", get(get_sensor))
         .route("/api/sensors/:sensor_id/consensus/:epoch", get(get_sensor_consensus))
         .route("/api/sensors/:sensor_id/strikes", get(get_sensor_strikes))
+        // ── Universal reputation (rep.rs, gate REPUTATION_EPOCH) ───────────
+        .route("/api/reputation/owner/:account", get(get_rep_owner))
+        .route("/api/reputation/:subject", get(get_rep_subject))
         .route("/api/gateway/heartbeat", post(post_gateway_heartbeat))
         .route("/api/gateway/:id", get(get_gateway))
         // ── BLE Tracker Claims ────────────────────────────────────────────
@@ -4571,6 +4574,9 @@ async fn post_sensor_commit(
     let status = sensor_cross_validate(&s, &body.sensor_id, epoch, &body.owner);
 
     // ── Phase 3: strike tracking ──────────────────────────────────────────────
+    // Written by whichever node received the reading, so not consensus. From
+    // REPUTATION_EPOCH strikes come from decided sets instead (rep.rs data domain).
+    if !crate::rep::active(epoch) {
     let strikes_key = format!("sensor_strikes:{}", body.sensor_id);
     let mut strikes: u64 = s.chain.store
         .state_get(&strikes_key)
@@ -4615,6 +4621,7 @@ async fn post_sensor_commit(
         &strikes_key,
         &serde_json::to_vec(&serde_json::json!({ "count": strikes })).unwrap_or_default(),
     );
+    }
 
     let mut resp = result.0;
     resp["consensus_status"] = serde_json::Value::String(status);
@@ -4885,6 +4892,17 @@ async fn get_sensor_consensus(
         "readings": readings,
         "median": median,
     }))
+}
+
+/// GET /api/reputation/:subject — domains, composite, confidence and recent events of
+/// one device / node (rep.rs). Read-only; empty until REPUTATION_EPOCH.
+async fn get_rep_subject(State(s): State<AppState>, Path(subject): Path<String>) -> Json<serde_json::Value> {
+    Json(crate::rep::subject_json(&s.chain, &subject, s.chain.current_epoch()))
+}
+
+/// GET /api/reputation/owner/:account — derived owner reputation and its devices.
+async fn get_rep_owner(State(s): State<AppState>, Path(account): Path<String>) -> Json<serde_json::Value> {
+    Json(crate::rep::owner_json(&s.chain, &account, s.chain.current_epoch()))
 }
 
 /// GET /api/sensors/:sensor_id/strikes
@@ -11429,6 +11447,24 @@ mod partition_tests {
         assert!(h.state.chain.store.state_get("sensor_net:phone-gnss:0").is_none());
         assert!(h.state.chain.store.state_get("sensor_readings:0:phone-gnss:josh").is_none());
         assert!(h.state.chain.store.state_get("sensor_strikes:phone-gnss").is_none());
+    }
+
+    /// GET /api/reputation/:subject and /owner/:account answer read-only and write nothing
+    /// before REPUTATION_EPOCH.
+    #[tokio::test]
+    async fn reputation_endpoints_answer_and_stay_inert_before_the_gate() {
+        let h = build_harness("rep-api");
+        let subject = format!("josh@{}", "ab".repeat(32));
+        let j = get_rep_subject(State(h.state.clone()), Path(subject.clone())).await.0;
+        assert_eq!(j["subject"], serde_json::json!(subject));
+        assert_eq!(j["owner"], serde_json::json!("josh"));
+        assert_eq!(j["active"], serde_json::json!(false));
+        assert_eq!(j["evidence"], serde_json::json!(0));
+        assert_eq!(j["composite"], serde_json::json!(3_500));
+        let o = get_rep_owner(State(h.state.clone()), Path("josh".to_string())).await.0;
+        assert_eq!(o["score"], serde_json::json!(0));
+        assert!(h.state.chain.store.state_scan_prefix("rep:").is_empty());
+        assert!(h.state.chain.store.state_scan_prefix("rep_").is_empty());
     }
 
     /// Same hardline, exercised through the §0 contract-replay handlers

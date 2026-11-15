@@ -116,6 +116,13 @@ fn decide(chain: &Chain, cell: &str, m: &str, w: u64, epoch: u64) {
     if dt != 0 { add_trust(chain, &owner, dt); }
     settle(chain, cell, m, w, proven, epoch);
     if proven { for v in &corr { credit(chain, v, VERIFY_POINTS, epoch); } }
+    // Reputation (gate REPUTATION_EPOCH): independent confirmations / contradictions.
+    if crate::rep::active(epoch) {
+        if let Some(sensor) = c["sensor"].as_str() {
+            for v in &corr { crate::rep::on_confirmed(chain, sensor, &owner, v, epoch); }
+            if !proven { crate::rep::on_contradicted(chain, sensor, &owner, &contra, epoch); }
+        }
+    }
 }
 
 /// Coarsest and finest H3 resolution a summary cell may have from CELL_RES_RANGE_EPOCH.
@@ -245,6 +252,7 @@ fn try_prove(chain: &Chain, owner: &str, ccell: &str, m: &str, w: u64, v: i64, e
     }
     let _ = chain.store.state_set(&vkey, b"1");
     if let Some(co) = c["owner"].as_str() { add_trust(chain, co, 1); }
+    if let (Some(co), Some(s)) = (c["owner"].as_str(), c["sensor"].as_str()) { crate::rep::on_confirmed(chain, s, co, owner, epoch); }
     settle(chain, ccell, m, w, true, epoch);
     credit(chain, owner, VERIFY_POINTS, epoch);
     VERIFY_POINTS
@@ -377,6 +385,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                     } else {
                         let _ = chain.store.state_set(&vkey, b"1");
                         add_trust(chain, &est_owner, 1);
+                        if let Some(s) = est.as_ref().and_then(|e| e["sensor"].as_str()) { crate::rep::on_confirmed(chain, s, &est_owner, &owner, epoch); }
                         if let Some(ew) = ew { settle(chain, cell, m, ew, true, epoch); }
                         credit(chain, &owner, VERIFY_POINTS, epoch);
                         pts += VERIFY_POINTS;
@@ -390,6 +399,7 @@ pub fn score(chain: &Chain, sensor_id: &str, owner: &str, cell: &str, window: u6
                     note(chain, cell, m, ew.unwrap_or(0), "contra", &owner, epoch);
                 } else {
                     add_trust(chain, &est_owner, -2);
+                    if let Some(s) = est.as_ref().and_then(|e| e["sensor"].as_str()) { crate::rep::on_contradicted(chain, s, &est_owner, std::slice::from_ref(&owner), epoch); }
                     if let Some(ew) = ew { settle(chain, cell, m, ew, false, epoch); }
                 }
             }
@@ -476,7 +486,16 @@ fn settle(chain: &Chain, cell: &str, m: &str, window: u64, proven: bool, epoch: 
     set_json(chain, &ck, &c);
     if proven {
         let owner = c["owner"].as_str().unwrap_or("").to_owned();
-        credit(chain, &owner, c["points"].as_u64().unwrap_or(0), epoch);
+        let mut pts = c["points"].as_u64().unwrap_or(0);
+        // Reputation (gate REPUTATION_EPOCH): paid by the device's data score (x0.25..1.0),
+        // weighed before this reading's own +useful event.
+        if crate::rep::active(epoch) {
+            if let Some(sensor) = c["sensor"].as_str() {
+                pts = pts * crate::rep::reward_weight_bps(chain, sensor, crate::rep::Domain::Data, epoch) / 10_000;
+                crate::rep::on_useful(chain, sensor, &owner, epoch);
+            }
+        }
+        credit(chain, &owner, pts, epoch);
     }
 }
 

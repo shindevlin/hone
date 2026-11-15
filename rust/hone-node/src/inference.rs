@@ -383,8 +383,11 @@ pub fn apply_bid(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
         bail!("bid role must be 'worker' or 'verifier'");
     }
     let rep = get_reputation(chain, bidder);
-    if rep.score < job.min_reputation {
-        bail!("node '{}' reputation {} below required {}", bidder, rep.score, job.min_reputation);
+    // From REPUTATION_EPOCH the gate reads the universal compute-domain score.
+    let at = crate::rep::at(entry.epoch());
+    let score = if crate::rep::active(at) { crate::rep::score_in(chain, bidder, crate::rep::Domain::Compute, at) } else { rep.score };
+    if score < job.min_reputation {
+        bail!("node '{}' reputation {} below required {}", bidder, score, job.min_reputation);
     }
     if chain.store.state_get(&bid_key(job_id, bidder)).is_some() {
         bail!("node '{}' already bid on job '{}'", bidder, job_id);
@@ -474,6 +477,7 @@ pub fn apply_complete(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     rep.total_latency_ms = rep.total_latency_ms.saturating_add(*latency_ms);
     rep.recompute_score();
     set_reputation(chain, &rep)?;
+    crate::rep::on_inference(chain, worker, true, crate::rep::at(*epoch));
     set_job(chain, &job)?;
     // Mark queue entry so miner knows the job is ready for Mine submission.
     let _ = chain.store.state_set(
@@ -620,6 +624,7 @@ pub fn apply_verify(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
                     rep.jobs_failed += 1;
                     rep.recompute_score();
                     set_reputation(chain, &rep)?;
+                    crate::rep::on_inference(chain, winner, false, crate::rep::at(entry.epoch()));
                 }
                 info!("AI task {} board verdict: rejected ({}/{} votes)", job_id, job.verdicts.len(), job.min_verifiers);
             }
@@ -882,6 +887,7 @@ pub fn apply_cancel(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
         rep.jobs_failed += 1;
         rep.recompute_score();
         set_reputation(chain, &rep)?;
+        crate::rep::on_inference(chain, winner, false, crate::rep::at(entry.epoch()));
     }
 
     job.status = JobStatus::Cancelled;

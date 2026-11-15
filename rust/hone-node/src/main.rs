@@ -43,6 +43,7 @@ mod clock;
 mod config;
 mod mem_profile;
 mod usefulness;
+mod rep;
 mod sensor_seat;
 mod bird_cards;
 mod peer_ident;

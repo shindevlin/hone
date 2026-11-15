@@ -58,6 +58,9 @@ pub fn apply_proof(
     stats["proofs"] = serde_json::json!(stats["proofs"].as_u64().unwrap_or(0) + 1);
     stats["bytes_total"] = serde_json::json!(stats["bytes_total"].as_u64().unwrap_or(0) + bytes_proven);
     chain.store.state_set(&stats_key, &serde_json::to_vec(&stats)?)?;
+    // Reputation (gate REPUTATION_EPOCH): storage +small for the proving device.
+    let subject = if hone_types::parse_device_clock_id(device_id).is_some() { device_id.to_owned() } else { format!("{account}@{device_id}") };
+    crate::rep::on_storage_proof(chain, &subject, account, true, crate::rep::at(epoch));
 
     Ok(())
 }

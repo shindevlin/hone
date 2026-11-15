@@ -176,6 +176,7 @@ pub fn apply_finalize(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
                 outliers: 0,
             });
         rep.reports_total += 1;
+        crate::rep::on_oracle(chain, &commit.reporter, deviation <= OUTLIER_THRESHOLD_BPS, crate::rep::at(*epoch));
 
         if deviation > OUTLIER_THRESHOLD_BPS {
             rep.score = (rep.score - 5).max(0);

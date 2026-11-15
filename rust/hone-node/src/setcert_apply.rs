@@ -227,6 +227,12 @@ pub fn apply_final(chain: &Chain, cert: &Cert) -> Result<usize, Vec<String>> {
     let _ = chain.store.state_set(&format!("{CERT_PREFIX}{t:016x}"), &serde_json::to_vec(cert).unwrap_or_default());
     if t > epoch_sync::KEEP_EPOCHS { let _ = chain.store.state_delete(&format!("{CERT_PREFIX}{:016x}", t - epoch_sync::KEEP_EPOCHS)); }
     let applied = epoch_sync::apply_set(chain, t, set, Some(t));
+    // Reputation (gate REPUTATION_EPOCH): every voter whose PROP is in the certified
+    // content sealed in quorum (content is certified, so identical on every node).
+    if crate::rep::active(t) {
+        let voters: std::collections::BTreeSet<&str> = cert.content.reports.iter().map(|(v, _)| v.as_str()).collect();
+        for v in voters { crate::rep::on_seal(chain, v, t); }
+    }
     epoch_sync::record(chain, t, &applied);
     epoch_sync::epoch_tick(chain, t, applied.iter().map(|(x, _)| hone_types::entry_weight(x)).sum());
     // d schedule: collect reports; step at period boundaries, effective D_DELAY later.

@@ -1835,6 +1835,10 @@ impl Chain {
                     "sensor_id": sensor_id, "owner": owner, "epoch": epoch,
                     "reading_count": total, "sensor_type": sensor_type,
                 });
+                // Reputation (gate REPUTATION_EPOCH): the relaying gateway, for a certified entry.
+                if let Some(gw) = gateway.as_deref() {
+                    if gw != owner.as_str() { crate::rep::on_relay(self, gw, crate::rep::at(*epoch)); }
+                }
                 if let Some(gw) = gateway { rec["gateway_account"] = serde_json::json!(gw); }
                 let _ = self.store.state_set(&key, &serde_json::to_vec(&rec).unwrap_or_default());
             }
@@ -3521,6 +3525,8 @@ impl Chain {
                 }))?)?;
 
                 self.store.state_set(&slash_guard, b"1")?;
+                // Reputation (gate REPUTATION_EPOCH): proven fraud resets the offender.
+                crate::rep::on_fraud(self, offender, None, crate::rep::Domain::Consensus, crate::rep::at(*epoch));
                 warn!(
                     "[clock] double-sign slash: '{}' slashed {} hunits at epoch {} (submitter='{}' hashes={}/{})",
                     offender, reg_stake, epoch, submitter,
