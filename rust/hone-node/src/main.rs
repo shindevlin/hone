@@ -463,7 +463,8 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
         let fin_cmd_tx = net_handle.cmd_tx.clone();
         let fin_node_id = cfg.node_id.clone();
         tokio::spawn(setcert_node::driver(chain.clone(), net_handle.cmd_tx.clone(), cfg.node_id.clone(),
-            if cfg.is_clock { Arc::clone(&signing_key) } else { Arc::new(None) }, cfg.is_clock));
+            if cfg.is_clock { Arc::clone(&signing_key) } else { Arc::new(None) }, cfg.is_clock,
+            setcert_node::body_http_sources(&fin_sync_peers)));
         tokio::spawn(async move {
             // Track the last epoch we've seeded so empty epochs are only tracked once.
             let mut last_tracked: u64 = 0;
@@ -2065,6 +2066,18 @@ async fn async_main(prof: &'static mem_profile::MemProfile) -> Result<()> {
                         // Clocks answer peers that missed epochs (gossip transport, see
                         // epoch_sync). "fin": a signed catch-up echo of our finalized hashes
                         // plus validator snapshots. "sets": our recorded entry sets.
+                        // Bodies (checked by hash) and certs (voter signatures) verify themselves,
+                        // so every node answers them, not only clocks: on 2026-11-11 the one node
+                        // that had applied past 373,972 (ferryvps) is not a clock and never did.
+                        if kind == "ents" || kind == "certs" {
+                            if !epoch_sync::should_answer(&node_id, &kind, from) { continue; }
+                            for m in setcert_node::answer(&chain_ref, &echo_node_id, &kind, from, to, &hashes) {
+                                if let Ok(d) = serde_json::to_vec(&m) {
+                                    let _ = echo_cmd_tx.send(NetCmd::Broadcast { topic: "hone/consensus", data: d }).await;
+                                }
+                            }
+                            continue;
+                        }
                         let Some(sk) = echo_sk.as_ref().as_ref() else { continue };
                         if !epoch_sync::should_answer(&node_id, &kind, from) { continue; }
                         let data = match kind.as_str() {

@@ -377,6 +377,7 @@ impl Healer {
         serde_json::json!({
             "mode": format!("{:?}", mode()),
             "halted": halted(),
+            "applying": crate::setcert_node::apply_view(),
             "interval_epochs": CHECKPOINT_INTERVAL,
             "reward_cursor": REWARD_CURSOR.load(Ordering::SeqCst),
             "own": self.own.lock().iter().rev().take(6)
